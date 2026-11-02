@@ -1,0 +1,8 @@
+version = 1
+
+[[package]]
+name = "bond"
+git = "https://github.com/agentica-lang/bond"
+ref = "89d41f8d38607c12e3571e17379f6722fd686423"
+commit = "89d41f8d38607c12e3571e17379f6722fd686423"
+hash = "sha256:ce15b0c4a7cad55658370151c8d5bee72b3b3dca391b69ee6beefe8b0d3ef3ba"

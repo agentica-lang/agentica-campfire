@@ -1,0 +1,8 @@
+name = "campfire"
+
+# Every bare `end` is followed by an empty line (AGENTS.md).
+[style]
+blank_line_after_end = true
+
+[dependencies]
+bond = { git = "https://github.com/agentica-lang/bond", ref = "89d41f8d38607c12e3571e17379f6722fd686423" }
