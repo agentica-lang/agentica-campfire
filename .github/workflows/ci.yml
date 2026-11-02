@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  AGENTICA_VERSION: 0.22.0
+  AGENTICA_SHA256: f71fbf3e52ed154c652592c67b51b2afde7fd6104d21bdf85eb6e4c8cffb9d66
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install the pinned Agentica release
+        run: |
+          archive="agentica-${AGENTICA_VERSION}-linux-x86_64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/agentica-lang/agentica/releases/download/${AGENTICA_VERSION}/$archive"
+          echo "${AGENTICA_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/agentica-${AGENTICA_VERSION}-linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      # The locked packages (Bond), checked against the hashes of agentica.lock.
+      - name: Install the packages
+        run: |
+          agentica --version
+          make install
+
+      - name: Check
+        run: make check
+
+      # `agentica.toml` sets blank_line_after_end, which the formatter writes and `check` also enforces.
+      - name: Format
+        run: make fmt-check
+
+      # The features of specs/ (they listen on 127.0.0.1 only) and the tests of test/.
+      - name: Test
+        run: make test
