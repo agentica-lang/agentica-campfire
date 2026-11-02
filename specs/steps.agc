@@ -28,17 +28,26 @@ end
 # The first line of the program is `listening on http://127.0.0.1:PORT`.
 def start_app(ctx: BDD.Context, args: List[String]) -> BDD.Context
   started = BDD.given_program(ctx, "fixtures/server.agc")
-  line = BDD.read_line(started, SOCKET_MS).unwrap!
-  port = line.split(":").last.to_i!
+  line = BDD.read_line(started, SOCKET_MS)
+  if not line.ok?
+    # The check of stderr shows what the program wrote there (a failure to start says why), when it did write.
+    return BDD.assert(BDD.then_stderr(started, ""), false, "the app did not say where it listens: #{line.message}")
+  end
+
+  port = line.unwrap!.split(":").last.to_i!
   return BDD.set(started, PORT, JSON.from(port))
 end
 
 def get(ctx: BDD.Context, args: List[String]) -> BDD.Context
   port = JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
   client = HTTP.client().unwrap!
-  response = HTTP.get(client, "http://127.0.0.1:#{port}#{args[0]}").unwrap!
+  response = HTTP.get(client, "http://127.0.0.1:#{port}#{args[0]}")
   HTTP.close_client(client)
-  return BDD.set(ctx, REPLY, JSON.from(reply_of(response)))
+  if not response.ok?
+    return BDD.assert(ctx, false, "GET #{args[0]} failed: #{response.message}")
+  end
+
+  return BDD.set(ctx, REPLY, JSON.from(reply_of(response.unwrap!)))
 end
 
 def reply_of(response: HttpResponse) -> Reply

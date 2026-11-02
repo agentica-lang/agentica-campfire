@@ -15,7 +15,7 @@ agentica.toml   the manifest; Bond is pinned by commit, agentica.lock has its ha
 
 ## Commands
 
-- `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make test`, `make run`.
+- `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make fmt-check`, `make test`, `make run`.
 - Agentica 0.22.0 or later. CI pins it with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in
   `.github/workflows/ci.yml`).
 - To move Bond: `agentica add bond https://github.com/agentica-lang/bond --ref COMMIT`, commit the lock.

@@ -10,13 +10,28 @@ export def build() -> Bond.App
 end
 
 ## Serves the app on the address of `config`, says where on its first line of output (`listening on http://HOST:PORT`,
-## with the real port when the config asks for 0), and waits until the server stops. A failure to listen is an
-## `error`.
+## with the real port when the config asks for 0, and `[HOST]` for an IPv6 host), and waits until the server stops. A
+## failure to listen is an `error` that names `CAMPFIRE_HOST` and `CAMPFIRE_PORT`.
 export def run(config: Config) -> Result[Void]
-  server = try Bond.start(build(), config.host, config.port)
-  puts("listening on http://#{config.host}:#{Bond.local_port(server)}")
+  started = Bond.start(build(), config.host, config.port)
+  if not started.ok?
+    # The system's message names the host and the port, not the variables that a person has to change.
+    return error("cannot listen on #{config.host}:#{config.port} (CAMPFIRE_HOST, CAMPFIRE_PORT): #{started.message}")
+  end
+
+  server = started.unwrap!
+  puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
   return Bond.wait(server)
+end
+
+# `http://HOST:PORT`, with the brackets that a URL needs round an IPv6 host.
+def origin(host: String, port: Int) -> String
+  if host.include?(":")
+    return "http://[#{host}]:#{port}"
+  end
+
+  return "http://#{host}:#{port}"
 end
 
 def home(conn: Bond.Conn) -> Result[Bond.Conn]

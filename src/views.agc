@@ -20,7 +20,7 @@ export def layout(title: String, content: String) -> String
       <title><%= title %></title>
     </head>
     <body>
-    <%== content %>
+    <%== content.strip %>
     </body>
     </html>
   EAG
