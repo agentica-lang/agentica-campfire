@@ -4,8 +4,8 @@ Sources (2026-11-02): basecamp/once-campfire at ca9b963, agentica master b670a2e
 before EAG), bond origin/main and agentica-db origin/main (0.3.0). Size: S = one PR, M = 2-4 PRs, L = 5+ PRs or a new subsystem.
 
 Campfire is MIT (`MIT-LICENSE`): its CSS (27 files, 3.4k lines), Stimulus JS (39 controllers, 1.7k lines) and
-SVGs can be reused with the notice kept. The README counts 5.5 KLOC of backend. The suite
-basecamp/once-campfire-verification (linked in `README.md`) is the natural acceptance test; I did not read it.
+SVGs can be reused with the notice kept. The upstream README counts 5.5 KLOC of backend. The suite
+basecamp/once-campfire-verification (linked in the upstream README) is the natural acceptance test; I did not read it.
 
 ## 1. Feature table
 
@@ -18,7 +18,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 | Real-time Turbo Streams over Action Cable (`message/broadcasts.rb`, `app/channels/*.rb`, `config/cable.yml`) | WebSocket server in std/http (`HTTP.listen_websocket`, 0.20.0), typed channels | partial: no hub, not in Bond, no unified handler (gap 1) | STD, BOND, APP | L |
 | Presence, heartbeat, typing (`presence_channel.rb`, `membership/connectable.rb` TTL 60 s, `typing_notifications_channel.rb`) | ATS counters, Task.sleep | exists | APP | S |
 | Unread + badge + unread fan-out (`room.rb#unread_memberships`, `unread_rooms_channel.rb`, `jobs/message/broadcast_unread_room_job.rb`) | ATS + SQL | exists | APP | S |
-| Web Push, VAPID (`lib/web_push/*.rb`, `models/push/subscription.rb`, `room/message_pusher.rb`, `config/initializers/vapid.rb`, `pwa/service_worker.js`) | HMAC, SHA, Base64url, SecureRandom, HTTP client over TLS; FFI (Bytes in, out params, owned buffers, resources) | partial. Owner decision: crypto stays out of the core, done by FFI to system libcrypto in the Campfire repo or a small package; today's FFI looks sufficient (section 5), to be proved by a spike | APP or package (FFI), no core change | M |
+| Web Push, VAPID (`lib/web_push/*.rb`, `models/push/subscription.rb`, `room/message_pusher.rb`, `config/initializers/vapid.rb`, `pwa/service_worker.js`) | HMAC, SHA, Base64url, SecureRandom, HTTP client over TLS; FFI (Bytes in, out params, owned buffers, resources) | partial. Maintainers' decision: crypto stays out of the core, done by FFI to system libcrypto in the Campfire repo or a small package; today's FFI looks sufficient (section 5), to be proved by a spike | APP or package (FFI), no core change | M |
 | Uploads (`has_one_attached :attachment`, `config/storage.yml` Disk) | `HTTP.listen_upload` (Channel[Bytes]), `File.write_bytes`, `File.sha256`, `Bond.send_file` with ranges | partial: no multipart parser, upload not in Bond, upload and stream and WS cannot share one server | STD, BOND, APP | M |
 | Image/video previews (`message/attachment.rb`: thumb 1200x800, webp poster, 250M-pixel cap; `lib/rails_ext/time_limited_video_previewer.rb`; Dockerfile installs libvips, ffmpeg) | `Process.spawn_captured`, FFI, Zlib | missing: no decoder/resizer, no image metadata | APP (+ external tool) | M |
 | Avatars 512 webp, account logo 192/512 PNG (`user/avatar.rb`, `accounts/logos_controller.rb`) | same as above | missing (same fix) | APP | S |
@@ -37,7 +37,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 | Caching (`response_cache.rb`, `fragment_cache.rb`, `record_cache.rb`, ETag in `messages_controller.rb`) | ATS, `Digest.sha256` | exists; Bond has no ETag/304 | BOND, APP | S |
 | Compression + static caching (Thruster) | `Zlib.gzip`, `Bond.static` (no cache headers) | partial | BOND | S |
 | PWA (`pwa_controller.rb`, manifest, service worker) | static files, views | exists | APP | S |
-| Assets (importmap, Propshaft, Stimulus, CSS, sounds) | `Bond.static`, `Bond.send_file` | owner decision: esbuild + dart-sass via Makefile/Dockerfile; needs fingerprinted names + cache headers | APP, BOND | M |
+| Assets (importmap, Propshaft, Stimulus, CSS, sounds) | `Bond.static`, `Bond.send_file` | maintainers' decision: esbuild + dart-sass via Makefile/Dockerfile; needs fingerprinted names + cache headers | APP, BOND | M |
 | Views (47 ERB files, 2.3k lines, Turbo Streams, partials) | EAG in progress (`<<~EAG`, `<%= %>`, output is a plain String, raw) | in progress | LANG | M |
 | Dates/time (JS `local_time_controller` renders local time) | `Time.now_ms` only | missing server formatting (ISO 8601, UTC civil date) | STD | S |
 | Deploy: Docker, Thruster, TLS via Let's Encrypt (`Dockerfile`, `Procfile`, `docs/self-hosting.md`: TLS_DOMAIN, DISABLE_SSL, `/rails/storage`) | static release binary, `HTTP.listen_tls` (PEM files) | partial: no ACME | APP, STD | M |
@@ -45,7 +45,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 
 ## 2. How Agentica maps the infrastructure
 
-- Redis goes away. The owner decision (ATS instead of Redis) holds with one catch: an `ATS` value
+- Redis goes away. The maintainers' decision (ATS instead of Redis) holds with one catch: an `ATS` value
   cannot hold a `Channel` or `Fn` (`site/content/library/concurrency/ats.md`, `CHECK-ATS-VALUE`). So
   fan-out cannot be "ATS of subscribers". Use one hub task that owns `Map[room, List[Channel]]` and receives
   subscribe/unsubscribe/publish on a `Channel`. ATS stays for counters, presence, unread flags, rate
@@ -85,6 +85,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
    served by `Bond.static` with long cache headers.
 
 Not blocking an MVP: Web Push, image variants, unfurl, rich text, QR transfer, ACME.
+
 ## 4. MVP scope (smallest usable Campfire)
 
 Single account, first-run admin wizard, login/logout, invite link, users list, open and closed rooms and
@@ -96,17 +97,17 @@ Out of the MVP: push, thumbnails, unfurl, rich text, QR transfer, ACME, custom s
 
 ## 5. Hard parts
 
-**Web Push crypto (owner decision: FFI to libcrypto, outside the core).** Needs (RFC 8291 aes128gcm + RFC 8292
+**Web Push crypto (maintainers' decision: FFI to libcrypto, outside the core).** Needs (RFC 8291 aes128gcm + RFC 8292
 VAPID): P-256 key generation, ECDH with the subscriber's `p256dh`, HKDF-SHA256, AES-128-GCM (the VM has only
 256), ECDSA P-256/SHA-256 for the ES256 JWT (raw 64-byte r||s), base64url (exists). HKDF is two `HMAC.sha256`
 calls in Agentica, no FFI. HTTP/2 is not needed: Campfire's gem posts over HTTP/1.1
 (`lib/web_push/notification.rb`) and endpoints are host-allowlisted (`models/push/subscription.rb`), so the
 Agentica HTTP client and no DNS pinning are enough.
 - A. FFI to `libcrypto.so.3` (OpenSSL 3, present in Debian 12/Ubuntu 22+ images) in `campfire/src/webpush/`, later
-  a package `agentica-lang/webpush` if another app wants it. **Recommended** (owner decision). M: one extern
+  a package `agentica-lang/webpush` if another app wants it. **Recommended** (maintainers' decision). M: one extern
   block of ~15 functions, a DER helper, tests with RFC 8291 section 5 and RFC 8292 vectors, plus a Node or
   Python `cryptography` peer.
-- B. C builtins in the VM: rejected by the owner for now (keeps the core small).
+- B. C builtins in the VM: rejected by the maintainers for now (keeps the core small).
 - C. Pure Agentica P-256: needs bigints and constant-time code. Reject.
 What the FFI must support, and whether it does today (`site/content/library/io-and-system/native/types.md`):
 1. Byte buffers in: `C.Bytes` params (copy, per call). Yes. Out: `Native.memory_pointer(n)` owned buffer,
@@ -182,7 +183,7 @@ it), so keep the block small and test every function against RFC vectors.
 **Other risks.** SSRF for unfurl needs a `TCP.resolve`-style builtin or a client option to connect to a
 given IP and to refuse private ranges (STD, M); webhooks are admin-set so Campfire does not guard them.
 ACME: reverse proxy for the MVP (Caddy or Traefik); a `std/acme` later would reuse the EC primitives
-plus a CSR/DER builder; it can reuse the same libcrypto FFI (L). Naming: "Campfire" is 37signals' product name; check with the owner.
+plus a CSR/DER builder; it can reuse the same libcrypto FFI (L). Naming: "Campfire" is 37signals' product name; this repo is `agentica-campfire` and describes itself as a port; do not ship a binary or image under the bare name "Campfire".
 
 ## 6. Phased plan
 
@@ -192,7 +193,7 @@ EAG lands with the escape policy (gap 3); `std/time` helper (gap 6).
 Phase 1, framework (Bond 4-6 PRs, agentica-db 3 PRs): Bond websocket route, multipart, signed cookies and
 sessions, CSRF/Origin, gzip/ETag; agentica-db pool or owner-task helper, migrations, WAL/FTS5 check.
 
-Phase 2, app skeleton (new repo `agentica-lang/campfire`, 6-8 PRs): repo layout + Makefile + Dockerfile,
+Phase 2, app skeleton (this repo, `agentica-lang/agentica-campfire`, 6-8 PRs): repo layout + Makefile + Dockerfile,
 esbuild/sass pipeline with copied CSS/JS (MIT notice), schema and migrations, first run, auth, rooms,
 messages with EAG views, BDD features first (as in the other org repos).
 
@@ -207,4 +208,4 @@ module (ECDH, HKDF, AES-128-GCM, VAPID JWT) with RFC vectors, service worker, su
 key script, delivery with `Task.map`. Move it to a package only if a second app needs it.
 
 Phase 6, polish (mixed): unfurl with SSRF-safe fetch, sanitizer + rich text (Lexxy), QR transfer, ACME
-(optional), `once-campfire-verification` run, benchmark against the table in `README.md`, ONCE-style image.
+(optional), `once-campfire-verification` run, benchmark against the table in the upstream README, ONCE-style image.
