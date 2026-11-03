@@ -1,4 +1,5 @@
 import Config from "../src/config"
+import Smtp from "../src/smtp"
 
 SECRET = "0123456789abcdef0123456789abcdef"
 
@@ -10,6 +11,21 @@ end
 # `parse` with the defaults for what a test does not name, and a good secret.
 def parse(host: String, port: String, data_dir: String) -> Result[Config.Config]
   return Config.parse(host, port, data_dir, "", SECRET)
+end
+
+# The `smtp` of the `Config` that a url makes, or the error of the url.
+def smtp_of(url: String) -> Result[Optional[Smtp.Options]]
+  config = try Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    url,
+  )
+
+  return ok(config.smtp)
 end
 
 def main() -> Void
@@ -25,6 +41,7 @@ def main() -> Void
             database_url: "sqlite:var/campfire/campfire.db?fts5=required",
             session_secret: SECRET,
             secure_cookies: true,
+            smtp: none,
           ),
         ),
       )
@@ -40,6 +57,7 @@ def main() -> Void
             database_url: "sqlite:data/campfire.db?fts5=required",
             session_secret: SECRET,
             secure_cookies: false,
+            smtp: none,
           ),
         ),
       )
@@ -55,6 +73,7 @@ def main() -> Void
             database_url: "sqlite:/srv/chat.db",
             session_secret: SECRET,
             secure_cookies: false,
+            smtp: none,
           ),
         ),
       )
@@ -78,6 +97,49 @@ def main() -> Void
     Test.test("the secure cookies flag is true or false") do
       try Test.error?(secret_and_flag(SECRET, "yes"))
       Test.ok?(secret_and_flag(SECRET, "true"))
+    end,
+    Test.test("no CAMPFIRE_SMTP_URL means no email") do Test.eq(smtp_of(""), ok(none)) end,
+    Test.test("a smtp url has the user and the password percent-decoded, and each scheme has its default port") do
+      try Test.eq(
+        smtp_of("smtp://ana%40example.com:p%3Aw%2Fd@mail.example.com:2587"),
+        ok(
+          some(
+            Smtp.Options(
+              host: "mail.example.com",
+              port: 2587,
+              security: Smtp.Security.Starttls,
+              username: "ana@example.com",
+              password: "p:w/d",
+            ),
+          ),
+        ),
+      )
+
+      try Test.eq(
+        smtp_of("smtps://mail.example.com/"),
+        ok(some(Smtp.Options(host: "mail.example.com", port: 465, security: Smtp.Security.Implicit))),
+      )
+
+      try Test.eq(
+        smtp_of("smtp://mail.example.com"),
+        ok(some(Smtp.Options(host: "mail.example.com", port: 587, security: Smtp.Security.Starttls))),
+      )
+
+      Test.eq(
+        smtp_of("smtp+plain://[::1]:1025"),
+        ok(some(Smtp.Options(host: "[::1]", port: 1025, security: Smtp.Security.Plain))),
+      )
+    end,
+    Test.test("a bad smtp url is an error that does not show the url, and plain is only for this machine") do
+      try Test.error?(smtp_of("mail.example.com"))
+      try Test.error?(smtp_of("http://mail.example.com"))
+      try Test.error?(smtp_of("smtp://mail.example.com:99999"))
+      try Test.error?(smtp_of("smtp://:secret@mail.example.com"))
+      try Test.error?(smtp_of("smtp://a:b@mail.example.com/inbox"))
+      try Test.error?(smtp_of("smtp+plain://mail.example.com:25"))
+      try Test.error?(smtp_of("smtp+plain://127.0.0.1.example.com"))
+      shown = smtp_of("smtp://ana:hunter2@mail.example.com:abc").message
+      Test.eq(shown.include?("hunter2") or shown.include?("ana"), false)
     end,
   ])
 end
