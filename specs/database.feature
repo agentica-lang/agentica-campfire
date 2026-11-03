@@ -20,7 +20,6 @@ Feature: The database and its migrations
       | webhooks            |
       | message_search_index  |
       | schema_migrations   |
-    And the database is removed
 
   Scenario: A second start does not run the migrations again
     Given a fresh database
@@ -28,11 +27,13 @@ Feature: The database and its migrations
     And the app restarts
     Then the start applied no migration
     And the health check reports the latest schema version
-    And the database is removed
 
   Scenario: A database that cannot be opened stops the start
-    Given the Agentica program "fixtures/server.agc"
-    When I send the line "sqlite:/campfire-no-such-directory/campfire.db"
+    Given the environment variable "CAMPFIRE_HOST" is "127.0.0.1"
+    And the environment variable "CAMPFIRE_PORT" is "0"
+    And the environment variable "CAMPFIRE_DATA_DIR" is "unused"
+    And the environment variable "CAMPFIRE_DATABASE_URL" is "sqlite:/campfire-no-such-directory/campfire.db"
+    And the Agentica program "fixtures/server.agc"
     Then the program exits with code 1 within 5000 milliseconds
     And stderr is:
       """
@@ -41,8 +42,11 @@ Feature: The database and its migrations
       """
 
   Scenario: A url that turns foreign keys off stops the start
-    Given the Agentica program "fixtures/server.agc"
-    When I send the line "sqlite::memory:?foreign_keys=off"
+    Given the environment variable "CAMPFIRE_HOST" is "127.0.0.1"
+    And the environment variable "CAMPFIRE_PORT" is "0"
+    And the environment variable "CAMPFIRE_DATA_DIR" is "unused"
+    And the environment variable "CAMPFIRE_DATABASE_URL" is "sqlite::memory:?foreign_keys=off"
+    And the Agentica program "fixtures/server.agc"
     Then the program exits with code 1 within 5000 milliseconds
     And stderr is:
       """
@@ -56,4 +60,3 @@ Feature: The database and its migrations
     And the data folder "data/files" is prepared
     Then the data folder "data/files" is private
     And the data folder "data" is private
-    And the database is removed

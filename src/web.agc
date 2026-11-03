@@ -11,7 +11,11 @@ end
 ## The app with its routes: the home page and the health check, which says the schema version that the database was
 ## migrated to.
 export def build(schema_version: Int) -> Bond.App
-  return Bond.app() |> Bond.get("/", &home) |> Bond.get("/health") do |conn| health(conn, schema_version) end
+  return (
+    Bond.app()
+    |> Bond.get("/", &home)
+    |> Bond.get("/health") do |conn| health(conn, schema_version) end
+  )
 end
 
 def home(conn: Bond.Conn) -> Result[Bond.Conn]
