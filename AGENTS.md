@@ -7,11 +7,15 @@ A port of ONCE Campfire (group chat) in Agentica, on Bond. `docs/plan.md` has th
 
 ```text
 campfire.agc    the program (`make run`): config from the environment, the data folder, then the app
-src/            config.agc (host, port, data folder, database url), data_dir.agc (the private data
-                folder), app.agc (start: database, then server), database.agc (open and migrate),
-                migrations.agc (the schema, one numbered migration per table), web.agc (routes),
+src/            config.agc (host, port, data folder, database url, session secret), data_dir.agc (the
+                private data folder), app.agc (start: database, then server), database.agc (open and
+                migrate; `with_connection` for a request), migrations.agc (the schema, one numbered
+                migration per table), web.agc (routes), auth_web.agc (cookie sessions, CSRF, the sign-in
+                filter, the routes of first run, sign in and sign out), auth.agc (those over SQL),
+                passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the paths),
                 views.agc (EAG templates)
-specs/          BDD: *.feature, steps.agc, fixtures/server.agc (the app, from the environment
+specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
+                cookies), fixtures/server.agc (the app, from the environment
                 that the steps set)
 test/           unit tests (*_test.agc)
 agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentica.lock has their hashes
@@ -20,6 +24,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
 ## Commands
 
 - `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make fmt-check`, `make test`, `make run`.
+- `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
+  specs draw their own).
 - Agentica 0.23.0 or later. CI pins it with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in
   `.github/workflows/ci.yml`).
 - To move Bond or agentica-db: `agentica add bond https://github.com/agentica-lang/bond --ref COMMIT` (or `db`
@@ -40,6 +46,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   too.
 - Never write `insert or replace into messages` (it skips the delete trigger and corrupts the search index; an
   upsert with `on conflict do update` is fine). Page a room by `id`, not by `created_at`.
-- No Dockerfile, assets or auth yet: each is a later PR of `docs/plan.md` phase 2.
+- Auth: a page is public only if `PUBLIC_PATHS` in `src/auth_web.agc` names it (the sign-in filter is
+  deny-by-default). A request opens its own database connection (`Database.with_connection`), since Bond runs a
+  request in its own task; a `sqlite::memory:` database is therefore not usable by the app. Never log or store a
+  plain password; a form that is shown again never holds the password.
+- No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

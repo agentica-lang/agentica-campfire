@@ -1,6 +1,6 @@
 ## The program: `agentica campfire.agc` (or `make run`). It opens the database (CAMPFIRE_DATABASE_URL, a file in
 ## CAMPFIRE_DATA_DIR by default), runs its migrations, then listens on CAMPFIRE_HOST and CAMPFIRE_PORT (127.0.0.1 and
-## 3000 by default).
+## 3000 by default). CAMPFIRE_SESSION_SECRET (32 bytes or more) signs the session cookie and has no default.
 
 import Config from "src/config"
 import App from "src/app"

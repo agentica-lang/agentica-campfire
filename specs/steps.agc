@@ -4,36 +4,27 @@
 ## closed its own connection.
 
 import BDD from "std/bdd"
-import HTTP from "std/http"
 import Db from "pkg/db/db"
+import HttpSteps from "http_steps"
 import DataDir from "../src/data_dir"
 import Database from "../src/database"
 import Migrations from "../src/migrations"
 
-PORT = "port"
-REPLY = "reply"
 DB_DIR = "db_dir"
 DB_URL = "db_url"
 STARTED = "started"
 SQL_ERROR = "sql_error"
-MEMORY_URL = "sqlite::memory:"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
 FOLDER_PREFIX = "campfire-spec-"
 PRIVATE_FOLDER_MODE = 448
 
-struct Reply
-  status: Int
-  headers: Map[String, String]
-  body: String
-end
-
 def main() -> Void
-  BDD.run([
-    BDD.step("the app listens on a free port", &start_on_memory),
+  own = [
     BDD.step("a fresh database", &fresh_database),
     BDD.step("the database is migrated", &migrate_database),
     BDD.step("the app starts", &start_on_file),
+    BDD.step("the app starts with secure cookies", &start_with_secure_cookies),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the start applied every migration", &applied_every_migration),
     BDD.step("the start applied no migration", &applied_no_migration),
@@ -46,31 +37,30 @@ def main() -> Void
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
     BDD.step("the query {string} gives {int}", &query_gives),
-    BDD.step("I get {string}", &get),
-    BDD.step("the status is {int}", &status_is),
-    BDD.step("the header {string} is {string}", &header_is),
-    BDD.step("the body is {string}", &body_is),
-    BDD.step("the body contains {string}", &body_contains),
-  ])
-end
+  ]
 
-def start_on_memory(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return start_app(ctx, MEMORY_URL)
+  BDD.run(own.concat(HttpSteps.steps()))
 end
 
 def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return start_app(ctx, text_of(ctx, DB_URL))
+  return start_app(ctx, text_of(ctx, DB_URL), "false")
+end
+
+def start_with_secure_cookies(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return start_app(ctx, text_of(ctx, DB_URL), "true")
 end
 
 # The program reads its address and its database from the environment, as `campfire.agc` does, and answers with the
 # `database:` line, then `listening on http://127.0.0.1:PORT`. Every variable it reads is set here, so the specs do not
-# depend on the environment of whoever runs them.
-def start_app(ctx: BDD.Context, url: String) -> BDD.Context
+# depend on the environment of whoever runs them. Each start draws its own session secret.
+def start_app(ctx: BDD.Context, url: String, secure_cookies: String) -> BDD.Context
   settings = {
     "CAMPFIRE_HOST": "127.0.0.1",
     "CAMPFIRE_PORT": "0",
     "CAMPFIRE_DATA_DIR": "unused",
     "CAMPFIRE_DATABASE_URL": url,
+    "CAMPFIRE_SESSION_SECRET": SecureRandom.hex(32),
+    "CAMPFIRE_SECURE_COOKIES": secure_cookies,
   }
 
   configured = settings.keys.reduce(ctx) do |acc, name| BDD.given_env(acc, name, settings.get(name, "")) end
@@ -96,56 +86,13 @@ def read_startup(ctx: BDD.Context) -> BDD.Context
     text = line.unwrap!
     if text.start_with?(LISTENING)
       port = text.split(":").last.to_i!
-      return BDD.set(BDD.set(ctx, PORT, JSON.from(port)), STARTED, JSON.from(database))
+      return BDD.set(BDD.set(ctx, HttpSteps.PORT, JSON.from(port)), STARTED, JSON.from(database))
     end
 
     database = text
   end
 
   return BDD.assert(ctx, false, "the app did not say where it listens")
-end
-
-def get(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  port = JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
-  client = HTTP.client().unwrap!
-  response = HTTP.get(client, "http://127.0.0.1:#{port}#{args[0]}")
-  HTTP.close_client(client)
-  if not response.ok?
-    return BDD.assert(ctx, false, "GET #{args[0]} failed: #{response.message}")
-  end
-
-  return BDD.set(ctx, REPLY, JSON.from(reply_of(response.unwrap!)))
-end
-
-def reply_of(response: HttpResponse) -> Reply
-  start: Map[String, String] = {}
-  headers = response.headers.reduce(start) do |acc, header| acc.put(header.name.downcase, header.value) end
-  body = String.from_bytes(response.body).unwrap_or("")
-  return Reply(status: response.status, headers: headers, body: body)
-end
-
-def last_reply(ctx: BDD.Context) -> Reply
-  return JSON.decode(BDD.get(ctx, REPLY).unwrap!, Reply).unwrap!
-end
-
-def status_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  reply = last_reply(ctx)
-  return BDD.assert(ctx, reply.status == args[0].to_i!, "the status is #{reply.status}")
-end
-
-def header_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  reply = last_reply(ctx)
-  return BDD.assert(ctx, reply.headers.get(args[0].downcase, "") == args[1], "the headers are #{reply.headers}")
-end
-
-def body_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  reply = last_reply(ctx)
-  return BDD.assert(ctx, reply.body == args[0], "the body is #{reply.body}")
-end
-
-def body_contains(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  reply = last_reply(ctx)
-  return BDD.assert(ctx, reply.body.include?(args[0]), "the body is #{reply.body}")
 end
 
 def text_of(ctx: BDD.Context, name: String) -> String
@@ -213,9 +160,9 @@ def started_with(ctx: BDD.Context, applied: Int) -> BDD.Context
 end
 
 def health_has_latest_version(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  got = get(ctx, ["/health"])
+  got = HttpSteps.get(ctx, ["/health"])
   expected = "{\"schema_version\":#{Migrations.latest()},\"status\":\"ok\"}"
-  return BDD.assert(got, last_reply(got).body == expected, "the body is #{last_reply(got).body}")
+  return BDD.assert(got, HttpSteps.last_body(got) == expected, "the body is #{HttpSteps.last_body(got)}")
 end
 
 def has_tables(ctx: BDD.Context, args: List[String]) -> BDD.Context
