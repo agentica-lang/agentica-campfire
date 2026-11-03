@@ -1,7 +1,7 @@
 Feature: Home page and health check
   The app listens on the host and port of its config (the specs use 127.0.0.1 and port 0, a free port). `GET /` is the
   home page, an HTML page made by an EAG template that escapes what it inserts, and `GET /health` says that the
-  process serves, for a load balancer or a container check.
+  process serves, for a load balancer or a container check (database.feature checks the schema version it reports).
 
   Background:
     Given the app listens on a free port
@@ -17,7 +17,7 @@ Feature: Home page and health check
     When I get "/health"
     Then the status is 200
     And the header "content-type" is "application/json"
-    And the body is "{\"status\":\"ok\"}"
+    And the body contains "\"status\":\"ok\""
 
   Scenario: A path with no route is a 404
     When I get "/nothing"

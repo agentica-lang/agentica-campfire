@@ -6,3 +6,10 @@ git = "https://github.com/agentica-lang/bond"
 ref = "89d41f8d38607c12e3571e17379f6722fd686423"
 commit = "89d41f8d38607c12e3571e17379f6722fd686423"
 hash = "sha256:ce15b0c4a7cad55658370151c8d5bee72b3b3dca391b69ee6beefe8b0d3ef3ba"
+
+[[package]]
+name = "db"
+git = "https://github.com/agentica-lang/agentica-db"
+ref = "6459951caca69d791880bfe04ef3047a7e5a2f5a"
+commit = "6459951caca69d791880bfe04ef3047a7e5a2f5a"
+hash = "sha256:c001ca0920a57d4ee3c2bc1af7db87ffc79934b3826a49a12f8dc368748b779d"
