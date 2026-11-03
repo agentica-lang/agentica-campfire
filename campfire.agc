@@ -1,14 +1,20 @@
-## The program: `agentica campfire.agc` (or `make run`). It listens on CAMPFIRE_HOST and CAMPFIRE_PORT
-## (127.0.0.1 and 3000 by default).
+## The program: `agentica campfire.agc` (or `make run`). It opens the database (CAMPFIRE_DATABASE_URL, a file in
+## CAMPFIRE_DATA_DIR by default), runs its migrations, then listens on CAMPFIRE_HOST and CAMPFIRE_PORT (127.0.0.1 and
+## 3000 by default).
 
 import Config from "src/config"
-import Web from "src/web"
+import App from "src/app"
 
 def main() -> Void
   case Config.load()
     error(message) -> fail(message)
     ok(config) ->
-      served = Web.run(config)
+      made = Dir.mkdir(config.data_dir)
+      if not made.ok?
+        fail("cannot make the data folder #{config.data_dir} (CAMPFIRE_DATA_DIR): #{made.message}")
+      end
+
+      served = App.run(config)
       if not served.ok?
         fail(served.message)
       end
