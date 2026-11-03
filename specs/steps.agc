@@ -6,6 +6,7 @@
 import BDD from "std/bdd"
 import Db from "pkg/db/db"
 import HttpSteps from "http_steps"
+import SmtpSteps from "smtp_steps"
 import DataDir from "../src/data_dir"
 import Database from "../src/database"
 import Migrations from "../src/migrations"
@@ -39,7 +40,7 @@ def main() -> Void
     BDD.step("the query {string} gives {int}", &query_gives),
   ]
 
-  BDD.run(own.concat(HttpSteps.steps()))
+  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()))
 end
 
 def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context

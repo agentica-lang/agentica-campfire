@@ -13,10 +13,12 @@ src/            config.agc (host, port, data folder, database url, session secre
                 migration per table), web.agc (routes), auth_web.agc (cookie sessions, CSRF, the sign-in
                 filter, the routes of first run, sign in and sign out), auth.agc (those over SQL),
                 passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the paths),
-                views.agc (EAG templates)
+                views.agc (EAG templates), smtp.agc and smtp_message.agc (sending email: the client and
+                the message builder; they import no other app module, so they can move to their own package)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
-                cookies), fixtures/server.agc (the app, from the environment
-                that the steps set)
+                cookies), smtp_steps.agc (an SMTP client against a peer), fixtures/server.agc (the app, from
+                the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
+                down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh)
 test/           unit tests (*_test.agc)
 agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentica.lock has their hashes
 ```
