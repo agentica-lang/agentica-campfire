@@ -112,10 +112,20 @@ def create_first_run(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -
   email = try Bond.form(conn, "email")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
-  outcome = try Database.with_connection(config.database_url) do |db|
-    Auth.first_run(db, name, email, password, agent)
+  # A closed app answers every form with a redirect and no hashing, so it never has to say 503: look before taking a
+  # slot. `Auth.first_run` looks again once it has the connection, and inside the transaction.
+  open = try first_run_open?(config)
+  if not open
+    return ok(Bond.redirect(conn, Routes.HOME))
   end
 
+  if not Slots.take?(slots, MAX_HASHES)
+    return ok(busy(conn))
+  end
+
+  made = Database.with_connection(config.database_url) do |db| Auth.first_run(db, name, email, password, agent) end
+  Slots.release(slots)
+  outcome = try made
   case outcome
     Auth.FirstRun.Created(token) -> return ok(signed_in(conn, token))
     Auth.FirstRun.Closed -> return ok(Bond.redirect(conn, Routes.HOME))
@@ -155,11 +165,20 @@ end
 
 def destroy_session(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
   token = Bond.get_session(conn, TOKEN_KEY)
-  if token.ok?
-    try Database.with_connection(config.database_url) do |db| Auth.sign_out(db, token.unwrap!) end
+  cleared = Bond.clear_session(conn)
+  if not token.ok?
+    return ok(Bond.redirect(cleared, Routes.SIGN_IN))
   end
 
-  return ok(Bond.redirect(Bond.clear_session(conn), Routes.SIGN_IN))
+  deleted = Database.with_connection(config.database_url) do |db| Auth.sign_out(db, token.unwrap!) end
+  if not deleted.ok?
+    # The person asked to sign out, so the browser forgets the cookie even though the row stays (it is the one that
+    # the failure is about). An `error` here would be a 500 that keeps the cookie, so this is the 500 by hand.
+    IO.warn("campfire: sign-out failed: #{deleted.message}")
+    return ok(Bond.text(cleared, 500, "Internal Server Error"))
+  end
+
+  return ok(Bond.redirect(cleared, Routes.SIGN_IN))
 end
 
 # The session starts empty, so nothing of an earlier one (a fixed cookie that the visitor had) is kept.

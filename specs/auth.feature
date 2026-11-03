@@ -90,6 +90,16 @@ Feature: First run, sign in and sign out
     Then the status is 302
     And the header "location" is "/"
 
+  Scenario: A closed app never answers a first-run form with a 503
+    Given the first admin exists
+    And the browser has no cookies
+    When I post to "/first_run" 8 times at once the form:
+      | name     | Eve                   |
+      | email    | eve@example.com       |
+      | password | another long password |
+    Then each status is one of "302"
+    And the query "select count(*) from users" gives 1
+
   Scenario: Forms that arrive together make one account and one user
     When I post to "/first_run" 4 times at once the form:
       | name     | Ana                   |
@@ -97,6 +107,7 @@ Feature: First run, sign in and sign out
       | password | correct horse battery |
     Then each status is one of "302, 503"
     And at least one status is 302
+    And each 503 answer has the header "retry-after" "1"
     And the query "select count(*) from accounts" gives 1
     And the query "select count(*) from users" gives 1
     And the query "select count(*) from sessions" gives 1
@@ -208,8 +219,14 @@ Feature: First run, sign in and sign out
       | password | not the password |
     Then each status is one of "422, 503"
     And at least one status is 422
+    And each 503 answer has the header "retry-after" "1"
     When I get "/health"
     Then the status is 200
+    When I post to "/session" the form:
+      | email    | ana@example.com       |
+      | password | correct horse battery |
+    Then the status is 302
+    And the header "location" is "/"
 
   Scenario: A user that was deactivated loses the session and cannot sign in
     Given the first admin exists
@@ -234,6 +251,16 @@ Feature: First run, sign in and sign out
     And the header "location" is "/session/new"
     When the browser restores its saved cookies
     And I get "/"
+    Then the status is 302
+    And the header "location" is "/session/new"
+
+  Scenario: A sign-out that cannot reach the session still drops the cookie, and says it failed
+    Given the first admin exists
+    And I run the sql "create trigger keep_sessions before delete on sessions begin select raise(abort, 'kept'); end"
+    When I post nothing to "/sign_out"
+    Then the status is 500
+    And the header "set-cookie" contains "Max-Age=0"
+    When I get "/"
     Then the status is 302
     And the header "location" is "/session/new"
 

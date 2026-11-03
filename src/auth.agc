@@ -228,6 +228,8 @@ end
 def text_of(row: Db.Row, column: String) -> String
   case row.get(column, Db.Value.Null)
     Db.Value.Text(text) -> return text
+    # Every other variant (and a missing column) is "no text", also one that `Db.Value` gets later: the columns that
+    # these read are `text` in the schema, so anything else is a row that did not come from it.
     _ -> return ""
   end
 end
@@ -235,6 +237,7 @@ end
 def int_of(row: Db.Row, column: String) -> Int
   case row.get(column, Db.Value.Null)
     Db.Value.Int(number) -> return number
+    # Like `text_of`: any other variant is -1, which no id or count is, so a caller never takes it for a row.
     _ -> return -1
   end
 end

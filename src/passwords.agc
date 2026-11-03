@@ -71,7 +71,8 @@ export def verify?(password: String, digest: String) -> Bool
 end
 
 ## Does the work of `verify?` for a password that nobody has, with the cost of `hash`, and gives false. Sign-in calls
-## it for an email that no user has, so that the time does not tell whether the email is registered.
+## it for an email that no user has, so that the time does not tell whether the email is registered. Its result is
+## ignored at the call sites: it exists for its cost.
 export def verify_nobody?() -> Bool
   key = KDF.scrypt(NOBODY_PASSWORD.bytes, NOBODY_SALT.bytes, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
   # A key is never empty (it has KEY_BYTES), so this is false; it reads the key so the work is not dropped.

@@ -25,8 +25,14 @@ struct Reply
   body: String
 end
 
-struct Statuses
-  values: List[Int]
+# What a parallel request answered: the status, and the `Retry-After` header ("" when it has none).
+struct Answer
+  status: Int
+  retry_after: String
+end
+
+struct Answers
+  values: List[Answer]
 end
 
 # `saved` is the copy that `the browser saves a copy of its cookies` makes.
@@ -50,6 +56,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("the header {string} does not contain {string}", &header_lacks),
     BDD.step("each status is one of {string}", &each_status_is_one_of),
     BDD.step("at least one status is {int}", &some_status_is),
+    BDD.step("each 503 answer has the header \"retry-after\" {string}", &each_503_says_retry_after),
     BDD.step("the body is {string}", &body_is),
     BDD.step("the body contains {string}", &body_contains),
     BDD.step("the body does not contain {string}", &body_lacks),
@@ -113,19 +120,19 @@ def post_form_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
   state = browser(ctx)
   count = args[1].to_i!
   attempts = (1..count).to_a
-  answers = Task.map(attempts, count, ALL_AT_ONCE_MS) do |_| post_status(port, state, args[0], body) end
+  answers = Task.map(attempts, count, ALL_AT_ONCE_MS) do |_| post_answer(port, state, args[0], body) end
   failed = answers.select do |answer| not answer.ok? end
   if not failed.empty?
     return BDD.assert(ctx, false, "a request failed: #{failed[0].message}")
   end
 
-  statuses = answers.map do |answer| answer.unwrap! end
-  return BDD.set(ctx, STATUSES, JSON.from(Statuses(values: statuses)))
+  return BDD.set(ctx, STATUSES, JSON.from(Answers(values: answers.map do |answer| answer.unwrap! end)))
 end
 
-def post_status(port: Int, state: Browser, path: String, body: String) -> Result[Int]
+def post_answer(port: Int, state: Browser, path: String, body: String) -> Result[Answer]
   response = try perform(port, state, "POST", path, body)
-  return ok(response.status)
+  retries = HTTP.header_values(response.headers, "retry-after")
+  return ok(Answer(status: response.status, retry_after: retries.join(",")))
 end
 
 def perform(port: Int, state: Browser, method: String, path: String, body: String) -> Result[HttpResponse]
@@ -252,8 +259,12 @@ def header_lacks(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, not value.include?(args[1]), "the header #{args[0]} is #{value.inspect}")
 end
 
+def answers_of(ctx: BDD.Context) -> List[Answer]
+  return JSON.decode(BDD.get(ctx, STATUSES).unwrap!, Answers).unwrap!.values
+end
+
 def statuses_of(ctx: BDD.Context) -> List[Int]
-  return JSON.decode(BDD.get(ctx, STATUSES).unwrap!, Statuses).unwrap!.values
+  return answers_of(ctx).map do |answer| answer.status end
 end
 
 # `args[0]` is a list of statuses separated by commas, such as "302, 503".
@@ -267,4 +278,11 @@ end
 def some_status_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
   statuses = statuses_of(ctx)
   return BDD.assert(ctx, statuses.include?(args[0].to_i!), "the statuses are #{statuses}")
+end
+
+def each_503_says_retry_after(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  refused = answers_of(ctx).select do |answer| answer.status == 503 end
+  wrong = refused.select do |answer| answer.retry_after != args[0] end
+  seen = wrong.map do |answer| answer.retry_after end
+  return BDD.assert(ctx, wrong.empty?, "a 503 has the retry-after #{seen}, not #{args[0].inspect}")
 end
