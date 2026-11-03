@@ -1,4 +1,4 @@
-# Needs Agentica 0.22.0 or later on PATH (or AGENTICA=/path/to/agentica).
+# Needs Agentica 0.23.0 or later on PATH (or AGENTICA=/path/to/agentica).
 AGENTICA ?= agentica
 
 .PHONY: help install run check fmt-check test

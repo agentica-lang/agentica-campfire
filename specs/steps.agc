@@ -19,7 +19,6 @@ MEMORY_URL = "sqlite::memory:"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
 FOLDER_PREFIX = "campfire-spec-"
-STALE_SECONDS = 3_600
 PRIVATE_FOLDER_MODE = 448
 
 struct Reply
@@ -39,7 +38,6 @@ def main() -> Void
     BDD.step("the start applied no migration", &applied_no_migration),
     BDD.step("the health check reports the latest schema version", &health_has_latest_version),
     BDD.step("the database has the tables:", &has_tables),
-    BDD.step("the database is removed", &remove_database),
     BDD.step("the data folder {string} is prepared", &prepare_data_dir),
     BDD.step("the data folder {string} is private", &data_dir_is_private),
     BDD.step("the recorded checksums are:", &checksums_are),
@@ -63,11 +61,16 @@ def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return start_app(ctx, text_of(ctx, DB_URL))
 end
 
-# The first input line is the database url. The program answers with the `database:` line, then `listening on
-# http://127.0.0.1:PORT`.
+# The program reads its address and its database from the environment, as `campfire.agc` does, and answers with the
+# `database:` line, then `listening on http://127.0.0.1:PORT`.
 def start_app(ctx: BDD.Context, url: String) -> BDD.Context
-  started = BDD.when_line(BDD.given_program(ctx, "fixtures/server.agc"), url)
-  return read_startup(started)
+  configured = BDD.given_env(
+    BDD.given_env(BDD.given_env(ctx, "CAMPFIRE_HOST", "127.0.0.1"), "CAMPFIRE_PORT", "0"),
+    "CAMPFIRE_DATABASE_URL",
+    url,
+  )
+
+  return read_startup(BDD.given_program(configured, "fixtures/server.agc"))
 end
 
 # Another app on the same database: the program stops its server and starts a new one.
@@ -144,9 +147,9 @@ def text_of(ctx: BDD.Context, name: String) -> String
   return JSON.string(BDD.get(ctx, name).unwrap!).unwrap!
 end
 
+# The folder goes away when the scenario ends, passed or failed, so no step has to remove it.
 def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
   root = System.env("TMPDIR").unwrap_or("/tmp")
-  remove_stale_folders(root)
   dir = Path.join([root, "#{FOLDER_PREFIX}#{SecureRandom.hex(8)}"]).unwrap!
   made = Dir.mkdir_private(dir)
   if not made.ok?
@@ -154,27 +157,8 @@ def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
   end
 
   url = "sqlite:#{dir}/campfire.db?fts5=required"
-  return BDD.set(BDD.set(ctx, DB_DIR, JSON.from(dir)), DB_URL, JSON.from(url))
-end
-
-# A scenario that fails before its last step leaves its folder behind; the next run sweeps the ones that are old
-# enough not to belong to a run in progress.
-def remove_stale_folders(root: String) -> Void
-  nothing: List[String] = []
-  names = Dir.list(root).unwrap_or(nothing)
-  now = Time.now_ms / 1_000
-  for name in names
-    path = Path.join([root, name]).unwrap!
-    info = File.stat(path)
-    if name.start_with?(FOLDER_PREFIX) and info.ok? and now - info.unwrap!.modified_seconds > STALE_SECONDS
-      Path.remove(path)
-    end
-  end
-end
-
-def remove_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  removed = Path.remove(text_of(ctx, DB_DIR))
-  return BDD.assert(ctx, removed.ok?, "cannot remove the database folder: #{removed.message}")
+  stored = BDD.set(BDD.set(ctx, DB_DIR, JSON.from(dir)), DB_URL, JSON.from(url))
+  return BDD.after(stored) do |closing| Path.remove(dir) end
 end
 
 def migrate_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -205,7 +189,7 @@ def checksums_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
   end
 
   expected = BDD.table(ctx).map do |row| "#{row[0]} #{row[1]}" end
-  return BDD.assert(ctx, recorded.join("\n") == expected.join("\n"), "the recorded checksums are #{recorded}")
+  return BDD.assert(ctx, recorded == expected, "the recorded checksums are #{recorded}")
 end
 
 def applied_every_migration(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -232,7 +216,7 @@ def has_tables(ctx: BDD.Context, args: List[String]) -> BDD.Context
   rows = rows_of(ctx, "select name from sqlite_master where type = 'table'")
   names = rows.map do |row| value_text(row.get("name", Db.Value.Null)) end
   wanted = BDD.table(ctx).map do |row| row[0] end
-  missing = wanted.select do |name| not names.any? do |known| known == name end end
+  missing = wanted.select do |name| not names.include?(name) end
   return BDD.assert(ctx, missing.empty?, "the tables are missing: #{missing}, there are #{names}")
 end
 

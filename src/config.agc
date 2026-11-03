@@ -2,8 +2,9 @@
 ## laptop and in a container.
 
 ## The host and the port when the environment says nothing: only this machine, on a port that is free in most setups.
+## The port is text, like the variable that it stands for, so `parse` can take it as a default.
 export DEFAULT_HOST = "127.0.0.1"
-export DEFAULT_PORT = 3000
+export DEFAULT_PORT = "3000"
 
 ## The folder for the files of the app (the database now, the uploads later), relative to where the program runs.
 export DEFAULT_DATA_DIR = "data"
@@ -21,17 +22,23 @@ end
 ## defaults for a variable that is not set. An `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
-  port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT.to_s)
+  port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
   data_dir = System.env("CAMPFIRE_DATA_DIR").unwrap_or(DEFAULT_DATA_DIR)
   database_url = System.env("CAMPFIRE_DATABASE_URL").unwrap_or("")
   return parse(host, port, data_dir, database_url)
 end
 
-## A `Config` from the text of a host, a port, a data folder and a database url: an `error` for an empty host or data
+## A `Config` from the text of a host, a port, a data folder and a database url, each the default when left out: an
+## `error` for an empty host or data
 ## folder, a data folder with a `?`, and for a port that is not a number from 0 to 65535. An empty `database_url` means
 ## the file `campfire.db` in the data folder, with the FTS5 check on, so that a SQLite without FTS5 stops the start
 ## with a clear message.
-export def parse(host: String, port: String, data_dir: String, database_url: String) -> Result[Config]
+export def parse(
+  host: String = DEFAULT_HOST,
+  port: String = DEFAULT_PORT,
+  data_dir: String = DEFAULT_DATA_DIR,
+  database_url: String = "",
+) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
   end

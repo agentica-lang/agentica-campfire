@@ -20,7 +20,6 @@ Feature: The schema
     When I run the sql "delete from rooms where id = 1"
     Then the query "select count(*) from messages" gives 0
     And the query "select count(*) from message_search_index where message_search_index match 'embers'" gives 0
-    And the database is removed
 
   Scenario: Deleting a room deletes what hangs from it
     Given I run the sql "insert into memberships (room_id, user_id) values (1, 1)"
@@ -33,12 +32,10 @@ Feature: The schema
     And the query "select count(*) from boosts" gives 0
     And the query "select count(*) from attachments" gives 0
     And the query "select count(*) from users" gives 1
-    And the database is removed
 
   Scenario: A direct room needs no name
     When I run the sql "insert into rooms (kind, creator_id) values ('direct', 1)"
     Then the query "select count(*) from rooms where name is null" gives 1
-    And the database is removed
 
   # A migration that has shipped is never edited (AGENTS.md): a database that ran it refuses the edited text and the
   # app stops at start-up. Change a table with a new migration, and add its row here.
@@ -54,7 +51,6 @@ Feature: The schema
       | 8 | b44ac0593437668bb2af54fa31e7d6b9a2e809c8eb1f5d3290906cc7aed4c03d |
       | 9 | 984c50d51fa1f18070d6edb70e1e9dbb3c63ef8e9a6ec15249206174f01ab14f |
       | 10 | be991ad069123d9bda2092dfe66a96a334471e6466400736538f674aeaeb2051 |
-    And the database is removed
 
   Scenario Outline: The database refuses a row that breaks a rule
     Given I run the sql "insert into memberships (room_id, user_id) values (1, 1)"
@@ -64,7 +60,6 @@ Feature: The schema
     And I run the sql "insert into webhooks (user_id, url) values (2, 'http://localhost/hook')"
     When I try the sql "<sql>"
     Then the sql fails with "<error>"
-    And the database is removed
 
     Examples:
       | sql | error |

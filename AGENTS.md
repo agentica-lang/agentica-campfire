@@ -11,7 +11,8 @@ src/            config.agc (host, port, data folder, database url), data_dir.agc
                 folder), app.agc (start: database, then server), database.agc (open and migrate),
                 migrations.agc (the schema, one numbered migration per table), web.agc (routes),
                 views.agc (EAG templates)
-specs/          BDD: *.feature, steps.agc, fixtures/server.agc (the app on a free port and a given database)
+specs/          BDD: *.feature, steps.agc, fixtures/server.agc (the app, from the environment
+                that the steps set)
 test/           unit tests (*_test.agc)
 agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentica.lock has their hashes
 ```
@@ -19,7 +20,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
 ## Commands
 
 - `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make fmt-check`, `make test`, `make run`.
-- Agentica 0.22.0 or later. CI pins it with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in
+- Agentica 0.23.0 or later. CI pins it with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in
   `.github/workflows/ci.yml`).
 - To move Bond or agentica-db: `agentica add bond https://github.com/agentica-lang/bond --ref COMMIT` (or `db`
   and `https://github.com/agentica-lang/agentica-db`), commit the lock.
@@ -27,7 +28,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
 ## Rules
 
 - BDD first: a behavior is a Gherkin scenario in `specs/` before the code. A test over HTTP uses 127.0.0.1 and port 0.
-  Unit tests (`test/`) only for pure helpers.
+  Unit tests (`test/`) only for pure helpers. A scenario gives the app its settings with `the environment variable`
+  steps (`CAMPFIRE_*`), never through stdin, and a step that makes something on disk registers its removal with
+  `BDD.after`, so a failed scenario leaves nothing behind.
 - Views are EAG templates with `<%@ escape &Bond.escape %>` as the first line, so every `<%= %>` is escaped.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
 - `agentica.toml` has `blank_line_after_end = true`: every bare `end` is followed by an empty line.

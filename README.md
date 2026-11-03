@@ -8,7 +8,7 @@ Status: a skeleton with a database. A Bond server with a home page (an EAG templ
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.22.0 or later on `PATH`.
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.23.0 or later on `PATH`.
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by commit in agentica.toml) into deps/
