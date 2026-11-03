@@ -8,9 +8,9 @@ import UTC from "std/utc"
 # The longest header line that folding aims for (RFC 5322 asks for 78 or less, and the line ends take two more).
 FOLD_WIDTH = 76
 
-# The most bytes of one RFC 2047 encoded word: 45 bytes make 60 base64 characters, and with `=?UTF-8?B?` and `?=` the
-# word has 72, under the 75 that the RFC allows.
-WORD_BYTES = 45
+# The most bytes of one RFC 2047 encoded word: 42 bytes make 56 base64 characters, and with `=?UTF-8?B?` and `?=` the
+# word has 68, under the 75 that the RFC allows, and `Subject: ` and the word fit in 78 characters.
+WORD_BYTES = 42
 
 # A quoted-printable line has at most 76 characters with its soft break `=`.
 QP_WIDTH = 75
@@ -151,7 +151,7 @@ export def render(message: Message) -> Result[String]
 
   lines = lines.push("MIME-Version: 1.0")
   for field in message.headers
-    lines = lines.push(fold(field.name, encode_words(field.value)))
+    lines = lines.push(fold(field.name, field.value))
   end
 
   head = lines.join("\r\n")
@@ -159,28 +159,48 @@ export def render(message: Message) -> Result[String]
 end
 
 # Every value a person wrote goes through here before it becomes part of a line: a CR or LF would end the header and
-# start another one (a Bcc, or a body), so nothing with a control character is written, encoded or not.
+# start another one (a Bcc, or a body), so nothing with a control character is written, encoded or not. The tab is the
+# one exception, in the text of a subject (RFC 5322 allows white space there). A date and an id are ASCII, and so is
+# the value of a custom header: only the subject and the display names are text that an encoded word may carry.
 def check_headers(message: Message) -> Result[Void]
-  values = [message.from, message.subject, message.reply_to, message.date, message.message_id]
-  values = values.concat(message.to).concat(message.cc).concat(message.bcc)
-  for value in values
+  strict = [message.from, message.reply_to, message.date, message.message_id]
+  strict = strict.concat(message.to).concat(message.cc).concat(message.bcc)
+  for value in strict
     if control?(value)
       return error("a header value must not hold a line break or another control character: #{value.inspect}")
     end
   end
 
+  if not ascii?(message.date) or not ascii?(message.message_id)
+    return error("the date and the message id must be ASCII")
+  end
+
+  if control?(message.subject.replace("\t", " "))
+    return error("the subject must not hold a line break or another control character: #{message.subject.inspect}")
+  end
+
   for field in message.headers
-    if not token?(field.name)
-      return error("the header name #{field.name.inspect} is not valid")
-    end
+    try check_field(field)
+  end
 
-    if OWN_HEADERS.include?(field.name.downcase)
-      return error("the header #{field.name} is made from the fields of the message, not from headers")
-    end
+  return ok()
+end
 
-    if control?(field.value)
-      return error("the value of the header #{field.name} must not hold a line break or another control character")
-    end
+def check_field(field: Field) -> Result[Void]
+  if not token?(field.name)
+    return error("the header name #{field.name.inspect} is not valid")
+  end
+
+  if OWN_HEADERS.include?(field.name.downcase)
+    return error("the header #{field.name} is made from the fields of the message, not from headers")
+  end
+
+  if control?(field.value.replace("\t", " "))
+    return error("the value of the header #{field.name} must not hold a line break or another control character")
+  end
+
+  if not ascii?(field.value)
+    return error("the value of the header #{field.name} must be ASCII: only the subject and the names are encoded")
   end
 
   return ok()
@@ -197,6 +217,11 @@ def token?(name: String) -> Bool
   end
 
   return name.bytes.to_a.all? do |byte| byte > 32 and byte < 127 and byte != 58 end
+end
+
+# Text that goes in a header as it is: ASCII, and without `=?`, which a reader would take for an encoded word.
+def plain_text?(text: String) -> Bool
+  return ascii?(text) and not text.include?("=?")
 end
 
 def ascii?(text: String) -> Bool
@@ -224,6 +249,10 @@ end
 
 # `ana@example.com` or `Name <ana@example.com>`. The address is ASCII and has one `@` with something on each side.
 def parse_address(text: String) -> Result[Address]
+  if control?(text)
+    return error("the address #{text.inspect} must not hold a line break or another control character")
+  end
+
   value = text.strip
   name = ""
   address = value
@@ -267,7 +296,7 @@ def format_address(address: Address) -> String
     return address.address
   end
 
-  if not ascii?(address.name)
+  if not plain_text?(address.name)
     return "#{encode_words(address.name)} <#{address.address}>"
   end
 
@@ -281,7 +310,7 @@ end
 # Text that is not ASCII goes in RFC 2047 encoded words, UTF-8 and base64, each with whole characters, so that no
 # word splits a character and a reader that joins the words gets the text back.
 def encode_words(text: String) -> String
-  if ascii?(text)
+  if plain_text?(text)
     return text
   end
 
@@ -307,21 +336,27 @@ def encoded_word(chars: List[String]) -> String
   return "=?UTF-8?B?#{Base64.strict_encode64(chars.join("").bytes)}?="
 end
 
-# `Name: value`, broken at spaces into lines that start with a space (a header line folds there). A word that does
-# not fit on a line of its own stays whole.
+# `Name: value`, broken at spaces into lines that start with that space (a reader that unfolds removes only the line
+# end, so the value comes back as it was, runs of spaces included). The first word stays on the line of the name, so no
+# line is only `Name:`; a word that does not fit on a line stays whole.
 def fold(name: String, value: String) -> String
+  if value.empty?
+    return "#{name}:"
+  end
+
   lines: List[String] = []
   line = "#{name}:"
-  for word in value.split(" ")
-    if word.empty?
-      next
+  has_word = false
+  for piece in value.split(" ")
+    if has_word and not piece.empty? and line.length + 1 + piece.length > FOLD_WIDTH
+      lines = lines.push(line)
+      line = " #{piece}"
+    else
+      line = "#{line} #{piece}"
     end
 
-    if line.length + 1 + word.length > FOLD_WIDTH
-      lines = lines.push(line)
-      line = " #{word}"
-    else
-      line = "#{line} #{word}"
+    if not piece.empty?
+      has_word = true
     end
   end
 

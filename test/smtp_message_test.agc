@@ -30,6 +30,15 @@ def decode_word(word: String) -> String
   return String.from_bytes(Base64.strict_decode64(body).unwrap!).unwrap!
 end
 
+# The lines of one header as the rendered message has them, from `Name:` to the next line that does not start with a
+# space or a tab, joined as a reader unfolds them (CRLF removed, the white space after it kept).
+def unfolded(rendered: Result[String], name: String) -> String
+  lines = lines_of(rendered)
+  first = lines.drop_while do |line| not line.start_with?("#{name}:") end
+  rest = first.drop(1).take_while do |line| line.start_with?(" ") or line.start_with?("\t") end
+  return [first[0]].concat(rest).join("")
+end
+
 def main() -> Void
   Test.run([
     Test.test("a plain text message is the headers, an empty line and the text, with CRLF at every line end") do
@@ -162,6 +171,43 @@ def main() -> Void
       stamped = Mail.complete(message("s", "x").with(date: "", message_id: ""))
       try Test.eq(stamped.date.end_with?(" +0000"), true)
       Test.eq(stamped.message_id.end_with?("@example.com>"), true)
+    end,
+    Test.test("a header folds only at a space, never before its first word, and keeps the spacing of its value") do
+      subject = (
+        "uno  dos tres cuatro cinco seis siete ocho nueve diez   once doce trece catorce quince dieciseis diecisiete"
+      )
+
+      rendered = Mail.render(message(subject, "x"))
+      lines = lines_of(rendered)
+      try Test.eq(lines.include?("Subject:"), false)
+      try Test.eq(lines.all? do |line| line.length <= 78 end, true)
+      try Test.eq(lines.any? do |line| line.start_with?(" ") end, true)
+      try Test.eq(unfolded(rendered, "Subject"), "Subject: #{subject}")
+      encoded = lines_of(Mail.render(message("señor " + subject, "x")))
+      try Test.eq(encoded.include?("Subject:"), false)
+      Test.eq(encoded.all? do |line| line.length <= 78 end, true)
+    end,
+    Test.test("a tab is allowed in the subject, and a value with =? is an encoded word so that it is read as text") do
+      try Test.eq(unfolded(Mail.render(message("a\tb", "x")), "Subject"), "Subject: a\tb")
+      literal = "=?UTF-8?B?aGk=?="
+      lines = lines_of(Mail.render(message(literal, "x")))
+      try Test.eq(lines.include?("Subject: #{literal}"), false)
+      Test.eq(decode_words(unfolded(Mail.render(message(literal, "x")), "Subject").replace("Subject: ", "")), literal)
+    end,
+    Test.test("the date and the message id are ASCII, and a custom header is too") do
+      try Test.error?(Mail.render(message("s", "x").with(date: "mañana")))
+      try Test.error?(Mail.render(message("s", "x").with(message_id: "<ñ@example.com>")))
+      try Test.error?(Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Note", value: "café")])))
+      Test.ok?(Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Note", value: "=?x?=")])))
+    end,
+    Test.test("an address with a control character is refused by the envelope, so nothing reaches RCPT TO") do
+      bad = "bob@example.com\r\nRCPT TO:<eve@example.com>"
+      try Test.error?(Mail.envelope(message("s", "x").with(to: [bad])))
+      try Test.error?(Mail.envelope(message("s", "x").with(from: bad)))
+      try Test.error?(Mail.envelope(message("s", "x").with(to: ["Bob\r\n <bob@example.com>"])))
+      try Test.error?(Mail.envelope(message("s", "x").with(bcc: ["bob\n@example.com"])))
+      try Test.error?(Mail.envelope(message("s", "x").with(to: ["bob@exam\tple.com"])))
+      Test.error?(Mail.envelope(message("s", "x").with(to: ["bob@example.com" + String.from_code(0)])))
     end,
   ])
 end

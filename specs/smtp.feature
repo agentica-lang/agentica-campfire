@@ -231,3 +231,162 @@ Feature: Sending email over SMTP
     Then the send fails without a code
     And the error mentions "timed out"
     And the error mentions "RCPT TO"
+
+  Scenario: A reply that is only a code, which RFC 5321 allows, is a reply
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "MAIL" with "250"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send succeeds
+    And the server transcript has the line "S: 250"
+
+  Scenario Outline: A line that is not a reply fails the send without a code and closes the connection
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "<reply>"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the error mentions "not a reply"
+    And the server transcript has no line starting with "C: DATA"
+    And the server saw the connection close
+
+    Examples:
+      | reply                |
+      | OK                   |
+      |                      |
+      | +25 plus             |
+      | 000 zero             |
+      | 250-first\|251 second |
+
+  Scenario: A reply with more lines than the client reads fails the send
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "~150"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the error mentions "more than"
+
+  Scenario: The timeout is for the whole reply, not for each line of it
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "~40"
+    And the SMTP server pauses 100 milliseconds between the lines of a reply
+    And the SMTP server is listening
+    And the client uses "plain" security
+    And the client waits 500 milliseconds for each reply
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the error mentions "timed out"
+
+  Scenario: A 4xx for STARTTLS fails the send with its code and closes the connection
+    Given the SMTP server speaks "starttls"
+    And the SMTP server answers "STARTTLS" with "454 TLS not available"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails with the code 454
+    And the server transcript has no line starting with "C: MAIL FROM"
+    And the server saw the connection close
+
+  Scenario: AUTH LOGIN goes over the encrypted connection, after STARTTLS
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "LOGIN"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "secret"
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send succeeds
+    And the server transcript has the line "C: AUTH LOGIN"
+    And the server transcript has no line starting with "S: 530"
+    And the server transcript has 2 lines starting with "C: EHLO"
+
+  Scenario: A login that is refused after STARTTLS closes the encrypted connection
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "PLAIN"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "wrong-password"
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails with the code 535
+    And the server saw the connection close
+
+  Scenario: An EHLO that is refused after STARTTLS closes the encrypted connection
+    Given the SMTP server speaks "starttls"
+    And the SMTP server answers "EHLO#2" with "554 no service"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails with the code 554
+    And the server saw the connection close
+
+  Scenario: A certificate that the client does not trust fails the send, and nothing is sent after it
+    Given the SMTP server speaks "starttls"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client trusts only the system certificates
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the server transcript has no line starting with "C: MAIL FROM"
+
+  Scenario: A certificate for another host name fails the send
+    Given the SMTP server speaks "implicit"
+    And the SMTP server uses the certificate "wrong-host"
+    And the SMTP server is listening
+    And the client uses "implicit" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the server transcript has no line starting with "C: EHLO"
+
+  Scenario: The public steps open, EHLO, STARTTLS, login and send go on with the encrypted client
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "PLAIN"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "secret"
+    When I send a message over a connection that I open, upgrade and log in step by step
+    Then the send succeeds
+    And the server transcript has the line "C: STARTTLS"
+    And the server transcript has the line "C: AUTH PLAIN AGFuYQBzZWNyZXQ="
+    And the server transcript has the line "C: RCPT TO:<bob@example.com>"
+    And the server transcript has the line "S: 221 bye"
+
+  Scenario: The client that connect gives does not keep the password
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "PLAIN"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "secret"
+    When I connect, find that the client no longer holds the password, and send a message
+    Then the send succeeds

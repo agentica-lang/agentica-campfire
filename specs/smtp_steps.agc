@@ -15,6 +15,8 @@ TIMEOUT = "smtp_timeout_ms"
 STAMP = "smtp_stamp"
 OUTCOME = "smtp_outcome"
 TRANSCRIPT = "smtp_transcript"
+ENDED = "smtp_ended"
+SYSTEM_TRUST = "smtp_system_trust"
 
 LISTENING = "listening on "
 CLOSED = "closed"
@@ -25,6 +27,11 @@ CERTS_FOLDER = "specs/fixtures/tls"
 FIXED_DATE = "Tue, 03 Nov 2026 10:55:02 +0000"
 FIXED_ID = "<spec@example.com>"
 
+struct Transcript
+  lines: List[String]
+  ended: Bool
+end
+
 ## The steps of the SMTP features.
 export def steps() -> List[BDD.Step]
   return [
@@ -32,8 +39,12 @@ export def steps() -> List[BDD.Step]
     BDD.step("the SMTP server offers AUTH {string}", &server_offers_auth),
     BDD.step("the SMTP server refuses the recipient {string}", &server_refuses_recipient),
     BDD.step("the SMTP server never answers {string}", &server_never_answers),
+    BDD.step("the SMTP server answers {string} with {string}", &server_answers),
+    BDD.step("the SMTP server pauses {int} milliseconds between the lines of a reply", &server_pauses),
+    BDD.step("the SMTP server uses the certificate {string}", &server_certificate),
     BDD.step("the SMTP server is listening", &server_listens),
     BDD.step("the client uses {string} security", &client_security),
+    BDD.step("the client trusts only the system certificates", &client_system_trust),
     BDD.step("the client logs in as {string} with the password {string}", &client_logs_in),
     BDD.step("the client waits {int} milliseconds for each reply", &client_waits),
     BDD.step("the client connects to the host {string}", &client_host),
@@ -44,11 +55,17 @@ export def steps() -> List[BDD.Step]
       &send_multipart,
     ),
     BDD.step("I send two messages on one connection", &send_two),
+    BDD.step("I send a message over a connection that I open, upgrade and log in step by step", &send_by_steps),
+    BDD.step(
+      "I connect, find that the client no longer holds the password, and send a message",
+      &send_without_password,
+    ),
     BDD.step("the send succeeds", &send_succeeds),
     BDD.step("the send fails with the code {int}", &send_fails_with_code),
     BDD.step("the send fails without a code", &send_fails_without_code),
     BDD.step("the error mentions {string}", &error_mentions),
     BDD.step("the error does not mention {string}", &error_does_not_mention),
+    BDD.step("the server saw the connection close", &connection_closed),
     BDD.step("the server transcript is:", &transcript_is),
     BDD.step("the server transcript has the line {string}", &transcript_has_line),
     BDD.step("the server transcript has a line starting with {string}", &transcript_has_prefix),
@@ -71,6 +88,22 @@ end
 
 def server_never_answers(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.given_env(ctx, "SMTP_PEER_STALL", args[0])
+end
+
+def server_answers(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.given_env(BDD.given_env(ctx, "SMTP_PEER_CANNED_VERB", args[0]), "SMTP_PEER_CANNED", args[1])
+end
+
+def server_pauses(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.given_env(ctx, "SMTP_PEER_LINE_DELAY_MS", args[0])
+end
+
+def server_certificate(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.given_env(ctx, "SMTP_PEER_CERT", args[0])
+end
+
+def client_system_trust(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.set(ctx, SYSTEM_TRUST, JSON.from(true))
 end
 
 # The certificates are in the repository, found from the folder that `agentica test` runs in (the root of the app).
@@ -127,6 +160,49 @@ def send_two(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return finish(ctx, session(options_of(ctx), first, second))
 end
 
+def send_by_steps(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  message = message_of(ctx, "ana@example.com", "bob@example.com", "Steps", "by hand", "")
+  return finish(ctx, by_steps(options_of(ctx), message))
+end
+
+# What `connect` does, with the public steps: the encrypted client of `starttls` is the one to go on with.
+def by_steps(options: Smtp.Options, message: Smtp.Message) -> Result[Void]
+  opened = try Smtp.open(options)
+  said = Smtp.ehlo(opened)
+  if not said.ok?
+    Smtp.close(opened)
+    return error(said.message)
+  end
+
+  upgraded = try Smtp.starttls(said.unwrap!)
+  logged = Smtp.login(upgraded, options.username, options.password)
+  if not logged.ok?
+    Smtp.close(upgraded)
+    return logged
+  end
+
+  sent = Smtp.send_message(upgraded, message)
+  _ = Smtp.quit(upgraded)
+  return sent
+end
+
+def send_without_password(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  message = message_of(ctx, "ana@example.com", "bob@example.com", "Password", "kept?", "")
+  return finish(ctx, connect_and_check(options_of(ctx), message))
+end
+
+def connect_and_check(options: Smtp.Options, message: Smtp.Message) -> Result[Void]
+  client = try Smtp.connect(options)
+  if client.options.password != ""
+    Smtp.close(client)
+    return error("the client still holds the password")
+  end
+
+  sent = Smtp.send_message(client, message)
+  _ = Smtp.quit(client)
+  return sent
+end
+
 def session(options: Smtp.Options, first: Smtp.Message, second: Smtp.Message) -> Result[Void]
   client = try Smtp.connect(options)
   sent = Smtp.send_message(client, first)
@@ -174,9 +250,18 @@ def options_of(ctx: BDD.Context) -> Smtp.Options
     username: text_of(ctx, USERNAME, ""),
     password: text_of(ctx, PASSWORD, ""),
     local_hostname: "client.test",
-    ca_file: "#{certs_dir()}/ca.pem",
+    ca_file: ca_file_of(ctx),
     timeout_ms: int_of(ctx, TIMEOUT, DEFAULT_TIMEOUT_MS),
   )
+end
+
+# The test CA, unless the scenario says the client has only the system's certificates (which do not have it).
+def ca_file_of(ctx: BDD.Context) -> String
+  if flag(ctx, SYSTEM_TRUST)
+    return ""
+  end
+
+  return "#{certs_dir()}/ca.pem"
 end
 
 def security_of(name: String) -> Smtp.Security
@@ -196,24 +281,38 @@ def finish(ctx: BDD.Context, outcome: Result[Void]) -> BDD.Context
   end
 
   if BDD.get(kept, PORT).ok?
-    return BDD.set(kept, TRANSCRIPT, JSON.from(read_transcript(kept).join("\n")))
+    transcript = read_transcript(kept)
+    return BDD.set(
+      BDD.set(kept, TRANSCRIPT, JSON.from(transcript.lines.join("\n"))),
+      ENDED,
+      JSON.from(transcript.ended),
+    )
   end
 
   return kept
 end
 
-def read_transcript(ctx: BDD.Context) -> List[String]
+# `ended` is false when the peer never said `closed`: the client left the connection open.
+def read_transcript(ctx: BDD.Context) -> Transcript
   lines: List[String] = []
   for _ in 0...1000
     line = BDD.read_line(ctx, TRANSCRIPT_MS)
-    if not line.ok? or line.unwrap! == CLOSED
-      return lines
+    if not line.ok?
+      return Transcript(lines: lines, ended: false)
+    end
+
+    if line.unwrap! == CLOSED
+      return Transcript(lines: lines, ended: true)
     end
 
     lines = lines.push(line.unwrap!)
   end
 
-  return lines
+  return Transcript(lines: lines, ended: false)
+end
+
+def connection_closed(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, flag(ctx, ENDED), "the client left the connection open")
 end
 
 def send_succeeds(ctx: BDD.Context, args: List[String]) -> BDD.Context

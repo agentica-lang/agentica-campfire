@@ -7,8 +7,14 @@
 ## the environment, which the steps set: SMTP_PEER_MODE is `plain`, `starttls` (it offers STARTTLS) or `implicit`
 ## (TLS from the first byte), SMTP_PEER_AUTH the AUTH mechanisms it offers (`PLAIN LOGIN`, none by default),
 ## SMTP_PEER_REJECT_RCPT an address that gets a 550, SMTP_PEER_STALL a command that it never answers, and
-## SMTP_PEER_CERTS the folder with `server.pem` and `server-key.pem`. The login that it accepts is `ana` with
-## `secret`.
+## SMTP_PEER_CERTS the folder with the certificates and SMTP_PEER_CERT the name of the one to use (`server` by default;
+## its files are `NAME.pem` and `NAME-key.pem`). The login that it accepts is `ana` with `secret`. In `starttls` mode
+## AUTH and MAIL before the upgrade get a 530.
+##
+## SMTP_PEER_CANNED_VERB is a command (`RCPT`, or `EHLO#2` for its second time) whose answer is the text of
+## SMTP_PEER_CANNED instead: lines separated by `|`, each sent as it is, so `250` alone, `OK` or an empty line are
+## replies that a client has to survive. `~N` stands for N lines `250-line` and a last `250 end`. Between those lines
+## the peer waits SMTP_PEER_LINE_DELAY_MS.
 
 HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000
@@ -24,6 +30,9 @@ struct Settings
   auth: String
   reject_rcpt: String
   stall: String
+  canned_verb: String
+  canned: String
+  line_delay_ms: Int
   context: Optional[TlsContext]
 end
 
@@ -33,12 +42,13 @@ def main() -> Void
   puts("listening on #{TCP.local_port(listener)}")
   IO.flush()
   accepted = TCP.accept(listener, ACCEPT_MS)
-  if not accepted.ok?
+  if accepted.ok?
+    serve(accepted.unwrap!, settings)
+  else
+    # Implicit TLS: a client that refused the certificate never completes the handshake, which ends up here.
     IO.warn("smtp peer: no client came: #{accepted.message}")
-    System.exit(1)
   end
 
-  serve(accepted.unwrap!, settings)
   puts("closed")
   IO.flush()
 end
@@ -47,7 +57,8 @@ def load_settings() -> Settings
   certs = System.env("SMTP_PEER_CERTS").unwrap_or("")
   context: Optional[TlsContext] = none
   if not certs.empty?
-    options = TlsServerOptions(cert_file: "#{certs}/server.pem", key_file: "#{certs}/server-key.pem")
+    name = System.env("SMTP_PEER_CERT").unwrap_or("server")
+    options = TlsServerOptions(cert_file: "#{certs}/#{name}.pem", key_file: "#{certs}/#{name}-key.pem")
     context = some(TLS.server_context(options).unwrap!)
   end
 
@@ -56,6 +67,9 @@ def load_settings() -> Settings
     auth: System.env("SMTP_PEER_AUTH").unwrap_or(""),
     reject_rcpt: System.env("SMTP_PEER_REJECT_RCPT").unwrap_or(""),
     stall: System.env("SMTP_PEER_STALL").unwrap_or(""),
+    canned_verb: System.env("SMTP_PEER_CANNED_VERB").unwrap_or(""),
+    canned: System.env("SMTP_PEER_CANNED").unwrap_or(""),
+    line_delay_ms: System.env("SMTP_PEER_LINE_DELAY_MS").unwrap_or("0").to_i!,
     context: context,
   )
 end
@@ -91,6 +105,8 @@ def serve(first: Socket, settings: Settings) -> Void
   socket = first
   say(socket, "220 peer.test ready")
   running = true
+  secure = settings.mode == "implicit"
+  counts: Map[String, Int] = {}
   while running
     heard = hear(socket)
     if not heard.ok?
@@ -104,9 +120,23 @@ def serve(first: Socket, settings: Settings) -> Void
       return
     end
 
+    count = counts.get(verb, 0) + 1
+    counts = counts.put(verb, count)
+    if settings.canned_verb == verb or settings.canned_verb == "#{verb}##{count}"
+      say_canned(socket, settings)
+      next
+    end
+
+    if settings.mode == "starttls" and not secure and (verb == "AUTH" or verb == "MAIL")
+      say(socket, "530 5.7.0 start TLS first")
+      next
+    end
+
     case verb
       "EHLO" -> ehlo(socket, settings)
-      "STARTTLS" -> socket = starttls(socket, settings)
+      "STARTTLS" ->
+        socket = starttls(socket, settings)
+        secure = true
       "AUTH" -> auth(socket, settings, line)
       "MAIL" -> say(socket, "250 sender ok")
       "RCPT" -> rcpt(socket, settings, line)
@@ -115,6 +145,22 @@ def serve(first: Socket, settings: Settings) -> Void
       "QUIT" -> running = quit(socket)
       _ -> say(socket, "502 command not implemented")
     end
+  end
+end
+
+def say_canned(socket: Socket, settings: Settings) -> Void
+  lines = settings.canned.split("|")
+  if settings.canned.start_with?("~")
+    count = settings.canned.slice(1, settings.canned.length - 1).to_i!
+    lines = List.repeat("250-line", count).push("250 end")
+  end
+
+  for index in 0...lines.size
+    if index > 0
+      Task.sleep(settings.line_delay_ms)
+    end
+
+    say(socket, lines[index])
   end
 end
 
@@ -160,8 +206,9 @@ def starttls(socket: Socket, settings: Settings) -> Socket
   say(socket, "220 ready to start TLS")
   upgraded = TLS.upgrade(socket, settings.context.unwrap!, "", HANDSHAKE_MS)
   if not upgraded.ok?
+    # The plain socket is closed by the upgrade, so the next read ends the session.
     IO.warn("smtp peer: the TLS handshake failed: #{upgraded.message}")
-    System.exit(1)
+    return socket
   end
 
   return upgraded.unwrap!

@@ -27,7 +27,7 @@ export IMPLICIT_TLS_PORT = 465
 export DEFAULT_TIMEOUT_MS = 60_000
 
 # The most lines a reply may have, so that a server cannot keep a client reading.
-MAX_REPLY_LINES = 200
+MAX_REPLY_LINES = 100
 
 # The reply codes the dialogue waits for.
 CODE_READY = 220
@@ -36,6 +36,11 @@ CODE_AUTHENTICATED = 235
 CODE_CHALLENGE = 334
 CODE_START_DATA = 354
 CODE_CLOSING = 221
+CODE_FORWARDED = 251
+MIN_REPLY_CODE = 200
+MAX_REPLY_CODE = 599
+
+AUTH_FAILED = "authentication failed"
 
 CRLF = "\r\n"
 NUL = String.from_code(0)
@@ -101,66 +106,62 @@ export def send(message: Mail.Message, options: Options) -> Result[Void]
 end
 
 ## Opens the connection, reads the greeting, says EHLO, upgrades with STARTTLS (for `Security.Starttls`) and logs in
-## (when `username` is not empty). On an `error` nothing stays open.
+## (when `username` is not empty). On an `error` nothing stays open. The `Client` that it gives no longer holds the
+## password: it is not needed once the login is done.
 export def connect(options: Options) -> Result[Client]
   opened = try open(options)
-  ready = setup(opened)
-  if not ready.ok?
-    close(opened)
-    return error(ready.message)
-  end
-
-  return ready
+  return setup(opened)
 end
 
 ## Opens a TCP connection (TLS from the start for `Security.Implicit`) and reads the greeting of the server. The
-## client has not said EHLO yet.
+## client has not said EHLO yet. The host is taken without the spaces around it, here and for every later use.
 export def open(options: Options) -> Result[Client]
-  if options.security == Security.Plain and not loopback?(options.host)
-    return error("smtp: a plain connection is only allowed to this machine, not to #{options.host}")
+  host = options.host.strip
+  if options.security == Security.Plain and not loopback?(host)
+    return error("smtp: a plain connection is only allowed to this machine, not to #{host}")
   end
 
   if options.timeout_ms <= 0
     return error("smtp: the timeout must be more than 0 milliseconds")
   end
 
-  socket = try connect_socket(options)
-  client = Client(socket: socket, options: options, secure: options.security == Security.Implicit, features: [])
+  stripped = options.with(host: host)
+  socket = try connect_socket(stripped)
+  client = Client(socket: socket, options: stripped, secure: stripped.security == Security.Implicit, features: [])
   greeting = read_reply(client, "the greeting")
   if not greeting.ok?
     close(client)
     return error(greeting.message)
   end
 
-  refused = refusal(greeting.unwrap!, [CODE_READY], "the server refused the connection")
-  if refused != ""
+  checked = expect(greeting.unwrap!, [CODE_READY], "the server refused the connection")
+  if not checked.ok?
     close(client)
-    return error(refused)
+    return error(checked.message)
   end
 
   return ok(client)
 end
 
-## Says EHLO and keeps the features that the server lists (`STARTTLS`, `AUTH PLAIN LOGIN`).
+## Says EHLO and keeps the features that the server lists (`STARTTLS`, `AUTH PLAIN LOGIN`). The connection stays open
+## on an `error` that is a refusal.
 export def ehlo(client: Client) -> Result[Client]
   name = client.options.local_hostname
   if name.empty? or name.include?(" ") or name.bytes.to_a.any? do |byte| byte < 32 or byte > 126 end
     return error("smtp: the local hostname #{name.inspect} is not a host name")
   end
 
-  reply = try command(client, "EHLO #{name}", "EHLO")
-  refused = refusal(reply, [CODE_OK], "EHLO refused")
-  if refused != ""
-    return error(refused)
-  end
-
+  reply = try ask(client, "EHLO #{name}", "EHLO", [CODE_OK], "EHLO refused")
   # The first line is the server's greeting, the others are its features.
   features = reply.lines.drop(1).map do |line| line.strip.upcase end
   return ok(client.with(features: features))
 end
 
 ## Upgrades the connection with STARTTLS, which the server must have offered, and says EHLO again, since what a server
-## offers can change once the connection is private. The old socket is closed whatever happens.
+## offers can change once the connection is private. The client that comes back is the encrypted one, and the one
+## that went in is no longer usable. When STARTTLS is refused or fails, or the EHLO after it does, the connection is
+## closed: a caller never has to find a half-upgraded one. The only `error` that leaves it open is the one for a
+## server without STARTTLS, which is no reason to give up the connection (but nothing is sent over it either).
 export def starttls(client: Client) -> Result[Client]
   if client.secure
     return error("smtp: the connection is already encrypted")
@@ -170,16 +171,13 @@ export def starttls(client: Client) -> Result[Client]
     return error("smtp: the server does not offer STARTTLS, so nothing is sent over a plain connection")
   end
 
-  reply = try command(client, "STARTTLS", "STARTTLS")
-  refused = refusal(reply, [CODE_READY], "STARTTLS refused")
-  if refused != ""
-    return error(refused)
+  upgraded = upgrade(client)
+  if not upgraded.ok?
+    # Closing twice is fine: the upgrade has closed the plain socket and, when its EHLO failed, the encrypted one.
+    close(client)
   end
 
-  context = try tls_context(client.options)
-  upgraded = try TLS.upgrade(client.socket, context, tls_host(client.options.host), client.options.timeout_ms)
-  secure = client.with(socket: upgraded, secure: true, features: [])
-  return ehlo(secure)
+  return upgraded
 end
 
 ## Logs in with AUTH PLAIN, or AUTH LOGIN when the server only has that. A server that offers neither, and a login
@@ -206,7 +204,8 @@ end
 
 ## Sends a message on the connection: `MAIL FROM`, `RCPT TO` for each recipient, then the message. If the server
 ## refuses the sender, a recipient or the message, nothing is delivered (the others are not sent), the connection is
-## reset for the next message and the `error` has the code of the refusal.
+## reset for the next message and the `error` has the code of the refusal. An error without a code that comes from the
+## dialogue (a timeout, a line that is not a reply) closes the connection; one for a bad message does not touch it.
 export def send_message(client: Client, message: Mail.Message) -> Result[Void]
   prepared = try prepare(message)
   return deliver(client, prepared)
@@ -214,15 +213,10 @@ end
 
 ## Says QUIT and closes the connection, even when the server does not answer.
 export def quit(client: Client) -> Result[Void]
-  reply = command(client, "QUIT", "QUIT")
+  reply = ask(client, "QUIT", "QUIT", [CODE_CLOSING], "QUIT refused")
   close(client)
   if not reply.ok?
     return error(reply.message)
-  end
-
-  refused = refusal(reply.unwrap!, [CODE_CLOSING], "QUIT refused")
-  if refused != ""
-    return error(refused)
   end
 
   return ok()
@@ -276,6 +270,19 @@ def digit?(char: String) -> Bool
   return char.code >= 48 and char.code <= 57
 end
 
+def upgrade(client: Client) -> Result[Client]
+  _ = try ask(client, "STARTTLS", "STARTTLS", [CODE_READY], "STARTTLS refused")
+  context = try tls_context(client.options)
+  upgraded = try TLS.upgrade(client.socket, context, tls_host(client.options.host), client.options.timeout_ms)
+  secure = client.with(socket: upgraded, secure: true, features: [])
+  said = ehlo(secure)
+  if not said.ok?
+    close(secure)
+  end
+
+  return said
+end
+
 def prepare(message: Mail.Message) -> Result[Prepared]
   complete = Mail.complete(message)
   envelope = try Mail.envelope(complete)
@@ -283,17 +290,37 @@ def prepare(message: Mail.Message) -> Result[Prepared]
   return ok(Prepared(envelope: envelope, data: data))
 end
 
+# Each step that fails closes the client it started from (the one before an upgrade, which `starttls` closes itself),
+# so no error leaves a connection open.
 def setup(opened: Client) -> Result[Client]
-  client = try ehlo(opened)
-  if opened.options.security == Security.Starttls
-    client = try starttls(client)
+  said = ehlo(opened)
+  if not said.ok?
+    close(opened)
+    return error(said.message)
   end
 
-  if not client.options.username.empty?
-    try login(client, client.options.username, client.options.password)
+  client = said.unwrap!
+  if client.options.security == Security.Starttls
+    upgraded = starttls(client)
+    if not upgraded.ok?
+      close(client)
+      return error(upgraded.message)
+    end
+
+    client = upgraded.unwrap!
   end
 
-  return ok(client)
+  if client.options.username.empty?
+    return ok(client)
+  end
+
+  logged = login(client, client.options.username, client.options.password)
+  if not logged.ok?
+    close(client)
+    return error(logged.message)
+  end
+
+  return ok(client.with(options: client.options.with(password: "")))
 end
 
 def connect_socket(options: Options) -> Result[Socket]
@@ -337,38 +364,21 @@ end
 
 def auth_plain(client: Client, username: String, password: String) -> Result[Void]
   secret = Base64.strict_encode64("#{NUL}#{username}#{NUL}#{password}".bytes)
-  reply = try command(client, "AUTH PLAIN #{secret}", "AUTH")
-  refused = refusal(reply, [CODE_AUTHENTICATED], "authentication failed")
-  if refused != ""
-    return error(refused)
-  end
-
+  _ = try ask(client, "AUTH PLAIN #{secret}", "AUTH", [CODE_AUTHENTICATED], AUTH_FAILED)
   return ok()
 end
 
+# The user and the password each answer a 334 challenge.
 def auth_login(client: Client, username: String, password: String) -> Result[Void]
-  asked = try command(client, "AUTH LOGIN", "AUTH")
-  refused = refusal(asked, [CODE_CHALLENGE], "authentication failed")
-  if refused != ""
-    return error(refused)
-  end
-
-  named = try command(client, Base64.strict_encode64(username.bytes), "AUTH")
-  refused = refusal(named, [CODE_CHALLENGE], "authentication failed")
-  if refused != ""
-    return error(refused)
-  end
-
-  answered = try command(client, Base64.strict_encode64(password.bytes), "AUTH")
-  refused = refusal(answered, [CODE_AUTHENTICATED], "authentication failed")
-  if refused != ""
-    return error(refused)
-  end
-
+  _ = try ask(client, "AUTH LOGIN", "AUTH", [CODE_CHALLENGE], AUTH_FAILED)
+  _ = try ask(client, Base64.strict_encode64(username.bytes), "AUTH", [CODE_CHALLENGE], AUTH_FAILED)
+  _ = try ask(client, Base64.strict_encode64(password.bytes), "AUTH", [CODE_AUTHENTICATED], AUTH_FAILED)
   return ok()
 end
 
-# The transaction of one message. After a refusal the connection gets RSET, so the next message starts clean.
+# The transaction of one message. After a refusal the connection gets RSET, so the next message starts clean. An
+# error without a reply (a timeout, a line that is not a reply, a broken connection) leaves the dialogue in a state
+# that nobody knows, so the connection is closed.
 def deliver(client: Client, prepared: Prepared) -> Result[Void]
   sent = transact(client, prepared)
   if sent.ok?
@@ -376,9 +386,9 @@ def deliver(client: Client, prepared: Prepared) -> Result[Void]
   end
 
   if error_code(sent.message).some?
-    # A reply that refused: the connection is fine, so put it back at the start. Without a reply (a timeout) the
-    # socket is gone and there is nothing to reset.
     _ = command(client, "RSET", "RSET")
+  else
+    close(client)
   end
 
   return sent
@@ -386,33 +396,16 @@ end
 
 def transact(client: Client, prepared: Prepared) -> Result[Void]
   sender = prepared.envelope.sender
-  from = try command(client, "MAIL FROM:<#{sender}>", "MAIL FROM")
-  refused = refusal(from, [CODE_OK], "sender #{sender} refused")
-  if refused != ""
-    return error(refused)
-  end
-
+  _ = try ask(client, "MAIL FROM:<#{sender}>", "MAIL FROM", [CODE_OK], "sender #{sender} refused")
   for recipient in prepared.envelope.recipients
-    to = try command(client, "RCPT TO:<#{recipient}>", "RCPT TO")
-    refused = refusal(to, [CODE_OK, 251], "recipient #{recipient} refused")
-    if refused != ""
-      return error(refused)
-    end
+    refused = "recipient #{recipient} refused"
+    _ = try ask(client, "RCPT TO:<#{recipient}>", "RCPT TO", [CODE_OK, CODE_FORWARDED], refused)
   end
 
-  start = try command(client, "DATA", "DATA")
-  refused = refusal(start, [CODE_START_DATA], "the server refused DATA")
-  if refused != ""
-    return error(refused)
-  end
-
+  _ = try ask(client, "DATA", "DATA", [CODE_START_DATA], "the server refused DATA")
   try write(client, "#{dot_stuff(prepared.data)}.#{CRLF}", "the message")
   done = try read_reply(client, "the end of the message")
-  refused = refusal(done, [CODE_OK], "the message was refused")
-  if refused != ""
-    return error(refused)
-  end
-
+  _ = try expect(done, [CODE_OK], "the message was refused")
   return ok()
 end
 
@@ -430,9 +423,24 @@ def stuffed(line: String) -> String
   return line
 end
 
-def command(client: Client, line: String, what: String) -> Result[Reply]
-  try write(client, "#{line}#{CRLF}", what)
-  return read_reply(client, "the reply to #{what}")
+# Sends a command and gives its reply when its code is one of `accepted`, else the `error` of the refusal.
+def ask(client: Client, line: String, name: String, accepted: List[Int], refusal: String) -> Result[Reply]
+  reply = try command(client, line, name)
+  return expect(reply, accepted, refusal)
+end
+
+def command(client: Client, line: String, name: String) -> Result[Reply]
+  try write(client, "#{line}#{CRLF}", name)
+  return read_reply(client, "the reply to #{name}")
+end
+
+# The reply when it has one of the codes, else an `error` with the code, what was refused and what the server said.
+def expect(reply: Reply, accepted: List[Int], refusal: String) -> Result[Reply]
+  if accepted.include?(reply.code)
+    return ok(reply)
+  end
+
+  return error("smtp #{reply.code}: #{refusal}: #{reply.lines.join(" ")}")
 end
 
 def write(client: Client, text: String, what: String) -> Result[Void]
@@ -444,33 +452,64 @@ def write(client: Client, text: String, what: String) -> Result[Void]
   return error(network_failure(sent.message, "sending #{what}"))
 end
 
-# A reply is one or more lines `250-text`, and the last one is `250 text` (RFC 5321 4.2). Every line has the same
-# code. The wait for each line has the timeout of the client.
+# A reply is one or more lines `250-text`, and the last one is `250 text` or just `250` (RFC 5321 4.2). Every line has
+# the same code, three digits that start with 2 to 5. The timeout is for the whole reply, so a server that sends a line
+# now and then cannot keep the client waiting; the socket is closed when the time is up, as a timeout of a read does.
 def read_reply(client: Client, what: String) -> Result[Reply]
   lines: List[String] = []
   code = 0
+  deadline = Time.monotonic_ms() + client.options.timeout_ms
   for _ in 0...MAX_REPLY_LINES
-    read = TCP.read_line(client.socket, client.options.timeout_ms)
+    remaining = deadline - Time.monotonic_ms()
+    if remaining <= 0
+      close(client)
+      return error("smtp: timed out waiting for #{what}")
+    end
+
+    read = TCP.read_line(client.socket, remaining)
     if not read.ok?
       return error(network_failure(read.message, "waiting for #{what}"))
     end
 
     line = read.unwrap!
-    number = line.slice(0, 3).to_i
-    separator = line.slice(3, 1)
-    valid = line.length >= 3 and number.ok? and (line.length == 3 or separator == " " or separator == "-")
-    if not valid or (code != 0 and number.unwrap! != code)
+    number = reply_code(line)
+    if number < 0 or (code != 0 and number != code)
       return error("smtp: the server sent a line that is not a reply while #{what} was awaited")
     end
 
-    code = number.unwrap!
-    lines = lines.push(line.slice(4, line.length - 4))
-    if line.length == 3 or separator == " "
+    code = number
+    text = ""
+    if line.length > 4
+      text = line.slice(4, line.length - 4)
+    end
+
+    lines = lines.push(text)
+    if line.length == 3 or line.slice(3, 1) == " "
       return ok(Reply(code: code, lines: lines))
     end
   end
 
+  close(client)
   return error("smtp: the reply to #{what} has more than #{MAX_REPLY_LINES} lines")
+end
+
+# The code of a reply line, or -1 when the line is not one: three digits, the first from 2 to 5, then nothing, a space
+# or a hyphen.
+def reply_code(line: String) -> Int
+  if line.length < 3 or not line.slice(0, 3).split("").all? do |char| digit?(char) end
+    return -1
+  end
+
+  if line.length > 3 and line.slice(3, 1) != " " and line.slice(3, 1) != "-"
+    return -1
+  end
+
+  code = line.slice(0, 3).to_i!()
+  if code < MIN_REPLY_CODE or code > MAX_REPLY_CODE
+    return -1
+  end
+
+  return code
 end
 
 def network_failure(message: String, doing: String) -> String
@@ -479,14 +518,4 @@ def network_failure(message: String, doing: String) -> String
   end
 
   return "smtp: the connection failed while #{doing}: #{message}"
-end
-
-# An empty text when the reply has one of the codes, else the `error` text for the refusal: the code, what was
-# refused and what the server said.
-def refusal(reply: Reply, accepted: List[Int], what: String) -> String
-  if accepted.include?(reply.code)
-    return ""
-  end
-
-  return "smtp #{reply.code}: #{what}: #{reply.lines.join(" ")}"
 end
