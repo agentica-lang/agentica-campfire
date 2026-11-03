@@ -22,6 +22,16 @@ export def migrate(url: String) -> Result[Schema]
   return ok(Schema(version: Migrations.latest(), applied: applied))
 end
 
+## Opens the database at `url`, runs `body` with the connection and closes it, whatever `body` gives. A request opens
+## its own: a connection belongs to the task that opened it, and Bond runs each request in a task of its own. (A
+## `sqlite::memory:` database is private to its connection, so a url for the app is a file.)
+export def with_connection[R](url: String, body: Fn[Db.Connection, Result[R]]) -> Result[R]
+  conn = try Db.open(url)
+  outcome = body.call(conn)
+  Db.close(conn)
+  return outcome
+end
+
 # The cascades of the schema (a room takes its messages, and through them the search index) need foreign keys on, and
 # a `foreign_keys=off` in the url turns them off without a word.
 def migrate_open(conn: Db.Connection) -> Result[List[Int]]

@@ -4,7 +4,7 @@ Group chat written in [Agentica](https://github.com/agentica-lang/agentica): a p
 
 This is an independent project. It is not affiliated with or endorsed by 37signals. Campfire is MIT licensed (copyright 37signals, LLC). Any CSS, JavaScript or images reused from it keep that copyright and license notice, and the notice is added to this repository when the first file is copied.
 
-Status: a skeleton with a database. A Bond server with a home page (an EAG template that escapes what it inserts) and a health route, on a SQLite database whose schema (accounts, users, sessions, rooms, memberships, messages, boosts, attachments, webhooks and the message search index) is created by numbered migrations at start-up. See [docs/plan.md](docs/plan.md) for what Agentica, Bond and agentica-db still need, the MVP and the phases.
+Status: a skeleton with a database and sign-in. A Bond server on a SQLite database whose schema (accounts, users, sessions, rooms, memberships, messages, boosts, attachments, webhooks and the message search index) is created by numbered migrations at start-up. On the first run there is no account, so every page sends the visitor to a setup form that makes the first user, an administrator; after that people sign in with an email and a password, and sign out. The home page needs a sign-in; `GET /health` does not. See [docs/plan.md](docs/plan.md) for what Agentica, Bond and agentica-db still need, the MVP and the phases.
 
 ## Run
 
@@ -12,8 +12,12 @@ Needs [Agentica](https://github.com/agentica-lang/agentica) 0.23.0 or later on `
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by commit in agentica.toml) into deps/
-make run       # http://127.0.0.1:3000/
+CAMPFIRE_SESSION_SECRET=$(openssl rand -hex 32) make run   # http://127.0.0.1:3000/
 ```
+
+Open the address: the app has no account yet, so it shows the setup form (your name, an email and a password of at least 8 characters). That makes the administrator and signs you in.
+
+`CAMPFIRE_SESSION_SECRET` is required, at least 32 bytes, and has no default: it signs the session cookie, so keep it out of the repository and the image, and use the same value on every start (a new one signs everybody out). Behind HTTPS set `CAMPFIRE_SECURE_COOKIES=true`, which makes the cookie `Secure` with the `__Host-` prefix (a browser then refuses it over plain HTTP). The cookie holds a random token that is checked against the `sessions` table, lasts 30 days and is `HttpOnly` with `SameSite=Lax`; signing out deletes the row, so a copy of the cookie stops working. Passwords are stored as scrypt digests (cost 2^16, block size 8, two lanes, a random salt each, in the form `scrypt$N$r$p$salt$key`) and never logged. Forms are protected against other sites with Bond's `Sec-Fetch-Site` and `Origin` check, with no token.
 
 `CAMPFIRE_HOST` and `CAMPFIRE_PORT` change where it listens (`CAMPFIRE_PORT=0` picks a free port, and the last line of output says which). `GET /health` answers `{"schema_version":10,"status":"ok"}`.
 
@@ -21,7 +25,7 @@ The app keeps its files in `CAMPFIRE_DATA_DIR` (`data/` by default, no `?` in it
 
 ## Develop
 
-The tests are BDD first: `specs/home.feature` and `specs/database.feature` start the app on 127.0.0.1 and a free port, with a fresh database, and talk to it over HTTP; `specs/schema.feature` checks the rules of the schema (foreign keys, unique values, the search index) through SQL steps; `test/` has unit tests of the config and the layout.
+The tests are BDD first: `specs/auth.feature`, `specs/session_config.feature`, `specs/home.feature` and `specs/database.feature` start the app on 127.0.0.1 and a free port, with a fresh database and a session secret of their own, and talk to it over HTTP with a small browser that keeps cookies (`specs/http_steps.agc`); `specs/schema.feature` checks the rules of the schema (foreign keys, unique values, the search index) through SQL steps; `test/` has unit tests of the config, the password hashing and the layout. Hashing a password takes about a second at this cost, so the suite takes under a minute.
 
 ```sh
 make check

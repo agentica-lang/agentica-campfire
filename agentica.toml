@@ -5,5 +5,5 @@ name = "campfire"
 blank_line_after_end = true
 
 [dependencies]
-bond = { git = "https://github.com/agentica-lang/bond", ref = "89d41f8d38607c12e3571e17379f6722fd686423" }
+bond = { git = "https://github.com/agentica-lang/bond", ref = "fbc1608ecccaca90f33ccde347906ddef8f10df5" }
 db = { git = "https://github.com/agentica-lang/agentica-db", ref = "6459951caca69d791880bfe04ef3047a7e5a2f5a" }

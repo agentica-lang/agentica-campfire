@@ -21,7 +21,7 @@ export def start(config: Config) -> Result[HttpServer]
 
   schema = migrated.unwrap!
   puts("database: schema version #{schema.version}, migrations applied: #{schema.applied.length}")
-  started = Bond.start(Web.build(schema.version), config.host, config.port)
+  started = Bond.start(Web.build(config, schema.version), config.host, config.port)
   if not started.ok?
     # The system's message names the host and the port, not the variables that a person has to change.
     return error("cannot listen on #{config.host}:#{config.port} (CAMPFIRE_HOST, CAMPFIRE_PORT): #{started.message}")
