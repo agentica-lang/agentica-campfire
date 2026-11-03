@@ -2,6 +2,7 @@
 
 import Bond from "pkg/bond/bond"
 import AuthWeb from "auth_web"
+import Routes from "routes"
 import Views from "views"
 import {Config} from "config"
 
@@ -16,8 +17,8 @@ export def build(config: Config, schema_version: Int) -> Bond.App
   return (
     Bond.app()
     |> AuthWeb.add(config)
-    |> Bond.get("/") do |conn| home(conn, config) end
-    |> Bond.get("/health") do |conn| health(conn, schema_version) end
+    |> Bond.get(Routes.HOME) do |conn| home(conn, config) end
+    |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
   )
 end
 
@@ -27,7 +28,7 @@ def home(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
   user = try AuthWeb.current_user(conn, config)
   case user
     some(person) -> return ok(Bond.html(conn, 200, Views.home(person.name)))
-    none -> return ok(Bond.redirect(conn, "/session/new"))
+    none -> return ok(Bond.redirect(conn, Routes.SIGN_IN))
   end
 end
 

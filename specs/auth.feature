@@ -32,6 +32,9 @@ Feature: First run, sign in and sign out
     And the header "location" is "/"
     And the header "set-cookie" contains "HttpOnly"
     And the header "set-cookie" contains "SameSite=Lax"
+    And the header "set-cookie" contains "_campfire_session="
+    And the header "set-cookie" does not contain "Secure"
+    And the header "set-cookie" does not contain "__Host-"
     When I get "/"
     Then the status is 200
     And the body contains "Signed in as Ana"
@@ -68,6 +71,35 @@ Feature: First run, sign in and sign out
     Then the status is 422
     And the body contains "value=\"&lt;script&gt;alert(1)&lt;/script&gt;\""
     And the body does not contain "<script>alert(1)</script>"
+
+  Scenario: A quote in a value cannot leave its attribute when the form is shown again
+    When I post to "/first_run" the form:
+      | name     | " onfocus='alert(1)' x="  |
+      | email    | nope                      |
+      | password | correct horse battery     |
+    Then the status is 422
+    And the body contains "value=\"&quot; onfocus=&#39;alert(1)&#39; x=&quot;\""
+
+  Scenario: A closed app answers a bad first-run form with a redirect, before any hashing
+    Given the first admin exists
+    And the browser has no cookies
+    When I post to "/first_run" the form:
+      | name     |       |
+      | email    | nope  |
+      | password | short |
+    Then the status is 302
+    And the header "location" is "/"
+
+  Scenario: Forms that arrive together make one account and one user
+    When I post to "/first_run" 4 times at once the form:
+      | name     | Ana                   |
+      | email    | ana@example.com       |
+      | password | correct horse battery |
+    Then each status is one of "302, 503"
+    And at least one status is 302
+    And the query "select count(*) from accounts" gives 1
+    And the query "select count(*) from users" gives 1
+    And the query "select count(*) from sessions" gives 1
 
   Scenario: The first run happens once
     Given the first admin exists
@@ -143,6 +175,42 @@ Feature: First run, sign in and sign out
       | ana@example.com | not the password      |
       | bea@example.com | correct horse battery |
 
+  Scenario: A bot cannot sign in
+    Given the first admin exists
+    And the browser has no cookies
+    And I run the sql "insert into users (name, role, bot_token) values ('Hook', 'bot', 'tok')"
+    When I post to "/session" the form:
+      | email    |     |
+      | password | tok |
+    Then the status is 422
+    And the body contains "Wrong email or password"
+    And the query "select count(*) from sessions" gives 1
+
+  Scenario Outline: A value that is too long is refused like an unknown email, without hashing it
+    Given the first admin exists
+    And the browser has no cookies
+    When I post to "/session" the form:
+      | email    | <email>    |
+      | password | <password> |
+    Then the status is 422
+    And the body contains "Wrong email or password"
+
+    Examples:
+      | email                | password                                                                                                                                                                                                                                                                         |
+      | ana@example.com      | pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp |
+      | eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee@example.com | correct horse battery |
+
+  Scenario: Many sign-ins at once are answered, or turned away with a 503, and the app keeps serving
+    Given the first admin exists
+    And the browser has no cookies
+    When I post to "/session" 8 times at once the form:
+      | email    | ana@example.com  |
+      | password | not the password |
+    Then each status is one of "422, 503"
+    And at least one status is 422
+    When I get "/health"
+    Then the status is 200
+
   Scenario: A user that was deactivated loses the session and cannot sign in
     Given the first admin exists
     And I run the sql "update users set active = 0"
@@ -184,6 +252,20 @@ Feature: First run, sign in and sign out
       | password | correct horse battery |
     Then the status is 403
     And the query "select count(*) from users" gives 0
+
+  Scenario Outline: A page of another site cannot sign in or sign out for the visitor
+    Given the first admin exists
+    And the request header "sec-fetch-site" is "cross-site"
+    When I post to "<path>" the form:
+      | email    | ana@example.com       |
+      | password | correct horse battery |
+    Then the status is 403
+    And the query "select count(*) from sessions" gives 1
+
+    Examples:
+      | path      |
+      | /session  |
+      | /sign_out |
 
   Scenario: A signed-in visitor does not see the sign-in page
     Given the first admin exists

@@ -6,8 +6,8 @@
 import Db from "pkg/db/db"
 import Passwords from "passwords"
 
-## The name of the account that the first run makes.
-export ACCOUNT_NAME = "Campfire"
+# The name of the account that the first run makes.
+ACCOUNT_NAME = "Campfire"
 
 ADMINISTRATOR = "administrator"
 MAX_NAME_LENGTH = 100
@@ -47,6 +47,13 @@ export def first_run(
   password: String,
   user_agent: String,
 ) -> Result[FirstRun]
+  # Before the form and the hashing: once the app has its account, any form is a redirect and costs nothing. The
+  # transaction below checks again, for the forms that were sent together.
+  exists = try account_exists?(conn)
+  if exists
+    return ok(FirstRun.Closed)
+  end
+
   problem = form_problem(name, email, password)
   if problem != ""
     return ok(FirstRun.Invalid(problem))
@@ -71,6 +78,12 @@ export def sign_in(
   password: String,
   user_agent: String,
 ) -> Result[Optional[String]]
+  # Nothing that long is a real email or password, and hashing one is work that a stranger could ask for.
+  if email.length > MAX_EMAIL_LENGTH or password.bytes.size > Passwords.MAX_BYTES
+    Passwords.verify_nobody?()
+    return ok(none)
+  end
+
   rows = try Db.query(
     conn,
     "select id, password_digest from users where email = ? and active = 1 and role <> 'bot'",
@@ -78,7 +91,7 @@ export def sign_in(
   )
 
   if rows.empty?
-    Passwords.verify_nobody?(password)
+    Passwords.verify_nobody?()
     return ok(none)
   end
 

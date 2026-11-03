@@ -2,20 +2,21 @@
 ## the cost that made it and `verify?` still works after the cost is raised for new passwords.
 
 # OWASP's scrypt setting for a cost of 2^16 (64 MiB of memory) with two lanes. The call runs to its end on its
-# scheduler (see `KDF` in the library), so this is the time one sign-in takes of it.
+# scheduler (see `KDF` in the library), so this is the time one sign-in takes of it. Until the builtin can be moved off
+# the scheduler (agentica-lang/agentica#1049), `Slots` in `AuthWeb` bounds how many run at once.
 COST = 65_536
 BLOCK_SIZE = 8
 PARALLELISM = 2
 KEY_BYTES = 32
 SALT_BYTES = 16
 SCHEME = "scrypt"
-
-# The digest of a password that nobody has, made with the cost above and zero bytes for salt and key.
-NOBODY_DIGEST = "scrypt$65536$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+NOBODY_SALT = "nobody has this password"
+NOBODY_PASSWORD = "nobody"
 DIGEST_PARTS = 6
 
-## The fewest characters of a password, and the most bytes (a bound for the work that one request can ask for).
-export MIN_LENGTH = 8
+MIN_LENGTH = 8
+
+## The most bytes of a password. `sign_in` refuses a longer one without hashing it.
 export MAX_BYTES = 256
 
 ## What is wrong with `password` as a new password, or "" when it is fine.
@@ -69,8 +70,10 @@ export def verify?(password: String, digest: String) -> Bool
   return key.ok? and HMAC.secure_compare(key.unwrap!, expected.unwrap!)
 end
 
-## Does the work of `verify?` against a digest that nobody has, and gives false. Sign-in calls it for an email that no
-## user has, so that the time does not tell whether the email is registered.
-export def verify_nobody?(password: String) -> Bool
-  return verify?(password, NOBODY_DIGEST)
+## Does the work of `verify?` for a password that nobody has, with the cost of `hash`, and gives false. Sign-in calls
+## it for an email that no user has, so that the time does not tell whether the email is registered.
+export def verify_nobody?() -> Bool
+  key = KDF.scrypt(NOBODY_PASSWORD.bytes, NOBODY_SALT.bytes, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
+  # A key is never empty (it has KEY_BYTES), so this is false; it reads the key so the work is not dropped.
+  return key.ok? and key.unwrap!.empty?
 end

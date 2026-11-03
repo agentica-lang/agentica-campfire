@@ -12,7 +12,8 @@ src/            config.agc (host, port, data folder, database url, session secre
                 migrate; `with_connection` for a request), migrations.agc (the schema, one numbered
                 migration per table), web.agc (routes), auth_web.agc (cookie sessions, CSRF, the sign-in
                 filter, the routes of first run, sign in and sign out), auth.agc (those over SQL),
-                passwords.agc (scrypt), views.agc (EAG templates)
+                passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the paths),
+                views.agc (EAG templates)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), fixtures/server.agc (the app, from the environment
                 that the steps set)

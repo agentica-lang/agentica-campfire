@@ -10,14 +10,15 @@ export DEFAULT_PORT = "3000"
 export DEFAULT_DATA_DIR = "data"
 
 ## The shortest session secret, the size of the SHA-256 digest that signs the cookie (Bond refuses a shorter one).
-export MIN_SECRET_BYTES = 32
+MIN_SECRET_BYTES = 32
 
 ## Cookies are `Secure` only when the environment says so, since a browser drops them on plain HTTP (a laptop).
 export DEFAULT_SECURE_COOKIES = "false"
 
 ## The address to listen on, the data folder and the url of the database. Port 0 asks the system for a free port (the
 ## specs use it). `session_secret` signs the session cookie and has no default, since a default is a secret that
-## everyone knows. `secure_cookies` is for an app behind HTTPS.
+## everyone knows; a `Config` must never be printed or logged, for it holds that secret. `secure_cookies` is for an
+## app behind HTTPS.
 export struct Config
   host: String
   port: Int

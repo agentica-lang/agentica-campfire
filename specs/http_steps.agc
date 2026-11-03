@@ -14,6 +14,8 @@ export ADMIN_EMAIL = "ana@example.com"
 export ADMIN_PASSWORD = "correct horse battery"
 
 REPLY = "reply"
+STATUSES = "statuses"
+ALL_AT_ONCE_MS = 60_000
 BROWSER = "browser"
 FORM_TYPE = "application/x-www-form-urlencoded"
 
@@ -21,6 +23,10 @@ struct Reply
   status: Int
   headers: Map[String, String]
   body: String
+end
+
+struct Statuses
+  values: List[Int]
 end
 
 # `saved` is the copy that `the browser saves a copy of its cookies` makes.
@@ -35,11 +41,15 @@ export def steps() -> List[BDD.Step]
   return [
     BDD.step("I get {string}", &get),
     BDD.step("I post to {string} the form:", &post_form),
+    BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
     BDD.step("I post nothing to {string}", &post_nothing),
     BDD.step("the first admin exists", &first_admin),
     BDD.step("the status is {int}", &status_is),
     BDD.step("the header {string} is {string}", &header_is),
     BDD.step("the header {string} contains {string}", &header_contains),
+    BDD.step("the header {string} does not contain {string}", &header_lacks),
+    BDD.step("each status is one of {string}", &each_status_is_one_of),
+    BDD.step("at least one status is {int}", &some_status_is),
     BDD.step("the body is {string}", &body_is),
     BDD.step("the body contains {string}", &body_contains),
     BDD.step("the body does not contain {string}", &body_lacks),
@@ -84,8 +94,41 @@ def first_admin(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 def send(ctx: BDD.Context, method: String, path: String, body: String) -> BDD.Context
-  port = JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
   state = browser(ctx)
+  response = perform(port_of(ctx), state, method, path, body)
+  if not response.ok?
+    return BDD.assert(ctx, false, "#{method} #{path} failed: #{response.message}")
+  end
+
+  kept = state.with(cookies: cookies_after(state.cookies, response.unwrap!))
+  return BDD.set(BDD.set(ctx, REPLY, JSON.from(reply_of(response.unwrap!))), BROWSER, JSON.from(kept))
+end
+
+# The same form, sent `args[1]` times in parallel by the browser as it is. The statuses are kept for the steps that
+# read them; the answers themselves (and their cookies) are not, since each request is its own.
+def post_form_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
+  body = URI.encode_www_form(pairs)
+  port = port_of(ctx)
+  state = browser(ctx)
+  count = args[1].to_i!
+  attempts = (1..count).to_a
+  answers = Task.map(attempts, count, ALL_AT_ONCE_MS) do |_| post_status(port, state, args[0], body) end
+  failed = answers.select do |answer| not answer.ok? end
+  if not failed.empty?
+    return BDD.assert(ctx, false, "a request failed: #{failed[0].message}")
+  end
+
+  statuses = answers.map do |answer| answer.unwrap! end
+  return BDD.set(ctx, STATUSES, JSON.from(Statuses(values: statuses)))
+end
+
+def post_status(port: Int, state: Browser, path: String, body: String) -> Result[Int]
+  response = try perform(port, state, "POST", path, body)
+  return ok(response.status)
+end
+
+def perform(port: Int, state: Browser, method: String, path: String, body: String) -> Result[HttpResponse]
   headers = state.headers.keys.map do |name| Header(name: name, value: state.headers.get(name, "")) end
   if not state.cookies.empty?
     pairs = state.cookies.keys.map do |name| "#{name}=#{state.cookies.get(name, "")}" end
@@ -96,16 +139,14 @@ def send(ctx: BDD.Context, method: String, path: String, body: String) -> BDD.Co
     headers = headers.push(Header(name: "content-type", value: FORM_TYPE))
   end
 
-  client = HTTP.client().unwrap!
+  client = try HTTP.client()
   response = HTTP.request(client, method, "http://127.0.0.1:#{port}#{path}", body.bytes, headers)
   HTTP.close_client(client)
-  if not response.ok?
-    return BDD.assert(ctx, false, "#{method} #{path} failed: #{response.message}")
-  end
+  return response
+end
 
-  reply = reply_of(response.unwrap!)
-  kept = state.with(cookies: cookies_after(state.cookies, response.unwrap!))
-  return BDD.set(BDD.set(ctx, REPLY, JSON.from(reply)), BROWSER, JSON.from(kept))
+def port_of(ctx: BDD.Context) -> Int
+  return JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
 end
 
 # A `Set-Cookie` with an empty value, or `Max-Age=0`, deletes the cookie, as a browser does.
@@ -204,4 +245,26 @@ end
 def body_lacks(ctx: BDD.Context, args: List[String]) -> BDD.Context
   reply = last_reply(ctx)
   return BDD.assert(ctx, not reply.body.include?(args[0]), "the body is #{reply.body}")
+end
+
+def header_lacks(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  value = last_reply(ctx).headers.get(args[0].downcase, "")
+  return BDD.assert(ctx, not value.include?(args[1]), "the header #{args[0]} is #{value.inspect}")
+end
+
+def statuses_of(ctx: BDD.Context) -> List[Int]
+  return JSON.decode(BDD.get(ctx, STATUSES).unwrap!, Statuses).unwrap!.values
+end
+
+# `args[0]` is a list of statuses separated by commas, such as "302, 503".
+def each_status_is_one_of(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  allowed = args[0].split(",").map do |text| text.strip.to_i! end
+  statuses = statuses_of(ctx)
+  stray = statuses.select do |status| not allowed.include?(status) end
+  return BDD.assert(ctx, stray.empty?, "the statuses are #{statuses}, and only #{allowed} may be")
+end
+
+def some_status_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  statuses = statuses_of(ctx)
+  return BDD.assert(ctx, statuses.include?(args[0].to_i!), "the statuses are #{statuses}")
 end

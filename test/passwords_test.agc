@@ -27,7 +27,7 @@ def main() -> Void
     end,
     Test.test("checking against nobody takes the work of a real check") do
       started = Time.now_ms()
-      try Test.assert(not Passwords.verify_nobody?("anything at all"), "nobody has a password")
+      try Test.assert(not Passwords.verify_nobody?(), "nobody has a password")
       Test.assert(Time.now_ms() - started >= MIN_WORK_MS, "the check was too quick to hide a missing user")
     end,
     Test.test("a new password needs 8 characters and at most 256 bytes") do
