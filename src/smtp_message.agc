@@ -5,6 +5,9 @@
 
 import UTC from "std/utc"
 
+# The line end of a message (RFC 5322 2.1).
+CRLF = "\r\n"
+
 # The longest header line that folding aims for (RFC 5322 asks for 78 or less, and the line ends take two more).
 FOLD_WIDTH = 76
 
@@ -161,12 +164,12 @@ export def render(message: Message) -> Result[String]
     lines = lines.push(fold(field.name, field.value))
   end
 
-  head = lines.join("\r\n")
-  if head.split("\r\n").any? do |line| line.bytesize > MAX_HEADER_LINE end
+  head = lines.join(CRLF)
+  if head.split(CRLF).any? do |line| line.bytesize > MAX_HEADER_LINE end
     return error("a header line is longer than #{MAX_HEADER_LINE} octets, which RFC 5322 does not allow")
   end
 
-  return ok("#{head}\r\n#{body(message)}")
+  return ok("#{head}#{CRLF}#{body(message)}")
 end
 
 # Every value a person wrote goes through here before it becomes part of a line: a CR or LF would end the header and
@@ -186,6 +189,10 @@ def check_headers(message: Message) -> Result[Void]
     return error("the date and the message id must be ASCII")
   end
 
+  if not message.message_id.empty? and not message_id?(message.message_id)
+    return error("the message id must look like <local@domain>, not #{message.message_id.inspect}")
+  end
+
   if control?(message.subject.replace("\t", " "))
     return error("the subject must not hold a line break or another control character: #{message.subject.inspect}")
   end
@@ -195,6 +202,22 @@ def check_headers(message: Message) -> Result[Void]
   end
 
   return ok()
+end
+
+# RFC 5322 3.6.4: `<` id-left `@` id-right `>`. The parts are not parsed further than that they exist and hold no
+# white space or angle bracket, which would end the id early.
+def message_id?(id: String) -> Bool
+  if not id.start_with?("<") or not id.end_with?(">") or id.length < 5
+    return false
+  end
+
+  inner = id.slice(1, id.length - 2)
+  parts = inner.split("@")
+  if parts.size != 2 or parts[0].empty? or parts[1].empty?
+    return false
+  end
+
+  return not inner.split("").any? do |char| char == " " or char == "<" or char == ">" or char == "\t" end
 end
 
 def check_field(field: Field) -> Result[Void]
@@ -375,24 +398,25 @@ def fold(name: String, value: String) -> String
     end
   end
 
-  return lines.push(line).join("\r\n")
+  return lines.push(line).join(CRLF)
 end
 
 # The content headers, an empty line and the body, with a final line end.
 def body(message: Message) -> String
   if message.html.empty?
-    return "#{part("text/plain", message.text)}\r\n"
+    return "#{part("text/plain", message.text)}#{CRLF}"
   end
 
   if message.text.empty?
-    return "#{part("text/html", message.html)}\r\n"
+    return "#{part("text/html", message.html)}#{CRLF}"
   end
 
   boundary = boundary_for(message.text, message.html)
   text = chomp(part("text/plain", message.text))
   html = chomp(part("text/html", message.html))
-  head = "Content-Type: multipart/alternative; boundary=\"#{boundary}\"\r\n"
-  return "#{head}\r\n--#{boundary}\r\n#{text}\r\n--#{boundary}\r\n#{html}\r\n--#{boundary}--\r\n"
+  head = "Content-Type: multipart/alternative; boundary=\"#{boundary}\"#{CRLF}"
+  delimiter = "#{CRLF}--#{boundary}"
+  return "#{head}#{delimiter}#{CRLF}#{text}#{delimiter}#{CRLF}#{html}#{delimiter}--#{CRLF}"
 end
 
 # The headers of a body part, an empty line and its text, without a final line end.
@@ -405,13 +429,13 @@ def part(content_type: String, text: String) -> String
     encoded = quoted_printable(normal)
   end
 
-  head = "Content-Type: #{content_type}; charset=utf-8\r\nContent-Transfer-Encoding: #{encoding}"
-  return "#{head}\r\n\r\n#{chomp(encoded)}"
+  head = "Content-Type: #{content_type}; charset=utf-8#{CRLF}Content-Transfer-Encoding: #{encoding}"
+  return "#{head}#{CRLF}#{CRLF}#{chomp(encoded)}"
 end
 
 def chomp(text: String) -> String
-  if text.end_with?("\r\n")
-    return text.slice(0, text.length - 2)
+  if text.end_with?(CRLF)
+    return text.slice(0, text.length - CRLF.length)
   end
 
   return text
@@ -430,7 +454,7 @@ def boundary_for(text: String, html: String) -> String
 end
 
 def crlf(text: String) -> String
-  return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+  return text.replace(CRLF, "\n").replace("\r", "\n").replace("\n", CRLF)
 end
 
 # 7bit is allowed for ASCII text with short lines and no control characters but the tab.
@@ -443,13 +467,13 @@ def plain_body?(text: String) -> Bool
     return false
   end
 
-  return text.split("\r\n").all? do |line| line.length <= MAX_BODY_LINE end
+  return text.split(CRLF).all? do |line| line.length <= MAX_BODY_LINE end
 end
 
 # RFC 2045 quoted-printable of text with CRLF line ends. Each line is cut at 75 characters with a soft break `=`, and
 # a space or tab that ends a line is written as `=20` or `=09` (a reader drops trailing white space).
 def quoted_printable(text: String) -> String
-  return text.split("\r\n").map do |line| qp_line(line) end.join("\r\n")
+  return text.split(CRLF).map do |line| qp_line(line) end.join(CRLF)
 end
 
 def qp_line(line: String) -> String
@@ -460,7 +484,7 @@ def qp_line(line: String) -> String
   for index in 0..last
     token = qp_token(bytes[index], index == last)
     if width + token.length > QP_WIDTH
-      out = out.push("=\r\n")
+      out = out.push("=#{CRLF}")
       width = 0
     end
 

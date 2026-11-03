@@ -21,6 +21,9 @@ export DEFAULT_SECURE_COOKIES = "false"
 ## The plain port that a `smtp+plain://` url uses when it names none (a mail catcher on this machine).
 PLAIN_SMTP_PORT = 25
 
+## The form of `CAMPFIRE_BASE_URL`.
+BASE_URL_FORM = "https://campfire.example.com (a scheme, a host and maybe a port)"
+
 ## The form of `CAMPFIRE_SMTP_URL`, which the errors tell instead of the url: it holds the password.
 SMTP_URL_FORM = (
   "smtp://user:password@host:587 (smtps:// for TLS from the first byte, smtp+plain:// for this machine only)"
@@ -30,7 +33,9 @@ SMTP_URL_FORM = (
 ## specs use it). `session_secret` signs the session cookie and has no default, since a default is a secret that
 ## everyone knows; a `Config` must never be printed or logged, for it holds that secret. `secure_cookies` is for an
 ## app behind HTTPS. `smtp` is how to send email, or `none` when `CAMPFIRE_SMTP_URL` is not set; it holds the SMTP
-## password, so it is as secret as the session secret.
+## password, so it is as secret as the session secret. `base_url` is the public address of the app without a trailing
+## slash (the links in emails start with it), and `mail_from` the sender of those emails: both are empty while `smtp`
+## is `none`.
 export struct Config
   host: String
   port: Int
@@ -39,6 +44,14 @@ export struct Config
   session_secret: String
   secure_cookies: Bool
   smtp: Optional[Smtp.Options]
+  base_url: String
+  mail_from: String
+end
+
+# What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
+struct Mail
+  smtp: Optional[Smtp.Options]
+  from: String
 end
 
 struct SmtpLogin
@@ -52,8 +65,9 @@ struct SmtpPlace
 end
 
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
-## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES` and `CAMPFIRE_SMTP_URL`, with the defaults for a variable that
-## is not set (the secret has none, and without the url there is no email). An `error` says which value is wrong.
+## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`
+## and `CAMPFIRE_SMTP_HOSTNAME`, with the defaults for a variable that is not set (the secret has none, and without the
+## smtp url there is no email). An `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
@@ -62,7 +76,21 @@ export def load() -> Result[Config]
   secret = System.env("CAMPFIRE_SESSION_SECRET").unwrap_or("")
   secure_cookies = System.env("CAMPFIRE_SECURE_COOKIES").unwrap_or(DEFAULT_SECURE_COOKIES)
   smtp_url = System.env("CAMPFIRE_SMTP_URL").unwrap_or("")
-  return parse(host, port, data_dir, database_url, secret, secure_cookies, smtp_url)
+  base_url = System.env("CAMPFIRE_BASE_URL").unwrap_or("")
+  smtp_from = System.env("CAMPFIRE_SMTP_FROM").unwrap_or("")
+  smtp_hostname = System.env("CAMPFIRE_SMTP_HOSTNAME").unwrap_or("")
+  return parse(
+    host,
+    port,
+    data_dir,
+    database_url,
+    secret,
+    secure_cookies,
+    smtp_url,
+    base_url,
+    smtp_from,
+    smtp_hostname,
+  )
 end
 
 ## A `Config` from the text of a host, a port, a data folder, a database url, a session secret and the secure cookies
@@ -73,7 +101,11 @@ end
 ## email; otherwise it is `smtp://user:password@host:587` (STARTTLS, which the server must offer; `smtp+starttls://` is
 ## the same), `smtps://` (TLS from the first byte, port 465 by default) or `smtp+plain://` (no TLS, for a host on this
 ## machine only), with the user and the password percent-encoded and both left out for a server without login. The
-## `error` for a bad url never has it.
+## `error` for a bad url never has it. With a smtp url, `base_url` (`https://campfire.example.com`: a scheme, a host
+## and maybe a port, no path) is required, since a link in an email cannot be made from the request that asked for it
+## (its `Host` is the visitor's to choose). EHLO says `smtp_hostname`, the host of `base_url` when that is left out,
+## and the sender is `smtp_from`, `Campfire <campfire@HOST>` for that host when left out; a host that is an IPv6
+## address needs both.
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -82,6 +114,9 @@ export def parse(
   session_secret: String = "",
   secure_cookies: String = DEFAULT_SECURE_COOKIES,
   smtp_url: String = "",
+  base_url: String = "",
+  smtp_from: String = "",
+  smtp_hostname: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -110,7 +145,8 @@ export def parse(
     return error("CAMPFIRE_SECURE_COOKIES must be true or false, not #{secure_cookies.inspect}")
   end
 
-  smtp = try parse_smtp_url(smtp_url)
+  base = try parse_base_url(base_url)
+  mail = try parse_mail(smtp_url, base, smtp_hostname, smtp_from)
   folder = data_dir.strip
   url = database_url.strip
   if url.empty?
@@ -125,18 +161,81 @@ export def parse(
       database_url: url,
       session_secret: session_secret,
       secure_cookies: secure_cookies == "true",
-      smtp: smtp,
+      smtp: mail.smtp,
+      base_url: base,
+      mail_from: mail.from,
     ),
   )
 end
 
+# `https://campfire.example.com`, or "" when it is not set. Only the origin: a link adds the path.
+def parse_base_url(base_url: String) -> Result[String]
+  text = base_url.strip
+  if text.empty?
+    return ok("")
+  end
+
+  if not text.start_with?("http://") and not text.start_with?("https://")
+    return error("CAMPFIRE_BASE_URL must look like #{BASE_URL_FORM}")
+  end
+
+  clean = text
+  if clean.end_with?("/")
+    clean = clean.slice(0, clean.length - 1)
+  end
+
+  marker = clean.index_of("://").unwrap_or(0)
+  rest = clean.slice(marker + 3, clean.length - marker - 3)
+  if rest.empty? or rest.include?("/") or rest.include?("?") or rest.include?("#") or rest.include?("@")
+    return error("CAMPFIRE_BASE_URL must have a host and no user, path, query or fragment: #{BASE_URL_FORM}")
+  end
+
+  return ok(clean)
+end
+
+# The smtp url with the EHLO name and the sender that go with it. Nothing is needed without the url.
+def parse_mail(smtp_url: String, base: String, smtp_hostname: String, smtp_from: String) -> Result[Mail]
+  if smtp_url.strip.empty?
+    return ok(Mail(smtp: none, from: ""))
+  end
+
+  if base.empty?
+    return error("CAMPFIRE_BASE_URL is required with CAMPFIRE_SMTP_URL: the links in emails start with it")
+  end
+
+  hostname = smtp_hostname.strip
+  if hostname.empty?
+    hostname = base_host(base)
+  end
+
+  if hostname.empty? or hostname.include?(" ") or hostname.bytes.to_a.any? do |byte| byte < 33 or byte > 126 end
+    return error("CAMPFIRE_SMTP_HOSTNAME must be set to a host name (the host of CAMPFIRE_BASE_URL cannot be used)")
+  end
+
+  from = smtp_from.strip
+  if from.empty?
+    from = "Campfire <campfire@#{hostname}>"
+  end
+
+  smtp = try parse_smtp_url(smtp_url, hostname)
+  return ok(Mail(smtp: some(smtp), from: from))
+end
+
+# The host of the base url: no port, and "" for an IPv6 address in brackets, which EHLO writes another way.
+def base_host(base: String) -> String
+  marker = base.index_of("://").unwrap_or(0)
+  authority = base.slice(marker + 3, base.length - marker - 3)
+  if authority.start_with?("[")
+    return ""
+  end
+
+  return authority.split(":")[0]
+end
+
 # The url is split by hand: std has no url parser. The user and the password are percent-decoded, so a password with
 # an `@` or a `:` goes in as `%40` or `%3A`. The error text never holds the url.
-def parse_smtp_url(smtp_url: String) -> Result[Optional[Smtp.Options]]
+def parse_smtp_url(smtp_url: String, local_hostname: String) -> Result[Smtp.Options]
   text = smtp_url.strip
-  if text.empty?
-    return ok(none)
-  end
 
   marker = text.index_of("://").unwrap_or(-1)
   if marker < 0
@@ -169,8 +268,13 @@ def parse_smtp_url(smtp_url: String) -> Result[Optional[Smtp.Options]]
   end
 
   return ok(
-    some(
-      Smtp.Options(host: address.host, port: port, security: security, username: user.name, password: user.password),
+    Smtp.Options(
+      host: address.host,
+      local_hostname: local_hostname,
+      port: port,
+      security: security,
+      username: user.name,
+      password: user.password,
     ),
   )
 end

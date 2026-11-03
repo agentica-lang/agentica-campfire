@@ -26,13 +26,18 @@ export IMPLICIT_TLS_PORT = 465
 # A server that does not answer in a minute is not coming back (the default of aiosmtplib too).
 export DEFAULT_TIMEOUT_MS = 60_000
 
+# RFC 5321 4.5.3.2.6: the server may take 10 minutes to accept the message (it scans it, or stores it, before it says
+# 250), so the end of the message has its own, longer wait.
+export DEFAULT_DATA_TIMEOUT_MS = 600_000
+
 # The most lines a reply may have, so that a server cannot keep a client reading.
 MAX_REPLY_LINES = 100
 
-# RFC 5321 4.5.3.1.5 allows a reply line 512 octets with its CRLF, and a client has no use for a whole reply of more
-# than 64 KiB.
-MAX_REPLY_LINE_BYTES = 512
-MAX_REPLY_BYTES = 65_536
+# RFC 5321 4.5.3.1.5 allows a reply line 512 octets with its CRLF, so 510 once the line is read without it. A client
+# has no use for a whole reply of more than 32 KiB: 100 lines of 510 octets would be 51,000, so this is the limit that
+# a server of many long lines meets first.
+MAX_REPLY_LINE_BYTES = 510
+MAX_REPLY_BYTES = 32_768
 
 # The server text that goes into an error is cut here: it comes from the other side.
 MAX_ERROR_TEXT = 200
@@ -49,9 +54,25 @@ CODE_UNAVAILABLE = 421
 MIN_REPLY_CODE = 200
 MAX_REPLY_CODE = 599
 
+# The code points of the Unicode line and bidirectional controls that `server_text` drops (the C1 controls, 127 to
+# 159, are a range of their own).
+ARABIC_LETTER_MARK = 0x061C
+LEFT_TO_RIGHT_MARK = 0x200E
+RIGHT_TO_LEFT_MARK = 0x200F
+LINE_SEPARATOR = 0x2028
+RIGHT_TO_LEFT_OVERRIDE = 0x202E
+LEFT_TO_RIGHT_ISOLATE = 0x2066
+POP_DIRECTIONAL_ISOLATE = 0x2069
+BYTE_ORDER_MARK = 0xFEFF
+
 AUTH_FAILED = "authentication failed"
 
 CRLF = "\r\n"
+
+# The errors that tell a reply start `smtp NNN:` (see `expect`); `error_code` reads the code back from there.
+ERROR_PREFIX = "smtp "
+ERROR_CODE_DIGITS = 3
+CODE_FIRST_REFUSAL = 400
 NUL = String.from_code(0)
 
 ## How the connection is protected. `Starttls` starts in plain text and upgrades with STARTTLS, which the server must
@@ -65,18 +86,20 @@ export enum Security
 end
 
 ## Where to connect and as whom. `username` and `password` log in when the username is not empty. `local_hostname` is
-## the name that EHLO gives. `ca_file` is a PEM file of certificate authorities that replaces the system's.
-## `timeout_ms` is the time for each connection, each reply and each write. `password` is a secret: never print or log
-## an `Options`.
+## the name that EHLO gives: the name of the machine that sends, as other servers can look it up, so it has no default.
+## `ca_file` is a PEM file of certificate authorities that replaces the system's. `timeout_ms` is the time for each
+## connection, each reply and each write, and `data_timeout_ms` the time for the reply after the message. `password`
+## is a secret: never print or log an `Options`.
 export struct Options
   host: String
+  local_hostname: String
   port: Int = STARTTLS_PORT
   security: Security = Security.Starttls
   username: String = ""
   password: String = ""
-  local_hostname: String = "localhost"
   ca_file: String = ""
   timeout_ms: Int = DEFAULT_TIMEOUT_MS
+  data_timeout_ms: Int = DEFAULT_DATA_TIMEOUT_MS
 end
 
 ## An open connection to a server. It belongs to the task that opened it, as every socket does.
@@ -176,8 +199,9 @@ end
 ## Upgrades the connection with STARTTLS, which the server must have offered, and says EHLO again, since what a server
 ## offers can change once the connection is private. The client that comes back is the encrypted one, and the one
 ## that went in is no longer usable. When STARTTLS is refused or fails, or the EHLO after it does, the connection is
-## closed: a caller never has to find a half-upgraded one. The only `error` that leaves it open is the one for a
-## server without STARTTLS, which is no reason to give up the connection (but nothing is sent over it either).
+## closed: a caller never has to find a half-upgraded one. The `error`s that leave it open are the one for a server
+## without STARTTLS, which is no reason to give up the connection (but nothing is sent over it either), and the one
+## for a connection that is already encrypted, which nothing was sent over.
 export def starttls(client: Client) -> Result[Client]
   if client.secure
     return error("smtp: the connection is already encrypted")
@@ -218,8 +242,8 @@ export def login(client: Client, username: String, password: String) -> Result[V
     return error("smtp: the server offers no AUTH mechanism that this client has (PLAIN or LOGIN)")
   end
 
-  if not outcome.ok?
-    close_when_lost(client, outcome.message)
+  if not outcome.ok? and (lost?(outcome.message) or out_of_step?(outcome.message))
+    close(client)
   end
 
   return outcome
@@ -254,11 +278,12 @@ end
 ## The code of the reply that an `error` of this module tells, or `none` for an error that has no reply (a timeout, a
 ## broken connection, a bad message).
 export def error_code(message: String) -> Optional[Int]
-  if not message.start_with?("smtp ") or message.length < 9 or message.slice(8, 1) != ":"
+  colon = ERROR_PREFIX.length + ERROR_CODE_DIGITS
+  if not message.start_with?(ERROR_PREFIX) or message.length <= colon or message.slice(colon, 1) != ":"
     return none
   end
 
-  code = message.slice(5, 3).to_i
+  code = message.slice(ERROR_PREFIX.length, ERROR_CODE_DIGITS).to_i
   if not code.ok?
     return none
   end
@@ -401,7 +426,7 @@ def auth_login(client: Client, username: String, password: String) -> Result[Voi
 end
 
 # The transaction of one message. After a refusal the connection gets RSET, so the next message starts clean. A lost
-# dialogue (see `lost?`) closes the connection instead.
+# dialogue (see `lost?`), or a RSET that is not accepted, closes the connection instead.
 def deliver(client: Client, prepared: Prepared) -> Result[Void]
   # The message is the thing to keep private: a caller that skipped `starttls` does not send it in the clear.
   if not client.secure and not loopback?(client.options.host)
@@ -413,13 +438,18 @@ def deliver(client: Client, prepared: Prepared) -> Result[Void]
     return sent
   end
 
-  if lost?(sent.message)
+  if lost?(sent.message) or not reset(client)
     close(client)
-  else
-    _ = command(client, "RSET", "RSET")
   end
 
   return sent
+end
+
+# True when the server accepted RSET. A server that does not (a refusal, silence, a line that is no reply) leaves a
+# dialogue in a state that nobody knows, so the connection is not used again.
+def reset(client: Client) -> Bool
+  reply = command(client, "RSET", "RSET")
+  return reply.ok? and reply.unwrap!.code == CODE_OK
 end
 
 # True for an error that leaves the dialogue in a state that nobody knows (no reply came, or the server says it is
@@ -427,6 +457,13 @@ end
 def lost?(message: String) -> Bool
   code = error_code(message)
   return code.none? or code.unwrap! == CODE_UNAVAILABLE
+end
+
+# A coded reply during AUTH that is neither the one awaited nor a refusal (4xx or 5xx): the server and the client no
+# longer agree on where the exchange is, so nothing more is said on this connection.
+def out_of_step?(message: String) -> Bool
+  code = error_code(message)
+  return code.some? and code.unwrap! < CODE_FIRST_REFUSAL
 end
 
 def close_when_lost(client: Client, message: String) -> Void
@@ -445,7 +482,7 @@ def transact(client: Client, prepared: Prepared) -> Result[Void]
 
   _ = try ask(client, "DATA", "DATA", [CODE_START_DATA], "the server refused DATA")
   try write(client, "#{dot_stuff(prepared.data)}.#{CRLF}", "the message")
-  done = try read_reply(client, "the end of the message")
+  done = try read_reply_within(client, "the end of the message", client.options.data_timeout_ms)
   _ = try expect(done, [CODE_OK], "the message was refused")
   return ok()
 end
@@ -481,18 +518,32 @@ def expect(reply: Reply, accepted: List[Int], refusal: String) -> Result[Reply]
     return ok(reply)
   end
 
-  return error("smtp #{reply.code}: #{refusal}: #{server_text(reply.lines.join(" "))}")
+  return error("#{ERROR_PREFIX}#{reply.code}: #{refusal}: #{server_text(reply.lines.join(" "))}")
 end
 
 # What the server said, as text for an error: without control characters (a terminal would obey an escape sequence in
-# a log) and cut to a length that a log can hold.
+# a log, and the 8-bit CSI of C1 is one) nor the Unicode line and bidi controls (they reorder or split a log line),
+# and cut to a length that a log can hold.
 def server_text(text: String) -> String
-  clean = text.split("").select do |char| char.code >= 32 and char.code != 127 end.join("")
+  clean = text.split("").select do |char| not control_code?(char.code) end.join("")
   if clean.length > MAX_ERROR_TEXT
     return "#{clean.slice(0, MAX_ERROR_TEXT)}..."
   end
 
   return clean
+end
+
+def control_code?(code: Int) -> Bool
+  return (
+    code < 32 or
+    (code >= 127 and code <= 159) or
+    code == ARABIC_LETTER_MARK or
+    code == LEFT_TO_RIGHT_MARK or
+    code == RIGHT_TO_LEFT_MARK or
+    (code >= LINE_SEPARATOR and code <= RIGHT_TO_LEFT_OVERRIDE) or
+    (code >= LEFT_TO_RIGHT_ISOLATE and code <= POP_DIRECTIONAL_ISOLATE) or
+    code == BYTE_ORDER_MARK
+  )
 end
 
 def write(client: Client, text: String, what: String) -> Result[Void]
@@ -508,9 +559,13 @@ end
 # the same code, three digits that start with 2 to 5. The timeout is for the whole reply, so a server that sends a line
 # now and then cannot keep the client waiting; the socket is closed when the time is up, as a timeout of a read does.
 def read_reply(client: Client, what: String) -> Result[Reply]
+  return read_reply_within(client, what, client.options.timeout_ms)
+end
+
+def read_reply_within(client: Client, what: String, timeout_ms: Int) -> Result[Reply]
   lines: List[String] = []
   code = 0
-  deadline = Time.monotonic_ms() + client.options.timeout_ms
+  deadline = Time.monotonic_ms() + timeout_ms
   received = 0
   for _ in 0...MAX_REPLY_LINES
     remaining = deadline - Time.monotonic_ms()

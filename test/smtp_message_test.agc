@@ -213,6 +213,37 @@ def main() -> Void
       try Test.error?(Mail.envelope(message("s", "x").with(to: ["#{long_text(250)}@example.com"])))
       Test.ok?(Mail.envelope(message("s", "x").with(to: ["#{long_text(60)}@example.com"])))
     end,
+    Test.test("a header line of 998 octets and an address of 254 pass, one more octet of either is refused") do
+      # `X-Long: ` takes 8 octets of the line.
+      try Test.ok?(Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Long", value: long_text(990))])))
+      try Test.error?(
+        Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Long", value: long_text(991))])),
+      )
+
+      # The domain `@example.com` takes 12 octets of the address.
+      try Test.ok?(Mail.envelope(message("s", "x").with(to: ["#{long_text(242)}@example.com"])))
+      Test.error?(Mail.envelope(message("s", "x").with(to: ["#{long_text(243)}@example.com"])))
+    end,
+    Test.test("a message id must be <local@domain>, and the one that complete makes is") do
+      bad_ids = [
+        "abc@example.com", "<abc@example.com", "<abc>", "<@example.com>", "<abc@>", "<a b@example.com>", "<a@b@c>",
+      ]
+
+      for bad in bad_ids
+        try Test.error?(Mail.render(message("s", "x").with(message_id: bad)))
+      end
+
+      try Test.ok?(Mail.render(message("s", "x").with(message_id: "<abc.1@example.com>")))
+      made = Mail.complete(message("s", "x").with(message_id: ""))
+      Test.ok?(Mail.render(made))
+    end,
+    Test.test("a blank line in a quoted-printable body stays blank, and a name with specials is quoted") do
+      lines = lines_of(Mail.render(message("s", "señor\n\nnext")))
+      after = lines.drop_while do |line| line != "se=C3=B1or" end
+      try Test.eq(after.take(3), ["se=C3=B1or", "", "next"])
+      named = lines_of(Mail.render(message("s", "x").with(from: "Gomez, Ana (Dev) <ana@example.com>")))
+      Test.eq(named.include?("From: \"Gomez, Ana (Dev)\" <ana@example.com>"), true)
+    end,
     Test.test("an address with a control character is refused by the envelope, so nothing reaches RCPT TO") do
       bad = "bob@example.com\r\nRCPT TO:<eve@example.com>"
       try Test.error?(Mail.envelope(message("s", "x").with(to: [bad])))

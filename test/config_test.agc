@@ -13,9 +13,13 @@ def parse(host: String, port: String, data_dir: String) -> Result[Config.Config]
   return Config.parse(host, port, data_dir, "", SECRET)
 end
 
-# The `smtp` of the `Config` that a url makes, or the error of the url.
-def smtp_of(url: String) -> Result[Optional[Smtp.Options]]
-  config = try Config.parse(
+# The `Config` that a smtp url makes with the public address `https://chat.example.com`, or its error.
+def mail_of(url: String) -> Result[Config.Config]
+  return mail_with(url, "https://chat.example.com", "", "")
+end
+
+def mail_with(url: String, base_url: String, from: String, hostname: String) -> Result[Config.Config]
+  return Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -23,8 +27,15 @@ def smtp_of(url: String) -> Result[Optional[Smtp.Options]]
     SECRET,
     "false",
     url,
+    base_url,
+    from,
+    hostname,
   )
+end
 
+# The `smtp` of the `Config` that a url makes, or the error of the url.
+def smtp_of(url: String) -> Result[Optional[Smtp.Options]]
+  config = try mail_of(url)
   return ok(config.smtp)
 end
 
@@ -42,6 +53,8 @@ def main() -> Void
             session_secret: SECRET,
             secure_cookies: true,
             smtp: none,
+            base_url: "",
+            mail_from: "",
           ),
         ),
       )
@@ -58,6 +71,8 @@ def main() -> Void
             session_secret: SECRET,
             secure_cookies: false,
             smtp: none,
+            base_url: "",
+            mail_from: "",
           ),
         ),
       )
@@ -74,6 +89,8 @@ def main() -> Void
             session_secret: SECRET,
             secure_cookies: false,
             smtp: none,
+            base_url: "",
+            mail_from: "",
           ),
         ),
       )
@@ -106,6 +123,7 @@ def main() -> Void
           some(
             Smtp.Options(
               host: "mail.example.com",
+              local_hostname: "chat.example.com",
               port: 2587,
               security: Smtp.Security.Starttls,
               username: "ana@example.com",
@@ -117,18 +135,40 @@ def main() -> Void
 
       try Test.eq(
         smtp_of("smtps://mail.example.com/"),
-        ok(some(Smtp.Options(host: "mail.example.com", port: 465, security: Smtp.Security.Implicit))),
+        ok(
+          some(
+            Smtp.Options(
+              host: "mail.example.com",
+              local_hostname: "chat.example.com",
+              port: 465,
+              security: Smtp.Security.Implicit,
+            ),
+          ),
+        ),
       )
 
       try Test.eq(smtp_of("smtp+starttls://mail.example.com"), smtp_of("smtp://mail.example.com"))
       try Test.eq(
         smtp_of("smtp://mail.example.com"),
-        ok(some(Smtp.Options(host: "mail.example.com", port: 587, security: Smtp.Security.Starttls))),
+        ok(
+          some(
+            Smtp.Options(
+              host: "mail.example.com",
+              local_hostname: "chat.example.com",
+              port: 587,
+              security: Smtp.Security.Starttls,
+            ),
+          ),
+        ),
       )
 
       Test.eq(
         smtp_of("smtp+plain://[::1]:1025"),
-        ok(some(Smtp.Options(host: "[::1]", port: 1025, security: Smtp.Security.Plain))),
+        ok(
+          some(
+            Smtp.Options(host: "[::1]", local_hostname: "chat.example.com", port: 1025, security: Smtp.Security.Plain),
+          ),
+        ),
       )
     end,
     Test.test("a bad smtp url is an error that does not show the url, and plain is only for this machine") do
@@ -141,6 +181,29 @@ def main() -> Void
       try Test.error?(smtp_of("smtp+plain://127.0.0.1.example.com"))
       shown = smtp_of("smtp://ana:hunter2@mail.example.com:abc").message
       Test.eq(shown.include?("hunter2") or shown.include?("ana"), false)
+    end,
+    Test.test("the public address, the sender and the EHLO name come from the base url unless they are set") do
+      config = mail_of("smtp://mail.example.com").unwrap!
+      try Test.eq(config.base_url, "https://chat.example.com")
+      try Test.eq(config.mail_from, "Campfire <campfire@chat.example.com>")
+      try Test.eq(config.smtp.unwrap!.local_hostname, "chat.example.com")
+      named = mail_with("smtp://mail.example.com", "http://localhost:3000/", "Chat <chat@acme.test>", "mx.acme.test")
+      try Test.eq(named.unwrap!.base_url, "http://localhost:3000")
+      try Test.eq(named.unwrap!.mail_from, "Chat <chat@acme.test>")
+      try Test.eq(named.unwrap!.smtp.unwrap!.local_hostname, "mx.acme.test")
+      # Without email the address is optional and nothing about the sender is kept.
+      try Test.eq(mail_with("", "", "", "").unwrap!.mail_from, "")
+      Test.eq(mail_with("", "https://chat.example.com", "", "").unwrap!.mail_from, "")
+    end,
+    Test.test("email needs a base url that is only an origin, and a host name that EHLO can say") do
+      try Test.error?(mail_with("smtp://mail.example.com", "", "", ""))
+      try Test.error?(mail_with("smtp://mail.example.com", "chat.example.com", "", ""))
+      try Test.error?(mail_with("smtp://mail.example.com", "https://chat.example.com/app", "", ""))
+      try Test.error?(mail_with("smtp://mail.example.com", "https://user@chat.example.com", "", ""))
+      try Test.error?(mail_with("", "ftp://chat.example.com", "", ""))
+      try Test.error?(mail_with("smtp://mail.example.com", "https://[::1]:3000", "", ""))
+      try Test.ok?(mail_with("smtp://mail.example.com", "https://[::1]:3000", "Chat <chat@acme.test>", "acme.test"))
+      Test.error?(mail_with("smtp://mail.example.com", "https://chat.example.com", "", "two words"))
     end,
   ])
 end

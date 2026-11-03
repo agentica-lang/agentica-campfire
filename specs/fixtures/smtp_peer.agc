@@ -14,8 +14,10 @@
 ## SMTP_PEER_CANNED_VERB is a command (`RCPT`, or `EHLO#2` for its second time) whose answer is the text of
 ## SMTP_PEER_CANNED instead: lines separated by `|`, each sent as it is, so `250` alone, `OK` or an empty line are
 ## replies that a client has to survive. `~N` stands for N lines `250-line` and a last `250 end`. Between those lines
-## the peer waits SMTP_PEER_LINE_DELAY_MS. `^N` is one line `550 ` and N letters x, and `<ESC>` in a line is the
-## escape character.
+## the peer waits SMTP_PEER_LINE_DELAY_MS. `~N:M` is the same with M letters x after `250-` on each line. `^N` is one
+## line `550 ` and N letters x. In a line, `<ESC>` is the escape character, `<CSI>` U+009B (a C1 control), `<RLO>` U+202E
+## (a bidi override) and `<LS>` U+2028 (a line separator). SMTP_PEER_DATA_DELAY_MS is how long it waits after the
+## message before it answers 250.
 
 HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000
@@ -34,6 +36,7 @@ struct Settings
   canned_verb: String
   canned: String
   line_delay_ms: Int
+  data_delay_ms: Int
   context: Optional[TlsContext]
 end
 
@@ -71,6 +74,7 @@ def load_settings() -> Settings
     canned_verb: System.env("SMTP_PEER_CANNED_VERB").unwrap_or(""),
     canned: System.env("SMTP_PEER_CANNED").unwrap_or(""),
     line_delay_ms: System.env("SMTP_PEER_LINE_DELAY_MS").unwrap_or("0").to_i!,
+    data_delay_ms: System.env("SMTP_PEER_DATA_DELAY_MS").unwrap_or("0").to_i!,
     context: context,
   )
 end
@@ -141,7 +145,7 @@ def serve(first: Socket, settings: Settings) -> Void
       "AUTH" -> auth(socket, settings, line)
       "MAIL" -> say(socket, "250 sender ok")
       "RCPT" -> rcpt(socket, settings, line)
-      "DATA" -> data(socket)
+      "DATA" -> data(socket, settings)
       "RSET" -> say(socket, "250 reset")
       "QUIT" -> running = quit(socket)
       _ -> say(socket, "502 command not implemented")
@@ -150,15 +154,20 @@ def serve(first: Socket, settings: Settings) -> Void
 end
 
 def say_canned(socket: Socket, settings: Settings) -> Void
-  lines = settings.canned.split("|").map do |line| line.replace("<ESC>", String.from_code(27)) end
+  lines = settings.canned.split("|").map do |line| controls(line) end
   if settings.canned.start_with?("^")
     count = settings.canned.slice(1, settings.canned.length - 1).to_i!
     lines = ["550 #{List.repeat("x", count).join("")}"]
   end
 
   if settings.canned.start_with?("~")
-    count = settings.canned.slice(1, settings.canned.length - 1).to_i!
-    lines = List.repeat("250-line", count).push("250 end")
+    sizes = settings.canned.slice(1, settings.canned.length - 1).split(":")
+    filler = "line"
+    if sizes.size == 2
+      filler = List.repeat("x", sizes[1].to_i!).join("")
+    end
+
+    lines = List.repeat("250-#{filler}", sizes[0].to_i!).push("250 end")
   end
 
   for index in 0...lines.size
@@ -168,6 +177,13 @@ def say_canned(socket: Socket, settings: Settings) -> Void
 
     say(socket, lines[index])
   end
+end
+
+def controls(line: String) -> String
+  return line.replace("<ESC>", String.from_code(27))
+    .replace("<CSI>", String.from_code(155))
+    .replace("<RLO>", String.from_code(8238))
+    .replace("<LS>", String.from_code(8232))
 end
 
 # Never answers: reads until the client gives up and closes.
@@ -287,7 +303,7 @@ def rcpt(socket: Socket, settings: Settings, line: String) -> Void
 end
 
 # The message ends at a line with a single dot. The lines go to the transcript as they came.
-def data(socket: Socket) -> Void
+def data(socket: Socket, settings: Settings) -> Void
   say(socket, "354 end data with a dot")
   reading = true
   while reading
@@ -297,5 +313,6 @@ def data(socket: Socket) -> Void
     end
   end
 
+  Task.sleep(settings.data_delay_ms)
   say(socket, "250 queued as 1")
 end
