@@ -70,9 +70,10 @@ end
 ## that is not a number from 0 to 65535, a secret of less than 32 bytes (the default, an empty one, is that) and a flag
 ## that is not `true` or `false`. An empty `database_url` means the file `campfire.db` in the data folder, with the
 ## FTS5 check on, so that a SQLite without FTS5 stops the start with a clear message. An empty `smtp_url` means no
-## email; otherwise it is `smtp://user:password@host:587` (STARTTLS, which the server must offer), `smtps://` (TLS from
-## the first byte, port 465 by default) or `smtp+plain://` (no TLS, for a host on this machine only), with the user and
-## the password percent-encoded and both left out for a server without login. The `error` for a bad url never has it.
+## email; otherwise it is `smtp://user:password@host:587` (STARTTLS, which the server must offer; `smtp+starttls://` is
+## the same), `smtps://` (TLS from the first byte, port 465 by default) or `smtp+plain://` (no TLS, for a host on this
+## machine only), with the user and the password percent-encoded and both left out for a server without login. The
+## `error` for a bad url never has it.
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -177,6 +178,7 @@ end
 def smtp_security(scheme: String) -> Result[Smtp.Security]
   case scheme
     "smtp" -> return ok(Smtp.Security.Starttls)
+    "smtp+starttls" -> return ok(Smtp.Security.Starttls)
     "smtps" -> return ok(Smtp.Security.Implicit)
     "smtp+plain" -> return ok(Smtp.Security.Plain)
     _ -> return error("CAMPFIRE_SMTP_URL must start with smtp://, smtps:// or smtp+plain://")

@@ -120,6 +120,7 @@ def main() -> Void
         ok(some(Smtp.Options(host: "mail.example.com", port: 465, security: Smtp.Security.Implicit))),
       )
 
+      try Test.eq(smtp_of("smtp+starttls://mail.example.com"), smtp_of("smtp://mail.example.com"))
       try Test.eq(
         smtp_of("smtp://mail.example.com"),
         ok(some(Smtp.Options(host: "mail.example.com", port: 587, security: Smtp.Security.Starttls))),
