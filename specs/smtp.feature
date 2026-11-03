@@ -390,3 +390,80 @@ Feature: Sending email over SMTP
     And the client logs in as "ana" with the password "secret"
     When I connect, find that the client no longer holds the password, and send a message
     Then the send succeeds
+
+  Scenario: A message is not sent over a plain connection that the caller did not upgrade
+    Given the SMTP server speaks "starttls"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client connects to the host "127.1"
+    When I send a message after open and EHLO, without STARTTLS
+    Then the send fails without a code
+    And the error mentions "STARTTLS"
+    And the server transcript has no line starting with "C: MAIL FROM"
+
+  Scenario: A reply line that is too long fails the send and closes the connection
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "^600"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the error mentions "too long"
+    And the server saw the connection close
+
+  Scenario: What the server says in a refusal is cut short before it goes into the error
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "^300"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails with the code 550
+    And the error is at most 260 characters long
+
+  Scenario: Control characters of the server text do not reach the error
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "550 bad<ESC>[31m red"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails with the code 550
+    And the error mentions "bad[31m red"
+    And the error has no control characters
+
+  Scenario: A 421 closes the connection instead of a reset
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "421 shutting down"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails with the code 421
+    And the server saw the connection close
+    And the server transcript has no line starting with "C: RSET"
+
+  Scenario Outline: EHLO and the login close the connection when the reply is not one
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "PLAIN"
+    And the SMTP server answers "<command>" with "OK"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "secret"
+    When I open the connection, say EHLO, upgrade it and log in, and leave it as it is
+    Then the send fails without a code
+    And the server saw the connection close
+
+    Examples:
+      | command |
+      | EHLO    |
+      | AUTH    |

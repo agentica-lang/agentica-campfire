@@ -39,6 +39,10 @@ def unfolded(rendered: Result[String], name: String) -> String
   return [first[0]].concat(rest).join("")
 end
 
+def long_text(size: Int) -> String
+  return List.repeat("a", size).join("")
+end
+
 def main() -> Void
   Test.run([
     Test.test("a plain text message is the headers, an empty line and the text, with CRLF at every line end") do
@@ -199,6 +203,15 @@ def main() -> Void
       try Test.error?(Mail.render(message("s", "x").with(message_id: "<ñ@example.com>")))
       try Test.error?(Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Note", value: "café")])))
       Test.ok?(Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Note", value: "=?x?=")])))
+    end,
+    Test.test("a header line over 998 octets, and an address that makes a command line over 512, are refused") do
+      try Test.error?(
+        Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Long", value: long_text(1000))])),
+      )
+
+      try Test.ok?(Mail.render(message("s", "x").with(headers: [Mail.Field(name: "X-Long", value: long_text(900))])))
+      try Test.error?(Mail.envelope(message("s", "x").with(to: ["#{long_text(250)}@example.com"])))
+      Test.ok?(Mail.envelope(message("s", "x").with(to: ["#{long_text(60)}@example.com"])))
     end,
     Test.test("an address with a control character is refused by the envelope, so nothing reaches RCPT TO") do
       bad = "bob@example.com\r\nRCPT TO:<eve@example.com>"

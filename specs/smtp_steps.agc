@@ -56,6 +56,8 @@ export def steps() -> List[BDD.Step]
     ),
     BDD.step("I send two messages on one connection", &send_two),
     BDD.step("I send a message over a connection that I open, upgrade and log in step by step", &send_by_steps),
+    BDD.step("I send a message after open and EHLO, without STARTTLS", &send_without_starttls),
+    BDD.step("I open the connection, say EHLO, upgrade it and log in, and leave it as it is", &walk_without_closing),
     BDD.step(
       "I connect, find that the client no longer holds the password, and send a message",
       &send_without_password,
@@ -64,6 +66,8 @@ export def steps() -> List[BDD.Step]
     BDD.step("the send fails with the code {int}", &send_fails_with_code),
     BDD.step("the send fails without a code", &send_fails_without_code),
     BDD.step("the error mentions {string}", &error_mentions),
+    BDD.step("the error is at most {int} characters long", &error_is_short),
+    BDD.step("the error has no control characters", &error_is_clean),
     BDD.step("the error does not mention {string}", &error_does_not_mention),
     BDD.step("the server saw the connection close", &connection_closed),
     BDD.step("the server transcript is:", &transcript_is),
@@ -184,6 +188,37 @@ def by_steps(options: Smtp.Options, message: Smtp.Message) -> Result[Void]
   sent = Smtp.send_message(upgraded, message)
   _ = Smtp.quit(upgraded)
   return sent
+end
+
+def send_without_starttls(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  message = message_of(ctx, "ana@example.com", "bob@example.com", "Plain", "no upgrade", "")
+  return finish(ctx, skipping_starttls(options_of(ctx), message))
+end
+
+# A caller that forgets `starttls`: the message must not go over the plain connection.
+def skipping_starttls(options: Smtp.Options, message: Smtp.Message) -> Result[Void]
+  opened = try Smtp.open(options)
+  said = Smtp.ehlo(opened)
+  if not said.ok?
+    Smtp.close(opened)
+    return error(said.message)
+  end
+
+  sent = Smtp.send_message(said.unwrap!, message)
+  Smtp.close(opened)
+  return sent
+end
+
+def walk_without_closing(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return finish(ctx, walk(options_of(ctx)))
+end
+
+# Stops at the first error and does not close: what the public steps leave open is for the specs to see.
+def walk(options: Smtp.Options) -> Result[Void]
+  opened = try Smtp.open(options)
+  said = try Smtp.ehlo(opened)
+  upgraded = try Smtp.starttls(said)
+  return Smtp.login(upgraded, options.username, options.password)
 end
 
 def send_without_password(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -336,6 +371,18 @@ end
 def error_mentions(ctx: BDD.Context, args: List[String]) -> BDD.Context
   message = text_of(ctx, OUTCOME, "")
   return BDD.assert(ctx, message.include?(args[0]), "the error is #{message.inspect}, which lacks #{args[0].inspect}")
+end
+
+def error_is_short(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  message = text_of(ctx, OUTCOME, "")
+  limit = args[0].to_i!
+  return BDD.assert(ctx, message.length <= limit, "the error has #{message.length} characters, not #{limit} or less")
+end
+
+def error_is_clean(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  message = text_of(ctx, OUTCOME, "")
+  clean = not message.bytes.to_a.any? do |byte| byte < 32 or byte == 127 end
+  return BDD.assert(ctx, clean and not message.empty?, "the error is #{message.inspect}")
 end
 
 def error_does_not_mention(ctx: BDD.Context, args: List[String]) -> BDD.Context

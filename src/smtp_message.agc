@@ -12,6 +12,13 @@ FOLD_WIDTH = 76
 # word has 68, under the 75 that the RFC allows, and `Subject: ` and the word fit in 78 characters.
 WORD_BYTES = 42
 
+# RFC 5322 2.1.1: a line of a message has 998 octets at most, without its CRLF.
+MAX_HEADER_LINE = 998
+
+# RFC 5321 4.5.3.1.3: a path has 256 octets with its angle brackets. With `RCPT TO:` and CRLF the command line is far
+# under the 512 octets that a command line may have.
+MAX_ADDRESS_BYTES = 254
+
 # A quoted-printable line has at most 76 characters with its soft break `=`.
 QP_WIDTH = 75
 MAX_BODY_LINE = 76
@@ -155,6 +162,10 @@ export def render(message: Message) -> Result[String]
   end
 
   head = lines.join("\r\n")
+  if head.split("\r\n").any? do |line| line.bytesize > MAX_HEADER_LINE end
+    return error("a header line is longer than #{MAX_HEADER_LINE} octets, which RFC 5322 does not allow")
+  end
+
   return ok("#{head}\r\n#{body(message)}")
 end
 
@@ -268,6 +279,10 @@ def parse_address(text: String) -> Result[Address]
 
   if name.include?("\"") or name.include?("\\") or name.include?("<") or name.include?(">")
     return error("the name of the address #{text.inspect} must not hold a quote, a backslash or an angle bracket")
+  end
+
+  if address.bytesize > MAX_ADDRESS_BYTES
+    return error("an address is longer than #{MAX_ADDRESS_BYTES} octets: #{address.slice(0, 40).inspect}...")
   end
 
   parts = address.split("@")

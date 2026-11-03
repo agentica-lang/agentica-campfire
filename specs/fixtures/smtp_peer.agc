@@ -14,7 +14,8 @@
 ## SMTP_PEER_CANNED_VERB is a command (`RCPT`, or `EHLO#2` for its second time) whose answer is the text of
 ## SMTP_PEER_CANNED instead: lines separated by `|`, each sent as it is, so `250` alone, `OK` or an empty line are
 ## replies that a client has to survive. `~N` stands for N lines `250-line` and a last `250 end`. Between those lines
-## the peer waits SMTP_PEER_LINE_DELAY_MS.
+## the peer waits SMTP_PEER_LINE_DELAY_MS. `^N` is one line `550 ` and N letters x, and `<ESC>` in a line is the
+## escape character.
 
 HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000
@@ -149,7 +150,12 @@ def serve(first: Socket, settings: Settings) -> Void
 end
 
 def say_canned(socket: Socket, settings: Settings) -> Void
-  lines = settings.canned.split("|")
+  lines = settings.canned.split("|").map do |line| line.replace("<ESC>", String.from_code(27)) end
+  if settings.canned.start_with?("^")
+    count = settings.canned.slice(1, settings.canned.length - 1).to_i!
+    lines = ["550 #{List.repeat("x", count).join("")}"]
+  end
+
   if settings.canned.start_with?("~")
     count = settings.canned.slice(1, settings.canned.length - 1).to_i!
     lines = List.repeat("250-line", count).push("250 end")

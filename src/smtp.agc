@@ -29,6 +29,14 @@ export DEFAULT_TIMEOUT_MS = 60_000
 # The most lines a reply may have, so that a server cannot keep a client reading.
 MAX_REPLY_LINES = 100
 
+# RFC 5321 4.5.3.1.5 allows a reply line 512 octets with its CRLF, and a client has no use for a whole reply of more
+# than 64 KiB.
+MAX_REPLY_LINE_BYTES = 512
+MAX_REPLY_BYTES = 65_536
+
+# The server text that goes into an error is cut here: it comes from the other side.
+MAX_ERROR_TEXT = 200
+
 # The reply codes the dialogue waits for.
 CODE_READY = 220
 CODE_OK = 250
@@ -37,6 +45,7 @@ CODE_CHALLENGE = 334
 CODE_START_DATA = 354
 CODE_CLOSING = 221
 CODE_FORWARDED = 251
+CODE_UNAVAILABLE = 421
 MIN_REPLY_CODE = 200
 MAX_REPLY_CODE = 599
 
@@ -143,15 +152,22 @@ export def open(options: Options) -> Result[Client]
   return ok(client)
 end
 
-## Says EHLO and keeps the features that the server lists (`STARTTLS`, `AUTH PLAIN LOGIN`). The connection stays open
-## on an `error` that is a refusal.
+## Says EHLO and keeps the features that the server lists (`STARTTLS`, `AUTH PLAIN LOGIN`). The connection is closed
+## by an `error` that is not a refusal (a timeout, a line that is not a reply, a broken connection) and by a 421; it
+## stays open for any other refusal, and for a bad `local_hostname`, which sends nothing.
 export def ehlo(client: Client) -> Result[Client]
   name = client.options.local_hostname
   if name.empty? or name.include?(" ") or name.bytes.to_a.any? do |byte| byte < 32 or byte > 126 end
     return error("smtp: the local hostname #{name.inspect} is not a host name")
   end
 
-  reply = try ask(client, "EHLO #{name}", "EHLO", [CODE_OK], "EHLO refused")
+  asked = ask(client, "EHLO #{name}", "EHLO", [CODE_OK], "EHLO refused")
+  if not asked.ok?
+    close_when_lost(client, asked.message)
+    return error(asked.message)
+  end
+
+  reply = asked.unwrap!
   # The first line is the server's greeting, the others are its features.
   features = reply.lines.drop(1).map do |line| line.strip.upcase end
   return ok(client.with(features: features))
@@ -181,7 +197,9 @@ export def starttls(client: Client) -> Result[Client]
 end
 
 ## Logs in with AUTH PLAIN, or AUTH LOGIN when the server only has that. A server that offers neither, and a login
-## over a connection that is plain (only possible to this machine), are an `error`.
+## over a connection that is plain (only possible to this machine), are an `error` that sends nothing and leaves the
+## connection open. An `error` for a reply that refuses the login leaves it open too, except a 421; one that is no
+## reply (a timeout, a broken connection) closes it.
 export def login(client: Client, username: String, password: String) -> Result[Void]
   if not client.secure and not loopback?(client.options.host)
     return error("smtp: the password is only sent over an encrypted connection")
@@ -191,21 +209,27 @@ export def login(client: Client, username: String, password: String) -> Result[V
     return error("smtp: the username and the password must not hold a NUL character")
   end
 
+  outcome = ok()
   if offers_auth?(client, "PLAIN")
-    return auth_plain(client, username, password)
+    outcome = auth_plain(client, username, password)
+  elsif offers_auth?(client, "LOGIN")
+    outcome = auth_login(client, username, password)
+  else
+    return error("smtp: the server offers no AUTH mechanism that this client has (PLAIN or LOGIN)")
   end
 
-  if offers_auth?(client, "LOGIN")
-    return auth_login(client, username, password)
+  if not outcome.ok?
+    close_when_lost(client, outcome.message)
   end
 
-  return error("smtp: the server offers no AUTH mechanism that this client has (PLAIN or LOGIN)")
+  return outcome
 end
 
 ## Sends a message on the connection: `MAIL FROM`, `RCPT TO` for each recipient, then the message. If the server
 ## refuses the sender, a recipient or the message, nothing is delivered (the others are not sent), the connection is
 ## reset for the next message and the `error` has the code of the refusal. An error without a code that comes from the
-## dialogue (a timeout, a line that is not a reply) closes the connection; one for a bad message does not touch it.
+## dialogue (a timeout, a line that is not a reply) closes the connection, and so does a 421. A bad message, and a
+## connection that is plain to a host that is not this machine (nothing is sent: use `starttls`), leave it as it is.
 export def send_message(client: Client, message: Mail.Message) -> Result[Void]
   prepared = try prepare(message)
   return deliver(client, prepared)
@@ -376,22 +400,39 @@ def auth_login(client: Client, username: String, password: String) -> Result[Voi
   return ok()
 end
 
-# The transaction of one message. After a refusal the connection gets RSET, so the next message starts clean. An
-# error without a reply (a timeout, a line that is not a reply, a broken connection) leaves the dialogue in a state
-# that nobody knows, so the connection is closed.
+# The transaction of one message. After a refusal the connection gets RSET, so the next message starts clean. A lost
+# dialogue (see `lost?`) closes the connection instead.
 def deliver(client: Client, prepared: Prepared) -> Result[Void]
+  # The message is the thing to keep private: a caller that skipped `starttls` does not send it in the clear.
+  if not client.secure and not loopback?(client.options.host)
+    return error("smtp: nothing is sent over a plain connection to #{client.options.host}: use STARTTLS first")
+  end
+
   sent = transact(client, prepared)
   if sent.ok?
     return sent
   end
 
-  if error_code(sent.message).some?
-    _ = command(client, "RSET", "RSET")
-  else
+  if lost?(sent.message)
     close(client)
+  else
+    _ = command(client, "RSET", "RSET")
   end
 
   return sent
+end
+
+# True for an error that leaves the dialogue in a state that nobody knows (no reply came, or the server says it is
+# going away with a 421), and so for a connection to close.
+def lost?(message: String) -> Bool
+  code = error_code(message)
+  return code.none? or code.unwrap! == CODE_UNAVAILABLE
+end
+
+def close_when_lost(client: Client, message: String) -> Void
+  if lost?(message)
+    close(client)
+  end
 end
 
 def transact(client: Client, prepared: Prepared) -> Result[Void]
@@ -440,7 +481,18 @@ def expect(reply: Reply, accepted: List[Int], refusal: String) -> Result[Reply]
     return ok(reply)
   end
 
-  return error("smtp #{reply.code}: #{refusal}: #{reply.lines.join(" ")}")
+  return error("smtp #{reply.code}: #{refusal}: #{server_text(reply.lines.join(" "))}")
+end
+
+# What the server said, as text for an error: without control characters (a terminal would obey an escape sequence in
+# a log) and cut to a length that a log can hold.
+def server_text(text: String) -> String
+  clean = text.split("").select do |char| char.code >= 32 and char.code != 127 end.join("")
+  if clean.length > MAX_ERROR_TEXT
+    return "#{clean.slice(0, MAX_ERROR_TEXT)}..."
+  end
+
+  return clean
 end
 
 def write(client: Client, text: String, what: String) -> Result[Void]
@@ -459,6 +511,7 @@ def read_reply(client: Client, what: String) -> Result[Reply]
   lines: List[String] = []
   code = 0
   deadline = Time.monotonic_ms() + client.options.timeout_ms
+  received = 0
   for _ in 0...MAX_REPLY_LINES
     remaining = deadline - Time.monotonic_ms()
     if remaining <= 0
@@ -472,6 +525,12 @@ def read_reply(client: Client, what: String) -> Result[Reply]
     end
 
     line = read.unwrap!
+    received += line.bytesize
+    if line.bytesize > MAX_REPLY_LINE_BYTES or received > MAX_REPLY_BYTES
+      close(client)
+      return error("smtp: #{what} is too long")
+    end
+
     number = reply_code(line)
     if number < 0 or (code != 0 and number != code)
       return error("smtp: the server sent a line that is not a reply while #{what} was awaited")
@@ -490,7 +549,7 @@ def read_reply(client: Client, what: String) -> Result[Reply]
   end
 
   close(client)
-  return error("smtp: the reply to #{what} has more than #{MAX_REPLY_LINES} lines")
+  return error("smtp: #{what} has more than #{MAX_REPLY_LINES} lines")
 end
 
 # The code of a reply line, or -1 when the line is not one: three digits, the first from 2 to 5, then nothing, a space
