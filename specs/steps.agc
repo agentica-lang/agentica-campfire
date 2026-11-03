@@ -1,6 +1,7 @@
 ## The steps of the features. The program of `fixtures/server.agc` serves the app on 127.0.0.1 and a free port on the
-## database that its first input line names, and the steps talk to it with the HTTP client of `std/http`. The steps of
-## the database open the same SQLite file themselves, after the app has closed its own connection.
+## database that the steps name in its environment (its input only carries `restart`), and the steps talk to it with
+## the HTTP client of `std/http`. The steps of the database open the same SQLite file themselves, after the app has
+## closed its own connection.
 
 import BDD from "std/bdd"
 import HTTP from "std/http"
@@ -62,13 +63,17 @@ def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 # The program reads its address and its database from the environment, as `campfire.agc` does, and answers with the
-# `database:` line, then `listening on http://127.0.0.1:PORT`.
+# `database:` line, then `listening on http://127.0.0.1:PORT`. Every variable it reads is set here, so the specs do not
+# depend on the environment of whoever runs them.
 def start_app(ctx: BDD.Context, url: String) -> BDD.Context
-  configured = BDD.given_env(
-    BDD.given_env(BDD.given_env(ctx, "CAMPFIRE_HOST", "127.0.0.1"), "CAMPFIRE_PORT", "0"),
-    "CAMPFIRE_DATABASE_URL",
-    url,
-  )
+  settings = {
+    "CAMPFIRE_HOST": "127.0.0.1",
+    "CAMPFIRE_PORT": "0",
+    "CAMPFIRE_DATA_DIR": "unused",
+    "CAMPFIRE_DATABASE_URL": url,
+  }
+
+  configured = settings.keys.reduce(ctx) do |acc, name| BDD.given_env(acc, name, settings.get(name, "")) end
 
   return read_startup(BDD.given_program(configured, "fixtures/server.agc"))
 end
@@ -158,7 +163,8 @@ def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   url = "sqlite:#{dir}/campfire.db?fts5=required"
   stored = BDD.set(BDD.set(ctx, DB_DIR, JSON.from(dir)), DB_URL, JSON.from(url))
-  return BDD.after(stored) do |closing| Path.remove(dir) end
+  # The hook's result is the removal's: a folder that cannot be removed fails the scenario.
+  return BDD.after(stored) do |_| Path.remove(dir) end
 end
 
 def migrate_database(ctx: BDD.Context, args: List[String]) -> BDD.Context

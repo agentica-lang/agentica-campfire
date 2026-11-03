@@ -29,10 +29,9 @@ export def load() -> Result[Config]
 end
 
 ## A `Config` from the text of a host, a port, a data folder and a database url, each the default when left out: an
-## `error` for an empty host or data
-## folder, a data folder with a `?`, and for a port that is not a number from 0 to 65535. An empty `database_url` means
-## the file `campfire.db` in the data folder, with the FTS5 check on, so that a SQLite without FTS5 stops the start
-## with a clear message.
+## `error` for an empty host or data folder, a data folder with a `?`, and for a port that is not a number from 0 to
+## 65535. An empty `database_url` means the file `campfire.db` in the data folder, with the FTS5 check on, so that a
+## SQLite without FTS5 stops the start with a clear message.
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,

@@ -31,6 +31,7 @@ Feature: The database and its migrations
   Scenario: A database that cannot be opened stops the start
     Given the environment variable "CAMPFIRE_HOST" is "127.0.0.1"
     And the environment variable "CAMPFIRE_PORT" is "0"
+    And the environment variable "CAMPFIRE_DATA_DIR" is "unused"
     And the environment variable "CAMPFIRE_DATABASE_URL" is "sqlite:/campfire-no-such-directory/campfire.db"
     And the Agentica program "fixtures/server.agc"
     Then the program exits with code 1 within 5000 milliseconds
@@ -43,6 +44,7 @@ Feature: The database and its migrations
   Scenario: A url that turns foreign keys off stops the start
     Given the environment variable "CAMPFIRE_HOST" is "127.0.0.1"
     And the environment variable "CAMPFIRE_PORT" is "0"
+    And the environment variable "CAMPFIRE_DATA_DIR" is "unused"
     And the environment variable "CAMPFIRE_DATABASE_URL" is "sqlite::memory:?foreign_keys=off"
     And the Agentica program "fixtures/server.agc"
     Then the program exits with code 1 within 5000 milliseconds

@@ -15,8 +15,8 @@ def main() -> Void
         ),
       )
     end,
-    Test.test("what is left out is the default, and a database url is kept as it is") do
-      try Test.eq(
+    Test.test("what is left out is the default") do
+      Test.eq(
         Config.parse(),
         ok(
           Config.Config(
@@ -27,7 +27,8 @@ def main() -> Void
           ),
         ),
       )
-
+    end,
+    Test.test("a database url is kept as it is") do
       Test.eq(
         Config.parse(Config.DEFAULT_HOST, "0", Config.DEFAULT_DATA_DIR, " sqlite:/srv/chat.db "),
         ok(Config.Config(host: Config.DEFAULT_HOST, port: 0, data_dir: "data", database_url: "sqlite:/srv/chat.db")),
