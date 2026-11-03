@@ -2,9 +2,9 @@
 ## 3...: never edit one that has shipped, add the next number (`Migrate` refuses a changed or renamed one).
 ##
 ## Timestamps are UTC text in ISO 8601 with milliseconds, which sorts like time and reads in a shell. The database
-## fills them on insert; the app sets `updated_at` itself. Foreign keys are on (the url of the connection says so):
-## a user is never deleted, only deactivated, so the keys to `users` refuse a delete, and what hangs from a room or a
-## message goes with it.
+## fills them on insert; the app sets `updated_at` itself. Foreign keys are on (the driver's default, and
+## `Database.migrate` refuses a connection that has them off): a user is never deleted, only deactivated, so the keys
+## to `users` refuse a delete, and what hangs from a room or a message goes with it.
 
 import Migrate from "pkg/db/migrate"
 
@@ -23,8 +23,8 @@ export def all() -> List[Migrate.Migration]
       "create messages",
       [
         messages(),
-        "create index messages_room_id_created_at on messages (room_id, created_at)",
-        "create index messages_creator_id on messages (creator_id)",
+        "create index messages_room_id_id on messages (room_id, id)",
+        "create unique index messages_creator_id_client_message_id on messages (creator_id, client_message_id)",
       ],
     ),
     Migrate.sql(
@@ -65,8 +65,9 @@ def accounts() -> String
   SQL
 end
 
-# A bot has a token and no email or password; a person has an email and a password and no token. The email is
-# unique whatever its case.
+# A bot has a token and no email or password; a person has an email and a password that are not empty, and no token.
+# The check says each side in full, since a check that evaluates to NULL passes. The email is unique whatever its
+# case.
 def users() -> String
   return <<~SQL
     create table users (
@@ -80,8 +81,11 @@ def users() -> String
       bot_token text unique,
       created_at text not null default #{NOW},
       updated_at text not null default #{NOW},
-      check (role = 'bot' or (email is not null and password_digest is not null)),
-      check (role <> 'bot' or bot_token is not null)
+      check (
+        (role = 'bot' and email is null and password_digest is null and bot_token is not null)
+        or (role <> 'bot' and email is not null and length(email) > 0 and password_digest is not null
+            and length(password_digest) > 0 and bot_token is null)
+      )
     )
   SQL
 end
@@ -135,9 +139,10 @@ def memberships() -> String
   SQL
 end
 
-# `client_message_id` is the id that the browser made for a message it has not heard back about. A page of a room
-# reads `where room_id = ? and created_at < ? order by created_at desc, id desc`: the index on (room_id,
-# created_at) serves it, since the id is the last key of every SQLite index.
+# `client_message_id` is the id that the browser made for a message it has not heard back about: unique per creator,
+# so that a retry after a lost reply is refused and not stored twice. A page of a room reads `where room_id = ? and
+# id < ? order by id desc limit N`, served by the index on (room_id, id). Page by id, never by `created_at`: several
+# messages can share a millisecond, and `created_at < ?` would skip the ones that tie with the cursor.
 def messages() -> String
   return <<~SQL
     create table messages (
@@ -167,7 +172,9 @@ end
 
 # Search is an FTS5 table over `messages.body` (it keeps no copy of the text), with the porter stemmer like upstream
 # Campfire. Triggers keep it in step, so it is right whatever writes a message: a page, the bots API, an edit, or the
-# delete of a whole room. The 'delete' command of an external content table needs the old text.
+# delete of a whole room. The 'delete' command of an external content table needs the old text. Never write `insert or
+# replace into messages`: SQLite does not fire the delete trigger for the row it replaces, so the old text stays in
+# the index and corrupts it. An upsert (`on conflict do update`) fires the update trigger and is fine.
 def search_index() -> String
   return <<~SQL
     create virtual table message_search_index using fts5(

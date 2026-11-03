@@ -5,6 +5,7 @@
 import BDD from "std/bdd"
 import HTTP from "std/http"
 import Db from "pkg/db/db"
+import DataDir from "../src/data_dir"
 import Database from "../src/database"
 import Migrations from "../src/migrations"
 
@@ -17,6 +18,9 @@ SQL_ERROR = "sql_error"
 MEMORY_URL = "sqlite::memory:"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
+FOLDER_PREFIX = "campfire-spec-"
+STALE_SECONDS = 3_600
+PRIVATE_FOLDER_MODE = 448
 
 struct Reply
   status: Int
@@ -36,6 +40,9 @@ def main() -> Void
     BDD.step("the health check reports the latest schema version", &health_has_latest_version),
     BDD.step("the database has the tables:", &has_tables),
     BDD.step("the database is removed", &remove_database),
+    BDD.step("the data folder {string} is prepared", &prepare_data_dir),
+    BDD.step("the data folder {string} is private", &data_dir_is_private),
+    BDD.step("the recorded checksums are:", &checksums_are),
     BDD.step("I run the sql {string}", &run_sql),
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
@@ -139,7 +146,8 @@ end
 
 def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
   root = System.env("TMPDIR").unwrap_or("/tmp")
-  dir = Path.join([root, "campfire-spec-#{SecureRandom.hex(8)}"]).unwrap!
+  remove_stale_folders(root)
+  dir = Path.join([root, "#{FOLDER_PREFIX}#{SecureRandom.hex(8)}"]).unwrap!
   made = Dir.mkdir_private(dir)
   if not made.ok?
     return BDD.assert(ctx, false, "cannot make #{dir}: #{made.message}")
@@ -147,6 +155,21 @@ def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   url = "sqlite:#{dir}/campfire.db?fts5=required"
   return BDD.set(BDD.set(ctx, DB_DIR, JSON.from(dir)), DB_URL, JSON.from(url))
+end
+
+# A scenario that fails before its last step leaves its folder behind; the next run sweeps the ones that are old
+# enough not to belong to a run in progress.
+def remove_stale_folders(root: String) -> Void
+  nothing: List[String] = []
+  names = Dir.list(root).unwrap_or(nothing)
+  now = Time.now_ms / 1_000
+  for name in names
+    path = Path.join([root, name]).unwrap!
+    info = File.stat(path)
+    if name.start_with?(FOLDER_PREFIX) and info.ok? and now - info.unwrap!.modified_seconds > STALE_SECONDS
+      Path.remove(path)
+    end
+  end
 end
 
 def remove_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -157,6 +180,32 @@ end
 def migrate_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
   migrated = Database.migrate(text_of(ctx, DB_URL))
   return BDD.assert(ctx, migrated.ok?, "the migrations failed: #{migrated.message}")
+end
+
+def prepare_data_dir(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  prepared = DataDir.ensure(Path.join([text_of(ctx, DB_DIR), args[0]]).unwrap!)
+  return BDD.assert(ctx, prepared.ok?, "cannot prepare #{args[0]}: #{prepared.message}")
+end
+
+def data_dir_is_private(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  info = File.stat(Path.join([text_of(ctx, DB_DIR), args[0]]).unwrap!)
+  if not info.ok?
+    return BDD.assert(ctx, false, "cannot stat #{args[0]}: #{info.message}")
+  end
+
+  mode = info.unwrap!.mode
+  return BDD.assert(ctx, mode == PRIVATE_FOLDER_MODE, "the mode of #{args[0]} is #{mode}, not #{PRIVATE_FOLDER_MODE}")
+end
+
+# The table rows are `version | checksum`. The checksum is what `Migrate` recorded, so a changed statement shows here.
+def checksums_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  rows = rows_of(ctx, "select version, checksum from schema_migrations order by version")
+  recorded = rows.map do |row|
+    "#{value_int(row.get("version", Db.Value.Null))} #{value_text(row.get("checksum", Db.Value.Null))}"
+  end
+
+  expected = BDD.table(ctx).map do |row| "#{row[0]} #{row[1]}" end
+  return BDD.assert(ctx, recorded.join("\n") == expected.join("\n"), "the recorded checksums are #{recorded}")
 end
 
 def applied_every_migration(ctx: BDD.Context, args: List[String]) -> BDD.Context

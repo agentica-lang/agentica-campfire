@@ -13,7 +13,10 @@ import {Config} from "config"
 export def start(config: Config) -> Result[HttpServer]
   migrated = Database.migrate(config.database_url)
   if not migrated.ok?
-    return error("cannot open or migrate the database (CAMPFIRE_DATABASE_URL): #{migrated.message}")
+    return error(
+      "cannot open or migrate the database (CAMPFIRE_DATABASE_URL, or CAMPFIRE_DATA_DIR when the url is not set): " +
+      "#{migrated.message}",
+    )
   end
 
   schema = migrated.unwrap!

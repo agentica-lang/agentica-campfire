@@ -4,12 +4,13 @@
 
 import Config from "src/config"
 import App from "src/app"
+import DataDir from "src/data_dir"
 
 def main() -> Void
   case Config.load()
     error(message) -> fail(message)
     ok(config) ->
-      made = Dir.mkdir(config.data_dir)
+      made = DataDir.ensure(config.data_dir)
       if not made.ok?
         fail("cannot make the data folder #{config.data_dir} (CAMPFIRE_DATA_DIR): #{made.message}")
       end

@@ -27,8 +27,9 @@ def main() -> Void
       try Test.error?(Config.parse("127.0.0.1", "-1", "data", ""))
       Test.error?(Config.parse("127.0.0.1", "", "data", ""))
     end,
-    Test.test("an empty host or data folder is an error") do
+    Test.test("an empty host, an empty data folder or a data folder with a ? is an error") do
       try Test.error?(Config.parse("  ", "3000", "data", ""))
+      try Test.error?(Config.parse("127.0.0.1", "3000", "tmp/a?b", ""))
       Test.error?(Config.parse("127.0.0.1", "3000", " ", ""))
     end,
   ])

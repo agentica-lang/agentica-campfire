@@ -36,6 +36,24 @@ Feature: The database and its migrations
     Then the program exits with code 1 within 5000 milliseconds
     And stderr is:
       """
-      campfire: cannot open or migrate the database (CAMPFIRE_DATABASE_URL): sqlite error 14: unable to open database file
+      campfire: cannot open or migrate the database (CAMPFIRE_DATABASE_URL, or CAMPFIRE_DATA_DIR when the url is not set): sqlite error 14: unable to open database file
 
       """
+
+  Scenario: A url that turns foreign keys off stops the start
+    Given the Agentica program "fixtures/server.agc"
+    When I send the line "sqlite::memory:?foreign_keys=off"
+    Then the program exits with code 1 within 5000 milliseconds
+    And stderr is:
+      """
+      campfire: cannot open or migrate the database (CAMPFIRE_DATABASE_URL, or CAMPFIRE_DATA_DIR when the url is not set): database error: foreign keys are off, so remove foreign_keys=off from the url
+
+      """
+
+  Scenario: The data folder is made private, and an existing one is left as it is
+    Given a fresh database
+    When the data folder "data/files" is prepared
+    And the data folder "data/files" is prepared
+    Then the data folder "data/files" is private
+    And the data folder "data" is private
+    And the database is removed
