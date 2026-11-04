@@ -1,7 +1,8 @@
 # agentica-campfire
 
-A port of ONCE Campfire (group chat) in Agentica, on Bond. `docs/plan.md` has the plan and the phases;
-`README.md` has the status.
+A port of ONCE Campfire (group chat) in Agentica, on Bond.
+`README.md` has what it is and how to run it; `docs/` has the behavior
+(configuration, security, rooms, people, mail) and `docs/plan.md` the plan and the phases.
 
 ## Map
 
@@ -29,6 +30,7 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
                 down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh)
 test/           unit tests (*_test.agc)
+docs/           what the app does, one file per topic; plan.md is the plan and the phases
 agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentica.lock has their hashes
 ```
 
@@ -58,32 +60,31 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   exception is a plain-text email (`Views.reset_mail`): nothing in it is HTML, so it has no escape directive.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
 - `agentica.toml` has `blank_line_after_end = true`: every bare `end` is followed by an empty line.
-- Schema changes are new migrations in `src/campfire/repo/migrations.agc`, numbered after the last one. Never edit one that has
-  shipped (`Migrate` refuses it on a database that ran it); `specs/schema.feature` pins the checksum of each one,
-  so a PR that edits shipped SQL fails there. A table that the specs name in `specs/database.feature` is added there
-  too.
+- Schema changes are new migrations in `src/campfire/repo/migrations.agc`, numbered after the last one. Never edit one
+  that has shipped (`Migrate` refuses it on a database that ran it); `specs/schema.feature` pins the checksum of each
+  one, so a PR that edits shipped SQL fails there. A table that the specs name in `specs/database.feature` is added
+  there too.
 - Never write `insert or replace into messages` (it skips the delete trigger and corrupts the search index; an
   upsert with `on conflict do update` is fine). Page a room by `id`, not by `created_at`.
 - Auth: a page is public only if `PUBLIC_PATHS` in `src/campfire_web/auth.agc` names it (the sign-in filter is
   deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
-  code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any missing
-  page (`Routes.MISSING`, the one 404 text of every handler and of the app for a path with no route). A request opens
-  its own database connection (`Database.with_connection`), since Bond runs a request in its own task (a handler
-  opens one and does all its work on it, the person included: `AuthWeb.current_user_in`; the sign-in filter still
-  opens another, since a Bond `Conn` cannot carry the person on); a `sqlite::memory:` database is therefore not usable by the app. Never log or store a plain
-  password; a form that is shown again never holds the password.
+  code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any
+  missing page (`Routes.MISSING`, the one 404 text of every handler and of the app for a path with no route). A
+  request opens its own database connection (`Database.with_connection`), since Bond runs a request in its own task (a
+  handler opens one and does all its work on it, the person included: `AuthWeb.current_user_in`; the sign-in filter
+  still opens another, since a Bond `Conn` cannot carry the person on); a `sqlite::memory:` database is therefore not
+  usable by the app. Never log or store a plain password; a form that is shown again never holds the password.
 - Invitation: `Auth.join` makes a member for `/join/CODE` (the form's own path) and calls `Rooms.grant_open_rooms` in
-  the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a form
-  that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code refuses
-  a form that was open and two forms with one email make one person. Joining never reactivates a deactivated person
-  (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
+  the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a
+  form that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code
+  refuses a form that was open and two forms with one email make one person. Joining never reactivates a deactivated
+  person (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
   `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an
   administrator cannot deactivate themselves; deactivating deletes the person's sessions and reset links, and
   reactivating calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `active` itself
   (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive. The pages with
-  the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an email
-  answers the same for every address": it answers 422 for an email that has an account, since a person who is joining
-  needs to know to sign in instead, and only whoever holds the link can ask; regenerating the link ends that.
+  the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an
+  email answers the same for every address": it answers 422 for an email that has an account (why: `docs/security.md`).
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A
   link in an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email
   answers the same for every address (no enumeration). A reset token is stored as a hash only. The write
