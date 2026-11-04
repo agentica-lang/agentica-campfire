@@ -25,6 +25,10 @@ HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000
 # A client that says nothing for this long is gone; the specs end long before.
 IDLE_MS = 10_000
+# A command that is never answered keeps the connection open longer than the mailer of the app waits for its task when
+# it stops (`STOP_WAIT_MS` in src/campfire/mail/mailer.agc, 10 s), so the app is always the one that hangs up, never
+# the peer.
+STALL_MS = 20_000
 
 USER = "ana"
 PASSWORD = "secret"
@@ -102,8 +106,8 @@ def say(socket: Socket, text: String) -> Void
   _ = TCP.send(socket, "#{text}\r\n", IDLE_MS)
 end
 
-def hear(socket: Socket) -> Result[String]
-  line = try TCP.read_line(socket, IDLE_MS)
+def hear(socket: Socket, wait_ms: Int = IDLE_MS) -> Result[String]
+  line = try TCP.read_line(socket, wait_ms)
   if line.empty?
     puts("C:")
   else
@@ -199,7 +203,7 @@ end
 
 # Never answers: reads until the client gives up and closes.
 def stall(socket: Socket) -> Void
-  while hear(socket).ok?
+  while hear(socket, STALL_MS).ok?
     puts("S: (silence)")
   end
 end

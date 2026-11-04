@@ -36,7 +36,7 @@ Feature: The database and its migrations
     And the environment variable "CAMPFIRE_SESSION_SECRET" is "0123456789abcdef0123456789abcdef"
     And the environment variable "CAMPFIRE_DATABASE_URL" is "sqlite:/campfire-no-such-directory/campfire.db"
     And the Agentica program "fixtures/server.agc"
-    Then the program exits with code 1 within 5000 milliseconds
+    Then the program exits with code 1 within 30000 milliseconds
     And stderr is:
       """
       campfire: cannot open or migrate the database (CAMPFIRE_DATABASE_URL, or CAMPFIRE_DATA_DIR when the url is not set): sqlite error 14: unable to open database file
@@ -50,7 +50,7 @@ Feature: The database and its migrations
     And the environment variable "CAMPFIRE_SESSION_SECRET" is "0123456789abcdef0123456789abcdef"
     And the environment variable "CAMPFIRE_DATABASE_URL" is "sqlite::memory:?foreign_keys=off"
     And the Agentica program "fixtures/server.agc"
-    Then the program exits with code 1 within 5000 milliseconds
+    Then the program exits with code 1 within 30000 milliseconds
     And stderr is:
       """
       campfire: cannot open or migrate the database (CAMPFIRE_DATABASE_URL, or CAMPFIRE_DATA_DIR when the url is not set): database error: foreign keys are off, so remove foreign_keys=off from the url

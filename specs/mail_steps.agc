@@ -45,6 +45,13 @@ struct Transcript
   ended: Bool
 end
 
+# What a service call asks of the peer: lines up to `closed`, or, when `until` is not empty, up to the first line that
+# starts with it.
+struct Request
+  wait_ms: Int
+  until: String
+end
+
 ## The steps of the mail server and of the links that it receives.
 export def steps() -> List[BDD.Step]
   return [
@@ -56,6 +63,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("the app sends its email through the mail server", &app_uses_server),
     BDD.step("the app sends its email to a port where no mail server listens", &app_uses_closed_port),
     BDD.step("the app logs in to the mail server as {string} with the password {string}", &app_logs_in),
+    BDD.step("the mail server heard {string}", &server_heard),
     BDD.step("the mail server received a message to {string} with the subject {string}", &server_received),
     BDD.step("the mail server received nothing within {int} milliseconds", &server_received_nothing),
     BDD.step("the mail server got {int} messages in all", &server_got_messages),
@@ -154,15 +162,21 @@ def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
   end
 
   port = line.unwrap!.slice(LISTENING.length, line.unwrap!.length - LISTENING.length).to_i!
-  kept = BDD.keep(ctx, SERVICE) do |request| ok(JSON.from(read_transcript(peer, JSON.int(request).unwrap!))) end
+  kept = BDD.keep(ctx, SERVICE) do |request| answer(peer, request) end
   return BDD.set(kept, PORT, JSON.from(port))
 end
 
-# The lines of the dialogue up to `closed`, which the peer says once the client has hung up.
-def read_transcript(peer: Process, wait_ms: Int) -> Transcript
+def answer(peer: Process, request: Json) -> Result[Json]
+  asked = try JSON.decode(request, Request)
+  return ok(JSON.from(read_transcript(peer, asked)))
+end
+
+# The lines of the dialogue up to `closed`, which the peer says once the client has hung up, or up to the line that
+# `until` names.
+def read_transcript(peer: Process, asked: Request) -> Transcript
   lines: List[String] = []
   for _ in 0...1000
-    line = Process.read_line(peer, wait_ms)
+    line = Process.read_line(peer, asked.wait_ms)
     if not line.ok?
       return Transcript(lines: lines, ended: false)
     end
@@ -172,14 +186,31 @@ def read_transcript(peer: Process, wait_ms: Int) -> Transcript
     end
 
     lines = lines.push(line.unwrap!)
+    if not asked.until.empty? and line.unwrap!.start_with?(asked.until)
+      return Transcript(lines: lines, ended: false)
+    end
   end
 
   return Transcript(lines: lines, ended: false)
 end
 
-def transcript_of(ctx: BDD.Context, wait_ms: Int) -> Result[Transcript]
-  answer = try BDD.call(ctx, SERVICE, JSON.from(wait_ms))
-  return JSON.decode(answer, Transcript)
+def transcript_of(ctx: BDD.Context, wait_ms: Int, until: String = "") -> Result[Transcript]
+  said = try BDD.call(ctx, SERVICE, JSON.from(Request(wait_ms: wait_ms, until: until)))
+  return JSON.decode(said, Transcript)
+end
+
+# A state that a scenario can wait for instead of a time: the app has connected and said this command. The lines up to
+# it are read, so a later step of the transcript starts after it.
+def server_heard(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  prefix = "#{CLIENT}#{args[0]}"
+  read = transcript_of(ctx, STARTUP_MS, prefix)
+  if not read.ok?
+    return BDD.assert(ctx, false, "cannot read the mail server: #{read.message}")
+  end
+
+  lines = read.unwrap!.lines
+  found = lines.any? do |line| line.start_with?(prefix) end
+  return BDD.assert(ctx, found, "the mail server saw:\n#{lines.join("\n")}")
 end
 
 # A message that the app sends takes a moment (the sending is off the request), so the wait is generous.
