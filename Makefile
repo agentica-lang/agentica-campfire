@@ -10,6 +10,7 @@ help:
 	@echo "           3000 by default;"
 	@echo "           CAMPFIRE_DATA_DIR, CAMPFIRE_DATABASE_URL: ./data and a SQLite file in it;"
 	@echo "           CAMPFIRE_DB_POOL_SIZE, CAMPFIRE_DB_CHECKOUT_MS: 0 (the size of the database, 4 for SQLite; else 3 or more) and 3000;"
+	@echo "           CAMPFIRE_BCRYPT_LIBRARY: a libxcrypt (path or name) for bcrypt digests; libcrypt.so.1 on Linux by default;"
 	@echo "           CAMPFIRE_SMTP_URL: smtp://user:password@host:587, smtps:// or smtp+plain:// (localhost only),"
 	@echo "           which needs CAMPFIRE_BASE_URL=https://campfire.example.com; CAMPFIRE_SMTP_FROM,"
 	@echo "           CAMPFIRE_SMTP_HOSTNAME, CAMPFIRE_MAIL_QUEUE_SIZE)"

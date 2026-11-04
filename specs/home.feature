@@ -23,6 +23,12 @@ Feature: Home page and health check
     And the header "content-type" is "application/json"
     And the body contains "\"status\":\"ok\""
 
+  Scenario: The up page of Rails Campfire is green, with no sign-in and no account
+    When I get "/up"
+    Then the status is 200
+    And the header "content-type" is "text/html; charset=utf-8"
+    And the body contains "background-color: green"
+
   Scenario: A path with no route is a 404 for a signed-in person
     Given the first admin exists
     When I get "/nothing"

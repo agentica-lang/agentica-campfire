@@ -8,6 +8,9 @@ export SESSION = "/session"
 export SIGN_OUT = "/sign_out"
 export HEALTH = "/health"
 
+## The page that Rails answers at `/up` (the check of its load balancers and of the benchmark harness): green.
+export UP = "/up"
+
 ## What every 404 of the app says: a path with no route, and a room, a person or a join code that a visitor may not know
 ## of, so no 404 tells which of them it is.
 export MISSING = "Not Found"

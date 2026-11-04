@@ -19,14 +19,15 @@ import {Config} from "../campfire/config"
 
 # The cookie of the session, and the name that browsers only take from the host itself (`__Host-`, which also needs
 # `Secure`, no domain and the path `/`).
-COOKIE_NAME = "_campfire_session"
-SECURE_COOKIE_NAME = "__Host-session"
+COOKIE_NAME = "session_token"
+SECURE_COOKIE_NAME = "__Host-session_token"
 TOKEN_KEY = "token"
 # Where the sign-in filter keeps the person for the handler (`Bond.assign`).
 USER_KEY = "user"
 
 PUBLIC_PATHS = Set.new([
   Routes.HEALTH,
+  Routes.UP,
   Routes.FIRST_RUN,
   Routes.SIGN_IN,
   Routes.SESSION,
@@ -49,8 +50,9 @@ TOO_MANY = "Too many sign-in attempts, try again later"
 SIGN_IN_ATTEMPTS = 10
 SIGN_IN_WINDOW_MS = 180_000
 
-# How many password hashes may run at once: 64 MiB and about a second of a scheduler each. The two routes that hash
-# are open to anyone, so a burst past this is answered 503 with `Retry-After` at once instead of queueing.
+# How many password hashes may run at once: 64 MiB and about a second of a scheduler each for scrypt, and a thread of
+# the compute pool for about a quarter of a second for a bcrypt digest of cost 12. The routes that hash are open to
+# anyone, so a burst past this is answered 503 with `Retry-After` at once instead of queueing.
 export MAX_HASHES = 2
 
 RESET_SUBJECT = "Reset your Campfire password"
@@ -74,7 +76,7 @@ export def add(app: Bond.App, config: Config, pool: Database.Pool, mailer: Maile
     |> Bond.get(Routes.JOIN) do |conn| show_join(conn, pool) end
     |> Bond.post(Routes.JOIN) do |conn| create_join(conn, pool, slots) end
     |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, pool, mailer) end
-    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, pool, slots, attempts, mailer) end
+    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, pool, slots, attempts, mailer) end
     |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, pool) end
     |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
     |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, pool, mailer) end
@@ -281,6 +283,7 @@ end
 # (docs/security.md).
 def create_session(
   conn: Bond.Conn,
+  config: Config,
   pool: Database.Pool,
   slots: ATS[String, Int],
   attempts: ATS[String, Int],
@@ -291,14 +294,16 @@ def create_session(
     return ok(Bond.header(Bond.html(conn, 429, Views.busy(TOO_MANY)), "retry-after", wait.to_s))
   end
 
-  email = try Bond.form(conn, "email")
+  email = try Bond.form(conn, "email_address")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
   if not Slots.take?(slots, MAX_HASHES)
     return ok(busy(conn))
   end
 
-  checked = Database.with_connection(pool) do |db| Auth.sign_in(db, email, password, agent, conn.remote_addr) end
+  checked = Database.with_connection(pool) do |db|
+    Auth.sign_in(db, email, password, agent, conn.remote_addr, config.bcrypt_library)
+  end
 
   Slots.release(slots)
   token = try checked

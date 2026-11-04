@@ -10,6 +10,8 @@ import Routes from "routes"
 import RoomsWeb from "rooms"
 import {Config} from "../campfire/config"
 
+UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>"
+
 struct Health
   status: String
   schema_version: Int
@@ -26,6 +28,7 @@ export def build(config: Config, pool: Database.Pool, schema_version: Int, maile
     |> AccountsWeb.add(config, pool)
     |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, pool) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
+    |> Bond.get(Routes.UP) do |conn| up(conn) end
     |> Bond.not_found() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
     |> Bond.on_error() do |conn, message| ok(Failure.answer(conn, message)) end
   )
@@ -34,4 +37,9 @@ end
 # For a load balancer or a container check: 200 while the process serves, and the schema that it started on.
 def health(conn: Bond.Conn, schema_version: Int) -> Result[Bond.Conn]
   return ok(Bond.json(conn, 200, JSON.from(Health(status: "ok", schema_version: schema_version))))
+end
+
+# What `/up` of Rails answers, so a check made for Rails (the benchmark harness looks for the colour) works here.
+def up(conn: Bond.Conn) -> Result[Bond.Conn]
+  return ok(Bond.html(conn, 200, UP_PAGE))
 end

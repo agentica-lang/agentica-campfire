@@ -195,13 +195,14 @@ end
 
 ## Starts a session for the user whose email and password these are and gives its token, or `none` when the email is
 ## not a person's (a bot has none), the user is deactivated or the password is wrong. The three look alike, in answer
-## and in time.
+## and in time. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY`, for the check of a bcrypt digest.
 export def sign_in(
   conn: Db.Connection,
   email: String,
   password: String,
   user_agent: String,
   ip_address: String,
+  bcrypt_library: String = "",
 ) -> Result[Optional[String]]
   # Nothing that long is a real email or password, and hashing one is work that a stranger could ask for.
   if email.length > MAX_EMAIL_LENGTH or password.bytes.size > Passwords.MAX_BYTES
@@ -220,7 +221,10 @@ export def sign_in(
     return ok(none)
   end
 
-  if not Passwords.verify?(password, text_of(rows[0], "password_digest"))
+  # An `error` is a bcrypt digest that this system cannot check: it fails the request (a 500 with the reason in the
+  # log) and does not say "wrong password" to someone who typed the right one.
+  verified = try Passwords.verify(password, text_of(rows[0], "password_digest"), bcrypt_library)
+  if not verified
     return ok(none)
   end
 

@@ -1,5 +1,8 @@
 ## Password hashing with scrypt. A digest is one text, `scrypt$N$r$p$salt$key` (salt and key in base64), so it carries
-## the cost that made it and `verify?` still works after the cost is raised for new passwords.
+## the cost that made it and `verify` still works after the cost is raised for new passwords. `verify` also checks the
+## bcrypt digests of a Rails Campfire (`bcrypt.agc`); nothing makes one.
+
+import Bcrypt from "bcrypt"
 
 # OWASP's scrypt setting for a cost of 2^16 (64 MiB of memory) with two lanes. The call runs to its end on its
 # scheduler (see `KDF` in the library), so this is the time one sign-in takes of it. On Agentica 0.23.0 the builtin
@@ -11,6 +14,7 @@ PARALLELISM = 2
 KEY_BYTES = 32
 SALT_BYTES = 16
 SCHEME = "scrypt"
+BCRYPT_PREFIX = "$2"
 NOBODY_SALT = "nobody has this password"
 NOBODY_PASSWORD = "nobody"
 DIGEST_PARTS = 6
@@ -42,9 +46,28 @@ export def hash(password: String) -> Result[String]
   )
 end
 
-## True when `password` is the one that made `digest`. A digest that is not one of ours, or a cost that the system
-## refuses, is false. The keys are compared in constant time.
-export def verify?(password: String, digest: String) -> Bool
+## True when `password` is the one that made `digest`, an scrypt digest of ours or a bcrypt one (`$2a$`, `$2b$`,
+## `$2y$`). A digest that is not one of those, or an scrypt cost that the system refuses, is false. An `error` is a
+## bcrypt digest on a system that cannot check it (see `Bcrypt.verify`), which says nothing about the password. The
+## keys are compared in constant time. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY` ("" for the default).
+export def verify(password: String, digest: String, bcrypt_library: String = "") -> Result[Bool]
+  if digest.start_with?(BCRYPT_PREFIX)
+    return Bcrypt.verify(password, digest, bcrypt_library)
+  end
+
+  return ok(verify_scrypt?(password, digest))
+end
+
+## Does the work of `verify` for a password that nobody has, with the cost of `hash`, and gives false. Sign-in calls
+## it for an email that no user has, so that the time does not tell whether the email is registered. Its result is
+## ignored at the call sites: it exists for its cost.
+export def verify_nobody?() -> Bool
+  key = KDF.scrypt(NOBODY_PASSWORD.bytes, NOBODY_SALT.bytes, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
+  # A key is never empty (it has KEY_BYTES), so this is false; it reads the key so the work is not dropped.
+  return key.ok? and key.unwrap!.empty?
+end
+
+def verify_scrypt?(password: String, digest: String) -> Bool
   parts = digest.split("$")
   if parts.size != DIGEST_PARTS or parts[0] != SCHEME
     return false
@@ -69,13 +92,4 @@ export def verify?(password: String, digest: String) -> Bool
   )
 
   return key.ok? and HMAC.secure_compare(key.unwrap!, expected.unwrap!)
-end
-
-## Does the work of `verify?` for a password that nobody has, with the cost of `hash`, and gives false. Sign-in calls
-## it for an email that no user has, so that the time does not tell whether the email is registered. Its result is
-## ignored at the call sites: it exists for its cost.
-export def verify_nobody?() -> Bool
-  key = KDF.scrypt(NOBODY_PASSWORD.bytes, NOBODY_SALT.bytes, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
-  # A key is never empty (it has KEY_BYTES), so this is false; it reads the key so the work is not dropped.
-  return key.ok? and key.unwrap!.empty?
 end

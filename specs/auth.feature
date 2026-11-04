@@ -32,7 +32,7 @@ Feature: First run, sign in and sign out
     And the header "location" is "/"
     And the header "set-cookie" contains "HttpOnly"
     And the header "set-cookie" contains "SameSite=Lax"
-    And the header "set-cookie" contains "_campfire_session="
+    And the header "set-cookie" contains "session_token="
     And the header "set-cookie" does not contain "Secure"
     And the header "set-cookie" does not contain "__Host-"
     When I get "/"
@@ -135,6 +135,7 @@ Feature: First run, sign in and sign out
     When I get "/session/new"
     Then the status is 200
     And the body contains "<form method=\"post\" action=\"/session\">"
+    And the body contains "name=\"email_address\" type=\"email\""
 
   Scenario: A page that has no route needs a sign-in too, so the filter is the rule and not a list of pages
     Given the first admin exists
@@ -150,8 +151,8 @@ Feature: First run, sign in and sign out
       | password | p&ss w0rd=+%25  |
     And the browser has no cookies
     And I post to "/session" the form:
-      | email    | ana@example.com |
-      | password | p&ss w0rd=+%25  |
+      | email_address | ana@example.com |
+      | password      | p&ss w0rd=+%25  |
     Then the status is 302
     And the header "location" is "/"
 
@@ -159,8 +160,8 @@ Feature: First run, sign in and sign out
     Given the first admin exists
     And the browser has no cookies
     When I post to "/session" the form:
-      | email    | ANA@example.com       |
-      | password | correct horse battery |
+      | email_address | ANA@example.com       |
+      | password      | correct horse battery |
     Then the status is 302
     And the header "location" is "/"
     When I get "/"
@@ -172,8 +173,8 @@ Feature: First run, sign in and sign out
     Given the first admin exists
     And the browser has no cookies
     When I post to "/session" the form:
-      | email    | <email>    |
-      | password | <password> |
+      | email_address | <email>    |
+      | password      | <password> |
     Then the status is 422
     And the body contains "Wrong email or password"
     And the query "select count(*) from sessions" gives 1
@@ -191,8 +192,8 @@ Feature: First run, sign in and sign out
     And the browser has no cookies
     And I run the sql "insert into users (name, role, bot_token) values ('Hook', 'bot', 'tok')"
     When I post to "/session" the form:
-      | email    |     |
-      | password | tok |
+      | email_address |     |
+      | password      | tok |
     Then the status is 422
     And the body contains "Wrong email or password"
     And the query "select count(*) from sessions" gives 1
@@ -201,8 +202,8 @@ Feature: First run, sign in and sign out
     Given the first admin exists
     And the browser has no cookies
     When I post to "/session" the form:
-      | email    | <email>    |
-      | password | <password> |
+      | email_address | <email>    |
+      | password      | <password> |
     Then the status is 422
     And the body contains "Wrong email or password"
 
@@ -215,18 +216,50 @@ Feature: First run, sign in and sign out
     Given the first admin exists
     And the browser has no cookies
     When I post to "/session" 8 times at once the form:
-      | email    | ana@example.com  |
-      | password | not the password |
+      | email_address | ana@example.com  |
+      | password      | not the password |
     Then each status is one of "422, 503"
     And at least one status is 422
     And each 503 answer has the header "retry-after" "1"
     When I get "/health"
     Then the status is 200
     When I post to "/session" the form:
-      | email    | ana@example.com       |
-      | password | correct horse battery |
+      | email_address | ana@example.com       |
+      | password      | correct horse battery |
     Then the status is 302
     And the header "location" is "/"
+
+  # What the benchmark harness of upstream Campfire sends: a browser's `Sec-Fetch-Site`, no `Origin` and no token.
+  Scenario: A sign-in that says it comes from the same origin works, and sets the cookie of Rails
+    Given the first admin exists
+    And the browser has no cookies
+    And the request header "sec-fetch-site" is "same-origin"
+    When I post to "/session" the form:
+      | email_address | ana@example.com       |
+      | password      | correct horse battery |
+    Then the status is 302
+    And the header "location" is "/"
+    And the header "set-cookie" contains "session_token="
+    And the header "set-cookie" does not contain "_campfire_session"
+    When I get "/"
+    Then the status is 200
+    And the body contains "Signed in as Ana"
+
+  Scenario Outline: A sign-in is allowed from the same origin and refused from another subdomain or site
+    Given the first admin exists
+    And the browser has no cookies
+    And the request header "sec-fetch-site" is "<site>"
+    When I post to "/session" the form:
+      | email_address | ana@example.com       |
+      | password      | correct horse battery |
+    Then the status is <status>
+
+    Examples:
+      | site        | status |
+      | same-origin | 302    |
+      | none        | 302    |
+      | same-site   | 403    |
+      | cross-site  | 403    |
 
   Scenario: A user that was deactivated loses the session and cannot sign in
     Given the first admin exists
@@ -235,8 +268,8 @@ Feature: First run, sign in and sign out
     Then the status is 302
     And the header "location" is "/session/new"
     When I post to "/session" the form:
-      | email    | ana@example.com       |
-      | password | correct horse battery |
+      | email_address | ana@example.com       |
+      | password      | correct horse battery |
     Then the status is 422
 
   Scenario: Signing out ends the session on the server
@@ -266,7 +299,7 @@ Feature: First run, sign in and sign out
 
   Scenario: A cookie that was not signed by the app is an empty session
     Given the first admin exists
-    And the browser has the cookie "_campfire_session" with the value "abc.def"
+    And the browser has the cookie "session_token" with the value "abc.def"
     When I get "/"
     Then the status is 302
     And the header "location" is "/session/new"
@@ -284,8 +317,8 @@ Feature: First run, sign in and sign out
     Given the first admin exists
     And the request header "sec-fetch-site" is "cross-site"
     When I post to "<path>" the form:
-      | email    | ana@example.com       |
-      | password | correct horse battery |
+      | email_address | ana@example.com       |
+      | password      | correct horse battery |
     Then the status is 403
     And the query "select count(*) from sessions" gives 1
 
@@ -305,3 +338,10 @@ Feature: First run, sign in and sign out
     And the browser has no cookies
     When I get "/health"
     Then the status is 200
+
+  Scenario: The page that the benchmark harness of Rails Campfire checks needs no sign-in
+    Given the first admin exists
+    And the browser has no cookies
+    When I get "/up"
+    Then the status is 200
+    And the body contains "background-color: green"

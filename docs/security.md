@@ -5,9 +5,12 @@ What the app promises and what it does not do yet. Rules for changing the code a
 
 ## Sessions
 
-The cookie holds a random token that is checked against the `sessions` table. It lasts 30 days and
-is `HttpOnly` with `SameSite=Lax`; `CAMPFIRE_SECURE_COOKIES=true` adds `Secure` and the `__Host-`
-prefix (see [configuration.md](configuration.md)).
+The cookie is `session_token` (as in Rails Campfire) and holds a random token that is checked against
+the `sessions` table. It lasts 30 days and is `HttpOnly` with `SameSite=Lax`;
+`CAMPFIRE_SECURE_COOKIES=true` adds `Secure` and renames it `__Host-session_token`, so a browser only
+takes it from the host itself (see [configuration.md](configuration.md)). The sign-in form posts
+`email_address` and `password` to `/session` and a good sign-in answers `302`. (The first-run, join
+and password-reset forms still call their field `email`.)
 
 Signing out deletes the row, so a copy of the cookie stops working. So do deactivating a person
 and resetting their password, which delete every session of that person.
@@ -18,7 +21,9 @@ days) and the rows of a deactivated person. The address is the peer of the conne
 proxy it is the proxy's, because the app does not trust `X-Forwarded-For`.
 
 Forms are protected against other sites with Bond's `Sec-Fetch-Site` and `Origin` check, with no
-token.
+token: a post with `Sec-Fetch-Site: same-origin` or `none` passes, `same-site` and `cross-site` get
+`403`, and a request with neither header and no `Origin` (a tool such as `curl` or the Rails benchmark
+harness, which sends only `Sec-Fetch-Site: same-origin`) passes too.
 
 ## Passwords
 
@@ -26,35 +31,58 @@ Passwords are stored as scrypt digests (cost 2^16, block size 8, two lanes, a ra
 the form `scrypt$N$r$p$salt$key`) and are never logged. A new password is at least 8 characters,
 on first run, join and reset.
 
-Sign-in is limited per client address: the 11th post to `/session` within 3 minutes of the first
-(right or wrong, as in upstream Campfire) is answered `429` with `Retry-After`, before the form is
-read, whatever way the path is written. The count is kept in memory, so a restart clears it. An IPv6
-client counts by its /64 prefix. Behind a proxy every visitor shares the proxy's address and so one
-limit, and a request whose address is unknown shares one limit too. The windows are fixed, not
-sliding: a client can make 10 attempts at the end of one window and 10 more at the start of the
-next, so 20 attempts in a few seconds. The table holds at most 100,000 entries (a client in a window
-takes 2 to 3, so about 33,000 clients; about 30 MB when full). An entry stays until the first sweep
-after its window and the next one have ended, so 2 to 3 windows (6 to 9 minutes); a sweep runs only
-when an attempt arrives. While the table is full, the addresses that are not in it share one
-overflow client with 10 times the limit (100 attempts in 3 minutes), so a flood of addresses cannot
-grow the memory and cannot refuse every new person outright; the addresses in the table keep their
-own counts. If the flood uses up that shared limit, a new address is answered `429` with `Retry-After`
-set to the seconds until the overflow window ends (at most 180), which is also when the
-shared count starts again.
+A database that came from a Rails Campfire has bcrypt digests (`$2a$12$...`, also `$2b$` and
+`$2y$`). Sign-in checks them next to scrypt ones, through the FFI to `crypt_r` of a libcrypt that has
+bcrypt. The library is `libcrypt.so.1` of libxcrypt on Linux (Debian 10, Ubuntu 18.10, Fedora 29,
+RHEL 8 and later), or whatever `CAMPFIRE_BCRYPT_LIBRARY` names: macOS has no bcrypt in its libc and
+Windows has no `crypt`, so there the variable must name a libxcrypt build (its path, for example
+`/opt/homebrew/opt/libxcrypt/lib/libcrypt.1.dylib`). The check runs on the compute pool, so it does not
+hold a scheduler, and a cost of 12 takes about a quarter of a second. Nothing makes a bcrypt digest
+and a sign-in does not rewrite one: a password that is set or reset is scrypt. Notes:
 
-At most two passwords are hashed at the same time (each takes about a second and 64 MiB). A
-sign-in, first-run, join or reset form that arrives while both slots are busy is answered `503`
-with `Retry-After`.
+- The library is opened when a digest is checked, not at start-up, so a missing library, a path
+  that is wrong, a library with no `crypt_r` or one without bcrypt does not stop the app. It fails
+  the sign-in of a person with a bcrypt digest with `500` (not "wrong password": the answer
+  does not depend on the password) and a log line that names the cause and `CAMPFIRE_BCRYPT_LIBRARY`.
+  Accounts with scrypt digests are not affected, and a person can get an scrypt digest by resetting
+  the password.
+- Only a digest of exactly the bcrypt shape reaches the library. bcrypt reads the first 72 bytes of a
+  password, so a longer one that starts the same signs in (as in Rails). A password with a NUL byte, or
+  over 256 bytes, never matches, but it costs a real check of a fixed password against the same digest,
+  so its time is that of a wrong password.
+- A digest with a cost above 15 (a quarter of a second at 12, doubling each step) is an error, not a
+  hash of minutes, and the limit is fixed: that person cannot sign in until their password is reset
+  (or the cost of the digest is lowered in the database). The log line says so.
+- A sign-in for an email that has no account takes the time of an scrypt hash (about a second); one for
+  a bcrypt account takes the quarter second of its cost. A person who can time requests can tell the
+  two apart, so an imported database shows which of its emails exist. The `500` of a cost over the
+  limit and the `500` of a library that cannot be used say the same: this email has a bcrypt account.
+
+At most two passwords are hashed at the same time (each scrypt takes about a second and 64 MiB; a
+bcrypt check counts as one too). A sign-in, first-run, join or reset form that arrives while both slots
+are busy is answered `503` with `Retry-After`.
 
 ## Which pages need a sign-in
 
-Every page does, except the sign-in, first-run and password-reset pages, `/health` and
+Every page does, except the sign-in, first-run and password-reset pages, `/health`, `/up` and
 `/join/CODE`. The list is deny-by-default: a new route is private until
 `src/campfire_web/auth.agc` names it.
 
 A person only sees a room they are a member of. A closed or direct room of other people and a room
 that does not exist answer the same `404 Not Found`, and a message posted to one is refused the
 same way before its text is looked at.
+
+## Signed ids
+
+`src/campfire/signed_id.agc` makes and checks the tokens that Rails writes with
+`record.signed_id(purpose: ...)`, such as the avatar link `/users/TOKEN/avatar` of upstream
+Campfire, from `SECRET_KEY_BASE`. The format is Rails 7.1 to 8.0's: a PBKDF2-HMAC-SHA256 key (1000
+iterations, the salt `active_record/signed_id`, 64 bytes), an HMAC-SHA256 over the URL-safe base64 of
+`{"_rails":{"data":ID,"pur":"user/avatar"}}`, joined by `--`. `SignedId.verify` checks the signature
+in constant time before it decodes anything, then the purpose and the expiry, and answers an id or
+nothing, never why. The token is readable by anyone (it is signed, not encrypted), so it is only a
+way to name a user, never a proof of who is asking. The module is not routed yet: the avatar route
+comes with the Rails schema.
 
 ## The first administrator
 
@@ -90,6 +118,6 @@ request that was already past the filter finishes.
 - The per-IP limit covers sign-in only (the post to `/session`). The join page, the first run and the
   password reset form have none: the join code is 48 random bits, and the password reset has its own
   limits (see [mail.md](mail.md)).
-- Hashing a password blocks a scheduler on Agentica 0.23.0. Agentica main fixes it
+- Hashing a password with scrypt blocks a scheduler on Agentica 0.23.0. Agentica main fixes it
   ([agentica#1052](https://github.com/agentica-lang/agentica/pull/1052)), in the next release. The
   limit of two hashes at a time still applies.

@@ -36,11 +36,11 @@ Feature: What a session row records, and what keeps the table small
   Scenario: The 11th sign-in attempt from one address in the window is refused with a 429
     Given the browser has no cookies
     When I post to "/session" 12 times at once the form:
-      | email | nobody@example.com |
+      | email_address | nobody@example.com |
     Then exactly 2 statuses are 429
     When I post to "/session" the form:
-      | email    | ana@example.com       |
-      | password | correct horse battery |
+      | email_address | ana@example.com       |
+      | password      | correct horse battery |
     Then the status is 429
     And the header "retry-after" is a whole number from 1 to 180
     And the body contains "Too many sign-in attempts"
@@ -48,8 +48,8 @@ Feature: What a session row records, and what keeps the table small
 
   Scenario: Another path to the same route does not escape the limit
     When I post to "/session/" 12 times at once the form:
-      | email | nobody@example.com |
+      | email_address | nobody@example.com |
     Then exactly 2 statuses are 429
     When I post to "/session" the form:
-      | email | nobody@example.com |
+      | email_address | nobody@example.com |
     Then the status is 429

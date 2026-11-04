@@ -279,7 +279,11 @@ def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
     password = ADMIN_PASSWORD
   end
 
-  form = URI.encode_www_form([URI.Pair(name: "email", value: args[0]), URI.Pair(name: "password", value: password)])
+  form = URI.encode_www_form([
+    URI.Pair(name: "email_address", value: args[0]),
+    URI.Pair(name: "password", value: password),
+  ])
+
   made = send(forget_cookies(ctx, []), "POST", "/session", form)
   return BDD.assert(
     made,
