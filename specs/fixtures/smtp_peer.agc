@@ -1,4 +1,4 @@
-## A small SMTP server for the specs of `src/smtp.agc`, written without the code under test. It listens on
+## A small SMTP server for the specs of `src/campfire/mail/smtp.agc`, written without the code under test. It listens on
 ## 127.0.0.1 and a free port, serves one connection and writes the dialogue to stdout, one line each: `C: ` for a
 ## line of the client (the lines of the message too, as they came, dot-stuffed) and `S: ` for a reply. When the
 ## connection ends it writes `closed` and stops. The first line is `listening on PORT`.

@@ -5,7 +5,7 @@
 ## exactly as a room that does not exist is, and a caller cannot tell them apart.
 
 import Db from "pkg/db/db"
-import {int_of, text_of} from "rows"
+import {int_of, text_of} from "repo/rows"
 
 ## How many messages a page of a room holds.
 export PAGE_SIZE = 40

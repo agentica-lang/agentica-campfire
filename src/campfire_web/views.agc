@@ -3,8 +3,8 @@
 
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
-import Accounts from "accounts"
-import Rooms from "rooms"
+import Accounts from "../campfire/accounts"
+import Rooms from "../campfire/rooms"
 import Routes from "routes"
 
 # The name of the app, in the title and the heading.

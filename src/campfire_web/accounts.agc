@@ -6,14 +6,14 @@
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
-import Accounts from "accounts"
-import Auth from "auth"
-import AuthWeb from "auth_web"
-import Database from "database"
-import Rooms from "rooms"
+import Accounts from "../campfire/accounts"
+import Auth from "../campfire/auth"
+import AuthWeb from "auth"
+import Database from "../campfire/repo/database"
+import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
-import {Config} from "config"
+import {Config} from "../campfire/config"
 
 # What a handler makes of its request, decided while its connection is open and answered after it is closed.
 enum Answer

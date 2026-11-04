@@ -3,8 +3,8 @@
 ## that `App.start` does. A line `restart` on its input stops the server and starts another on the same database, and
 ## the end of input stops the program, once the mailer has sent what it had.
 
-import App from "../../src/app"
-import Config from "../../src/config"
+import App from "../../src/campfire_web/app"
+import Config from "../../src/campfire/config"
 
 def main() -> Void
   case Config.load()

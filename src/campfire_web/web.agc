@@ -1,12 +1,12 @@
 ## The routes of the app, on Bond.
 
 import Bond from "pkg/bond/bond"
-import AccountsWeb from "accounts_web"
-import AuthWeb from "auth_web"
-import Mailer from "mailer"
+import AccountsWeb from "accounts"
+import AuthWeb from "auth"
+import Mailer from "../campfire/mail/mailer"
 import Routes from "routes"
-import RoomsWeb from "rooms_web"
-import {Config} from "config"
+import RoomsWeb from "rooms"
+import {Config} from "../campfire/config"
 
 struct Health
   status: String

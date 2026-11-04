@@ -8,7 +8,7 @@ import Db from "pkg/db/db"
 import Accounts from "accounts"
 import Passwords from "passwords"
 import Rooms from "rooms"
-import {int_of, text_of} from "rows"
+import {int_of, text_of} from "repo/rows"
 
 # The name of the account that the first run makes, and of the open room that it starts with (as upstream does).
 ACCOUNT_NAME = "Campfire"

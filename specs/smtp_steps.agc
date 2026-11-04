@@ -1,10 +1,10 @@
 ## The steps of `smtp.feature`: the SMTP peer of `fixtures/smtp_peer.agc` is the program under test, and the client of
-## `src/smtp.agc` runs in the step itself, against the port that the peer reports. The peer writes the dialogue to its
+## `src/campfire/mail/smtp.agc` runs in the step itself, against the port that the peer reports. The peer writes the dialogue to its
 ## stdout, and the steps read it once the connection has ended, so every assertion about what the server saw is an
 ## assertion about its transcript.
 
 import BDD from "std/bdd"
-import Smtp from "../src/smtp"
+import Smtp from "../src/campfire/mail/smtp"
 
 PORT = "smtp_port"
 SECURITY = "smtp_security"

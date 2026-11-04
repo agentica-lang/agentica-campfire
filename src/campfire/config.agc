@@ -1,7 +1,7 @@
 ## Where the server listens, where its data lives and the secret that signs the session cookie. It is read from the
 ## environment, so the same program runs on a laptop and in a container.
 
-import Smtp from "smtp"
+import Smtp from "mail/smtp"
 import URI from "std/uri"
 
 ## The host and the port when the environment says nothing: only this machine, on a port that is free in most setups.

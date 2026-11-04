@@ -1,10 +1,10 @@
 ## The app as a program runs it: the database first, then the server.
 
 import Bond from "pkg/bond/bond"
-import Database from "database"
-import Mailer from "mailer"
+import Database from "../campfire/repo/database"
+import Mailer from "../campfire/mail/mailer"
 import Web from "web"
-import {Config, plain_link?} from "config"
+import {Config, plain_link?} from "../campfire/config"
 
 ## The server and the mailer that a start made, for `stop` and `wait`.
 export struct Running

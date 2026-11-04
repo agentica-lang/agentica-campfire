@@ -1,4 +1,4 @@
-import Passwords from "../src/passwords"
+import Passwords from "../src/campfire/passwords"
 
 # What `verify_nobody?` must cost to hide that an email is not registered: well over the time of a rejected digest.
 MIN_WORK_MS = 20

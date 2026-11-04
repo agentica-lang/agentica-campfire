@@ -1,5 +1,5 @@
 Feature: Sending email over SMTP
-  `src/smtp.agc` sends a message with `Smtp.send`, or several on one connection. The specs run it against a small SMTP
+  `src/campfire/mail/smtp.agc` sends a message with `Smtp.send`, or several on one connection. The specs run it against a small SMTP
   server (fixtures/smtp_peer.agc) on 127.0.0.1 and a free port, which writes down what it received, and so they check
   the dialogue on the wire. STARTTLS and implicit TLS use the test certificate in fixtures/tls (the client trusts its
   CA). An error that comes from a reply of the server has its code (`error_code`), and one that does not is a failure
