@@ -68,24 +68,31 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   exception is a plain-text email (`Views.reset_mail`): nothing in it is HTML, so it has no escape directive.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
 - `agentica.toml` has `blank_line_after_end = true`: every bare `end` is followed by an empty line.
-- The schema is the Rails one (`db/schema.rb` of basecamp/once-campfire at 90b3300): a table that Rails has is made as
-  Rails writes it, column names, types, indexes and keys included (`accounts`, `users` and `sessions` are; rooms,
-  memberships, messages, boosts, search, attachments and webhooks still have the shape of this app until they move),
-  and `specs/schema.feature` compares them with a database that Rails made (`specs/fixtures/rails/`). `users.role` and
-  `users.status` are integers (`repo/rails.agc` names them: never write a bare number in SQL of `src/`), and
-  timestamps are `Rails.NOW` text with no default in the table, so every insert sets `created_at` and `updated_at`.
+- The schema is the Rails one (`db/schema.rb` of basecamp/once-campfire at 90b3300): every table that Rails has is made
+  as Rails writes it, column names, types, indexes and keys included (migrations 1 to 14), and `specs/schema.feature`
+  compares them with a database that Rails made (`specs/fixtures/rails/`), the virtual FTS5 table too. The one table of
+  the app that Rails has not, `password_resets`, is the last migration; it lives in the list so that a database the app
+  makes has it in its history, and `Migrations.extensions()` hands the same `if not exists` statements to a database
+  that Rails made. Keys are Rails': no cascade, and no key where Rails has none (`memberships`, `rooms.creator_id`).
+  `users.role` and `users.status` are integers and `rooms.type` is `Rooms::Open|Closed|Direct` (`repo/rails.agc` names
+  them: never write a bare number or type string in SQL of `src/`; `Rooms.OPEN`, `CLOSED` and `DIRECT` are the types,
+  and `Rooms.ADMINISTRATOR_ROLE_NAME` is the label of the role, not the integer), and timestamps are `Rails.NOW` text with
+  no default in the table, so every insert sets `created_at` and `updated_at`.
   A database with `ar_internal_metadata` was made by Rails and is opened as it is (`Database.migrate`, after a check
   of the columns the app reads, `needed_columns`: add a column there when the app starts to read it): no migration
-  runs on it, and the one thing added is `Migrations.extensions()` (tables of the app that Rails has not, run as `if
-  not exists`). The app never makes `ar_internal_metadata` or `schema_migrations`: its history is
-  `agentica_schema_migrations`.
+  runs on it, and the one thing added is `Migrations.extensions()`. The app never makes `ar_internal_metadata` or
+  `schema_migrations`: its history is `agentica_schema_migrations`.
 - Migrations are one file per migration in `src/campfire/repo/migrations/`, `mNNNN_name.agc` exporting `migration()`,
   listed in order in `migrations.agc` (`test/migrations_test.agc` catches a file missing from the list). There has been
-  no release, so the history is rewritten, with the checksums in `specs/schema.feature`, until the Rails schema is
-  complete; from the first release never edit one that has shipped (`Migrate` refuses it on a database that ran it)
+  no release, so the history is rewritten, with the checksums in `specs/schema.feature`, until the first release; from
+  then on never edit one that has shipped (`Migrate` refuses it on a database that ran it)
   and add the next number.
-- Never write `insert or replace into messages` (it skips the delete trigger and corrupts the search index; an
-  upsert with `on conflict do update` is fine). Page a room by `id`, not by `created_at`.
+- A message is three rows written in one transaction (`Rooms.post`): `messages`, its body in `action_text_rich_texts`
+  (`record_type` `Message`, `name` `body`, HTML cleaned by `HtmlSanitizer.sanitize`) and its plain text in the
+  standalone FTS5 table `message_search_index` with the message id as `rowid`. There are no triggers, so whatever
+  writes or deletes a message writes or deletes the other two. Never write `insert or replace into messages`. Page a
+  room by `created_at` and then `id` (`Rooms.page`), as Rails does: the id of a database that Rails seeded does not
+  follow time. There is no unique index on `client_message_id` (Rails has none), so the app does not drop a repeat.
 - Auth: a page is public only if `PUBLIC_PATHS` in `src/campfire_web/auth.agc` names it (the sign-in filter is
   deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
   code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any
@@ -144,10 +151,9 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   exist for a closed room only, and for any other room the person is in they are the same 404. Only the maker and an
   account administrator may change a closed room (`Rooms.editable?`): another member is answered 403, after the
   membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
-  transaction and fails, rolling back, when it no longer holds. A message is plain text: stripped of the space around
-  it, stored so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the
-  dedupe key with the creator, so it must be unique per person, not per room: a reuse in another room is dropped
-  without a word.
+  transaction and fails, rolling back, when it no longer holds. The form sends plain text, stripped of the space around
+  it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; the view writes a body only as
+  `Rooms.page` gives it, cleaned again.
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an

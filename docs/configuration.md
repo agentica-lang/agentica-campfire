@@ -56,15 +56,19 @@ already (see [people.md](people.md)). A database that Rails made, which has the 
 `ar_internal_metadata`, is opened as it is: no migration runs, nothing is recorded, and the only
 thing added is the table `password_resets`, which Rails has not. The app prints `database: made by
 Rails, opened as it is, schema version V` (V is the last version Rails recorded) and `/health`
-reports V. The rooms, messages and search of the app still have their own tables, so a database
-made by Rails has no rooms for the app yet: sign-in and the people work on it, the pages of rooms do
-not.
+reports V. The rooms, memberships, messages, rich texts and search index are the Rails tables too
+(`rooms.type` is `Rooms::Open`, `Rooms::Closed` or `Rooms::Direct`), so the rooms of a database made
+by Rails work on it. The app keeps one table of its own, `password_resets`, in the list of migrations
+for a database it makes, and adds it with `if not exists` to a database that Rails made.
 
 At the start the app checks that such a database has the columns that it reads (`users.status`,
-`users.email_address`, `sessions.last_active_at`...) and stops, naming the first one missing, when one is not
+`rooms.type`, `messages.client_message_id`, `message_search_index.body`...) and stops, naming the first one missing, when one is not
 there. A database that the app made before its history was rewritten to the Rails schema (it has
 `schema_migrations`, and neither `ar_internal_metadata` nor `agentica_schema_migrations`) also stops the
 start: delete the file and start again, since there has been no release to convert from.
+
+A database that the app made between the people step and the rooms step (before the rooms moved to the Rails
+schema) fails at start with a checksum error and must be deleted, since there has been no release to convert from.
 
 The history of the app is the table `agentica_schema_migrations`, not `schema_migrations`, which
 Rails owns. A database that the app makes never has `ar_internal_metadata` (that table is what tells

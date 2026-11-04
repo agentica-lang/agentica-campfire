@@ -3,16 +3,18 @@
 ## the one request that uses the link, which is what makes it single-use; the row stays for a while so that the next
 ## request for a link waits (see `Auth.request_password_reset`). It goes with its user.
 ##
-## Rails has no password reset, so this is the one table that a database made by Rails lacks and the app needs. The
-## statements are written to be run again (`if not exists`): `Database.migrate` runs them on such a database, which
-## it does not migrate otherwise (`statements`).
+## Rails has no password reset, so this is the one table that a database made by Rails lacks and the app needs. An
+## app-only table lives in the list of migrations, last, like the rest, so that a database the app made has it in its
+## history; it is also the one thing added to a database that Rails made, which `Database.migrate` does not migrate:
+## the statements are written to be run again (`if not exists`) and `Migrations.extensions` hands them over
+## (`statements`), so there is one text for both. `specs/schema.feature` leaves it out of the comparison with Rails.
 
 import Migrate from "pkg/db/migrate"
 import Rails from "../rails"
 
-## Migration 11: create password resets.
+## Migration 15: create password resets.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(11, "create password resets", statements())
+  return Migrate.sql(15, "create password resets", statements())
 end
 
 ## The statements of the migration, which do nothing when the table is there.

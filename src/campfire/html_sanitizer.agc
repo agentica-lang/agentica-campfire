@@ -118,6 +118,29 @@ DROPPED_WITH_CONTENT = Set.new([
   "math",
 ])
 
+# The tags where `plain_text` breaks the line: the ones that end a block, and `br`.
+BREAKING_TAGS = Set.new([
+  "p",
+  "br",
+  "hr",
+  "div",
+  "pre",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "table",
+  "tr",
+  "th",
+  "td",
+])
+
 ALLOWED_SCHEMES = Set.new(["http", "https", "mailto"])
 
 # A link is the one tag with a rel: the page that it opens gets no handle on this one.
@@ -217,6 +240,44 @@ export def sanitize(html: String) -> String
   end
 
   return out.push(closing_tags(open, 0)).join("")
+end
+
+## The HTML of a plain text, as a body that `sanitize` leaves as it is: `&`, `<`, `>` and the quotes escaped, and a new
+## line made a `<br>`, since HTML shows a new line as a space.
+export def from_text(text: String) -> String
+  return HTML.escape(text).replace("\r\n", "\n").replace("\n", "<br>")
+end
+
+## The text of the HTML `html` without its markup, as the search index keeps it (Action Text's `to_plain_text` does the
+## same for Rails): the text of the sanitized body, the entities read back (`&amp;` is `&`), a line break at the end of
+## a block and at a `<br>`, and no empty line. It reads what `sanitize` wrote, so a tag in it is a name, maybe the
+## attributes of a link, then the first `>`: a `>` in a value is written as `&gt;`.
+export def plain_text(html: String) -> String
+  cs = sanitize(html).split("")
+  n = cs.size
+  out: List[String] = []
+  i = 0
+  while i < n
+    if cs[i] != "<"
+      out = out.push(cs[i])
+      i += 1
+    else
+      close = i + 1
+      if at(cs, n, close) == "/"
+        close += 1
+      end
+
+      name = take_until(cs, n, close, Set.new([">", " "]))
+      if BREAKING_TAGS.include?(name.text)
+        out = out.push("\n")
+      end
+
+      i = bogus_end(cs, n, i)
+    end
+  end
+
+  lines = HTML.unescape(out.join("")).split("\n").map do |line| line.strip end
+  return lines.select do |line| not line.empty? end.join("\n")
 end
 
 # Handles the `<` at `start`: a tag, a comment, or a lone `<` that is text.

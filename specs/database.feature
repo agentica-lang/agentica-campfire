@@ -16,7 +16,12 @@ Feature: The database and its migrations
       | memberships         |
       | messages            |
       | boosts              |
-      | attachments         |
+      | action_text_rich_texts |
+      | active_storage_blobs |
+      | active_storage_attachments |
+      | bans                |
+      | searches            |
+      | push_subscriptions  |
       | webhooks            |
       | password_resets     |
       | message_search_index  |

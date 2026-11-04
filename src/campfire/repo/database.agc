@@ -68,8 +68,8 @@ export def busy?(message: String) -> Bool
   )
 end
 
-# The cascades of the schema (a room takes its messages, and through them the search index) need foreign keys on, and
-# a `foreign_keys=off` in the url turns them off without a word. A Rails database has them on in the app too.
+# The keys of the schema (a message needs its room and its author) need foreign keys on, and a `foreign_keys=off` in
+# the url turns them off without a word. A Rails database has them on in the app too.
 def migrate_open(conn: Db.Connection) -> Result[Schema]
   rows = try Db.query(conn, "pragma foreign_keys", [])
   if not rows.any? do |row| on?(row.get("foreign_keys", Db.Value.Null)) end
@@ -114,6 +114,22 @@ def needed_columns() -> Map[String, List[String]]
       "updated_at",
     ],
     "sessions": ["id", "user_id", "token", "user_agent", "ip_address", "last_active_at", "created_at", "updated_at"],
+    "rooms": ["id", "name", "type", "creator_id", "created_at", "updated_at"],
+    "memberships": [
+      "id",
+      "room_id",
+      "user_id",
+      "involvement",
+      "unread_at",
+      "connected_at",
+      "connections",
+      "created_at",
+      "updated_at",
+    ],
+    "messages": ["id", "room_id", "creator_id", "client_message_id", "created_at", "updated_at"],
+    "action_text_rich_texts": ["id", "record_type", "record_id", "name", "body", "created_at", "updated_at"],
+    # The standalone FTS5 table (`pragma table_info` lists its one column, not `rowid`).
+    "message_search_index": ["body"],
   }
 end
 

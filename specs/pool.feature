@@ -11,4 +11,5 @@ Feature: One pool of database connections
     And the first admin exists
     When I post 12 messages at once to "/rooms/1/messages"
     Then each status is one of "302"
-    And the query "select count(*) from messages where room_id = 1 and body like 'burst %'" gives 12
+    And the query "select count(*) from messages where room_id = 1 and id in (select record_id from action_text_rich_texts where record_type = 'Message' and body like 'burst %')" gives 12
+    And the query "select count(*) from message_search_index where message_search_index match 'burst'" gives 12

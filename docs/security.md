@@ -82,7 +82,12 @@ iterations, the salt `active_record/signed_id`, 64 bytes), an HMAC-SHA256 over t
 in constant time before it decodes anything, then the purpose and the expiry, and answers an id or
 nothing, never why. The token is readable by anyone (it is signed, not encrypted), so it is only a
 way to name a user, never a proof of who is asking. The module is not routed yet: the avatar route
-comes with the Rails schema.
+is a later step.
+
+## Message bodies
+
+Message bodies are stored as sanitized HTML (`HtmlSanitizer.sanitize`), cleaned again when they are read (a row
+that Rails wrote was not cleaned by this app), and shown with `<%==` as element content only.
 
 ## The first administrator
 
@@ -115,6 +120,8 @@ request that was already past the filter finishes.
 
 ## Known gaps
 
+- A double click or a retry of a message post stores two messages: there is no dedupe on `client_message_id`
+  (Rails has none either), and the page does not check it yet.
 - The per-IP limit covers sign-in only (the post to `/session`). The join page, the first run and the
   password reset form have none: the join code is 48 random bits, and the password reset has its own
   limits (see [mail.md](mail.md)).

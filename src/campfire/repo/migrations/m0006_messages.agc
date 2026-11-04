@@ -1,10 +1,12 @@
-## `client_message_id` is the id that the browser made for a message it has not heard back about: unique per creator,
-## so that a retry after a lost reply is refused and not stored twice. A page of a room reads `where room_id = ? and
-## id < ? order by id desc limit N`, served by the index on (room_id, id). Page by id, never by `created_at`: several
-## messages can share a millisecond, and `created_at < ?` would skip the ones that tie with the cursor.
+## The `messages` table of a Rails Campfire. It has no body: the text is HTML in `action_text_rich_texts` (the next
+## migration), which is how Action Text keeps it. `client_message_id` is the id that the browser made for a message,
+## for the DOM id of its optimistic copy: there is no unique index on it (Rails has none), so the app does not drop a
+## message that repeats one.
+##
+## A page of a room is read by `created_at`, as Rails orders it, and not by `id`: the messages of a database that Rails
+## seeded can be inserted in an order that is not the order of their time. Ties go by `id` (`Rooms.page`).
 
 import Migrate from "pkg/db/migrate"
-import Rails from "../rails"
 
 ## Migration 6: create messages.
 export def migration() -> Migrate.Migration
@@ -13,8 +15,8 @@ export def migration() -> Migrate.Migration
     "create messages",
     [
       messages(),
-      "create index messages_room_id_id on messages (room_id, id)",
-      "create unique index messages_creator_id_client_message_id on messages (creator_id, client_message_id)",
+      "create index index_messages_on_creator_id on messages (creator_id)",
+      "create index index_messages_on_room_id on messages (room_id)",
     ],
   )
 end
@@ -22,13 +24,14 @@ end
 def messages() -> String
   return <<~SQL
     create table messages (
-      id integer primary key autoincrement,
-      room_id integer not null references rooms (id) on delete cascade,
-      creator_id integer not null references users (id),
-      body text not null,
-      client_message_id text not null,
-      created_at text not null default (#{Rails.NOW}),
-      updated_at text not null default (#{Rails.NOW})
+      id integer primary key autoincrement not null,
+      client_message_id varchar not null,
+      created_at datetime(6) not null,
+      creator_id integer not null,
+      room_id integer not null,
+      updated_at datetime(6) not null,
+      foreign key (room_id) references rooms (id),
+      foreign key (creator_id) references users (id)
     )
   SQL
 end

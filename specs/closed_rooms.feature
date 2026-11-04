@@ -32,7 +32,7 @@ Feature: Closed rooms
       | member | 2      |
     Then the status is 302
     And the header "location" is "/rooms/2"
-    And the query "select count(*) from rooms where (id, kind, name, creator_id) = (2, 'closed', 'Secret', 1)" gives 1
+    And the query "select count(*) from rooms where (id, type, name, creator_id) = (2, 'Rooms::Closed', 'Secret', 1)" gives 1
     And the query "select count(*) from memberships where room_id = 2" gives 2
     And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2)" gives 2
     When I get "/rooms/2"

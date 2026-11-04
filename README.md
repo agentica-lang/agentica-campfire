@@ -2,7 +2,7 @@
 
 Group chat written in [Agentica](https://github.com/agentica-lang/agentica): a port of 37signals' [ONCE Campfire](https://github.com/basecamp/once-campfire), built on [Bond](https://github.com/agentica-lang/bond), EAG templates and [agentica-db](https://github.com/agentica-lang/agentica-db).
 
-Status: a skeleton with sign-in, the join link, the people page, password reset by email, and rooms with plain-text messages, on SQLite. The database is moving to the schema of a Rails Campfire, so that a database that Rails made opens as it is: the people and the account are there, the rooms and messages are next. See [docs/plan.md](docs/plan.md) for what is missing and the phases.
+Status: a skeleton with sign-in, the join link, the people page, password reset by email, and rooms with messages, on SQLite. The database is the schema of a Rails Campfire, so that a database that Rails made opens as it is: the people, the account, the rooms, the messages (HTML bodies and the search index) and the tables for boosts, webhooks, bans, searches, push and Active Storage are there; the routes that use some of them are next. See [docs/plan.md](docs/plan.md) for what is missing and the phases.
 
 This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is independent. It is not affiliated with or endorsed by 37signals. Campfire is MIT licensed (copyright 37signals, LLC). Any CSS, JavaScript or images reused from it keep that copyright and license notice, and the notice is added to this repository when the first file is copied (`specs/fixtures/rails/LICENSE.37signals`, for the Rails schema that the specs compare with).
 

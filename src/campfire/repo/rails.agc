@@ -13,6 +13,17 @@ export ACTIVE = 0
 export DEACTIVATED = 1
 export BANNED = 2
 
+## `rooms.type`, the class name of the single-table inheritance of Rails (`Rooms::Open`, `Rooms::Closed`,
+## `Rooms::Direct`): an open room has every active person in it, a closed room the people chosen for it, and a direct
+## room has no name and is between the people in it.
+export ROOM_OPEN = "Rooms::Open"
+export ROOM_CLOSED = "Rooms::Closed"
+export ROOM_DIRECT = "Rooms::Direct"
+
+## The `record_type` and `name` of the row of `action_text_rich_texts` that holds the body of a message.
+export MESSAGE_RECORD = "Message"
+export BODY_NAME = "body"
+
 ## Rails keeps a `datetime` in SQLite as UTC text with six decimals, `2026-03-01 09:00:00.123456`. SQLite's `%f` has
 ## three, so the last three are zeros: the text is the same length as Rails' own, which is what makes it sort, and
 ## compare, like time against the rows that Rails wrote.

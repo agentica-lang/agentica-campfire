@@ -22,7 +22,7 @@ yourself.
 
 `/rooms/ID/settings` exists for closed rooms only. The maker and an account administrator can
 rename the room and add or remove people. Another member is answered `403` and sees no Settings
-link; a person who is not in the room gets `404`, checked first. For a room of another kind, the
+link; a person who is not in the room gets `404`, checked first. For a room of another type, the
 settings are the same `404`, before the form is read.
 
 The form never takes out the person who sends it. Saving applies only its own changes, so a stale
@@ -33,13 +33,20 @@ that the person may still change it, and rolls back otherwise.
 ## Messages
 
 `/rooms/ID` shows the last 40 messages, the newest at the bottom, with an `Older messages` link to
-the 40 before them (`?before=ID`, paged by message id).
+the 40 before them (`?before=ID`). Messages are paged by `created_at` as Rails does, not by id: the
+rows of a database that Rails seeded are not in the order of their time. `?before=ID` is the messages
+before the time of message ID, and messages that share a time go by id.
 
-A message is plain text of at most 10000 characters, stripped of the space around it, stored so and
-escaped in the page. There is no rich text, link or mention handling yet.
+A message is a row of `messages`, its HTML body in `action_text_rich_texts` (`record_type` `Message`,
+`name` `body`) and its plain text in the FTS5 table `message_search_index` (`rowid` is the message id),
+all written in one transaction. The form sends plain text of at most 10000 characters, stripped of the
+space around it, which is stored as HTML (escaped, a new line as `<br>`). An HTML body, from the form
+that is to come or from Rails, is cleaned by `HtmlSanitizer.sanitize` before it is stored and again
+before it is shown. There is no link or mention handling yet.
 
-The form carries a random `client_message_id`, so posting it twice (a double click, a retry) stores
-one message. The id is the key together with the person, so it must not be reused for another
-message, in any room.
+The form carries a random `client_message_id`, which is stored and used for nothing else: as in Rails
+there is no unique index on it, so posting it twice (a double click) stores two messages. This is a known
+gap: a double click or a retry after a lost answer posts twice, until the client checks `client_message_id`
+(the app does not).
 
 Who may see a room, and why a non-member gets `404`: [security.md](security.md).

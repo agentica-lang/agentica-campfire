@@ -15,7 +15,7 @@ Feature: Rooms
     When I get "/"
     Then the status is 200
     And the body contains "<a href=\"/rooms/1\">All Talk</a>"
-    And the query "select count(*) from rooms where (id, kind, name, creator_id) = (1, 'open', 'All Talk', 1)" gives 1
+    And the query "select count(*) from rooms where (id, type, name, creator_id) = (1, 'Rooms::Open', 'All Talk', 1)" gives 1
     And the query "select count(*) from memberships where room_id = 1 and user_id = 1" gives 1
 
   Scenario: Any member makes an open room, not only an administrator
@@ -33,7 +33,7 @@ Feature: Rooms
     Then the status is 200
     And the body contains "<title>Lunch</title>"
     And the body contains "<h1>Lunch</h1>"
-    And the query "select count(*) from rooms where id = 2 and kind = 'open' and creator_id = 2" gives 1
+    And the query "select count(*) from rooms where id = 2 and type = 'Rooms::Open' and creator_id = 2" gives 1
 
   Scenario: An open room puts every active person in it, and nobody else
     Given a member "Bea" with the email "bea@example.com" exists

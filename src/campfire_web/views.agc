@@ -41,8 +41,8 @@ end
 ## apart, named after the other people) and the ways to make a room and to sign out. It is raw HTML that this file
 ## made, for the pages below to put in.
 export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
-  shared = rooms.select do |room| room.kind != Rooms.DIRECT end
-  direct = rooms.select do |room| room.kind == Rooms.DIRECT end
+  shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
+  direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
   return <<~EAG
     <%@ escape &Bond.escape %>
     <nav aria-label="Rooms">
@@ -226,7 +226,9 @@ export def room_settings(
 end
 
 ## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
-## the form that posts a message. `can_edit` adds the link to the settings, for the people who may change the room.
+## the form that posts a message. The body of a message is HTML that `Rooms.page` has cleaned, so it is the one value
+## here that is written with `<%== %>`. `can_edit` adds the link to the settings, for the people who may change the
+## room.
 export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer, can_edit: Bool) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
@@ -248,7 +250,7 @@ export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: C
           <strong><%= message.author %></strong>
           <time datetime="<%= message.created_at %>"><%= message.created_at %></time>
         </header>
-        <div style="white-space: pre-wrap"><%= message.body %></div>
+        <div><%== message.body %></div>
       </article>
     <% end %>
     <% if not page.at_latest %>
@@ -468,7 +470,7 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
         <li>
           <%= person.name %>
     <% if admin %>
-          (<%= person.email %><% if person.role == Rooms.ADMINISTRATOR %>, administrator<% end %><% if not person.active %>, deactivated<% end %>)
+          (<%= person.email %><% if person.role == Rooms.ADMINISTRATOR_ROLE_NAME %>, administrator<% end %><% if not person.active %>, deactivated<% end %>)
     <% end %>
     <% if admin and person.id != me and person.active %>
           <form method="post" action="<%= Routes.user_deactivate_path(person.id) %>">

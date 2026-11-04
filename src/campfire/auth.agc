@@ -211,12 +211,7 @@ export def sign_in(
     return ok(none)
   end
 
-  rows = try Db.query(
-    conn,
-    "select id, password_digest from users where lower(email_address) = ? and status = #{Rails.ACTIVE} and " +
-    "role <> #{Rails.BOT} order by email_address = ? desc, id limit 1",
-    [Db.Value.Text(normal(email)), Db.Value.Text(normal(email))],
-  )
+  rows = try find_person(conn, "id, password_digest", normal(email))
 
   if rows.empty?
     Passwords.verify_nobody?()
@@ -397,22 +392,38 @@ end
 
 # Emails compare without case and without the spaces around them. The unique index of `email_address` compares bytes
 # (it is Rails' own, and Rails stores an address as it was typed), so the app stores this form and looks an address up
-# with `lower(email_address)`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and
-# is not made twice by a join. The lookup scans `users`, which is small; where two rows differ only in case (the index
-# lets Rails make them), the one that is already lower case is the person.
+# by it first, which the index serves. Only when no row has it does the lookup fall back to `lower(email_address)`,
+# which scans `users`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and is not
+# made twice by a join. Where two rows differ only in case (the index lets Rails make them), the one that is already
+# lower case is the person, and among the others the oldest.
 def normal(email: String) -> String
   return email.strip.downcase
+end
+
+# The rows (at most one) of the active person, not a bot, whose email is `email` in the normal form, with `columns`.
+def find_person(conn: Db.Connection, columns: String, email: String) -> Result[List[Db.Row]]
+  allowed = "status = #{Rails.ACTIVE} and role <> #{Rails.BOT}"
+  exact = try Db.query(
+    conn,
+    "select #{columns} from users where email_address = ? and #{allowed} order by id limit 1",
+    [Db.Value.Text(email)],
+  )
+
+  if not exact.empty?
+    return ok(exact)
+  end
+
+  return Db.query(
+    conn,
+    "select #{columns} from users where lower(email_address) = ? and #{allowed} order by id limit 1",
+    [Db.Value.Text(email)],
+  )
 end
 
 # The body of `request_password_reset`: a link only for an active person who has no link that works and none made
 # within the resend time. The person's earlier rows (used, expired) go when a new link is made.
 def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Optional[PasswordReset]]
-  rows = try Db.query(
-    tx,
-    "select id, name, email_address from users where lower(email_address) = ? and status = #{Rails.ACTIVE} and " +
-    "role <> #{Rails.BOT} order by email_address = ? desc, id limit 1",
-    [Db.Value.Text(email), Db.Value.Text(email)],
-  )
+  rows = try find_person(tx, "id, name, email_address", email)
 
   if rows.empty?
     return ok(none)
@@ -566,13 +577,13 @@ def make_member(
 end
 
 def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
-  rows = try Db.query(
-    conn,
-    "select count(*) as total from users where lower(email_address) = ?",
-    [Db.Value.Text(email)],
-  )
+  exact = try Db.query(conn, "select 1 from users where email_address = ? limit 1", [Db.Value.Text(email)])
+  if not exact.empty?
+    return ok(true)
+  end
 
-  return ok(int_of(rows[0], "total") > 0)
+  rows = try Db.query(conn, "select 1 from users where lower(email_address) = ? limit 1", [Db.Value.Text(email)])
+  return ok(not rows.empty?)
 end
 
 def insert_session(conn: Db.Connection, user_id: Int, token: String, client: Client) -> Result[Int]
