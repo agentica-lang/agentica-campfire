@@ -4,9 +4,11 @@
 ## next ones follow it back to back, each `window_ms` long; an attempt counts in the window it falls in, and never
 ## touches the count of another window, so counting needs no lock.
 ##
-## The table is bounded: it holds at most `MAX_ENTRIES` entries (two or three for each client that is in a window), and
-## while it is full an address that is not in it is refused, since hashing is the work this limit protects and a full
-## table means a flood. An unknown address ("") is one client like any other.
+## The table is bounded: it holds at most `MAX_ENTRIES` entries (two or three for each client that is in a window). While
+## it is full, the addresses that are not in it share one overflow client, with `OVERFLOW_FACTOR` times the limit of an
+## address: a flood of addresses cannot grow the memory, hashing stays limited, and a person who is new still signs in
+## unless the flood itself uses up the shared limit. Addresses already in the table keep their own counts. An unknown
+## address ("") is one client like any other.
 
 # The entries of a client `key`: when its first window started (`key|s`) and the attempts of each window
 # (`key|c|WINDOW`). A key never contains "|", since it is an address. The sweep marker has no "|" either.
@@ -14,8 +16,16 @@ START = "|s"
 COUNT = "|c|"
 SWEEP = "sweep"
 
-## The most entries the table holds before it refuses addresses it has not seen.
-export MAX_ENTRIES = 20_000
+## The most entries the table holds before it counts the addresses it has not seen together. About 33,000 clients, and
+## about 30 MB of memory when full.
+export MAX_ENTRIES = 100_000
+
+## How many times the limit of one address the overflow client gets, for all the addresses that are not in a full table.
+export OVERFLOW_FACTOR = 10
+
+# The key of the overflow client. An address is never "overflow", and it has no "|", so the sweep treats it as a client
+# and drops it when idle.
+OVERFLOW = "overflow"
 
 MS_PER_SECOND = 1000
 IPV6_GROUPS = 8
@@ -29,24 +39,18 @@ end
 
 ## Counts an attempt of the client at `address` at `now_ms` (a monotonic clock). It gives 0 when the attempt is one of
 ## the first `limit` of its window, and otherwise the whole seconds, at least 1, until the window ends and the next
-## one starts. A sweep that runs at the same moment can make an attempt count once too many or too few, never more than
+## one starts (when the table is full and the address is not in it, the window and the limit are those of the overflow
+## client). A sweep that runs at the same moment can make an attempt count once too many or too few, never more than
 ## the requests in flight.
 export def hit(windows: ATS[String, Int], address: String, now_ms: Int, limit: Int, window_ms: Int) -> Int
   sweep(windows, now_ms, window_ms)
   key = key_of(address)
-  start_key = "#{key}#{START}"
-  if not ATS.has_key?(windows, start_key) and ATS.size(windows) >= MAX_ENTRIES
-    return seconds_up(window_ms)
+  if not ATS.has_key?(windows, "#{key}#{START}") and ATS.size(windows) >= MAX_ENTRIES
+    # The overflow client takes at most three entries past the cap, since it is a client like any other.
+    return count(windows, OVERFLOW, now_ms, limit * OVERFLOW_FACTOR, window_ms)
   end
 
-  ATS.put_new(windows, start_key, now_ms)
-  began = ATS.get(windows, start_key).unwrap_or(now_ms)
-  number = window_of(began, now_ms, window_ms)
-  if ATS.add(windows, "#{key}#{COUNT}#{number}", 1) <= limit
-    return 0
-  end
-
-  return seconds_up(began + (number + 1) * window_ms - now_ms)
+  return count(windows, key, now_ms, limit, window_ms)
 end
 
 ## The key of the client at `address`: an IPv4 address (or any text that is not IPv6) as it is, an IPv4-mapped IPv6
@@ -67,6 +71,19 @@ export def key_of(address: String) -> String
   end
 
   return "#{groups.take(PREFIX_GROUPS).join(":")}::/64"
+end
+
+# Counts an attempt of the client `key` in its current window; the result is that of `hit`.
+def count(windows: ATS[String, Int], key: String, now_ms: Int, limit: Int, window_ms: Int) -> Int
+  start_key = "#{key}#{START}"
+  ATS.put_new(windows, start_key, now_ms)
+  began = ATS.get(windows, start_key).unwrap_or(now_ms)
+  number = window_of(began, now_ms, window_ms)
+  if ATS.add(windows, "#{key}#{COUNT}#{number}", 1) <= limit
+    return 0
+  end
+
+  return seconds_up(began + (number + 1) * window_ms - now_ms)
 end
 
 # The eight groups of an IPv6 address, with the `::` filled in with zeros; fewer or more than eight when the text

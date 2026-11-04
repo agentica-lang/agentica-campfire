@@ -115,21 +115,29 @@ def main() -> Void
       try Test.eq(RateLimit.key_of("::1"), RateLimit.key_of("0:0:0:0:9::1"))
       Test.assert(RateLimit.key_of("2001:db8:0:1::5") != RateLimit.key_of("2001:db8:0:2::5"), "two /64s share a key")
     end,
-    Test.test("a sweep drops the old windows and idle clients, and a full table refuses new clients only") do
+    Test.test("a sweep drops the old windows and idle clients") do
       windows = RateLimit.new()
       try Test.eq(RateLimit.hit(windows, "a", 0, 1, 10_000), 0)
       try Test.eq(RateLimit.hit(windows, "a", 20_000, 1, 10_000), 0)
       try Test.eq(ATS.size(windows), 3)
       try Test.eq(RateLimit.hit(windows, "b", 40_000, 1, 10_000), 0)
-      try Test.eq(ATS.keys(windows).sort, ["b|c|0", "b|s", "sweep"])
+      Test.eq(ATS.keys(windows).sort, ["b|c|0", "b|s", "sweep"])
+    end,
+    Test.test("a full table counts the new addresses together with a larger limit, and keeps the others' counts") do
       full = RateLimit.new()
       for number in 0...(RateLimit.MAX_ENTRIES / 2)
         ATS.put(full, "k#{number}|s", 0)
         ATS.put(full, "k#{number}|c|0", 1)
       end
 
-      try Test.eq(RateLimit.hit(full, "new", 1, 1, 10_000), 10)
-      Test.eq(RateLimit.hit(full, "k1", 1, 5, 10_000), 0)
+      # Limit 1 and factor 10: ten new addresses pass, the 11th is told the end of the shared window.
+      passed = (1..10).to_a.map do |n| RateLimit.hit(full, "new#{n}", 1000, 1, 10_000) end
+      try Test.eq(passed, List.repeat(0, 10))
+      try Test.eq(RateLimit.hit(full, "new11", 4000, 1, 10_000), 7)
+      try Test.eq(RateLimit.hit(full, "k1", 1000, 5, 10_000), 0)
+      try Test.eq(RateLimit.hit(full, "k1", 1000, 1, 10_000), 9)
+      # The table grows by the overflow client only, however many addresses arrive.
+      Test.assert(ATS.size(full) <= RateLimit.MAX_ENTRIES + 3, "the table grew past its cap")
     end,
   ])
 end
