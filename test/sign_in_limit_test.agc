@@ -15,23 +15,38 @@ FORM = [Header(name: "content-type", value: "application/x-www-form-urlencoded")
 FIRST_CLIENT = "203.0.113.9"
 OTHER_CLIENT = "198.51.100.7"
 
-# Runs `body` on a database file of its own, which goes away when it is done, passed or failed. The folder is made
-# under TMPDIR so that a test never writes outside the place the run was given.
-def in_folder(body: Fn[String, Result[Void]]) -> Result[Void]
+## The folder of a test and the app that serves from its database.
+struct Site
+  dir: String
+  app: Bond.App
+end
+
+# Runs `body` on an app with a database file of its own, which goes away when it is done, passed or failed. The folder
+# is made under TMPDIR so that a test never writes outside the place the run was given. The pool belongs to the task
+# of the test, which closes it before it returns.
+def in_folder(body: Fn[Site, Result[Void]]) -> Result[Void]
   root = System.env("TMPDIR").unwrap_or("/tmp")
   dir = try Path.join([root, "campfire-test-#{SecureRandom.hex(8)}"])
   try Dir.mkdir_private(dir)
-  outcome = body.call(dir)
+  outcome = serve(dir, body)
   removed = Path.remove(dir)
   try outcome
   return removed
 end
 
-def app_in(dir: String) -> Result[Bond.App]
+def serve(dir: String, body: Fn[Site, Result[Void]]) -> Result[Void]
   config = try Config.parse(Config.DEFAULT_HOST, Config.DEFAULT_PORT, dir, "sqlite:#{dir}/campfire.db", SECRET)
   schema = try Database.migrate(config.database_url)
-  mailer = try Mailer.start(none, 1)
-  return ok(Web.build(config, schema.version, mailer))
+  pool = try Database.open_pool(config.database_url, config.db_pool_size, config.db_checkout_ms)
+  mailer = Mailer.start(none, 1)
+  if not mailer.ok?
+    Database.close_pool(pool)
+    return error(mailer.message)
+  end
+
+  outcome = body.call(Site(dir: dir, app: Web.build(config, pool, schema.version, mailer.unwrap!)))
+  Database.close_pool(pool)
+  return outcome
 end
 
 # A post with no password: the handler refuses it at once (400) without hashing, so the limit is reached in no time.
@@ -51,8 +66,8 @@ end
 def main() -> Void
   Test.run([
     Test.test("the 11th attempt from one address is a 429 with Retry-After, and another address is not affected") do
-      in_folder() do |dir|
-        app = try app_in(dir)
+      in_folder() do |site|
+        app = site.app
         statuses = (1..ATTEMPTS).to_a.map do |_| attempt(app, FIRST_CLIENT, "/session").status end
         try Test.assert(statuses.all? do |status| status != 429 end, "refused before the limit: #{statuses}")
         refused = attempt(app, FIRST_CLIENT, "/session")
@@ -64,8 +79,8 @@ def main() -> Void
       end
     end,
     Test.test("no spelling of the path escapes the limit for a person who is signed in") do
-      in_folder() do |dir|
-        app = try app_in(dir)
+      in_folder() do |site|
+        app = site.app
         cookie = try sign_up(app)
         headers = FORM.concat([cookie])
         # Each spelling has an address of its own, so each one has to reach the limit by itself.
@@ -85,12 +100,12 @@ def main() -> Void
       end
     end,
     Test.test("a session keeps the address of the client that made it") do
-      in_folder() do |dir|
-        app = try app_in(dir)
+      in_folder() do |site|
+        app = site.app
         form = "name=Ana&email=ana%40example.com&password=correct+horse+battery"
         made = Testing.request_from(app, FIRST_CLIENT, "POST", "/first_run", FORM, form)
         try Test.eq(made.status, 302)
-        conn = try Db.open("sqlite:#{dir}/campfire.db")
+        conn = try Db.open("sqlite:#{site.dir}/campfire.db")
         queried = Db.query(conn, "select ip_address from sessions", [])
         Db.close(conn)
         rows = try queried

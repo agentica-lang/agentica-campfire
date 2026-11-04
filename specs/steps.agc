@@ -39,6 +39,7 @@ def main() -> Void
     BDD.step("the database is migrated", &migrate_database),
     BDD.step("the app starts", &start_on_file),
     BDD.step("the app starts with secure cookies", &start_with_secure_cookies),
+    BDD.step("the app starts with {int} database connections that wait {int} milliseconds", &start_with_pool),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the start applied every migration", &applied_every_migration),
     BDD.step("the start applied no migration", &applied_no_migration),
@@ -56,6 +57,7 @@ def main() -> Void
     BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("{string} asks Rooms.update_closed to rename the room {int} and swap its members", &ask_update_closed),
     BDD.step("the update is refused", &update_is_refused),
+    BDD.step("{string} asks Rooms.post to post {string} in the room {int}", &ask_post),
     BDD.step("{string} asks Accounts to {string} the user {int}", &ask_accounts),
     BDD.step("{string} asks Auth.join_hashed to sign up with the code {string}", &ask_join_hashed),
     BDD.step("the join is {string}", &join_is),
@@ -74,17 +76,23 @@ def main() -> Void
 end
 
 def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return start_app(ctx, text_of(ctx, DB_URL), "false")
+  return start_app(ctx, text_of(ctx, DB_URL), "false", {})
 end
 
 def start_with_secure_cookies(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return start_app(ctx, text_of(ctx, DB_URL), "true")
+  return start_app(ctx, text_of(ctx, DB_URL), "true", {})
+end
+
+# A small pool that gives up quickly, so a burst of requests finds every connection busy.
+def start_with_pool(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  pool = {"CAMPFIRE_DB_POOL_SIZE": args[0], "CAMPFIRE_DB_CHECKOUT_MS": args[1]}
+  return start_app(ctx, text_of(ctx, DB_URL), "false", pool)
 end
 
 # The program reads its address and its database from the environment, as `campfire.agc` does, and answers with the
 # `database:` line, then `listening on http://127.0.0.1:PORT`. Every variable it reads is set here, so the specs do not
 # depend on the environment of whoever runs them. Each start draws its own session secret.
-def start_app(ctx: BDD.Context, url: String, secure_cookies: String) -> BDD.Context
+def start_app(ctx: BDD.Context, url: String, secure_cookies: String, pool: Map[String, String]) -> BDD.Context
   settings = {
     "CAMPFIRE_HOST": "127.0.0.1",
     "CAMPFIRE_PORT": "0",
@@ -92,6 +100,8 @@ def start_app(ctx: BDD.Context, url: String, secure_cookies: String) -> BDD.Cont
     "CAMPFIRE_DATABASE_URL": url,
     "CAMPFIRE_SESSION_SECRET": SecureRandom.hex(32),
     "CAMPFIRE_SECURE_COOKIES": secure_cookies,
+    "CAMPFIRE_DB_POOL_SIZE": pool.get("CAMPFIRE_DB_POOL_SIZE", ""),
+    "CAMPFIRE_DB_CHECKOUT_MS": pool.get("CAMPFIRE_DB_CHECKOUT_MS", ""),
   }
 
   mail = MailSteps.app_environment(ctx)
@@ -270,6 +280,22 @@ def update_as(conn: Db.Connection, email: String, room_id: Int) -> Result[Bool]
   rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
   editor_id = value_int(rows[0].get("id", Db.Value.Null))
   return Rooms.update_closed(conn, room_id, editor_id, "Renamed", [3], [1, 2])
+end
+
+# `Rooms.post` straight, as a person whose session the sign-in check let through before they were deactivated. The
+# answer is kept as the update's: `false` is a refusal.
+def ask_post(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| post_as(conn, args[0], args[2].to_i!, args[1]) end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Rooms.post failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, UPDATED, JSON.from("#{outcome.unwrap!}"))
+end
+
+def post_as(conn: Db.Connection, email: String, room_id: Int, body: String) -> Result[Bool]
+  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  return Rooms.post(conn, room_id, value_int(rows[0].get("id", Db.Value.Null)), "stale-#{SecureRandom.hex(4)}", body)
 end
 
 def update_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context

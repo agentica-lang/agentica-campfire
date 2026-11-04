@@ -25,23 +25,23 @@ enum Answer
 end
 
 ## Adds the routes of the people page to `app`.
-export def add(app: Bond.App, config: Config) -> Bond.App
+export def add(app: Bond.App, config: Config, pool: Database.Pool) -> Bond.App
   return (
     app
-    |> Bond.get(Routes.USERS) do |conn| show_users(conn, config) end
-    |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, config, true) end
-    |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, config, false) end
-    |> Bond.post(Routes.JOIN_CODE) do |conn| regenerate_code(conn, config) end
+    |> Bond.get(Routes.USERS) do |conn| show_users(conn, config, pool) end
+    |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, true) end
+    |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, false) end
+    |> Bond.post(Routes.JOIN_CODE) do |conn| regenerate_code(conn, pool) end
   )
 end
 
-def show_users(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  answer = try Database.with_connection(config.database_url) do |db| users_answer(conn, db, config) end
+def show_users(conn: Bond.Conn, config: Config, pool: Database.Pool) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| users_answer(conn, db, config) end
   return ok(respond(conn, answer))
 end
 
 def users_answer(conn: Bond.Conn, db: Db.Connection, config: Config) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return ok(Answer.Page(try users_page(db, config, person)))
@@ -67,14 +67,14 @@ def join_link(db: Db.Connection, config: Config) -> Result[String]
   return ok("#{config.base_url}#{Routes.join_path(code)}")
 end
 
-def change_user(conn: Bond.Conn, config: Config, deactivating: Bool) -> Result[Bond.Conn]
+def change_user(conn: Bond.Conn, pool: Database.Pool, deactivating: Bool) -> Result[Bond.Conn]
   id = user_id(conn)
-  answer = try Database.with_connection(config.database_url) do |db| change_answer(conn, db, id, deactivating) end
+  answer = try Database.with_connection(pool) do |db| change_answer(conn, db, id, deactivating) end
   return ok(respond(conn, answer))
 end
 
 def change_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], deactivating: Bool) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) if person.role != Rooms.ADMINISTRATOR -> return ok(Answer.Forbidden)
@@ -107,13 +107,13 @@ def answer_of(change: Accounts.Change) -> Result[Answer]
   end
 end
 
-def regenerate_code(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  answer = try Database.with_connection(config.database_url) do |db| regenerate_answer(conn, db) end
+def regenerate_code(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| regenerate_answer(conn, db) end
   return ok(respond(conn, answer))
 end
 
 def regenerate_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) if person.role != Rooms.ADMINISTRATOR -> return ok(Answer.Forbidden)

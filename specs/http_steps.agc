@@ -55,6 +55,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("I get {string}", &get),
     BDD.step("I post to {string} the form:", &post_form),
     BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
+    BDD.step("I post {int} messages at once to {string}", &post_messages_at_once),
     BDD.step("I post to {string} a message of {int} characters", &post_message_of_length),
     BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
     BDD.step("I post to {string} twice the form of the page with the body {string}", &post_page_form_twice),
@@ -114,6 +115,30 @@ export def post_at_once(ctx: BDD.Context, path: String, body: String, count: Int
   state = browser(ctx)
   attempts = (1..count).to_a
   answers = Task.map(attempts, count, ALL_AT_ONCE_MS) do |_| post_answer(port, state, path, body) end
+  return keep_answers(ctx, answers)
+end
+
+## Posts `args[0]` messages to the room path `args[1]` in parallel, each with a body and a `client_message_id` of its
+## own (the same id would be one message), and keeps the statuses.
+def post_messages_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  port = port_of(ctx)
+  state = browser(ctx)
+  count = args[0].to_i!
+  answers = Task.map((1..count).to_a, count, ALL_AT_ONCE_MS) do |n|
+    form = URI.encode_www_form([
+      URI.Pair(name: "body", value: "burst #{n}"),
+      URI.Pair(name: "client_message_id", value: "burst-#{n}"),
+    ])
+
+    post_answer(port, state, args[1], form)
+  end
+
+  return keep_answers(ctx, answers)
+end
+
+# The statuses of the parallel requests, for the steps that read them. A request that did not get an answer at all
+# fails the step.
+def keep_answers(ctx: BDD.Context, answers: List[Result[Answer]]) -> BDD.Context
   failed = answers.select do |answer| not answer.ok? end
   if not failed.empty?
     return BDD.assert(ctx, false, "a request failed: #{failed[0].message}")

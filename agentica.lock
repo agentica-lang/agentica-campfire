@@ -3,13 +3,22 @@ version = 1
 [[package]]
 name = "bond"
 git = "https://github.com/agentica-lang/bond"
-ref = "905bc49d9a63fa3c56847865618f7443b4bd91d9"
-commit = "905bc49d9a63fa3c56847865618f7443b4bd91d9"
-hash = "sha256:78f1e0abcf00265d5cf828c7458c0e3e7fd30589232d9874eced1751e055cef6"
+tag = "0.6.0"
+commit = "dd7432b860e7c42be9b6d06138c636ae82fcf7eb"
+hash = "sha256:e671500e558ababd6d908232273c25b03120ec85827947cdec55557350fed371"
 
 [[package]]
 name = "db"
 git = "https://github.com/agentica-lang/agentica-db"
-ref = "72970480b37c54f1cbe4c22bbb91a7b9123e49fa"
-commit = "72970480b37c54f1cbe4c22bbb91a7b9123e49fa"
-hash = "sha256:d7aabbcfcf6b0bac0b9e6f8c9c9164e4dcb9a4c52503dd1c127e75f167cbff6c"
+subdir = "src/db"
+ref = "a89bf75f826fdc549774e2c9e6ba6515bbf3521d"
+commit = "a89bf75f826fdc549774e2c9e6ba6515bbf3521d"
+hash = "sha256:6f8e00b27e285748b59a82830ee8bee4fef9887eb7445640e5214ddcfbfc810c"
+
+[[package]]
+name = "pool"
+git = "https://github.com/agentica-lang/agentica-db"
+subdir = "src/pool"
+ref = "be4d8097a645c088a56b2146c882ad0d8f3a409e"
+commit = "be4d8097a645c088a56b2146c882ad0d8f3a409e"
+hash = "sha256:cb1d040e58a40635a02dad8e00e79d0a6e7418a8b498a61b14b8f81c0f2f1abe"

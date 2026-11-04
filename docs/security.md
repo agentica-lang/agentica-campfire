@@ -77,6 +77,14 @@ measurement could in principle tell apart.
 The exception is sign-up on the join page: it tells a person whose email has an account (a
 deactivated person's too) to sign in instead, and only whoever holds the link can ask.
 
+## Deactivation and open requests
+
+A deactivation takes effect on the next request: the sign-in filter looks the person up once per request and the
+handler uses that answer, so a request that has passed the filter (or waits for a database connection) still runs.
+The people and join-code changes re-check inside their transaction that the actor is an active administrator, and
+posting a message needs an active person (the insert itself checks). The other writes of rooms do not check the actor again, so a
+request that was already past the filter finishes.
+
 ## Known gaps
 
 - The per-IP limit covers sign-in only (the post to `/session`). The join page, the first run and the

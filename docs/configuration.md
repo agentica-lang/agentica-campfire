@@ -11,6 +11,8 @@ start-up with a message that names the variable.
 | `CAMPFIRE_PORT` | `3000` | 0 to 65535. `0` picks a free port; the last line of output says which. |
 | `CAMPFIRE_DATA_DIR` | `data` | Folder for the files of the app. No `?` in it. |
 | `CAMPFIRE_DATABASE_URL` | `sqlite:DATA_DIR/campfire.db?fts5=required` | Another [agentica-db SQLite url](https://agentica-lang.github.io/agentica-db/guide/sqlite/). |
+| `CAMPFIRE_DB_POOL_SIZE` | `0` | Database connections that the requests share: `0` takes the size of the database (4 for SQLite), else 3 to 64. At least 3, since up to two sign-ins hash a password at a time while they hold a connection. |
+| `CAMPFIRE_DB_CHECKOUT_MS` | `3000` | How long a request waits for a free connection, 1 to 60000. After that it is answered `503` with `Retry-After: 1`. |
 | `CAMPFIRE_BASE_URL` | unset | Public address: a scheme, a host and maybe a port, no path (`https://campfire.example.com`). Required with `CAMPFIRE_SMTP_URL`. The join link starts with it. |
 | `CAMPFIRE_SMTP_URL` | unset (no email) | How to send email. See [mail.md](mail.md). |
 | `CAMPFIRE_SMTP_FROM` | `Campfire <campfire@HOST>` | The sender, for the host of the base url. |
@@ -35,6 +37,10 @@ agentica-db turns on WAL mode and foreign keys for any SQLite url. The default u
 `fts5=required`, which stops start-up when the system SQLite has no FTS5 (message search needs it);
 add it to a custom url too. A url with `foreign_keys=off` is refused, since the schema relies on
 cascades.
+
+The app opens its connections once, at start-up, and lends one to each request (agentica-db `DbPool`).
+A url that does not open stops the start. Put `timeout_ms` in the url to bound each statement
+(under 30 s, the time a request may hold a connection); a statement that runs over it is answered `503` too.
 
 At start-up the app runs the migrations that the database has not seen
 (`src/campfire/repo/migrations.agc`) and prints `database: schema version N, migrations applied:

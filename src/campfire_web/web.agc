@@ -3,6 +3,8 @@
 import Bond from "pkg/bond/bond"
 import AccountsWeb from "accounts"
 import AuthWeb from "auth"
+import Database from "../campfire/repo/database"
+import Failure from "failure"
 import Mailer from "../campfire/mail/mailer"
 import Routes from "routes"
 import RoomsWeb from "rooms"
@@ -16,15 +18,16 @@ end
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, and those of `RoomsWeb` and
 ## `AccountsWeb`.
-export def build(config: Config, schema_version: Int, mailer: Mailer.Mailer) -> Bond.App
+export def build(config: Config, pool: Database.Pool, schema_version: Int, mailer: Mailer.Mailer) -> Bond.App
   return (
     Bond.app()
-    |> AuthWeb.add(config, mailer)
-    |> RoomsWeb.add(config)
-    |> AccountsWeb.add(config)
-    |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, config) end
+    |> AuthWeb.add(config, pool, mailer)
+    |> RoomsWeb.add(pool)
+    |> AccountsWeb.add(config, pool)
+    |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, pool) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
     |> Bond.not_found() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
+    |> Bond.on_error() do |conn, message| ok(Failure.answer(conn, message)) end
   )
 end
 
