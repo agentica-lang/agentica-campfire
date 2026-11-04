@@ -7,7 +7,9 @@ def main() -> Void
       try Test.eq(Searches.words("  salt   AND  "), "salt AND")
       try Test.eq(Searches.words("snake_case \"quoted\" (x) a-b"), "snake_case quoted x a b")
       try Test.eq(Searches.words("café naïve 日本語"), "café naïve 日本語")
-      Test.eq(Searches.words("!!! ... ---"), "")
+      try Test.eq(Searches.words("!!! ... ---"), "")
+      many = List.repeat("w", 80).join(" ")
+      Test.eq(Searches.words(many).split(" ").size, Searches.MAX_WORDS)
     end,
     Test.test("each word is in double quotes, so FTS5 reads it as text and not as an operator") do
       try Test.eq(Searches.match("salt AND NEAR"), "\"salt\" \"AND\" \"NEAR\"")

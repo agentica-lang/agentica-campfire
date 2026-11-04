@@ -16,8 +16,8 @@ import {Config} from "../campfire/config"
 
 UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>"
 
-# The biggest file that the assets folder serves: a stylesheet, or a script, of a few hundred kilobytes at most.
-STYLESHEET_MAX_BYTES = 4_194_304
+# The biggest file that the assets folder serves: 4 MiB, far above a stylesheet or a script of this app.
+STYLESHEET_MAX_BYTES = 4 * 1024 * 1024
 
 struct Health
   status: String

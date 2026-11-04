@@ -16,7 +16,7 @@ Feature: Avatars
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the status is 200
     And the header "content-type" is "image/webp"
-    And the header "cache-control" contains "public"
+    And the header "cache-control" contains "private"
     And the body is a WebP image
     And the body is the stored variant of the avatar of the user 1
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
@@ -26,16 +26,27 @@ Feature: Avatars
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the status is 200
     And the header "content-type" contains "image/svg+xml"
-    And the header "cache-control" contains "public"
+    And the header "cache-control" contains "private"
     And the body starts with "<svg"
     And the body contains "fill=\"#BF7C2A\""
     And the body contains ">A</text>"
 
-  Scenario: A person whose avatar has no variant yet gets their initials
+  Scenario: A person whose avatar has no variant yet gets the original image, not initials
     Given the avatar that Rails stored for the user 1
     And I run the sql "delete from active_storage_attachments where record_type = 'ActiveStorage::VariantRecord'"
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 200
+    And the header "content-type" is "image/jpeg"
+    And the body is the stored original of the avatar of the user 1
+
+  Scenario: An original that is not a plain image is not sent
+    Given the avatar that Rails stored for the user 1
+    And I run the sql "delete from active_storage_attachments where record_type = 'ActiveStorage::VariantRecord'"
+    And I run the sql "update active_storage_blobs set content_type = 'image/svg+xml' where id = 1"
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the header "content-type" contains "image/svg+xml"
+    And the body starts with "<svg"
+    And the body contains ">A</text>"
 
   Scenario: A variant whose file is gone is not found, and nobody is told that it exists
     Given the avatar that Rails stored for the user 1

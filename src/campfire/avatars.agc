@@ -20,24 +20,34 @@ INITIALS = /\b\w/
 # the files: whatever else a row holds (it came from a database, not from a visitor) is never turned into a path.
 KEY = /\A[0-9a-z]{4,64}\z/
 
-## A user as the avatar link needs them: the name for the initials, and `variant_key`, the key of the WebP that Rails
-## made for the avatar, `none` for a person with no avatar or with one that Rails has not processed.
+# The shape of the type of an original that is sent as it is: `image/...` from a database, with nothing that
+# could carry
+# a line break into a header (`sendable?` also leaves out SVG).
+SENDABLE_TYPE = /\Aimage\/(?:[a-z0-9.+-]+)\z/
+
+## A user as the avatar link needs them: the name for the initials, and the file to send, `none` for a person with no
+## avatar. `file_key` is the key of the blob to send and `content_type` its type: the WebP that Rails made for the
+## avatar, or, when Rails has not processed one yet (it does so on the first request), the original image.
 export struct Avatar
   name: String
-  variant_key: Optional[String]
+  file_key: Optional[String]
+  content_type: String
 end
 
 ## The avatar of the user, `none` when there is no such user. A user that is deactivated or banned still has theirs,
-## as in Rails. The variant is the image of the `ActiveStorage::VariantRecord` of the avatar's blob that is a WebP:
-## the only variant that the app of Rails defines is `:square`, so there is one, and the digest that names the
-## variation (a hash of a Ruby `Marshal` dump) is not something to compute.
+## as in Rails. The file is the image of the `ActiveStorage::VariantRecord` of the avatar's blob that is a WebP (the
+## only variant that the app of Rails defines is `:square`, so there is one, and the digest that names the variation,
+## a hash of a Ruby `Marshal` dump, is not something to compute). Without one, it is the avatar's own blob, since the
+## app makes no variant and a person who has a picture should not lose it: only a type that is a plain `image/...`
+## and not SVG (which can hold a script) is sent, anything else counts as no avatar.
 export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Avatar]]
   users = try Db.query(conn, "select name from users where id = ?", [Db.Value.Int(user_id)])
   if users.empty?
     return ok(none)
   end
 
-  keys = try Db.query(
+  name = text_of(users[0], "name")
+  variants = try Db.query(
     conn,
     "select variant_blobs.key as key from active_storage_attachments avatars " +
     "join active_storage_variant_records variants on variants.blob_id = avatars.blob_id " +
@@ -50,12 +60,29 @@ export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Avatar]]
     [Db.Value.Int(user_id)],
   )
 
-  variant: Optional[String] = none
-  if not keys.empty?
-    variant = some(text_of(keys[0], "key"))
+  if not variants.empty?
+    return ok(some(Avatar(name: name, file_key: some(text_of(variants[0], "key")), content_type: Rails.WEBP)))
   end
 
-  return ok(some(Avatar(name: text_of(users[0], "name"), variant_key: variant)))
+  originals = try Db.query(
+    conn,
+    "select blobs.key as key, blobs.content_type as content_type from active_storage_attachments avatars " +
+    "join active_storage_blobs blobs on blobs.id = avatars.blob_id " +
+    "where avatars.record_type = '#{Rails.USER_RECORD}' and avatars.record_id = ? " +
+    "and avatars.name = '#{Rails.AVATAR_NAME}' order by avatars.id desc limit 1",
+    [Db.Value.Int(user_id)],
+  )
+
+  if originals.empty? or not sendable?(text_of(originals[0], "content_type"))
+    return ok(some(Avatar(name: name, file_key: none, content_type: "")))
+  end
+
+  original = originals[0]
+  return ok(
+    some(
+      Avatar(name: name, file_key: some(text_of(original, "key")), content_type: text_of(original, "content_type")),
+    ),
+  )
 end
 
 ## The file of a blob under `storage_dir`, where the Disk service of Rails puts it: `xx/yy/KEY`, the first two and the
@@ -82,4 +109,9 @@ end
 export def color(user_id: Int) -> String
   checksum = Zlib.crc32("#{user_id}".bytes).unwrap!
   return COLORS[checksum % COLORS.size]
+end
+
+# A plain image type, and not SVG: RE2 has no lookahead, so the SVG types are left out here.
+def sendable?(content_type: String) -> Bool
+  return Regex.match?(content_type, SENDABLE_TYPE) and not content_type.start_with?("image/svg")
 end

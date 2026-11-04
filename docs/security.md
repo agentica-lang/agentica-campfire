@@ -83,7 +83,8 @@ in constant time before it decodes anything, then the purpose and the expiry, an
 nothing, never why. The token is readable by anyone (it is signed, not encrypted), so it is only a
 way to name a user, never a proof of who is asking. `GET /users/TOKEN/avatar` uses it, with the key of
 `SECRET_KEY_BASE`: a token that does not verify, for another purpose, expired or for no user is the
-same `404` as a missing page.
+same `404` as a missing page. The picture is sent `Cache-Control: private` (Rails says `public`), since
+the route needs a sign-in and a shared cache must not hand it to anyone else.
 
 ## Message bodies
 

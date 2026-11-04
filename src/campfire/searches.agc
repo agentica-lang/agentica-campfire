@@ -15,6 +15,10 @@ export MAX_MESSAGES = 100
 ## How many recent searches a person keeps (`trim_recent_searches` of `Search`).
 export RECENT = 10
 
+## The most words of a query that a search uses: the rest is dropped, so a long query string cannot make thousands of
+## phrases for the index. Rails has no limit; nobody types more.
+export MAX_WORDS = 50
+
 ## The longest query that is remembered, in characters. Rails has no limit; this one keeps a table of tens of kilobytes
 ## out of reach of whoever posts one.
 export MAX_QUERY_LENGTH = 200
@@ -26,10 +30,10 @@ export MAX_QUERY_LENGTH = 200
 NOT_WORD = /[^0-9A-Za-z_\x{80}-\x{10FFFF}]+/
 
 ## The words of what a person typed, with one space between them: `Coffee, & tea!` is `Coffee tea`. Everything that is
-## not a letter, digit or `_` is a separator, as `SearchesController#query` does. It is "" when nothing is left.
+## not a letter, digit or `_` is a separator, as `SearchesController#query` does. At most `MAX_WORDS` are kept. It is "" when nothing is left.
 export def words(typed: String) -> String
   spaced = Regex.replace(typed, NOT_WORD, " ")
-  return spaced.unwrap_or("").strip
+  return spaced.unwrap_or("").strip.split(" ").take(MAX_WORDS).join(" ")
 end
 
 ## The FTS5 expression for `query` (the result of `words`): each word in double quotes, so FTS5 reads it as text and

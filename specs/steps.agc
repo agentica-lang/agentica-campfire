@@ -88,6 +88,7 @@ def main() -> Void
     BDD.step("a direct room with the members {string}", &direct_room_exists),
     BDD.step("the avatar that Rails stored for the user 1", &stored_avatar),
     BDD.step("the body is the stored variant of the avatar of the user {int}", &body_is_variant),
+    BDD.step("the body is the stored original of the avatar of the user {int}", &body_is_original),
     BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("a message {string} in the room {int} at {string}", &message_at),
     BDD.step("an orphan message {string} in the room {int}", &orphan_message),
@@ -762,6 +763,23 @@ def store_blob_file(folder: String, key: String) -> Result[Void]
   second = key.slice(2, 2)
   try Dir.mkdir(try Path.join([folder, first, second]))
   return copy_file(try Path.join([AVATAR_STORAGE, first, second, key]), try Path.join([folder, first, second, key]))
+end
+
+# The bytes that the app answered are the bytes of the image that was attached, before any variant.
+def body_is_original(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  rows = rows_of(
+    ctx,
+    "select blobs.key from active_storage_attachments avatars join active_storage_blobs blobs " +
+    "on blobs.id = avatars.blob_id where avatars.record_type = 'User' and avatars.name = 'avatar' " +
+    "and avatars.record_id = #{args[0]}",
+  )
+
+  if rows.empty?
+    return BDD.assert(ctx, false, "the user #{args[0]} has no avatar")
+  end
+
+  path = Avatars.path(storage_dir(ctx), value_text(rows[0].values[0]))
+  return HttpSteps.body_is_file(ctx, path.unwrap_or(""))
 end
 
 # The bytes that the app answered are the bytes of the WebP that Rails made for the variant of the avatar.
