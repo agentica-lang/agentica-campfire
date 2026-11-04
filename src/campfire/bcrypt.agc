@@ -28,6 +28,14 @@ MIN_COST = 4
 LIMIT_COST = 31
 export MAX_COST = 15
 
+# The most bytes of a password that reaches the library: the same limit as `Passwords.MAX_BYTES`, which the sign-in
+# applies before. bcrypt reads 72 of them, and libxcrypt refuses a passphrase of 512 bytes or more (which would look
+# like a library without bcrypt), so a longer password is handled as one that cannot be checked.
+export MAX_PASSWORD_BYTES = 256
+
+# What is checked in place of a password that cannot be, so that the time is the one of a wrong password.
+STAND_IN = "nobody has this password"
+
 LINUX_LIBRARY = "libcrypt.so.1"
 VARIABLE = "CAMPFIRE_BCRYPT_LIBRARY"
 RESET_HELP = "or have the person reset their password to get an scrypt one"
@@ -74,27 +82,38 @@ export def library_for(os: String, configured: String) -> Result[String]
   )
 end
 
-## True when `password` is the one that made `digest`. A text that is not a bcrypt digest, or a password with a NUL
-## (bcrypt stops reading at one, and C strings cannot hold it), is false. An `error` is a system that cannot do the
-## check (the library cannot be opened or has no bcrypt, a cost over `MAX_COST`): it says so, names
-## `CAMPFIRE_BCRYPT_LIBRARY` and is not a verdict on the password. `library` is that variable ("" for the default of the
-## system, see `library_for`). The work runs on the compute pool, so it does not hold a scheduler. Like bcrypt itself it
-## reads the first 72 bytes of the password only. The hashes are compared in constant time.
+## True when `password` is the one that made `digest`. A text that is not a bcrypt digest is false at once. A password
+## that cannot be checked as it is, with a NUL (bcrypt stops reading at one, and C strings cannot hold it) or over
+## `MAX_PASSWORD_BYTES` (bcrypt reads 72), is false too, but only after a real check of a fixed password against the
+## same digest, so the time does not tell it from a wrong password. An `error` is a system that cannot do the check
+## (the library cannot be opened or has no bcrypt, a cost over `MAX_COST`): it says so, names `CAMPFIRE_BCRYPT_LIBRARY`
+## and is not a verdict on the password. `library` is that variable ("" for the default of the system, see
+## `library_for`). The work runs on the compute pool, so it does not hold a scheduler. Like bcrypt itself it reads the
+## first 72 bytes of the password only. The hashes are compared in constant time.
 export def verify(password: String, digest: String, library: String = "") -> Result[Bool]
-  has_nul = password.bytes.to_a.any? do |byte| byte == 0 end
-  if has_nul or not digest?(digest)
+  if not digest?(digest)
     return ok(false)
   end
 
   cost = digest.slice(COST_START, COST_LENGTH).to_i!
   if cost > MAX_COST
-    return error("bcrypt cost #{cost} is over the limit of #{MAX_COST}")
+    return error(
+      "bcrypt cost #{cost} is over the limit of #{MAX_COST}: this person cannot sign in until their password is " +
+      "reset (or the cost of the digest is lowered)",
+    )
+  end
+
+  has_nul = password.bytes.to_a.any? do |byte| byte == 0 end
+  usable = not has_nul and password.bytes.size <= MAX_PASSWORD_BYTES
+  attempt = password
+  if not usable
+    attempt = STAND_IN
   end
 
   name = try library_for(System.os(), library)
   crypt = try find_crypt(System.os(), name)
-  made = try hashed(crypt, password, digest)
-  return ok(HMAC.secure_compare(made.bytes, digest.bytes))
+  made = try hashed(crypt, attempt, digest)
+  return ok(usable and HMAC.secure_compare(made.bytes, digest.bytes))
 end
 
 # The address of `crypt_r` in the library `name`.

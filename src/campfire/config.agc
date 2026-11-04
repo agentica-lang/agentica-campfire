@@ -98,8 +98,8 @@ end
 
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`,
-## `CAMPFIRE_SMTP_HOSTNAME` and `CAMPFIRE_BCRYPT_LIBRARY`, with the defaults for a variable that is not set (the secret has none, and without the
-## smtp url there is no email). An `error` says which value is wrong.
+## `CAMPFIRE_SMTP_HOSTNAME` and `CAMPFIRE_BCRYPT_LIBRARY`, with the defaults for a variable that is not set (the secret
+## has none, and without the smtp url there is no email). An `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)

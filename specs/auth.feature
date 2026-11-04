@@ -245,7 +245,7 @@ Feature: First run, sign in and sign out
     Then the status is 200
     And the body contains "Signed in as Ana"
 
-  Scenario Outline: A sign-in from another subdomain is refused like one from another site
+  Scenario Outline: A sign-in is allowed from the same origin and refused from another subdomain or site
     Given the first admin exists
     And the browser has no cookies
     And the request header "sec-fetch-site" is "<site>"

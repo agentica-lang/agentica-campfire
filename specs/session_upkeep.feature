@@ -48,7 +48,7 @@ Feature: What a session row records, and what keeps the table small
 
   Scenario: Another path to the same route does not escape the limit
     When I post to "/session/" 12 times at once the form:
-      | email | nobody@example.com |
+      | email_address | nobody@example.com |
     Then exactly 2 statuses are 429
     When I post to "/session" the form:
       | email_address | nobody@example.com |

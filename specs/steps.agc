@@ -118,9 +118,8 @@ def start_app(ctx: BDD.Context, url: String, secure_cookies: String, pool: Map[S
   return read_startup(BDD.given_program(configured, "fixtures/server.agc"))
 end
 
-# What a scenario says with `the bcrypt library is`, else the library of whoever runs the specs (a macOS or
-# Windows runner
-# names its libxcrypt build in `CAMPFIRE_BCRYPT_LIBRARY`), else "" for the default of the system.
+# What a scenario says with `the bcrypt library is`, else the library of whoever runs the specs (a macOS or Windows
+# runner names its libxcrypt build in `CAMPFIRE_BCRYPT_LIBRARY`), else "" for the default of the system.
 def bcrypt_library(ctx: BDD.Context) -> String
   if BDD.get(ctx, BCRYPT_LIBRARY).ok?
     return text_of(ctx, BCRYPT_LIBRARY)

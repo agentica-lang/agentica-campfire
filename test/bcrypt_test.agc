@@ -22,6 +22,9 @@ WRAPPER_VECTORS = [
   ["correct horse battery", "$2y$12$1jFHU53lJapRtuGG/Se1qO0ZjSPSvBewzTvJ0T4DbNo1jZJv.mTm."],
 ]
 
+# Well under what cost 12 takes, well over what a refusal before the check takes.
+MIN_WORK_MS = 50
+
 # The library that the tests use: the one of `CAMPFIRE_BCRYPT_LIBRARY` when it is set (a macOS or Windows runner with a
 # libxcrypt build), else the default of the system.
 def library() -> String
@@ -29,15 +32,17 @@ def library() -> String
 end
 
 # Whether this system can check bcrypt digests, so the tests that need the library are skipped (they pass without
-# running) where it is missing. Linux with no library set must have it: there a failure is a failure.
+# running) where it is missing: macOS and Windows with no library of their own. Linux has libcrypt.so.1 or the library
+# that `CAMPFIRE_BCRYPT_LIBRARY` names, and a failure there is a failure, also with that variable set: a broken
+# library must not turn the tests into passes.
 def ready() -> Result[Bool]
   probe = Bcrypt.verify("U*U", "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW", library())
   if probe.ok?
     return ok(true)
   end
 
-  if System.os() == "linux" and library().empty?
-    return error("libcrypt.so.1 cannot check bcrypt: #{probe.message}")
+  if System.os() == "linux"
+    return error("bcrypt cannot be checked on Linux: #{probe.message}")
   end
 
   return ok(false)
@@ -116,11 +121,32 @@ def main() -> Void
 
       Test.assert(Passwords.verify("x", "$1$salt$hashhashhashhashhashhash").unwrap! == false, "not ours")
     end,
+    Test.test("a password that cannot be checked costs a real check, so the time does not tell it from a wrong one") do
+      if not try ready()
+        return ok()
+      end
+
+      # Cost 12 takes a quarter of a second or more; an early answer takes a millisecond.
+      digest = "$2a$12$.e8gNYy3Yc5qIeU31tvPEuAmRhK8AsHV7iZLhpvYgB6KQoUDvUdMi"
+      nul = String.from_bytes("correct horse battery".bytes + Bytes.from_list([0, 88]).unwrap!).unwrap!
+      huge = (0...(Bcrypt.MAX_PASSWORD_BYTES + 1)).to_a.map do |_| "x" end.join("")
+      limit = (0...Bcrypt.MAX_PASSWORD_BYTES).to_a.map do |_| "x" end.join("")
+      for password in [nul, huge, limit]
+        started = Time.now_ms()
+        checked = Bcrypt.verify(password, digest, library())
+        try Test.eq(checked, ok(false))
+        try Test.assert(Time.now_ms() - started >= MIN_WORK_MS, "answered too quickly to be a real check")
+      end
+
+      # The right password of 72 bytes or fewer still works.
+      Test.eq(Bcrypt.verify("correct horse battery", digest, library()), ok(true))
+    end,
     Test.test("a cost over the limit is an error that says so, and runs nothing") do
       started = Time.now_ms()
       checked = Bcrypt.verify("x", "$2b$20$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW")
       try Test.assert(not checked.ok?, "a cost of 20 ran")
       try Test.assert(checked.message.include?("limit of #{Bcrypt.MAX_COST}"), checked.message)
+      try Test.assert(checked.message.include?("until their password is reset"), checked.message)
       Test.assert(Time.now_ms() - started < 1000, "it took the time of the hash")
     end,
     Test.test(

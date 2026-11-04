@@ -10,9 +10,9 @@ KEY_HEX = (
   "fb1d27846b838705fda8de769f62c8c0684df441a9f127086c263de5e443873c53e5f033293eb5c1667cfd8cb98bf10b5257be2c65c4116d043404470ce5c144"
 )
 
-# 2026-11-04 in Unix milliseconds; the token that expires in 2100 is past its time at 2100-01-01T00:00:00Z, which is
-# 4_102_444_800_000.
+# 2026-11-04 in Unix milliseconds, and 2100-01-01T00:00:00Z, the `exp` of one token.
 NOW_MS = 1_793_750_400_000
+EXPIRY_2100_MS = 4_102_444_800_000
 
 RAILS_8_ID_1 = (
   "eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85"
@@ -41,6 +41,10 @@ EXPIRES_2100 = (
 EXPIRED_2000 = (
   "eyJfcmFpbHMiOnsiZGF0YSI6NDIsImV4cCI6IjIwMDAtMDEtMDFUMDA6MDA6MDAuMDAwWiIsInB1ciI6InVzZXIvYXZhdGFyIn19--e7e87f3b36162d1f072f33fe376e59be88432fb30ef9d71a651ea537a8f52620"
 )
+# Rails 7.1.5, purpose "avataré?": the plain base64 has a "/" in it, which the URL-safe alphabet writes "_".
+RAILS_7_1_SLASH = (
+  "eyJfcmFpbHMiOnsiZGF0YSI6NDIsInB1ciI6InVzZXIvYXZhdGFyw6k/In19--114825a495b1ba10b7ba54651b6947afd2540b730f11c30e048ac43da29dc6a0"
+)
 OTHER_SECRET = (
   "eyJfcmFpbHMiOnsiZGF0YSI6NDIsInB1ciI6InVzZXIvYXZhdGFyIn19--b6171f5a67a8d5310d4801c106c630c5d77959c1ee6c8002cfc33fafcb656df5"
 )
@@ -61,7 +65,10 @@ def main() -> Void
       try Test.eq(SignedId.verify(key(), RAILS_7_1_ID_1, SignedId.AVATAR_PURPOSE, NOW_MS), some(1))
       try Test.eq(SignedId.verify(key(), RAILS_7_1_ID_42, SignedId.AVATAR_PURPOSE, NOW_MS), some(42))
       try Test.eq(SignedId.verify(key(), RAILS_7_0_ID_42, SignedId.AVATAR_PURPOSE, NOW_MS), some(42))
-      Test.eq(SignedId.verify(key(), EXPIRES_2100, SignedId.AVATAR_PURPOSE, NOW_MS), some(42))
+      try Test.eq(SignedId.verify(key(), EXPIRES_2100, SignedId.AVATAR_PURPOSE, NOW_MS), some(42))
+      # The plain base64 of Rails 7.1 has "+" and "/" where the URL-safe one has "-" and "_".
+      try Test.eq(SignedId.verify(key(), RAILS_7_1_SLASH, "user/avataré?", NOW_MS), some(42))
+      Test.eq(SignedId.verify(key(), EXPIRES_2100, SignedId.AVATAR_PURPOSE, EXPIRY_2100_MS - 1), some(42))
     end,
     Test.test("a token that Rails would not accept gives none") do
       purpose = SignedId.AVATAR_PURPOSE
@@ -72,7 +79,8 @@ def main() -> Void
       try Test.eq(SignedId.verify(key(), RAILS_8_ID_42, "", NOW_MS), none)
       try Test.eq(SignedId.verify(key(), OTHER_SECRET, purpose, NOW_MS), none)
       try Test.eq(SignedId.verify(key(), EXPIRED_2000, purpose, NOW_MS), none)
-      Test.eq(SignedId.verify(key(), EXPIRES_2100, purpose, 4_102_444_800_000), none)
+      # Expired at the very millisecond of `exp`, as Rails has it (`Time.now.utc >= exp`).
+      Test.eq(SignedId.verify(key(), EXPIRES_2100, purpose, EXPIRY_2100_MS), none)
     end,
     Test.test("a token that was changed or cut gives none") do
       purpose = SignedId.AVATAR_PURPOSE

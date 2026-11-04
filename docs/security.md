@@ -46,12 +46,17 @@ and a sign-in does not rewrite one: a password that is set or reset is scrypt. N
   does not depend on the password) and a log line that names the cause and `CAMPFIRE_BCRYPT_LIBRARY`.
   Accounts with scrypt digests are not affected, and a person can get an scrypt digest by resetting
   the password.
-- Only a digest of exactly the bcrypt shape reaches the library; a cost above 15 is an error, not
-  a hash of minutes. bcrypt reads the first 72 bytes of a password, so a longer one that starts the
-  same signs in (as in Rails); a password with a NUL byte never matches.
+- Only a digest of exactly the bcrypt shape reaches the library. bcrypt reads the first 72 bytes of a
+  password, so a longer one that starts the same signs in (as in Rails). A password with a NUL byte, or
+  over 256 bytes, never matches, but it costs a real check of a fixed password against the same digest,
+  so its time is that of a wrong password.
+- A digest with a cost above 15 (a quarter of a second at 12, doubling each step) is an error, not a
+  hash of minutes, and the limit is fixed: that person cannot sign in until their password is reset
+  (or the cost of the digest is lowered in the database). The log line says so.
 - A sign-in for an email that has no account takes the time of an scrypt hash (about a second); one for
   a bcrypt account takes the quarter second of its cost. A person who can time requests can tell the
-  two apart, so an imported database shows which of its emails exist.
+  two apart, so an imported database shows which of its emails exist. The `500` of a cost over the
+  limit and the `500` of a library that cannot be used say the same: this email has a bcrypt account.
 
 At most two passwords are hashed at the same time (each scrypt takes about a second and 64 MiB; a
 bcrypt check counts as one too). A sign-in, first-run, join or reset form that arrives while both slots
