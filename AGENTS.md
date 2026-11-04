@@ -13,8 +13,9 @@ src/            config.agc (host, port, data folder, database url, session secre
                 migration per table), web.agc (routes), auth_web.agc (cookie sessions, CSRF, the sign-in
                 filter, the routes of first run, sign in, sign out and password reset), auth.agc (those over
                 SQL), passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the
-                paths), views.agc (EAG templates, the reset email too), mailer.agc (the task that sends
-                email off the request path), smtp.agc and smtp_message.agc (sending email: the client and
+                paths), rooms.agc (rooms, memberships and messages over SQL), rooms_web.agc (their routes), rows.agc
+                (reading a column of a row), views.agc (EAG templates, the reset email too), mailer.agc (the task
+                that sends email off the request path), smtp.agc and smtp_message.agc (sending email: the client and
                 the message builder; they import no other app module, so they can move to their own package)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
@@ -54,8 +55,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   upsert with `on conflict do update` is fine). Page a room by `id`, not by `created_at`.
 - Auth: a page is public only if `PUBLIC_PATHS` in `src/auth_web.agc` names it (the sign-in filter is
   deny-by-default). A request opens its own database connection (`Database.with_connection`), since Bond runs a
-  request in its own task; a `sqlite::memory:` database is therefore not usable by the app. Never log or store a
-  plain password; a form that is shown again never holds the password.
+  request in its own task (a handler opens one and does all its work on it, the person included:
+  `AuthWeb.current_user_in`; the sign-in filter still opens another, since a Bond `Conn` cannot carry the person
+  on); a `sqlite::memory:` database is therefore not usable by the app. Never log or store a plain
+  password; a form that is shown again never holds the password.
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A
   link in an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email
   answers the same for every address (no enumeration). A reset token is stored as a hash only. The write
@@ -63,6 +66,14 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   send one email and change a password once; there is no app-level lock, since agentica-db waits for a busy database
   by sleeping in the task, for at most its `busy_timeout` (5 s by default). A wait that runs out is a database error,
   so the request answers 500.
+- Rooms: a person is in a room only by a `memberships` row, for every kind; every lookup for a person goes through it
+  (`Rooms.find`), so a room of other people and a room that does not exist answer the same `404 Not Found`, and the
+  membership check comes before anything about the room or the posted form is looked at (a 422 would tell that the room
+  exists). Whatever makes a user after the open rooms exist (the invitation), and whatever reactivates one (`active`
+  0 to 1, who has missed the rooms made meanwhile), calls `Rooms.grant_open_rooms`; whatever makes an open room puts
+  every active person in it (`Rooms.create_open`). A message is plain text: stripped of the space around it, stored
+  so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the dedupe key with
+  the creator, so it must be unique per person, not per room: a reuse in another room is dropped without a word.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

@@ -3,10 +3,19 @@
 
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
+import Rooms from "rooms"
 import Routes from "routes"
 
 # The name of the app, in the title and the heading.
 NAME = "Campfire"
+
+## What the form of a room page needs: a `note` that says why the last message was refused ("" shows none), the text
+## to put back in the field (`draft`), and the id that this form sends with its message (`message_id`).
+export struct Composer
+  note: String
+  draft: String
+  message_id: String
+end
 
 ## The page around `content`, which is raw HTML that the caller made safe (another template, never a value of a
 ## client): only the templates of this file call it. `title` is text, and is escaped.
@@ -27,20 +36,116 @@ export def layout(title: String, content: String) -> String
   EAG
 end
 
-## The home page of the person who is signed in, with the button to sign out.
-export def home(user_name: String) -> String
-  body = <<~EAG
+## The column at the side of every page of a person who is signed in: who they are, their rooms (the direct messages
+## apart, named after the other people) and the ways to make a room and to sign out. It is raw HTML that this file
+## made, for the pages below to put in.
+export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
+  shared = rooms.select do |room| room.kind != Rooms.DIRECT end
+  direct = rooms.select do |room| room.kind == Rooms.DIRECT end
+  return <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
-      <h1><%= NAME %></h1>
-      <p>Group chat, written in Agentica.</p>
+    <nav aria-label="Rooms">
       <p>Signed in as <%= user_name %></p>
+      <h2>Rooms</h2>
+      <ul>
+    <% for room in shared %>
+        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+    <% end %>
+      </ul>
+      <p><a href="<%= Routes.ROOM_NEW %>">New room</a></p>
+    <% if not direct.empty? %>
+      <h2>Direct messages</h2>
+      <ul>
+    <% for room in direct %>
+        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+    <% end %>
+      </ul>
+    <% end %>
       <form method="post" action="<%= Routes.SIGN_OUT %>">
         <button type="submit">Sign out</button>
       </form>
+    </nav>
+  EAG
+end
+
+## The home page of the person who is signed in, around their `sidebar`.
+export def home(sidebar: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1><%= NAME %></h1>
+      <p>Group chat, written in Agentica.</p>
     </main>
   EAG
   return layout(NAME, body)
+end
+
+## The form that makes an open room. `name` fills the field again after a refusal, and `message` says why ("" shows
+## none).
+export def new_room(sidebar: String, name: String, message: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1>New room</h1>
+      <p>Everyone on the account will be in it.</p>
+    <% if not message.empty? %>
+      <p role="alert"><%= message %></p>
+    <% end %>
+      <form method="post" action="<%= Routes.ROOMS %>">
+        <p>
+          <label>Name
+            <input name="name" type="text" value="<%= name %>" maxlength="<%= Rooms.MAX_NAME_LENGTH %>"
+              required autofocus></label>
+        </p>
+        <p><button type="submit">Make the room</button></p>
+      </form>
+    </main>
+  EAG
+  return layout("New room", body)
+end
+
+## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
+## the form that posts a message.
+export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1><%= room.name %></h1>
+    <% if page.older.some? %>
+      <p><a href="<%= Routes.room_before_path(room.id, page.older.unwrap!) %>">Older messages</a></p>
+    <% end %>
+    <% if page.messages.empty? %>
+      <p>No messages here yet.</p>
+    <% end %>
+    <% for message in page.messages %>
+      <article id="message_<%= message.id %>">
+        <header>
+          <strong><%= message.author %></strong>
+          <time datetime="<%= message.created_at %>"><%= message.created_at %></time>
+        </header>
+        <div style="white-space: pre-wrap"><%= message.body %></div>
+      </article>
+    <% end %>
+    <% if not page.at_latest %>
+      <p><a href="<%= Routes.room_path(room.id) %>">Latest messages</a></p>
+    <% end %>
+    <% if not composer.note.empty? %>
+      <p role="alert"><%= composer.note %></p>
+    <% end %>
+      <form method="post" action="<%= Routes.room_messages_path(room.id) %>">
+        <input name="client_message_id" type="hidden" value="<%= composer.message_id %>">
+        <p>
+          <label>Message
+            <textarea name="body" required autofocus><%= composer.draft %></textarea></label>
+        </p>
+        <p><button type="submit">Send</button></p>
+      </form>
+    </main>
+  EAG
+  return layout(room.name, body)
 end
 
 ## The first-run form that makes the administrator. `name` and `email` fill the fields again after a refusal, and
