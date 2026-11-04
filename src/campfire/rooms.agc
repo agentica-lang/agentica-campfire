@@ -1,23 +1,27 @@
-## Rooms, their members and their messages over the `rooms`, `memberships` and `messages` tables. These functions take
-## an open connection and never see a request. A person is in a room when a `memberships` row says so, whatever the
-## kind of the room: an open room is one that every active person has a row in, which `create_open_in` and
-## `grant_open_rooms` write. Every lookup for a person goes through that row, so a room of someone else is `none`
-## exactly as a room that does not exist is, and a caller cannot tell them apart.
+## Rooms, their members and their messages over the `rooms`, `memberships` and `messages` tables of the Rails schema
+## (the body of a message is in `action_text_rich_texts`, and its plain text in `message_search_index`). These
+## functions take an open connection and never see a request. A person is in a room when a `memberships` row says so,
+## whatever the type of the room (`rooms.type`): an open room is one that every active person has a row in, which
+## `create_open_in` and `grant_open_rooms` write. Every lookup for a person goes through that row, so a room of someone
+## else is `none` exactly as a room that does not exist is, and a caller cannot tell them apart.
 
 import Db from "pkg/db/db"
+import HtmlSanitizer from "html_sanitizer"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
 ## How many messages a page of a room holds.
 export PAGE_SIZE = 40
 
-## The kinds of room that this module makes besides the open one: a room with a member list, and a room between people,
-## which has no name of its own.
-export CLOSED = "closed"
-export DIRECT = "direct"
+## The types of room (`rooms.type`): every active person is in an open room, a closed room has a member list, and a
+## direct room is between people and has no name of its own.
+export OPEN = Rails.ROOM_OPEN
+export CLOSED = Rails.ROOM_CLOSED
+export DIRECT = Rails.ROOM_DIRECT
 
-## The role of an account administrator, who may edit any closed room (`users.role`).
-export ADMINISTRATOR = Rails.ADMINISTRATOR_NAME
+## The label of the role of an account administrator, who may edit any closed room (`Auth.User.role` carries it; it is
+## not the integer that `users.role` holds, which is `Rails.ADMINISTRATOR`).
+export ADMINISTRATOR_ROLE_NAME = Rails.ADMINISTRATOR_NAME
 
 ## The longest name of a room, in characters, and the longest message.
 export MAX_NAME_LENGTH = 100
@@ -35,16 +39,16 @@ NO_NAME = "Direct message"
 # What `updated_at` is set to when a room changes, in the form of the schema.
 NOW = Rails.NOW
 
-# Greater than any id, so that "before this id" with no id is the whole room.
-NEWEST = 9_223_372_036_854_775_807
+# What a message is called when its author's row is gone (a database that Rails seeded can have one).
+UNKNOWN_AUTHOR = "Unknown"
 
 # A room as a person sees it. A direct room has no name, so it is called after the other people in it (the column is
 # `others`, looked up only for a direct room, so an open room costs no subquery), and `memberships.involvement` is
 # what the sidebar filters on. The names are joined in the order of the inner select, which the database keeps for
 # `group_concat` in practice.
 ROOM_COLUMNS = (
-  "select rooms.id, rooms.kind, rooms.name, rooms.creator_id, " +
-  "case when rooms.kind = 'direct' then " +
+  "select rooms.id, rooms.type, rooms.name, rooms.creator_id, " +
+  "case when rooms.type = '#{DIRECT}' then " +
   "(select group_concat(name, ', ') from (select users.name as name from memberships others " +
   "join users on users.id = others.user_id where others.room_id = rooms.id and others.user_id <> ? " +
   "order by users.name)) end as others " +
@@ -55,7 +59,7 @@ ROOM_COLUMNS = (
 export struct Room
   id: Int
   name: String
-  kind: String
+  room_type: String
   creator_id: Int
 end
 
@@ -65,9 +69,9 @@ export struct Person
   name: String
 end
 
-## A message with the name of its author. `created_at` is an ISO 8601 UTC instant with milliseconds
-## (`2026-03-01T09:00:00.123Z`), made from the Rails form of the column, so that `<time datetime>` and the scripts that
-## read it take it as UTC.
+## A message with the name of its author. `body` is HTML that `HtmlSanitizer.sanitize` has cleaned, so a view writes it
+## with `<%== %>`. `created_at` is an ISO 8601 UTC instant with milliseconds (`2026-03-01T09:00:00.123Z`), made from
+## the Rails form of the column, so that `<time datetime>` and the scripts that read it take it as UTC.
 export struct Message
   id: Int
   author: String
@@ -151,16 +155,11 @@ end
 ## `create_open` inside a transaction that the caller has begun (the first run makes its room in the transaction that
 ## makes the administrator). The creator must be an active user, or they are not in their own room.
 export def create_open_in(tx: Db.Connection, creator_id: Int, name: String) -> Result[Int]
-  rooms = try Db.query(
-    tx,
-    "insert into rooms (name, kind, creator_id) values (?, 'open', ?) returning id",
-    [Db.Value.Text(name), Db.Value.Int(creator_id)],
-  )
-
-  room_id = int_of(rooms[0], "id")
+  room_id = try insert_room(tx, Db.Value.Text(name), OPEN, creator_id)
   try Db.execute(
     tx,
-    "insert into memberships (room_id, user_id) select ?, id from users where status = #{Rails.ACTIVE}",
+    "insert into memberships (room_id, user_id, created_at, updated_at) " +
+    "select ?, id, #{NOW}, #{NOW} from users where status = #{Rails.ACTIVE}",
     [Db.Value.Int(room_id)],
   )
 
@@ -172,8 +171,8 @@ end
 export def grant_open_rooms(conn: Db.Connection, user_id: Int) -> Result[Void]
   try Db.execute(
     conn,
-    "insert into memberships (room_id, user_id) select id, ? from rooms where kind = 'open' " +
-    "on conflict (room_id, user_id) do nothing",
+    "insert into memberships (room_id, user_id, created_at, updated_at) " +
+    "select id, ?, #{NOW}, #{NOW} from rooms where type = '#{OPEN}' on conflict (room_id, user_id) do nothing",
     [Db.Value.Int(user_id)],
   )
 
@@ -183,7 +182,7 @@ end
 ## True when the person may change the room: it is a closed room and they made it or are an account administrator, as
 ## upstream lets only the creator and an administrator administer a room. Being in the room is not enough.
 export def editable?(room: Room, user_id: Int, role: String) -> Bool
-  return room.kind == CLOSED and (room.creator_id == user_id or role == ADMINISTRATOR)
+  return room.room_type == CLOSED and (room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME)
 end
 
 ## The active people that a person can put in a room, other than themselves (they are always in what they make), by
@@ -238,16 +237,33 @@ export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) 
 end
 
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
-## first. It reads one more than a page, to know whether there is an older page without a count. Paged by `id`, never
-## by `created_at`, which can tie (see `repo/migrations.agc`).
+## first, by `created_at` as Rails does: the rows of a database that Rails seeded are not in the order of their time, so
+## the id says nothing about it. Messages that share an instant go by `id`, so a page and the one before it neither
+## repeat nor skip one; a `before` that is no message gives an empty page, and one of another room serves for its time
+## only. It reads one more than a page, to know whether there is an older page without a count.
 export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Page]
+  params = [Db.Value.Int(room_id)]
+  cursor = ""
+  case before
+    some(anchor) ->
+      cursor = (
+        "and (messages.created_at, messages.id) < " +
+        "(select anchor.created_at, anchor.id from messages anchor where anchor.id = ?)"
+      )
+
+      params = params.push(Db.Value.Int(anchor))
+    none -> cursor = ""
+  end
+
   rows = try Db.query(
     conn,
-    "select messages.id, users.name as author, messages.body, " +
+    "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, coalesce(rich_texts.body, '') as body, " +
     "strftime('%Y-%m-%dT%H:%M:%fZ', messages.created_at) as created_at " +
-    "from messages join users on users.id = messages.creator_id " +
-    "where messages.room_id = ? and messages.id < ? order by messages.id desc limit ?",
-    [Db.Value.Int(room_id), Db.Value.Int(before.unwrap_or(NEWEST)), Db.Value.Int(PAGE_SIZE + 1)],
+    "from messages left join users on users.id = messages.creator_id " +
+    "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
+    "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}' " +
+    "where messages.room_id = ? #{cursor} order by messages.created_at desc, messages.id desc limit ?",
+    params.push(Db.Value.Int(PAGE_SIZE + 1)),
   )
 
   shown = rows.take(PAGE_SIZE).map do |row| message_of(row) end
@@ -261,38 +277,52 @@ end
 
 ## Stores a message of the person in the room, which the caller has checked they are in, and says whether the person
 ## is still active: the insert itself needs an active person, so a deactivation that came after the sign-in check (the
-## request may have waited for a connection) stores nothing and gives `false`. `client_message_id` is made by the page
-## of the form: a second post with the same one (a double click, a retry after a lost answer) stores nothing, so one
-## send is one message. It must be unique per person, not per room: the key is the person and the id, so a reuse in
-## another room is dropped without a word.
+## request may have waited for a connection) stores nothing and gives `false`. `html` is the body as the editor sent
+## it, cleaned here by `HtmlSanitizer.sanitize`, and goes in `action_text_rich_texts`; the plain text of it goes in
+## `message_search_index` with the id of the message as its rowid. The three rows are written in one transaction, so
+## the audits of the harness (and a reader of the database) never see a message without its body or its index row.
+## `client_message_id` is what the browser made for the message; it is stored, and there is no check on it (Rails has
+## none): a second post with the same one is a second message.
 export def post(
   conn: Db.Connection,
   room_id: Int,
   user_id: Int,
   client_message_id: String,
-  body: String,
+  html: String,
 ) -> Result[Bool]
-  stored = try Db.execute(
-    conn,
-    "insert into messages (room_id, creator_id, body, client_message_id) " +
-    "select ?, ?, ?, ? where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
-    "on conflict (creator_id, client_message_id) do nothing",
-    [
-      Db.Value.Int(room_id),
-      Db.Value.Int(user_id),
-      Db.Value.Text(body),
-      Db.Value.Text(client_message_id),
-      Db.Value.Int(user_id),
-    ],
+  return Db.transaction(conn) do |tx|
+    post_in(tx, room_id, user_id, client_message_id, HtmlSanitizer.sanitize(html))
+  end
+end
+
+def post_in(tx: Db.Connection, room_id: Int, user_id: Int, client_message_id: String, body: String) -> Result[Bool]
+  rows = try Db.query(
+    tx,
+    "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) " +
+    "select ?, ?, ?, #{NOW}, #{NOW} where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
+    "returning id",
+    [Db.Value.Int(room_id), Db.Value.Int(user_id), Db.Value.Text(client_message_id), Db.Value.Int(user_id)],
   )
 
-  if stored > 0
-    return ok(true)
+  if rows.empty?
+    return ok(false)
   end
 
-  # Nothing was stored: either the message was a repeat (the person is active) or the person is not.
-  rows = try Db.query(conn, "select 1 from users where id = ? and status = #{Rails.ACTIVE}", [Db.Value.Int(user_id)])
-  return ok(not rows.empty?)
+  message_id = Db.Value.Int(int_of(rows[0], "id"))
+  try Db.execute(
+    tx,
+    "insert into action_text_rich_texts (record_type, record_id, name, body, created_at, updated_at) " +
+    "values ('#{Rails.MESSAGE_RECORD}', ?, '#{Rails.BODY_NAME}', ?, #{NOW}, #{NOW})",
+    [message_id, Db.Value.Text(body)],
+  )
+
+  try Db.execute(
+    tx,
+    "insert into message_search_index (rowid, body) values (?, ?)",
+    [message_id, Db.Value.Text(HtmlSanitizer.plain_text(body))],
+  )
+
+  return ok(true)
 end
 
 def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
@@ -315,7 +345,7 @@ def update_closed_in(
 ) -> Result[Bool]
   changed = try Db.execute(
     tx,
-    "update rooms set name = ?, updated_at = #{NOW} where id = ? and kind = 'closed' " +
+    "update rooms set name = ?, updated_at = #{NOW} where id = ? and type = '#{CLOSED}' " +
     "and (creator_id = ? or exists (select 1 from users where id = ? and role = #{Rails.ADMINISTRATOR} and " +
     "status = #{Rails.ACTIVE})) " +
     "and exists (select 1 from memberships where room_id = rooms.id and user_id = ?)",
@@ -380,7 +410,7 @@ def direct_between(tx: Db.Connection, everyone: List[Int]) -> Result[Optional[In
   size = Db.Value.Int(everyone.size)
   rows = try Db.query(
     tx,
-    "select rooms.id from rooms where rooms.kind = 'direct' " +
+    "select rooms.id from rooms where rooms.type = '#{DIRECT}' " +
     "and (select count(*) from memberships where room_id = rooms.id) = ? " +
     "and (select count(*) from memberships where room_id = rooms.id and user_id in (#{marks})) = ? " +
     "order by rooms.id limit 1",
@@ -404,11 +434,11 @@ def make_direct(tx: Db.Connection, creator_id: Int, everyone: List[Int]) -> Resu
   return ok(room_id)
 end
 
-def insert_room(tx: Db.Connection, name: Db.Value, kind: String, creator_id: Int) -> Result[Int]
+def insert_room(tx: Db.Connection, name: Db.Value, room_type: String, creator_id: Int) -> Result[Int]
   rows = try Db.query(
     tx,
-    "insert into rooms (name, kind, creator_id) values (?, ?, ?) returning id",
-    [name, Db.Value.Text(kind), Db.Value.Int(creator_id)],
+    "insert into rooms (name, type, creator_id, created_at, updated_at) values (?, ?, ?, #{NOW}, #{NOW}) returning id",
+    [name, Db.Value.Text(room_type), Db.Value.Int(creator_id)],
   )
 
   return ok(int_of(rows[0], "id"))
@@ -418,8 +448,8 @@ end
 def add_member(tx: Db.Connection, room_id: Int, user_id: Int, involvement: String) -> Result[Void]
   try Db.execute(
     tx,
-    "insert into memberships (room_id, user_id, involvement) select ?, id, ? from users where id = ? and " +
-    "status = #{Rails.ACTIVE} " +
+    "insert into memberships (room_id, user_id, involvement, created_at, updated_at) " +
+    "select ?, id, ?, #{NOW}, #{NOW} from users where id = ? and status = #{Rails.ACTIVE} " +
     "on conflict (room_id, user_id) do nothing",
     [Db.Value.Int(room_id), Db.Value.Text(involvement), Db.Value.Int(user_id)],
   )
@@ -428,9 +458,9 @@ def add_member(tx: Db.Connection, room_id: Int, user_id: Int, involvement: Strin
 end
 
 def room_of(row: Db.Row) -> Room
-  kind = text_of(row, "kind")
+  room_type = text_of(row, "type")
   name = text_of(row, "name")
-  if kind == DIRECT
+  if room_type == DIRECT
     name = text_of(row, "others")
   end
 
@@ -438,14 +468,15 @@ def room_of(row: Db.Row) -> Room
     name = NO_NAME
   end
 
-  return Room(id: int_of(row, "id"), name: name, kind: kind, creator_id: int_of(row, "creator_id"))
+  return Room(id: int_of(row, "id"), name: name, room_type: room_type, creator_id: int_of(row, "creator_id"))
 end
 
 def message_of(row: Db.Row) -> Message
   return Message(
     id: int_of(row, "id"),
     author: text_of(row, "author"),
-    body: text_of(row, "body"),
+    # What Rails wrote was not cleaned by this app, so the body is cleaned again on its way out.
+    body: HtmlSanitizer.sanitize(text_of(row, "body")),
     created_at: text_of(row, "created_at"),
   )
 end

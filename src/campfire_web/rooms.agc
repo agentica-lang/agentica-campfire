@@ -13,6 +13,7 @@ import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
+import HtmlSanitizer from "../campfire/html_sanitizer"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
@@ -363,7 +364,7 @@ def post_to(db: Db.Connection, person: Auth.User, room: Rooms.Room, body: String
   end
 
   # The person may have been deactivated since the filter looked them up: the insert stores nothing for them.
-  stored = try Rooms.post(db, room.id, person.id, sent_id, body)
+  stored = try Rooms.post(db, room.id, person.id, sent_id, HtmlSanitizer.from_text(body))
   if not stored
     return ok(Answer.SignedOut)
   end
@@ -404,7 +405,7 @@ end
 def closed_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]
   room = try member_room(db, person, id)
   case room
-    some(found) if found.kind == Rooms.CLOSED -> return ok(room)
+    some(found) if found.room_type == Rooms.CLOSED -> return ok(room)
     _ -> return ok(none)
   end
 end

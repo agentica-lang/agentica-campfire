@@ -58,7 +58,6 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post {int} messages at once to {string}", &post_messages_at_once),
     BDD.step("I post to {string} a message of {int} characters", &post_message_of_length),
     BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
-    BDD.step("I post to {string} twice the form of the page with the body {string}", &post_page_form_twice),
     BDD.step("I post nothing to {string}", &post_nothing),
     BDD.step("I submit the form of the page that posts to {string}", &submit_page_form),
     BDD.step("I submit the join form of the page with:", &submit_join_form),
@@ -119,7 +118,7 @@ export def post_at_once(ctx: BDD.Context, path: String, body: String, count: Int
 end
 
 ## Posts `args[0]` messages to the room path `args[1]` in parallel, each with a body and a `client_message_id` of its
-## own (the same id would be one message), and keeps the statuses.
+## own, and keeps the statuses.
 def post_messages_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
   port = port_of(ctx)
   state = browser(ctx)
@@ -163,22 +162,6 @@ end
 def post_long_message(ctx: BDD.Context, args: List[String]) -> BDD.Context
   padding = List.repeat("x", args[2].to_i! - args[1].length).join("")
   return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "body", value: args[1] + padding)]))
-end
-
-# The form of the page that was just got, as its own fields say: the hidden `client_message_id` goes back as it came,
-# so what the page writes is what the post reads.
-def post_page_form_twice(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  marker = "name=\"client_message_id\" type=\"hidden\" value=\""
-  page = last_reply(ctx).body
-  start = page.index_of(marker)
-  if start.none?
-    return BDD.assert(ctx, false, "the page has no client_message_id: #{page}")
-  end
-
-  rest = page.slice(start.unwrap! + marker.length, page.length - start.unwrap! - marker.length)
-  id = rest.split("\"")[0]
-  form = URI.encode_www_form([URI.Pair(name: "body", value: args[1]), URI.Pair(name: "client_message_id", value: id)])
-  return send(send(ctx, "POST", args[0], form), "POST", args[0], form)
 end
 
 # The form of the page that was just got, found by the `action` that it names, and posted to that action as the page

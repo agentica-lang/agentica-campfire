@@ -372,6 +372,25 @@ def main() -> Void
         Case(input: "<table><b><tr><td></b></td></tr></table></a></b>", want: ""),
       ])
     end,
+    Test.test("the plain text of a body has no markup, reads the entities and breaks the line at a block") do
+      try Test.eq(
+        HtmlSanitizer.plain_text("<p>Hello <strong>big</strong> &amp; <a href=\"/x?a=1&b=2\">world</a></p><p>Two</p>"),
+        "Hello big & world\nTwo",
+      )
+
+      try Test.eq(
+        HtmlSanitizer.plain_text("one<br>two<script>alert(1)</script><ul><li>a</li><li>b</li></ul>"),
+        "one\ntwo\na\nb",
+      )
+
+      try Test.eq(HtmlSanitizer.plain_text("5 &lt; 6 <i onclick=\"x\">ok</i>"), "5 < 6 ok")
+      Test.eq(HtmlSanitizer.plain_text(""), "")
+    end,
+    Test.test("the HTML of a plain text is what sanitize leaves as it is") do
+      html = HtmlSanitizer.from_text("<script>alert(1)</script> & \"q\"\r\nnext\nline")
+      try Test.eq(html, "&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;q&quot;<br>next<br>line")
+      Test.eq(HtmlSanitizer.sanitize(html), html)
+    end,
     Test.test("nesting is capped") do
       out = HtmlSanitizer.sanitize(List.repeat("<b>", 200).join("") + "x")
       try Test.eq(out.split("<b>").size, 65)

@@ -1,31 +1,38 @@
-## `unread_at` is set when a message arrives while the person is away. `connections` counts the open tabs, so it
-## never goes below 0. The unique pair also serves the lookups by room.
+## The `memberships` table of a Rails Campfire: who is in which room. `involvement` is one of `invisible`, `nothing`,
+## `mentions` or `everything` (text, as Rails' enum writes it). `unread_at` is set when a message arrives while the
+## person is away, and `connections` counts the open tabs (`connected_at` is when the first one opened). Rails has no
+## key to `rooms` or `users` and no check on these, so the code that writes a row is what keeps them right. The unique
+## pair also serves the lookups by room.
 
 import Migrate from "pkg/db/migrate"
-import Rails from "../rails"
 
 ## Migration 5: create memberships.
 export def migration() -> Migrate.Migration
   return Migrate.sql(
     5,
     "create memberships",
-    [memberships(), "create index memberships_user_id on memberships (user_id)"],
+    [
+      memberships(),
+      "create index index_memberships_on_room_id on memberships (room_id)",
+      "create index index_memberships_on_room_id_and_created_at on memberships (room_id, created_at)",
+      "create unique index index_memberships_on_room_id_and_user_id on memberships (room_id, user_id)",
+      "create index index_memberships_on_user_id on memberships (user_id)",
+    ],
   )
 end
 
 def memberships() -> String
   return <<~SQL
     create table memberships (
-      id integer primary key autoincrement,
-      room_id integer not null references rooms (id) on delete cascade,
-      user_id integer not null references users (id) on delete cascade,
-      involvement text not null default 'mentions'
-        check (involvement in ('invisible', 'nothing', 'mentions', 'everything')),
-      unread_at text,
-      connections integer not null default 0 check (connections >= 0),
-      created_at text not null default (#{Rails.NOW}),
-      updated_at text not null default (#{Rails.NOW}),
-      unique (room_id, user_id)
+      id integer primary key autoincrement not null,
+      connected_at datetime(6),
+      connections integer default 0 not null,
+      created_at datetime(6) not null,
+      involvement varchar default 'mentions',
+      room_id integer not null,
+      unread_at datetime(6),
+      updated_at datetime(6) not null,
+      user_id integer not null
     )
   SQL
 end

@@ -28,7 +28,7 @@ Feature: Direct messages
       | member | 2 |
     Then the status is 302
     And the header "location" is "/rooms/2"
-    And the query "select count(*) from rooms where (id, kind, creator_id) = (2, 'direct', 1) and name is null" gives 1
+    And the query "select count(*) from rooms where (id, type, creator_id) = (2, 'Rooms::Direct', 1) and name is null" gives 1
     And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2)" gives 2
     And the query "select count(*) from memberships where room_id = 2" gives 2
     When I get "/"
@@ -76,7 +76,7 @@ Feature: Direct messages
     And I post to "/direct_rooms" the form:
       | member | 1 |
     Then the header "location" is "/rooms/2"
-    And the query "select count(*) from rooms where kind = 'direct'" gives 1
+    And the query "select count(*) from rooms where type = 'Rooms::Direct'" gives 1
     When I post to "/direct_rooms" the form:
       | member | 1 |
       | member | 3 |
@@ -86,7 +86,7 @@ Feature: Direct messages
       | member | 2 |
       | member | 1 |
     Then the header "location" is "/rooms/3"
-    And the query "select count(*) from rooms where kind = 'direct'" gives 2
+    And the query "select count(*) from rooms where type = 'Rooms::Direct'" gives 2
 
   Scenario: Other people, or a room that is not a direct one, do not make a direct message the same
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
@@ -97,14 +97,14 @@ Feature: Direct messages
       | member | 2 |
       | member | 3 |
     Then the header "location" is "/rooms/4"
-    And the query "select count(*) from rooms where kind = 'direct'" gives 2
+    And the query "select count(*) from rooms where type = 'Rooms::Direct'" gives 2
 
   Scenario: Forms for the same people that arrive together make one direct message
     When I post to "/direct_rooms" 8 times at once the form:
       | member | 2 |
       | member | 3 |
     Then each status is one of "302"
-    And the query "select count(*) from rooms where kind = 'direct'" gives 1
+    And the query "select count(*) from rooms where type = 'Rooms::Direct'" gives 1
     And the query "select count(*) from memberships where room_id = 2" gives 3
 
   Scenario Outline: A direct message needs at least one other active person

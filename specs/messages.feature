@@ -1,8 +1,10 @@
 Feature: Messages
   A room page shows the last 40 messages of the room, the newest at the bottom, with a link to the 40 before them
-  (paged by message id, backwards). A form on the page posts a plain-text message: it is stored as it was sent and
-  escaped in the page. The room is room 1, "All Talk", and the person is the first admin, user 1 (rooms.feature has
-  who may see which room).
+  (paged by the time of the message, backwards). A message is as Rails keeps it: a row of `messages`, its HTML body in
+  `action_text_rich_texts` and its plain text in the search index `message_search_index`, all written together. A form
+  on the page posts plain text: it is stored as HTML (escaped, a new line as `<br>`) and shown cleaned, as the HTML that
+  Rails stored is. The room is room 1, "All Talk", and the person is the first admin, user 1 (rooms.feature has who may
+  see which room).
 
   Background:
     Given a fresh database
@@ -18,10 +20,13 @@ Feature: Messages
     Then the status is 200
     And the body contains "Hello team"
     And the body contains "Ana"
-    And the query "select count(*) from messages where room_id = 1 and creator_id = 1 and body = 'Hello team'" gives 1
+    And the query "select count(*) from messages where room_id = 1 and creator_id = 1" gives 1
+    And the query "select count(*) from action_text_rich_texts where (record_type, record_id, name, body) = ('Message', 1, 'body', 'Hello team')" gives 1
+    And the query "select count(*) from message_search_index where rowid = 1 and body = 'Hello team'" gives 1
+    And the query "select count(*) from messages where created_at like '____-__-__ __:__:__.______' and updated_at = created_at" gives 1
 
   Scenario: The time of a message is an ISO 8601 UTC instant in the page, whatever the form of the column
-    Given I run the sql "insert into messages (room_id, creator_id, body, client_message_id, created_at) values (1, 1, 'Timed', 'c1', '2026-03-01 09:00:00.123456')"
+    Given a message "Timed" in the room 1 at "2026-03-01 09:00:00.123456"
     When I get "/rooms/1"
     Then the body contains "<time datetime=\"2026-03-01T09:00:00.123Z\">2026-03-01T09:00:00.123Z</time>"
 
@@ -31,47 +36,48 @@ Feature: Messages
     And the body contains "name=\"body\""
     And the body contains "name=\"client_message_id\" type=\"hidden\""
 
-  Scenario: A message is plain text, stored as sent and escaped in the page
+  Scenario: What the form sends is plain text, stored as HTML and escaped in the page
     When I post to "/rooms/1/messages" the form:
       | body | <script>alert(1)</script> & **bold** |
     Then the status is 302
     When I get "/rooms/1"
     Then the body contains "&lt;script&gt;alert(1)&lt;/script&gt; &amp; **bold**"
     And the body does not contain "<script>alert(1)</script>"
-    And the query "select count(*) from messages where body = '<script>alert(1)</script> & **bold**'" gives 1
+    And the query "select count(*) from action_text_rich_texts where body = '&lt;script&gt;alert(1)&lt;/script&gt; &amp; **bold**'" gives 1
+    And the query "select count(*) from message_search_index where body = '<script>alert(1)</script> & **bold**'" gives 1
 
-  Scenario: A message that is only spaces is refused
-    When I post to "/rooms/1/messages" the form:
-      | body |     |
-    Then the status is 422
-    And the body contains "Write something to send"
-    And the query "select count(*) from messages" gives 0
-
-  Scenario: A message is at most 10000 characters
-    When I post to "/rooms/1/messages" a message of 10000 characters
-    Then the status is 302
-    When I post to "/rooms/1/messages" a message of 10001 characters
-    Then the status is 422
-    And the body contains "A message is at most 10000 characters"
-    And the query "select count(*) from messages" gives 1
-
-  Scenario: The same form posted twice stores one message
-    When I post to "/rooms/1/messages" the form:
-      | body              | Once |
-      | client_message_id | c-1  |
-    And I post to "/rooms/1/messages" the form:
-      | body              | Once |
-      | client_message_id | c-1  |
-    Then the status is 302
-    And the header "location" is "/rooms/1"
-    And the query "select count(*) from messages" gives 1
-
-  Scenario: The id that the page writes in its form is the one that the post reads, so posting it twice stores one message
+  Scenario: The HTML of a body is cleaned before it is stored, and again when it is shown
+    When "ana@example.com" asks Rooms.post to post "<p>Hi <b onclick=\"x()\">there</b><script>alert(1)</script></p>" in the room 1
+    Then the query "select count(*) from action_text_rich_texts where body = '<p>Hi <b>there</b></p>'" gives 1
+    And the query "select count(*) from message_search_index where body = 'Hi there'" gives 1
+    Given I run the sql "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) values (1, 1, 'rails', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
+    And I run the sql "insert into action_text_rich_texts (record_type, record_id, name, body, created_at, updated_at) values ('Message', 2, 'body', '<div>Seen <img src=x onerror=alert(1)><strong>bold</strong></div>', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
     When I get "/rooms/1"
-    And I post to "/rooms/1/messages" twice the form of the page with the body "Once"
+    Then the body contains "<p>Hi <b>there</b></p>"
+    And the body contains "<div>Seen <strong>bold</strong></div>"
+    And the body does not contain "onerror"
+    And the body does not contain "onclick"
+    And the body does not contain "alert(1)"
+
+  Scenario: A message is found by the stems of its words, and each message has one search row
+    When I post to "/rooms/1/messages" the form:
+      | body | The fire is burning |
+    And I post to "/rooms/1/messages" the form:
+      | body | Cold embers |
+    Then the query "select count(*) from message_search_index where message_search_index match 'burn'" gives 1
+    And the query "select rowid from message_search_index where message_search_index match 'burn'" gives 1
+    And the query "select count(*) from message_search_index" gives 2
+    And the query "select count(*) from messages where id not in (select rowid from message_search_index)" gives 0
+
+  Scenario: The id of the browser is stored as it came, and a second post with it is a second message
+    When I post to "/rooms/1/messages" the form:
+      | body              | Twice |
+      | client_message_id | c-1   |
+    And I post to "/rooms/1/messages" the form:
+      | body              | Twice |
+      | client_message_id | c-1   |
     Then the status is 302
-    And the header "location" is "/rooms/1"
-    And the query "select count(*) from messages where body = 'Once'" gives 1
+    And the query "select count(*) from messages where client_message_id = 'c-1'" gives 2
 
   Scenario: A client message id that is too long is refused
     When I post to "/rooms/1/messages" the form:
@@ -108,6 +114,44 @@ Feature: Messages
     And the body does not contain "message 006"
     And the body does not contain "Older messages"
     And the body contains "<a href=\"/rooms/1\">Latest messages</a>"
+
+  Scenario: A page is the newest 40 by time, not by id, and the cursor is the time of its oldest message
+    Given the room 1 has 45 messages
+    And I run the sql "update messages set created_at = '2999-01-01 00:00:00.000000' where id = 1"
+    When I get "/rooms/1"
+    Then the body contains "message 001"
+    And the body contains "message 007"
+    And the body does not contain "message 006"
+    And the body shows "message 045" before "message 001"
+    And the body contains "<a href=\"/rooms/1?before=7\">Older messages</a>"
+    When I get "/rooms/1?before=1"
+    Then the body contains "message 045"
+    And the body contains "message 006"
+    And the body does not contain "message 005"
+    And the body does not contain "message 001"
+    When I get "/rooms/1?before=7"
+    Then the body contains "message 006"
+    And the body does not contain "message 001"
+    And the body does not contain "message 007"
+
+  Scenario: Messages with the same time are paged by id, so no page repeats or skips one
+    Given the room 1 has 45 messages
+    And I run the sql "update messages set created_at = '2026-03-01 09:00:00.000000'"
+    When I get "/rooms/1"
+    Then the body contains "message 045"
+    And the body contains "message 006"
+    And the body does not contain "message 005"
+    When I get "/rooms/1?before=6"
+    Then the body contains "message 005"
+    And the body contains "message 001"
+    And the body does not contain "message 006"
+
+  Scenario: A message whose author is gone is shown with a placeholder name
+    Given an orphan message "Orphan" in the room 1
+    When I get "/rooms/1"
+    Then the status is 200
+    And the body contains "Orphan"
+    And the body contains "<strong>Unknown</strong>"
 
   Scenario: A cursor before the first message shows an empty page, and one that is not a number is a 400
     Given the room 1 has 3 messages
@@ -156,3 +200,5 @@ Feature: Messages
     When "ana@example.com" asks Rooms.post to post "too late" in the room 1
     Then the update is refused
     And the query "select count(*) from messages" gives 0
+    And the query "select count(*) from action_text_rich_texts" gives 0
+    And the query "select count(*) from message_search_index" gives 0

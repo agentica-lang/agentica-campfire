@@ -49,7 +49,7 @@ def users_answer(conn: Bond.Conn, db: Db.Connection, config: Config) -> Result[A
 end
 
 def users_page(db: Db.Connection, config: Config, person: Auth.User) -> Result[String]
-  admin = person.role == Rooms.ADMINISTRATOR
+  admin = person.role == Rooms.ADMINISTRATOR_ROLE_NAME
   people = try Accounts.people(db, admin)
   link = ""
   if admin
@@ -77,7 +77,7 @@ def change_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], deactiv
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR -> return ok(Answer.Forbidden)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
     some(person) -> return changed_user(db, person, id, deactivating)
   end
 end
@@ -116,7 +116,7 @@ def regenerate_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR -> return ok(Answer.Forbidden)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
     some(person) -> return regenerated(db, person)
   end
 end

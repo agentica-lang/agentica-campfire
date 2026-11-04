@@ -65,6 +65,7 @@ def main() -> Void
     BDD.step("a database made by Rails", &rails_database),
     BDD.step("a copy of the database made by Rails is next to it", &rails_copy),
     BDD.step("{string} are as Rails made them", &tables_as_rails),
+    BDD.step("the tables are those of Rails and {string}", &tables_of_rails_and),
     BDD.step("the database does not have the table {string}", &lacks_table),
     BDD.step("a member {string} with the email {string} exists", &member_exists),
     BDD.step(
@@ -76,6 +77,8 @@ def main() -> Void
     BDD.step("a closed room {string} with the members {string}", &closed_room_exists),
     BDD.step("a direct room with the members {string}", &direct_room_exists),
     BDD.step("the room {int} has {int} messages", &room_has_messages),
+    BDD.step("a message {string} in the room {int} at {string}", &message_at),
+    BDD.step("an orphan message {string} in the room {int}", &orphan_message),
     BDD.step("{string} asks Rooms.update_closed to rename the room {int} and swap its members", &ask_update_closed),
     BDD.step("the update is refused", &update_is_refused),
     BDD.step("{string} asks Rooms.post to post {string} in the room {int}", &ask_post),
@@ -346,32 +349,33 @@ end
 
 # The first person on the list makes the room. `members` are emails separated by commas.
 def closed_room_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return make_room(ctx, Db.Value.Text(args[0]), "closed", args[1])
+  return make_room(ctx, Db.Value.Text(args[0]), Rooms.CLOSED, args[1])
 end
 
 def direct_room_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return make_room(ctx, Db.Value.Null, "direct", args[0])
+  return make_room(ctx, Db.Value.Null, Rooms.DIRECT, args[0])
 end
 
-def make_room(ctx: BDD.Context, name: Db.Value, kind: String, members: String) -> BDD.Context
+def make_room(ctx: BDD.Context, name: Db.Value, room_type: String, members: String) -> BDD.Context
   emails = members.split(",").map do |email| email.strip end
-  made = with_database(ctx) do |conn| insert_room(conn, name, kind, emails) end
-  return BDD.assert(ctx, made.ok?, "cannot make the #{kind} room: #{made.message}")
+  made = with_database(ctx) do |conn| insert_room(conn, name, room_type, emails) end
+  return BDD.assert(ctx, made.ok?, "cannot make the #{room_type} room: #{made.message}")
 end
 
-def insert_room(conn: Db.Connection, name: Db.Value, kind: String, emails: List[String]) -> Result[Void]
+def insert_room(conn: Db.Connection, name: Db.Value, room_type: String, emails: List[String]) -> Result[Void]
   rooms = try Db.query(
     conn,
-    "insert into rooms (name, kind, creator_id) " +
-    "values (?, ?, (select id from users where email_address = ?)) returning id",
-    [name, Db.Value.Text(kind), Db.Value.Text(emails[0])],
+    "insert into rooms (name, type, creator_id, created_at, updated_at) " +
+    "values (?, ?, (select id from users where email_address = ?), #{Rails.NOW}, #{Rails.NOW}) returning id",
+    [name, Db.Value.Text(room_type), Db.Value.Text(emails[0])],
   )
 
   room_id = value_int(rooms[0].get("id", Db.Value.Null))
   for email in emails
     try Db.execute(
       conn,
-      "insert into memberships (room_id, user_id) select ?, id from users where email_address = ?",
+      "insert into memberships (room_id, user_id, created_at, updated_at) " +
+      "select ?, id, #{Rails.NOW}, #{Rails.NOW} from users where email_address = ?",
       [Db.Value.Int(room_id), Db.Value.Text(email)],
     )
   end
@@ -386,14 +390,69 @@ def room_has_messages(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, seeded.ok?, "cannot add the messages: #{seeded.message}")
 end
 
-def add_messages(conn: Db.Connection, room_id: Int, count: Int) -> Result[Int]
-  return Db.execute(
+# A message as Rails writes it (the row, its body and its search row) at a time that the scenario names,
+# which `Rooms.post`
+# cannot do: it stamps the time of the call. The author is the person who made the room.
+def message_at(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  stored = with_database(ctx) do |conn| insert_message(conn, args[1].to_i!, args[0], args[2], false) end
+  return BDD.assert(ctx, stored.ok?, "cannot add the message: #{stored.message}")
+end
+
+# A message whose author has no row, which a database that Rails seeded can have: the keys are off on this connection
+# only, for the one insert.
+def orphan_message(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  stored = with_database(ctx) do |conn|
+    insert_message(conn, args[1].to_i!, args[0], "2026-03-01 09:00:00.000000", true)
+  end
+
+  return BDD.assert(ctx, stored.ok?, "cannot add the message: #{stored.message}")
+end
+
+def insert_message(conn: Db.Connection, room_id: Int, html: String, at: String, orphan: Bool) -> Result[Void]
+  if orphan
+    try Db.execute(conn, "pragma foreign_keys = off", [])
+  end
+
+  rows = try Db.query(
     conn,
-    "with recursive n(i) as (select 1 union all select i + 1 from n where i < ?) " +
-    "insert into messages (room_id, creator_id, body, client_message_id) " +
-    "select ?, (select creator_id from rooms where id = ?), printf('message %03d', i), 'seed-' || i from n",
-    [Db.Value.Int(count), Db.Value.Int(room_id), Db.Value.Int(room_id)],
+    "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) " +
+    "select id, case when ? then 999 else creator_id end, 'step', ?, ? from rooms where id = ? returning id",
+    [Db.Value.Int(orphan_flag(orphan)), Db.Value.Text(at), Db.Value.Text(at), Db.Value.Int(room_id)],
   )
+
+  id = Db.Value.Int(value_int(rows[0].get("id", Db.Value.Null)))
+  try Db.execute(
+    conn,
+    "insert into action_text_rich_texts (record_type, record_id, name, body, created_at, updated_at) " +
+    "values ('Message', ?, 'body', ?, ?, ?)",
+    [id, Db.Value.Text(html), Db.Value.Text(at), Db.Value.Text(at)],
+  )
+
+  return ok()
+end
+
+def orphan_flag(orphan: Bool) -> Int
+  if orphan
+    return 1
+  end
+
+  return 0
+end
+
+# Each one goes through `Rooms.post`, so the seeded room is what the app itself makes: a body, a search row and a time.
+def add_messages(conn: Db.Connection, room_id: Int, count: Int) -> Result[Void]
+  rooms = try Db.query(conn, "select creator_id from rooms where id = ?", [Db.Value.Int(room_id)])
+  creator_id = value_int(rooms[0].get("creator_id", Db.Value.Null))
+  for i in (1..count).to_a
+    try Rooms.post(conn, room_id, creator_id, "seed-#{i}", "message #{pad(i)}")
+  end
+
+  return ok()
+end
+
+def pad(number: Int) -> String
+  text = "#{number}"
+  return List.repeat("0", 3 - text.length).join("") + text
 end
 
 # `Rooms.update_closed` straight, as the person with that email: it renames the room, takes out the first two people
@@ -682,6 +741,18 @@ def table_shape(conn: Db.Connection, table: String) -> Result[List[String]]
     lines = lines.push("#{table} key #{shown(key, "from")} to #{shown(key, "table")}.#{shown(key, "to")}")
   end
 
+  # A virtual table (the FTS5 index) is its text: the module and the options, with the spacing and the quotes aside.
+  virtual = try Db.query(
+    conn,
+    "select sql from sqlite_master where name = ? and sql like 'create virtual table%'",
+    [Db.Value.Text(table)],
+  )
+
+  for row in virtual
+    text = value_text(row.get("sql", Db.Value.Null)).downcase.replace(" ", "").replace("\"", "")
+    lines = lines.push("#{table} virtual #{text}")
+  end
+
   return ok(lines)
 end
 
@@ -693,7 +764,7 @@ def shown(row: Db.Row, column: String) -> String
   end
 end
 
-# The tables that a scenario names (`accounts, users, sessions`) have, in a database that the app made, the same
+# The tables that a scenario names (`accounts, users, rooms`...) have, in a database that the app made, the same
 # columns with the same types, the same indexes and the same keys as in the copy of the database that Rails made.
 def tables_as_rails(ctx: BDD.Context, args: List[String]) -> BDD.Context
   tables = args[0].split(",").map do |table| table.strip end
@@ -707,6 +778,35 @@ def tables_as_rails(ctx: BDD.Context, args: List[String]) -> BDD.Context
   mine = ours.unwrap!.sort
   rails = theirs.unwrap!.sort
   return BDD.assert(ctx, mine == rails, "the app has\n#{mine.join("\n")}\nand Rails has\n#{rails.join("\n")}")
+end
+
+# Every table of the app is a table that Rails made, but for the ones that the scenario names. The tables that
+# SQLite and Rails keep for themselves (the shadow tables of the FTS5 index, `ar_internal_metadata` and
+# `schema_migrations`) are left out, since the app never makes them.
+def tables_of_rails_and(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  ours = table_names(text_of(ctx, DB_URL))
+  theirs = table_names(text_of(ctx, RAILS_URL))
+  if not ours.ok? or not theirs.ok?
+    return BDD.assert(ctx, false, "cannot read the tables: #{ours.message} #{theirs.message}")
+  end
+
+  extra = args[0].split(",").map do |name| name.strip end
+  mine = ours.unwrap!.select do |name| not extra.include?(name) end
+  return BDD.assert(ctx, mine == theirs.unwrap!, "the app has #{ours.unwrap!} and Rails has #{theirs.unwrap!}")
+end
+
+def table_names(url: String) -> Result[List[String]]
+  conn = try Db.open(url)
+  rows = Db.query(
+    conn,
+    "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' " +
+    "and name not like 'message_search_index_%' and name not in ('ar_internal_metadata', 'schema_migrations') " +
+    "order by name",
+    [],
+  )
+
+  Db.close(conn)
+  return ok((try rows).map do |row| value_text(row.get("name", Db.Value.Null)) end)
 end
 
 def lacks_table(ctx: BDD.Context, args: List[String]) -> BDD.Context

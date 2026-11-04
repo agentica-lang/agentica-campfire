@@ -1,13 +1,12 @@
 ## The schema of the app, as ordered migrations for `Migrate.up` (agentica-db), one file per migration in `migrations/`
-## and numbered like the file: `m0001_accounts.agc` is version 1. The first three create the tables of a Rails Campfire
-## (accounts, users, sessions) exactly as Rails writes them, so that a database made by Rails is the same schema; the
-## rest are tables that still have the shape of this app and move to the Rails schema in the next step (rooms,
-## memberships, messages, boosts, the search index, attachments, webhooks) or that Rails has not (password resets).
-## There has been no release, so the history was rewritten to this; once there is one, a change is a new migration.
+## and numbered like the file: `m0001_accounts.agc` is version 1. Migrations 1 to 14 create the tables of a Rails
+## Campfire (`db/schema.rb` at 90b3300) exactly as Rails writes them, so that a database made by Rails is the same
+## schema; the last (15, password resets) is the one table that Rails has not. There has been no release, so the history
+## was rewritten to this; once there is one, a change is a new migration.
 ##
-## Foreign keys are on (the driver's default, and `Database.migrate` refuses a connection that has them off): a user
-## is never deleted, only deactivated, so the keys to `users` refuse a delete, and what hangs from a room or a message
-## goes with it.
+## Foreign keys are on (the driver's default, and `Database.migrate` refuses a connection that has them off), only
+## where Rails declares them and with no cascade, as in Rails: a user is never deleted, only deactivated, and the app
+## deletes no room or message (a Rails app does it in code, with `dependent: :destroy`).
 
 import Migrate from "pkg/db/migrate"
 import M0001 from "migrations/m0001_accounts"
@@ -16,11 +15,15 @@ import M0003 from "migrations/m0003_sessions"
 import M0004 from "migrations/m0004_rooms"
 import M0005 from "migrations/m0005_memberships"
 import M0006 from "migrations/m0006_messages"
-import M0007 from "migrations/m0007_boosts"
-import M0008 from "migrations/m0008_message_search_index"
-import M0009 from "migrations/m0009_attachments"
-import M0010 from "migrations/m0010_webhooks"
-import M0011 from "migrations/m0011_password_resets"
+import M0007 from "migrations/m0007_action_text_rich_texts"
+import M0008 from "migrations/m0008_boosts"
+import M0009 from "migrations/m0009_message_search_index"
+import M0010 from "migrations/m0010_active_storage"
+import M0011 from "migrations/m0011_webhooks"
+import M0012 from "migrations/m0012_bans"
+import M0013 from "migrations/m0013_searches"
+import M0014 from "migrations/m0014_push_subscriptions"
+import M0015 from "migrations/m0015_password_resets"
 
 ## The table where `Migrate` keeps the history of this app. Rails has a `schema_migrations` of its own (a `version`
 ## column and nothing else), which the default name of `Migrate` would clash with.
@@ -40,13 +43,17 @@ export def all() -> List[Migrate.Migration]
     M0009.migration(),
     M0010.migration(),
     M0011.migration(),
+    M0012.migration(),
+    M0013.migration(),
+    M0014.migration(),
+    M0015.migration(),
   ]
 end
 
 ## What an app needs of its own in a database that Rails made, which has no other migration run on it: the tables that
 ## Rails lacks (the password resets), as statements that do nothing when they ran already.
 export def extensions() -> List[String]
-  return M0011.statements()
+  return M0015.statements()
 end
 
 ## The version of the last migration: the schema version of a database that is up to date. The versions ascend in the

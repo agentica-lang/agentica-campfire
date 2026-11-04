@@ -82,7 +82,7 @@ iterations, the salt `active_record/signed_id`, 64 bytes), an HMAC-SHA256 over t
 in constant time before it decodes anything, then the purpose and the expiry, and answers an id or
 nothing, never why. The token is readable by anyone (it is signed, not encrypted), so it is only a
 way to name a user, never a proof of who is asking. The module is not routed yet: the avatar route
-comes with the Rails schema.
+comes with the avatar route.
 
 ## The first administrator
 
