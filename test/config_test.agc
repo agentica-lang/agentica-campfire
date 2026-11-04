@@ -307,5 +307,28 @@ def main() -> Void
       try Test.error?(pool_of("", "#{Config.MAX_DB_CHECKOUT_MS + 1}"))
       Test.error?(pool_of("many", ""))
     end,
+    Test.test(
+      "the bcrypt library is empty (the default of the system) unless the environment names one, and is never checked",
+    ) do
+      try Test.eq(parse("127.0.0.1", "3000", "data").unwrap!.bcrypt_library, "")
+      named = Config.parse(
+        Config.DEFAULT_HOST,
+        Config.DEFAULT_PORT,
+        Config.DEFAULT_DATA_DIR,
+        "",
+        SECRET,
+        "false",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        " /nonexistent/libcrypt.so ",
+      )
+
+      Test.eq(named.unwrap!.bcrypt_library, "/nonexistent/libcrypt.so")
+    end,
   ])
 end

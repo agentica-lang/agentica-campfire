@@ -314,7 +314,7 @@ export def sign_in(email: String, message: String, can_reset: Bool) -> String
       <form method="post" action="<%= Routes.SESSION %>">
         <p>
           <label>Email
-            <input name="email" type="email" value="<%= email %>" autocomplete="username" required autofocus></label>
+            <input name="email_address" type="email" value="<%= email %>" autocomplete="username" required autofocus></label>
         </p>
         <p>
           <label>Password

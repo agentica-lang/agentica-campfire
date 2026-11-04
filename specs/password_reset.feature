@@ -38,7 +38,7 @@ Feature: Password reset
     When I set the password "a brand new password" with the token of the link
     Then the status is 302
     And the header "location" is "/"
-    And the header "set-cookie" contains "_campfire_session="
+    And the header "set-cookie" contains "session_token="
     When I get "/"
     Then the status is 200
     And the body contains "Signed in as Ana"
@@ -57,12 +57,12 @@ Feature: Password reset
     And I set the password "a brand new password" with the token of the link
     And the browser has no cookies
     And I post to "/session" the form:
-      | email    | ana@example.com       |
-      | password | correct horse battery |
+      | email_address | ana@example.com       |
+      | password      | correct horse battery |
     Then the status is 422
     When I post to "/session" the form:
-      | email    | ana@example.com      |
-      | password | a brand new password |
+      | email_address | ana@example.com      |
+      | password      | a brand new password |
     Then the status is 302
     And the header "location" is "/"
 
@@ -105,8 +105,8 @@ Feature: Password reset
     When I open the link of the email
     Then the status is 410
     When I post to "/session" the form:
-      | email    | ana@example.com        |
-      | password | the first new password |
+      | email_address | ana@example.com        |
+      | password      | the first new password |
     Then the status is 302
 
   Scenario: A token expires
@@ -246,9 +246,9 @@ Feature: Password reset
   Scenario Outline: A form from another site is refused
     Given the request header "Sec-Fetch-Site" is "cross-site"
     When I post to "<path>" the form:
-      | email    | ana@example.com |
-      | token    | whatever        |
-      | password | a new password  |
+      | email_address | ana@example.com |
+      | token         | whatever        |
+      | password      | a new password  |
     Then the status is 403
     And the query "select count(*) from password_resets" gives 0
 

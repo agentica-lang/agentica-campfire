@@ -7,8 +7,8 @@ def main() -> Void
   Test.run([
     Test.test("a digest verifies the password that made it and no other, and does not hold it") do
       digest = Passwords.hash("correct horse battery").unwrap!
-      try Test.assert(Passwords.verify?("correct horse battery", digest), digest)
-      try Test.assert(not Passwords.verify?("correct horse batterz", digest), digest)
+      try Test.assert(Passwords.verify("correct horse battery", digest).unwrap!, digest)
+      try Test.assert(not Passwords.verify("correct horse batterz", digest).unwrap!, digest)
       try Test.assert(digest.start_with?("scrypt$"), digest)
       Test.assert(not digest.include?("correct horse"), digest)
     end,
@@ -16,12 +16,12 @@ def main() -> Void
       Test.assert(Passwords.hash("same password").unwrap! != Passwords.hash("same password").unwrap!, "same digest")
     end,
     Test.test("a text that is not one of our digests verifies nothing") do
-      try Test.assert(not Passwords.verify?("x", ""), "empty")
-      try Test.assert(not Passwords.verify?("x", "plain"), "plain")
-      try Test.assert(not Passwords.verify?("x", "bcrypt$65536$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA=="), "scheme")
-      try Test.assert(not Passwords.verify?("x", "scrypt$65536$8$2$not base64$AA=="), "salt")
+      try Test.assert(not Passwords.verify("x", "").unwrap!, "empty")
+      try Test.assert(not Passwords.verify("x", "plain").unwrap!, "plain")
+      try Test.assert(not Passwords.verify("x", "bcrypt$65536$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA==").unwrap!, "scheme")
+      try Test.assert(not Passwords.verify("x", "scrypt$65536$8$2$not base64$AA==").unwrap!, "salt")
       Test.assert(
-        not Passwords.verify?("x", "scrypt$3$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA=="),
+        not Passwords.verify("x", "scrypt$3$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA==").unwrap!,
         "cost that is not a power of 2",
       )
     end,

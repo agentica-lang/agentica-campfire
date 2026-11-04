@@ -11,7 +11,9 @@ campfire.agc    the program (`make run`): config from the environment, the data 
 src/campfire/   the domain: it knows nothing about HTTP or Bond
                 config.agc (host, port, data folder, database url, session secret), data_dir.agc (the
                 private data folder), slots.agc (a limit on concurrent hashes), rate_limit.agc (attempts per
-                key in a window, for the per-IP sign-in limit), passwords.agc (scrypt),
+                key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
+                bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
+                signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), html_sanitizer.agc (an allowlist
@@ -80,6 +82,15 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   out (`CAMPFIRE_DB_CHECKOUT_MS`), or a statement over its `timeout_ms`, is answered 503 with `Retry-After` by the
   `Bond.on_error` of `Web.build` (`Failure.answer`, `Database.busy?`; also for a full queue, a closing pool and SQLite error 5). A `sqlite::memory:` database is not usable by the app (one
   empty database per connection). Hashing runs while the request holds its connection (at most `AuthWeb.MAX_HASHES` at a time), so `CAMPFIRE_DB_POOL_SIZE` is 0 or at least `Config.MIN_DB_POOL_SIZE` (3). Never log or store a plain password; a form that is shown again never holds the password.
+  The sign-in form posts `email_address` (as Rails Campfire does) and the cookie is `session_token`
+  (`__Host-session_token` with secure cookies); `/up` is public and answers the green page of Rails. A bcrypt digest
+  (`$2a$`, `$2b$`, `$2y$`) is checked by `Bcrypt.verify` through `crypt_r` on the compute pool, never made. The library
+  is `libcrypt.so.1` on Linux or `CAMPFIRE_BCRYPT_LIBRARY` (`Config.bcrypt_library`), opened by name with `dlopen` (or
+  `LoadLibrary`) when a digest is checked, and `crypt_r` is called through the address it gives: never name a libcrypt
+  function in an `extern` block, since a missing one stops the program, where a missing library or symbol must be an
+  `error`. Only after `Bcrypt.digest?` has checked the shape and the password has no NUL (a NUL in a C string stops the
+  program) does anything reach C. A system without bcrypt is an `error`, which fails the request and names the
+  variable, not a wrong password, and never stops the app. It takes a hashing slot like scrypt.
   Sign-in is limited per client address (`RateLimit.hit`, called first in `AuthWeb.create_session` and not by a
   path-matching filter, since the router also takes `/session/` there: 10 posts in 3 minutes, then 429 with
   `Retry-After`, before the form is read; an IPv6 client counts by its /64); the address is `Conn.remote_addr`, which Bond

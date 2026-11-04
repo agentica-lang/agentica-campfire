@@ -11,6 +11,7 @@ import SmtpSteps from "smtp_steps"
 import DataDir from "../src/campfire/data_dir"
 import Accounts from "../src/campfire/accounts"
 import Auth from "../src/campfire/auth"
+import Bcrypt from "../src/campfire/bcrypt"
 import Database from "../src/campfire/repo/database"
 import Migrations from "../src/campfire/repo/migrations"
 import Passwords from "../src/campfire/passwords"
@@ -25,6 +26,7 @@ CHANGED = "changed"
 JOINED = "joined"
 SESSION = "session"
 SQL_ERROR = "sql_error"
+BCRYPT_LIBRARY = "bcrypt_library"
 LISTENING = "listening on "
 # How long a start may take before its `listening on` line: the first start after a source change compiles the whole
 # app (about 6 s on a CI runner). The wait ends at the line, so a warm start does not wait; only an app that never
@@ -39,6 +41,9 @@ def main() -> Void
     BDD.step("the database is migrated", &migrate_database),
     BDD.step("the app starts", &start_on_file),
     BDD.step("the app starts with secure cookies", &start_with_secure_cookies),
+    BDD.step("the bcrypt library is {string}", &choose_bcrypt_library),
+    BDD.step("bcrypt digests can be checked on this system", &bcrypt_can_be_checked),
+    BDD.step("this system is Linux", &system_is_linux),
     BDD.step("the app starts with {int} database connections that wait {int} milliseconds", &start_with_pool),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the start applied every migration", &applied_every_migration),
@@ -52,6 +57,7 @@ def main() -> Void
     BDD.step("the data folder {string} is private", &data_dir_is_private),
     BDD.step("the recorded checksums are:", &checksums_are),
     BDD.step("a member {string} with the email {string} exists", &member_exists),
+    BDD.step("a member {string} with the email {string} and the password digest {string} exists", &member_with_digest),
     BDD.step("a closed room {string} with the members {string}", &closed_room_exists),
     BDD.step("a direct room with the members {string}", &direct_room_exists),
     BDD.step("the room {int} has {int} messages", &room_has_messages),
@@ -102,6 +108,7 @@ def start_app(ctx: BDD.Context, url: String, secure_cookies: String, pool: Map[S
     "CAMPFIRE_SECURE_COOKIES": secure_cookies,
     "CAMPFIRE_DB_POOL_SIZE": pool.get("CAMPFIRE_DB_POOL_SIZE", ""),
     "CAMPFIRE_DB_CHECKOUT_MS": pool.get("CAMPFIRE_DB_CHECKOUT_MS", ""),
+    "CAMPFIRE_BCRYPT_LIBRARY": bcrypt_library(ctx),
   }
 
   mail = MailSteps.app_environment(ctx)
@@ -109,6 +116,45 @@ def start_app(ctx: BDD.Context, url: String, secure_cookies: String, pool: Map[S
   configured = all.keys.reduce(ctx) do |acc, name| BDD.given_env(acc, name, all.get(name, "")) end
 
   return read_startup(BDD.given_program(configured, "fixtures/server.agc"))
+end
+
+# What a scenario says with `the bcrypt library is`, else the library of whoever runs the specs (a macOS or
+# Windows runner
+# names its libxcrypt build in `CAMPFIRE_BCRYPT_LIBRARY`), else "" for the default of the system.
+def bcrypt_library(ctx: BDD.Context) -> String
+  if BDD.get(ctx, BCRYPT_LIBRARY).ok?
+    return text_of(ctx, BCRYPT_LIBRARY)
+  end
+
+  return System.env("CAMPFIRE_BCRYPT_LIBRARY").unwrap_or("")
+end
+
+def choose_bcrypt_library(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.set(ctx, BCRYPT_LIBRARY, JSON.from(args[0]))
+end
+
+# The scenarios that sign in with a bcrypt digest need the library: where it is missing (macOS and Windows without
+# `CAMPFIRE_BCRYPT_LIBRARY`) they are skipped. Linux has it, so there a failure fails the scenario.
+def bcrypt_can_be_checked(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  library = bcrypt_library(ctx)
+  probe = Bcrypt.verify("U*U", "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW", library)
+  if probe.ok?
+    return ctx
+  end
+
+  if System.os() == "linux" and library.empty?
+    return BDD.assert(ctx, false, "libcrypt.so.1 cannot check bcrypt: #{probe.message}")
+  end
+
+  return BDD.skip(ctx, "no library for bcrypt digests: #{probe.message}")
+end
+
+def system_is_linux(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  if System.os() == "linux"
+    return ctx
+  end
+
+  return BDD.skip(ctx, "this scenario names libcrypt.so.1, which only Linux has")
 end
 
 # Another app on the same database: the program stops its server and starts a new one.
@@ -200,6 +246,12 @@ def member_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
   end
 
   made = with_database(ctx) do |conn| add_member(conn, args[0], args[1], digest.unwrap!) end
+  return BDD.assert(ctx, made.ok?, "cannot make the member #{args[1]}: #{made.message}")
+end
+
+# A person that came with a digest that the app did not make (a bcrypt one of a Rails Campfire).
+def member_with_digest(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  made = with_database(ctx) do |conn| add_member(conn, args[0], args[1], args[2]) end
   return BDD.assert(ctx, made.ok?, "cannot make the member #{args[1]}: #{made.message}")
 end
 

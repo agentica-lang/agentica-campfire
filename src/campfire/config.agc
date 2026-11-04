@@ -61,7 +61,9 @@ SMTP_URL_FORM = (
 ## slash (the links in emails start with it), and `mail_from` the sender of those emails: both are empty while `smtp`
 ## is `none`. `mail_queue` is how many emails may wait to be sent. `db_pool_size` is how many database connections the
 ## requests share (0: the size the database prefers, else at least `MIN_DB_POOL_SIZE`) and `db_checkout_ms` how long a
-## request waits for one.
+## request waits for one. `bcrypt_library` is the library that checks bcrypt digests (see `Bcrypt.verify`): "" is the
+## default of the system. It is never checked at start, since a bad one only fails the sign-ins of people with a bcrypt
+## digest.
 export struct Config
   host: String
   port: Int
@@ -75,6 +77,7 @@ export struct Config
   mail_queue: Int
   db_pool_size: Int
   db_checkout_ms: Int
+  bcrypt_library: String = ""
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -94,8 +97,8 @@ struct SmtpPlace
 end
 
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
-## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`
-## and `CAMPFIRE_SMTP_HOSTNAME`, with the defaults for a variable that is not set (the secret has none, and without the
+## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`,
+## `CAMPFIRE_SMTP_HOSTNAME` and `CAMPFIRE_BCRYPT_LIBRARY`, with the defaults for a variable that is not set (the secret has none, and without the
 ## smtp url there is no email). An `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
@@ -111,6 +114,7 @@ export def load() -> Result[Config]
   mail_queue = System.env("CAMPFIRE_MAIL_QUEUE_SIZE").unwrap_or("")
   db_pool_size = System.env("CAMPFIRE_DB_POOL_SIZE").unwrap_or("")
   db_checkout_ms = System.env("CAMPFIRE_DB_CHECKOUT_MS").unwrap_or("")
+  bcrypt_library = System.env("CAMPFIRE_BCRYPT_LIBRARY").unwrap_or("")
   return parse(
     host,
     port,
@@ -125,6 +129,7 @@ export def load() -> Result[Config]
     mail_queue,
     db_pool_size,
     db_checkout_ms,
+    bcrypt_library,
   )
 end
 
@@ -144,7 +149,9 @@ end
 ## when left out, at most `MAX_MAIL_QUEUE`): a link that finds the queue full is dropped. `db_pool_size` is the
 ## number of database connections, 0 or `MIN_DB_POOL_SIZE` to `MAX_DB_POOL_SIZE` (`DEFAULT_DB_POOL_SIZE`, the size of
 ## the database, when left out), and `db_checkout_ms` how long a request waits for one, 1 to `MAX_DB_CHECKOUT_MS`
-## (`DEFAULT_DB_CHECKOUT_MS`).
+## (`DEFAULT_DB_CHECKOUT_MS`). `bcrypt_library` (`CAMPFIRE_BCRYPT_LIBRARY`) is the path or name of a library that
+## exports `crypt_r` with bcrypt, for a system without `libcrypt.so.1` (macOS and Windows have none); left out, Linux
+## uses `libcrypt.so.1`.
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -159,6 +166,7 @@ export def parse(
   mail_queue: String = "",
   db_pool_size: String = "",
   db_checkout_ms: String = "",
+  bcrypt_library: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -236,6 +244,7 @@ export def parse(
       mail_queue: queue,
       db_pool_size: size,
       db_checkout_ms: checkout,
+      bcrypt_library: bcrypt_library.strip,
     ),
   )
 end

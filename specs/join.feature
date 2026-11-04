@@ -34,7 +34,7 @@ Feature: Joining with the link
       | password | another long password |
     Then the status is 302
     And the header "location" is "/"
-    And the header "set-cookie" contains "_campfire_session="
+    And the header "set-cookie" contains "session_token="
     When I get "/"
     Then the status is 200
     And the body contains "Signed in as Bea"

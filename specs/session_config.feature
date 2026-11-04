@@ -11,7 +11,7 @@ Feature: The session secret and the cookie
       | email    | ana@example.com       |
       | password | correct horse battery |
     Then the status is 302
-    And the header "set-cookie" contains "__Host-session="
+    And the header "set-cookie" contains "__Host-session_token="
     And the header "set-cookie" contains "Secure"
 
   Scenario Outline: A start without a usable session secret stops

@@ -54,8 +54,8 @@ Feature: The people of the account
     Then the status is 302
     And the header "location" is "/session/new"
     When I post to "/session" the form:
-      | email    | bea@example.com       |
-      | password | another long password |
+      | email_address | bea@example.com       |
+      | password      | another long password |
     Then the status is 422
     And the body contains "Wrong email or password"
     When I sign in as "cy@example.com"
