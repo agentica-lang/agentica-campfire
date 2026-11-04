@@ -18,6 +18,7 @@ Feature: The database and its migrations
       | boosts              |
       | attachments         |
       | webhooks            |
+      | password_resets     |
       | message_search_index  |
       | schema_migrations   |
 

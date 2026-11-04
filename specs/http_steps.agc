@@ -14,6 +14,7 @@ export ADMIN_EMAIL = "ana@example.com"
 export ADMIN_PASSWORD = "correct horse battery"
 
 REPLY = "reply"
+REMEMBERED = "remembered_reply"
 STATUSES = "statuses"
 ALL_AT_ONCE_MS = 60_000
 BROWSER = "browser"
@@ -23,6 +24,7 @@ struct Reply
   status: Int
   headers: Map[String, String]
   body: String
+  elapsed_ms: Int
 end
 
 # What a parallel request answered: the status, and the `Retry-After` header ("" when it has none).
@@ -50,6 +52,9 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
     BDD.step("I post nothing to {string}", &post_nothing),
     BDD.step("the first admin exists", &first_admin),
+    BDD.step("I remember the answer", &remember_answer),
+    BDD.step("the answer is the one that I remembered", &answer_is_remembered),
+    BDD.step("the answer came within {int} milliseconds", &answer_was_quick),
     BDD.step("the status is {int}", &status_is),
     BDD.step("the header {string} is {string}", &header_is),
     BDD.step("the header {string} contains {string}", &header_contains),
@@ -78,6 +83,11 @@ export def get(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "GET", args[0], "")
 end
 
+## Posts `body`, a form that a step encoded, to `path`.
+export def post(ctx: BDD.Context, path: String, body: String) -> BDD.Context
+  return send(ctx, "POST", path, body)
+end
+
 # The table has one field per row: its name, then its value.
 def post_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
   pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
@@ -102,13 +112,16 @@ end
 
 def send(ctx: BDD.Context, method: String, path: String, body: String) -> BDD.Context
   state = browser(ctx)
+  started = Time.monotonic_ms()
   response = perform(port_of(ctx), state, method, path, body)
+  elapsed = Time.monotonic_ms() - started
   if not response.ok?
     return BDD.assert(ctx, false, "#{method} #{path} failed: #{response.message}")
   end
 
   kept = state.with(cookies: cookies_after(state.cookies, response.unwrap!))
-  return BDD.set(BDD.set(ctx, REPLY, JSON.from(reply_of(response.unwrap!))), BROWSER, JSON.from(kept))
+  reply = reply_of(response.unwrap!, elapsed)
+  return BDD.set(BDD.set(ctx, REPLY, JSON.from(reply)), BROWSER, JSON.from(kept))
 end
 
 # The same form, sent `args[1]` times in parallel by the browser as it is. The statuses are kept for the steps that
@@ -178,11 +191,11 @@ def apply_set_cookie(cookies: Map[String, String], line: String) -> Map[String, 
   return cookies.put(name, value)
 end
 
-def reply_of(response: HttpResponse) -> Reply
+def reply_of(response: HttpResponse, elapsed_ms: Int) -> Reply
   start: Map[String, String] = {}
   headers = response.headers.reduce(start) do |acc, header| acc.put(header.name.downcase, header.value) end
   body = String.from_bytes(response.body).unwrap_or("")
-  return Reply(status: response.status, headers: headers, body: body)
+  return Reply(status: response.status, headers: headers, body: body, elapsed_ms: elapsed_ms)
 end
 
 def last_reply(ctx: BDD.Context) -> Reply
@@ -221,6 +234,23 @@ end
 def set_header(ctx: BDD.Context, args: List[String]) -> BDD.Context
   state = browser(ctx)
   return BDD.set(ctx, BROWSER, JSON.from(state.with(headers: state.headers.put(args[0].downcase, args[1]))))
+end
+
+def remember_answer(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.set(ctx, REMEMBERED, JSON.from(last_reply(ctx)))
+end
+
+# The status and the body, which is what a visitor sees: the page of a reset request must not tell an email that has
+# an account from one that has none.
+def answer_is_remembered(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  before = JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!
+  now = last_reply(ctx)
+  return BDD.assert(ctx, before.status == now.status and before.body == now.body, "the answers differ: #{now.body}")
+end
+
+def answer_was_quick(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  reply = last_reply(ctx)
+  return BDD.assert(ctx, reply.elapsed_ms < args[0].to_i!, "the answer took #{reply.elapsed_ms} milliseconds")
 end
 
 def status_is(ctx: BDD.Context, args: List[String]) -> BDD.Context

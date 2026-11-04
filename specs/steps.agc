@@ -6,6 +6,7 @@
 import BDD from "std/bdd"
 import Db from "pkg/db/db"
 import HttpSteps from "http_steps"
+import MailSteps from "mail_steps"
 import SmtpSteps from "smtp_steps"
 import DataDir from "../src/data_dir"
 import Database from "../src/database"
@@ -14,6 +15,7 @@ import Migrations from "../src/migrations"
 DB_DIR = "db_dir"
 DB_URL = "db_url"
 STARTED = "started"
+STARTUP = "startup_lines"
 SQL_ERROR = "sql_error"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
@@ -30,6 +32,9 @@ def main() -> Void
     BDD.step("the start applied every migration", &applied_every_migration),
     BDD.step("the start applied no migration", &applied_no_migration),
     BDD.step("the health check reports the latest schema version", &health_has_latest_version),
+    BDD.step("the app said {string}", &app_said),
+    BDD.step("the app said a line starting with {string}", &app_said_prefix),
+    BDD.step("the database does not hold the token of the link", &token_is_not_stored),
     BDD.step("the database has the tables:", &has_tables),
     BDD.step("the data folder {string} is prepared", &prepare_data_dir),
     BDD.step("the data folder {string} is private", &data_dir_is_private),
@@ -40,7 +45,7 @@ def main() -> Void
     BDD.step("the query {string} gives {int}", &query_gives),
   ]
 
-  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()))
+  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()).concat(MailSteps.steps()))
 end
 
 def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -64,7 +69,9 @@ def start_app(ctx: BDD.Context, url: String, secure_cookies: String) -> BDD.Cont
     "CAMPFIRE_SECURE_COOKIES": secure_cookies,
   }
 
-  configured = settings.keys.reduce(ctx) do |acc, name| BDD.given_env(acc, name, settings.get(name, "")) end
+  mail = MailSteps.app_environment(ctx)
+  all = mail.keys.reduce(settings) do |acc, name| acc.put(name, mail.get(name, "")) end
+  configured = all.keys.reduce(ctx) do |acc, name| BDD.given_env(acc, name, all.get(name, "")) end
 
   return read_startup(BDD.given_program(configured, "fixtures/server.agc"))
 end
@@ -77,6 +84,7 @@ end
 # Reads the lines up to `listening on`, and keeps the port and the `database:` line.
 def read_startup(ctx: BDD.Context) -> BDD.Context
   database = ""
+  said: List[String] = []
   for _ in 0..5
     line = BDD.read_line(ctx, SOCKET_MS)
     if not line.ok?
@@ -87,10 +95,12 @@ def read_startup(ctx: BDD.Context) -> BDD.Context
     text = line.unwrap!
     if text.start_with?(LISTENING)
       port = text.split(":").last.to_i!
-      return BDD.set(BDD.set(ctx, HttpSteps.PORT, JSON.from(port)), STARTED, JSON.from(database))
+      kept = BDD.set(BDD.set(ctx, HttpSteps.PORT, JSON.from(port)), STARTED, JSON.from(database))
+      return BDD.set(kept, STARTUP, JSON.from(said.join("\n")))
     end
 
     database = text
+    said = said.push(text)
   end
 
   return BDD.assert(ctx, false, "the app did not say where it listens")
@@ -158,6 +168,26 @@ def started_with(ctx: BDD.Context, applied: Int) -> BDD.Context
   expected = "database: schema version #{Migrations.latest()}, migrations applied: #{applied}"
   actual = text_of(ctx, STARTED)
   return BDD.assert(ctx, actual == expected, "the app said #{actual.inspect}, not #{expected.inspect}")
+end
+
+def app_said(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  lines = text_of(ctx, STARTUP).split("\n")
+  return BDD.assert(ctx, lines.include?(args[0]), "the app said:\n#{lines.join("\n")}")
+end
+
+def app_said_prefix(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  lines = text_of(ctx, STARTUP).split("\n")
+  found = lines.any? do |line| line.start_with?(args[0]) end
+  return BDD.assert(ctx, found, "the app said:\n#{lines.join("\n")}")
+end
+
+# Only a hash of the token is kept: neither the token nor a part of it is in a row of the table.
+def token_is_not_stored(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  token = MailSteps.link_token(ctx)
+  rows = rows_of(ctx, "select token_digest from password_resets")
+  stored = rows.map do |row| value_text(row.get("token_digest", Db.Value.Null)) end
+  leaked = stored.any? do |digest| digest.include?(token) or token.include?(digest) end
+  return BDD.assert(ctx, not token.empty? and not leaked, "the table holds #{stored}, the token is #{token}")
 end
 
 def health_has_latest_version(ctx: BDD.Context, args: List[String]) -> BDD.Context

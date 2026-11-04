@@ -11,12 +11,14 @@ src/            config.agc (host, port, data folder, database url, session secre
                 private data folder), app.agc (start: database, then server), database.agc (open and
                 migrate; `with_connection` for a request), migrations.agc (the schema, one numbered
                 migration per table), web.agc (routes), auth_web.agc (cookie sessions, CSRF, the sign-in
-                filter, the routes of first run, sign in and sign out), auth.agc (those over SQL),
-                passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the paths),
-                views.agc (EAG templates), smtp.agc and smtp_message.agc (sending email: the client and
+                filter, the routes of first run, sign in, sign out and password reset), auth.agc (those over
+                SQL), passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the
+                paths), views.agc (EAG templates, the reset email too), mailer.agc (the task that sends
+                email off the request path), smtp.agc and smtp_message.agc (sending email: the client and
                 the message builder; they import no other app module, so they can move to their own package)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
-                cookies), smtp_steps.agc (an SMTP client against a peer), fixtures/server.agc (the app, from
+                cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
+                mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
                 the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
                 down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh)
 test/           unit tests (*_test.agc)
@@ -52,6 +54,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   deny-by-default). A request opens its own database connection (`Database.with_connection`), since Bond runs a
   request in its own task; a `sqlite::memory:` database is therefore not usable by the app. Never log or store a
   plain password; a form that is shown again never holds the password.
+- Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A link in
+  an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email answers
+  the same for every address (no enumeration). A reset token is stored as a hash only.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.
