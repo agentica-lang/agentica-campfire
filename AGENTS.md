@@ -16,7 +16,7 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), html_sanitizer.agc (an allowlist
                 sanitizer for stored HTML bodies; pure)
-src/campfire/repo/   database.agc (open and migrate; `with_connection` for a request), migrations.agc
+src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request), migrations.agc
                 (the schema, one numbered migration per table), rows.agc (reading a column of a row)
 src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
                 smtp_message.agc (sending email: the client and the message builder; they import no other
@@ -33,7 +33,7 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh)
 test/           unit tests (*_test.agc)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentica.lock has their hashes
+agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`pool` comes with it), agentica.lock has their hashes
 ```
 
 ## Commands
@@ -72,10 +72,13 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
   code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any
   missing page (`Routes.MISSING`, the one 404 text of every handler and of the app for a path with no route). A
-  request opens its own database connection (`Database.with_connection`), since Bond runs a request in its own task (a
-  handler opens one and does all its work on it, the person included: `AuthWeb.current_user_in`; the sign-in filter
-  still opens another, since a Bond `Conn` cannot carry the person on); a `sqlite::memory:` database is therefore not
-  usable by the app. Never log or store a plain password; a form that is shown again never holds the password.
+  request takes one connection of the pool for its work (`Database.with_connection(pool)`, which is `DbPool.with`: the
+  app starts the pool once in `App.start`, in the task of `main`, and hands it to the routes). The sign-in filter looks
+  the person up and keeps them with `Bond.assign`; a handler reads them with `AuthWeb.assigned_user` and does not look
+  them up again. The block runs in a task of the pool, not in the task of the request. A wait for a connection that runs
+  out (`CAMPFIRE_DB_CHECKOUT_MS`), or a statement over its `timeout_ms`, is answered 503 with `Retry-After` by the
+  `Bond.on_error` of `Web.build` (`Database.timeout?`). A `sqlite::memory:` database is not usable by the app (one
+  empty database per connection). Never log or store a plain password; a form that is shown again never holds the password.
   Sign-in is limited per client address (`RateLimit.hit`, called first in `AuthWeb.create_session` and not by a
   path-matching filter, since the router also takes `/session/` there: 10 posts in 3 minutes, then 429 with
   `Retry-After`, before the form is read; an IPv6 client counts by its /64); the address is `Conn.remote_addr`, which Bond

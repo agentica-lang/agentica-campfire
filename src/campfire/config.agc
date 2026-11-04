@@ -18,6 +18,19 @@ MIN_SECRET_BYTES = 32
 ## Cookies are `Secure` only when the environment says so, since a browser drops them on plain HTTP (a laptop).
 export DEFAULT_SECURE_COOKIES = "false"
 
+## The connections of the pool when `CAMPFIRE_DB_POOL_SIZE` is not set: 0 takes the size of the database (4 for SQLite).
+export DEFAULT_DB_POOL_SIZE = 0
+
+## The most connections `CAMPFIRE_DB_POOL_SIZE` may ask for.
+export MAX_DB_POOL_SIZE = 64
+
+## How long a request waits for a free connection when `CAMPFIRE_DB_CHECKOUT_MS` is not set. A request that waits longer
+## is answered 503: the server is busy, and a person would rather retry than stare at a spinner.
+export DEFAULT_DB_CHECKOUT_MS = 3_000
+
+## The most that `CAMPFIRE_DB_CHECKOUT_MS` may ask for.
+export MAX_DB_CHECKOUT_MS = 60_000
+
 ## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set.
 export DEFAULT_MAIL_QUEUE = 32
 
@@ -41,7 +54,8 @@ SMTP_URL_FORM = (
 ## app behind HTTPS. `smtp` is how to send email, or `none` when `CAMPFIRE_SMTP_URL` is not set; it holds the SMTP
 ## password, so it is as secret as the session secret. `base_url` is the public address of the app without a trailing
 ## slash (the links in emails start with it), and `mail_from` the sender of those emails: both are empty while `smtp`
-## is `none`. `mail_queue` is how many emails may wait to be sent.
+## is `none`. `mail_queue` is how many emails may wait to be sent. `db_pool_size` is how many database connections the
+## requests share (0: the size the database prefers) and `db_checkout_ms` how long a request waits for one.
 export struct Config
   host: String
   port: Int
@@ -53,6 +67,8 @@ export struct Config
   base_url: String
   mail_from: String
   mail_queue: Int
+  db_pool_size: Int
+  db_checkout_ms: Int
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -87,6 +103,8 @@ export def load() -> Result[Config]
   smtp_from = System.env("CAMPFIRE_SMTP_FROM").unwrap_or("")
   smtp_hostname = System.env("CAMPFIRE_SMTP_HOSTNAME").unwrap_or("")
   mail_queue = System.env("CAMPFIRE_MAIL_QUEUE_SIZE").unwrap_or("")
+  db_pool_size = System.env("CAMPFIRE_DB_POOL_SIZE").unwrap_or("")
+  db_checkout_ms = System.env("CAMPFIRE_DB_CHECKOUT_MS").unwrap_or("")
   return parse(
     host,
     port,
@@ -99,6 +117,8 @@ export def load() -> Result[Config]
     smtp_from,
     smtp_hostname,
     mail_queue,
+    db_pool_size,
+    db_checkout_ms,
   )
 end
 
@@ -115,7 +135,9 @@ end
 ## (its `Host` is the visitor's to choose). EHLO says `smtp_hostname`, the host of `base_url` when that is left out,
 ## and the sender is `smtp_from`, `Campfire <campfire@HOST>` for that host when left out; a host that is an IPv6
 ## address needs both. `mail_queue` is the number of emails that may wait for the mail server (`DEFAULT_MAIL_QUEUE`
-## when left out, at most `MAX_MAIL_QUEUE`): a link that finds the queue full is dropped.
+## when left out, at most `MAX_MAIL_QUEUE`): a link that finds the queue full is dropped. `db_pool_size` is the
+## number of database connections, 0 to `MAX_DB_POOL_SIZE` (`DEFAULT_DB_POOL_SIZE`, the size of the database, when left
+## out), and `db_checkout_ms` how long a request waits for one, 1 to `MAX_DB_CHECKOUT_MS` (`DEFAULT_DB_CHECKOUT_MS`).
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -128,6 +150,8 @@ export def parse(
   smtp_from: String = "",
   smtp_hostname: String = "",
   mail_queue: String = "",
+  db_pool_size: String = "",
+  db_checkout_ms: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -169,6 +193,15 @@ export def parse(
     queue = try parse_mail_queue(mail_queue)
   end
 
+  size = try parse_db_number("CAMPFIRE_DB_POOL_SIZE", db_pool_size, DEFAULT_DB_POOL_SIZE, 0, MAX_DB_POOL_SIZE)
+  checkout = try parse_db_number(
+    "CAMPFIRE_DB_CHECKOUT_MS",
+    db_checkout_ms,
+    DEFAULT_DB_CHECKOUT_MS,
+    1,
+    MAX_DB_CHECKOUT_MS,
+  )
+
   folder = data_dir.strip
   url = database_url.strip
   if url.empty?
@@ -187,6 +220,8 @@ export def parse(
       base_url: base,
       mail_from: mail.from,
       mail_queue: queue,
+      db_pool_size: size,
+      db_checkout_ms: checkout,
     ),
   )
 end
@@ -195,6 +230,20 @@ end
 ## network in the clear. The app says so at start; with secure cookies it is an error of `parse` instead.
 export def plain_link?(config: Config) -> Bool
   return config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
+end
+
+# A whole number of `name` from `low` to `high`, `fallback` when the text is empty.
+def parse_db_number(name: String, text: String, fallback: Int, low: Int, high: Int) -> Result[Int]
+  if text.strip.empty?
+    return ok(fallback)
+  end
+
+  number = text.strip.to_i
+  if not number.ok? or number.unwrap! < low or number.unwrap! > high
+    return error("#{name} must be a number from #{low} to #{high}, not #{text.inspect}")
+  end
+
+  return number
 end
 
 # The size of the queue of emails, `DEFAULT_MAIL_QUEUE` when it is not set. Only read when email is on.

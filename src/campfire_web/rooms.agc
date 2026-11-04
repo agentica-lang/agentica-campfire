@@ -1,7 +1,7 @@
 ## The web side of rooms and messages: the forms of a new room (open, closed or direct), a room page, the settings of
-## a closed room and the post of a message. Each handler opens one connection and does everything on it, the person
-## included (`AuthWeb.current_user_in`). The sign-in filter of `AuthWeb` has let in only a person with a session, but
-## the session may have ended since, so a handler that finds nobody sends the visitor to sign in.
+## a closed room and the post of a message. Each handler takes one connection of the pool and does everything on it.
+## The person is the one that the sign-in filter of `AuthWeb` looked up and kept (`AuthWeb.assigned_user`); a request that
+## somehow has none sends the visitor to sign in.
 ##
 ## A room that the person is not in is answered 404 with the same body as a room that was never made, before anything
 ## about the room (or the form posted to it) is looked at, so no answer tells that a room exists. The settings are
@@ -16,7 +16,6 @@ import Database from "../campfire/repo/database"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
-import {Config} from "../campfire/config"
 
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
@@ -31,57 +30,57 @@ enum Answer
 end
 
 ## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in.
-export def add(app: Bond.App, config: Config) -> Bond.App
+export def add(app: Bond.App, pool: Database.Pool) -> Bond.App
   return (
     app
-    |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, config) end
-    |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, config) end
-    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, config) end
-    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, config) end
-    |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, config) end
-    |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, config) end
-    |> Bond.get(Routes.DIRECT_ROOM_NEW) do |conn| show_new_direct_room(conn, config) end
-    |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, config) end
-    |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, config) end
-    |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, config) end
+    |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
+    |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool) end
+    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool) end
+    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool) end
+    |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
+    |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool) end
+    |> Bond.get(Routes.DIRECT_ROOM_NEW) do |conn| show_new_direct_room(conn, pool) end
+    |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, pool) end
+    |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, pool) end
+    |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool) end
   )
 end
 
 ## The home page of the person: their sidebar and nothing else yet.
-export def home(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  answer = try Database.with_connection(config.database_url) do |db| home_answer(conn, db) end
+export def home(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| home_answer(conn, db) end
   return ok(respond(conn, answer))
 end
 
 def home_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return ok(Answer.Page(200, Views.home(try sidebar_of(db, person))))
   end
 end
 
-def show_new_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  answer = try Database.with_connection(config.database_url) do |db| new_room_answer(conn, db) end
+def show_new_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| new_room_answer(conn, db) end
   return ok(respond(conn, answer))
 end
 
 def new_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return ok(Answer.Page(200, Views.new_room(try sidebar_of(db, person), "", "")))
   end
 end
 
-def create_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def create_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   name = (try Bond.form(conn, "name")).strip
-  answer = try Database.with_connection(config.database_url) do |db| create_room_answer(conn, db, name) end
+  answer = try Database.with_connection(pool) do |db| create_room_answer(conn, db, name) end
   return ok(respond(conn, answer))
 end
 
 def create_room_answer(conn: Bond.Conn, db: Db.Connection, name: String) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return made_room(db, person, name)
@@ -98,28 +97,28 @@ def made_room(db: Db.Connection, person: Auth.User, name: String) -> Result[Answ
   return ok(Answer.Redirect(Routes.room_path(room_id)))
 end
 
-def show_new_closed_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  answer = try Database.with_connection(config.database_url) do |db| new_closed_room_answer(conn, db) end
+def show_new_closed_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| new_closed_room_answer(conn, db) end
   return ok(respond(conn, answer))
 end
 
 def new_closed_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return ok(Answer.Page(200, try closed_room_form(db, person, "", [], "")))
   end
 end
 
-def create_closed_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def create_closed_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   name = (try Bond.form(conn, "name")).strip
   ids = try ids_of(conn, "member")
-  answer = try Database.with_connection(config.database_url) do |db| create_closed_answer(conn, db, name, ids) end
+  answer = try Database.with_connection(pool) do |db| create_closed_answer(conn, db, name, ids) end
   return ok(respond(conn, answer))
 end
 
 def create_closed_answer(conn: Bond.Conn, db: Db.Connection, name: String, ids: List[Int]) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return made_closed_room(db, person, name, ids)
@@ -149,27 +148,27 @@ def closed_room_form(
   return ok(Views.new_closed_room(try sidebar_of(db, person), name, people, chosen, message))
 end
 
-def show_new_direct_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  answer = try Database.with_connection(config.database_url) do |db| new_direct_room_answer(conn, db) end
+def show_new_direct_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| new_direct_room_answer(conn, db) end
   return ok(respond(conn, answer))
 end
 
 def new_direct_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return ok(Answer.Page(200, try direct_room_form(db, person, [], "")))
   end
 end
 
-def create_direct_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def create_direct_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   ids = try ids_of(conn, "member")
-  answer = try Database.with_connection(config.database_url) do |db| create_direct_answer(conn, db, ids) end
+  answer = try Database.with_connection(pool) do |db| create_direct_answer(conn, db, ids) end
   return ok(respond(conn, answer))
 end
 
 def create_direct_answer(conn: Bond.Conn, db: Db.Connection, ids: List[Int]) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return started_direct_room(db, person, ids)
@@ -197,14 +196,14 @@ def direct_room_form(db: Db.Connection, person: Auth.User, chosen: List[Int], me
   return ok(Views.new_direct_room(try sidebar_of(db, person), people, chosen, message))
 end
 
-def show_settings(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def show_settings(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = room_id(conn)
-  answer = try Database.with_connection(config.database_url) do |db| settings_answer(conn, db, id) end
+  answer = try Database.with_connection(pool) do |db| settings_answer(conn, db, id) end
   return ok(respond(conn, answer))
 end
 
 def settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return shown_settings(db, person, id)
@@ -220,14 +219,14 @@ def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> R
   end
 end
 
-def save_settings(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def save_settings(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = room_id(conn)
-  answer = try Database.with_connection(config.database_url) do |db| save_settings_answer(conn, db, id) end
+  answer = try Database.with_connection(pool) do |db| save_settings_answer(conn, db, id) end
   return ok(respond(conn, answer))
 end
 
 def save_settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return saved_settings(conn, db, person, id)
@@ -300,15 +299,15 @@ def settings_form(
   return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
 end
 
-def show_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def show_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   before = try cursor(conn)
   id = room_id(conn)
-  answer = try Database.with_connection(config.database_url) do |db| room_answer(conn, db, id, before) end
+  answer = try Database.with_connection(pool) do |db| room_answer(conn, db, id, before) end
   return ok(respond(conn, answer))
 end
 
 def room_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], before: Optional[Int]) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return shown_room(db, person, id, before)
@@ -323,13 +322,13 @@ def shown_room(db: Db.Connection, person: Auth.User, id: Optional[Int], before: 
   end
 end
 
-def create_message(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def create_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
   # whatever the room: nothing here depends on the room.
   body = (try Bond.form(conn, "body")).strip
   sent_id = try client_id(conn)
   id = room_id(conn)
-  answer = try Database.with_connection(config.database_url) do |db| message_answer(conn, db, id, body, sent_id) end
+  answer = try Database.with_connection(pool) do |db| message_answer(conn, db, id, body, sent_id) end
   return ok(respond(conn, answer))
 end
 
@@ -340,7 +339,7 @@ def message_answer(
   body: String,
   sent_id: String,
 ) -> Result[Answer]
-  user = try AuthWeb.current_user_in(conn, db)
+  user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) -> return posted(db, person, id, body, sent_id)

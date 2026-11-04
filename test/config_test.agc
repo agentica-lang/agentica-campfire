@@ -61,6 +61,25 @@ def mail_queue_of(url: String, size: String) -> Result[Config.Config]
   )
 end
 
+# `parse` with this size of the database pool and this wait for a connection.
+def pool_of(size: String, checkout: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    "",
+    size,
+    checkout,
+  )
+end
+
 def main() -> Void
   Test.run([
     Test.test("a host and a port make a config, and the database is a file of the data folder by default") do
@@ -78,6 +97,8 @@ def main() -> Void
             base_url: "",
             mail_from: "",
             mail_queue: 32,
+            db_pool_size: 0,
+            db_checkout_ms: 3_000,
           ),
         ),
       )
@@ -97,6 +118,8 @@ def main() -> Void
             base_url: "",
             mail_from: "",
             mail_queue: 32,
+            db_pool_size: 0,
+            db_checkout_ms: 3_000,
           ),
         ),
       )
@@ -116,6 +139,8 @@ def main() -> Void
             base_url: "",
             mail_from: "",
             mail_queue: 32,
+            db_pool_size: 0,
+            db_checkout_ms: 3_000,
           ),
         ),
       )
@@ -263,6 +288,19 @@ def main() -> Void
       try Test.error?(mail_queue_of(mail, "many"))
       # With email off nothing uses the queue, so its size is not checked.
       Test.eq(mail_queue_of("", "many").unwrap!.mail_queue, Config.DEFAULT_MAIL_QUEUE)
+    end,
+    Test.test("the pool has a default size and wait unless the environment says another, within limits") do
+      defaults = pool_of("", "").unwrap!
+      try Test.eq(defaults.db_pool_size, Config.DEFAULT_DB_POOL_SIZE)
+      try Test.eq(defaults.db_checkout_ms, Config.DEFAULT_DB_CHECKOUT_MS)
+      chosen = pool_of(" 2 ", " 250 ").unwrap!
+      try Test.eq(chosen.db_pool_size, 2)
+      try Test.eq(chosen.db_checkout_ms, 250)
+      try Test.error?(pool_of("-1", ""))
+      try Test.error?(pool_of("#{Config.MAX_DB_POOL_SIZE + 1}", ""))
+      try Test.error?(pool_of("", "0"))
+      try Test.error?(pool_of("", "#{Config.MAX_DB_CHECKOUT_MS + 1}"))
+      Test.error?(pool_of("many", ""))
     end,
   ])
 end
