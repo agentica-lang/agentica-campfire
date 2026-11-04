@@ -38,6 +38,8 @@ BUSY = "The server is busy, try again in a moment"
 MAX_HASHES = 2
 RETRY_AFTER_SECONDS = "1"
 
+LOCK_WAIT_MS = 5_000
+
 RESET_SUBJECT = "Reset your Campfire password"
 
 ## Adds to `app` the cookie sessions, the check against requests from other sites, the sign-in filter and the routes
@@ -50,6 +52,7 @@ export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
   # with an ATS counter, once `Bond.Conn` has the address of the client (agentica-lang/bond#46). Until then `slots`
   # bounds the hashing for everyone together, so a stranger can slow sign-in down but not take the server down.
   slots = Slots.new()
+  reset_lock = Slots.new()
   return (
     app
     |> Bond.csrf()
@@ -61,9 +64,9 @@ export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
     |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, mailer) end
     |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, config) end
     |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
-    |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, mailer) end
+    |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, mailer, reset_lock) end
     |> Bond.get(Routes.PASSWORD_RESET_EDIT) do |conn| show_reset_password(conn, config) end
-    |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, config, slots) end
+    |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, config, slots, reset_lock) end
   )
 end
 
@@ -217,13 +220,26 @@ end
 
 # The answer is the page of `Views.reset_requested` whatever the email is (and whatever the mailer does with the
 # message), so the form does not tell who has an account. The sending is the mailer's, off this request.
-def create_password_reset(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Result[Bond.Conn]
+def create_password_reset(
+  conn: Bond.Conn,
+  config: Config,
+  mailer: Mailer.Mailer,
+  lock: ATS[String, Int],
+) -> Result[Bond.Conn]
   if not Mailer.enabled?(mailer)
     return ok(Bond.text(conn, 404, "Not Found"))
   end
 
   email = try Bond.form(conn, "email")
+  # One request at a time makes its write transaction. SQLite's wait for a busy database blocks the scheduler, and
+  # tasks that all wait that way can leave no scheduler for the one that holds the write lock, so they end in "database
+  # is locked": waiting here, with a sleep, keeps the schedulers free.
+  if not Slots.wait?(lock, 1, LOCK_WAIT_MS)
+    return ok(busy(conn))
+  end
+
   asked = Database.with_connection(config.database_url) do |db| Auth.request_password_reset(db, email) end
+  Slots.release(lock)
   reset = try asked
   if reset.some?
     _ = Mailer.enqueue(mailer, reset_message(config, reset.unwrap!))
@@ -255,7 +271,12 @@ def show_reset_password(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
   return ok(private_page(Bond.html(conn, 200, Views.reset_password(token, ""))))
 end
 
-def update_password(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Result[Bond.Conn]
+def update_password(
+  conn: Bond.Conn,
+  config: Config,
+  slots: ATS[String, Int],
+  lock: ATS[String, Int],
+) -> Result[Bond.Conn]
   token = try Bond.form(conn, "token")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
@@ -266,11 +287,18 @@ def update_password(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) ->
   end
 
   if not Slots.take?(slots, MAX_HASHES)
-    # The form comes back with the token, so a person does not have to ask for another link because of a burst.
-    return ok(retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, BUSY)))))
+    return ok(busy_reset_form(conn, token))
+  end
+
+  # The same lock as the request for a link, for the same reason: the write transactions of the reset do not collide.
+  # It is held while the password is hashed, so two forms for one link do not both hash.
+  if not Slots.wait?(lock, 1, LOCK_WAIT_MS)
+    Slots.release(slots)
+    return ok(busy_reset_form(conn, token))
   end
 
   changed = Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
+  Slots.release(lock)
   Slots.release(slots)
   outcome = try changed
   case outcome
@@ -303,6 +331,11 @@ end
 # 503 for a burst of requests that hash, and when to ask again. Nothing of the form is shown again.
 def busy(conn: Bond.Conn) -> Bond.Conn
   return retry_later(Bond.html(conn, 503, Views.busy(BUSY)))
+end
+
+# The form comes back with the token, so a person does not have to ask for another link because of a burst.
+def busy_reset_form(conn: Bond.Conn, token: String) -> Bond.Conn
+  return retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, BUSY))))
 end
 
 def retry_later(conn: Bond.Conn) -> Bond.Conn
