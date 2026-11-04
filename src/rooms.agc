@@ -211,9 +211,9 @@ end
 ## (who were in the room when the form was drawn) are added, and the ones in `was` and not in `chosen` are taken out.
 ## What the form did not change is left as it is, so a stale form neither takes out someone who was put in after it
 ## was drawn nor brings back someone who was taken out. Someone who is not active now stays, and so does `editor_id`,
-## the person who sends the form, who is never offered. It is an error, which rolls everything back, when the room is
-## not closed any more or `editor_id` may not edit it or is not in it (they were taken out, or lost the role, since
-## the caller looked); the active people are read inside the transaction for the same reason.
+## the person who sends the form, who is never offered. It gives false, and changes nothing, when the room is not closed
+## or `editor_id` may not edit it or is not in it (they were taken out, or lost the role, since the caller looked); the
+## active people are read inside the transaction for the same reason. An error is a failure of the database.
 export def update_closed(
   conn: Db.Connection,
   room_id: Int,
@@ -221,7 +221,7 @@ export def update_closed(
   name: String,
   chosen: List[Int],
   was: List[Int],
-) -> Result[Void]
+) -> Result[Bool]
   return Db.transaction(conn) do |tx| update_closed_in(tx, room_id, editor_id, name, chosen, was) end
 end
 
@@ -293,7 +293,7 @@ def update_closed_in(
   name: String,
   chosen: List[Int],
   was: List[Int],
-) -> Result[Void]
+) -> Result[Bool]
   changed = try Db.execute(
     tx,
     "update rooms set name = ?, updated_at = #{NOW} where id = ? and kind = 'closed' " +
@@ -308,8 +308,9 @@ def update_closed_in(
     ],
   )
 
+  # Nothing was written yet, so refusing here leaves the room as it was.
   if changed != 1
-    return error("person #{editor_id} cannot change the closed room #{room_id}")
+    return ok(false)
   end
 
   for person in try people(tx, editor_id)
@@ -324,7 +325,7 @@ def update_closed_in(
     end
   end
 
-  return ok()
+  return ok(true)
 end
 
 def open_direct_in(tx: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]

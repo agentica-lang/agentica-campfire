@@ -1,8 +1,9 @@
 Feature: Closed rooms
   A closed room has the people that its maker picked, and only them: the maker is always in it, and a person who is not
-  in it gets 404, as for a room that was never made. Any member of the room can rename it and change who is in it. The
-  first admin is Ana, user 1, and "All Talk" is room 1; Bea is user 2 and Cy is user 3, so the first room that a
-  scenario makes is room 2. Di (user 4) is an inactive person.
+  in it gets 404, as for a room that was never made. Only its maker and an account administrator can rename it and
+  change who is in it: another member gets 403. The first admin is Ana, user 1, an administrator, and "All Talk" is
+  room 1; Bea is user 2 and Cy is user 3, so the first room that a scenario makes is room 2. Di (user 4) is an
+  inactive person.
 
   Background:
     Given a fresh database
@@ -255,7 +256,7 @@ Feature: Closed rooms
     And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 0
     And the query "select count(*) from memberships where room_id = 2" gives 2
 
-  Scenario: A was that names an inactive person, a stranger to the room or the sender takes out nobody
+  Scenario: Naming an inactive person, a stranger to the room or the sender in was takes out nobody
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com, di@example.com"
     When I post to "/rooms/2/settings" the form:
       | name   | Secret |
@@ -307,6 +308,7 @@ Feature: Closed rooms
   Scenario Outline: The settings of a room that the person cannot change answer 404, as a room that was never made does
     Given a closed room "Secret" with the members "bea@example.com"
     And a direct room with the members "bea@example.com, cy@example.com"
+    And a direct room with the members "ana@example.com, bea@example.com"
     When I get "<path>"
     Then the status is 404
     And the body is "Not Found"
@@ -315,6 +317,7 @@ Feature: Closed rooms
       | path                                 |
       | /rooms/2/settings                    |
       | /rooms/3/settings                    |
+      | /rooms/4/settings                    |
       | /rooms/1/settings                    |
       | /rooms/99/settings                   |
       | /rooms/0/settings                    |
@@ -354,3 +357,21 @@ Feature: Closed rooms
     Then the status is 403
     And the query "select count(*) from rooms where name = 'Secret'" gives 1
     And the query "select count(*) from memberships where room_id = 2" gives 1
+
+  Scenario Outline: A change that is no longer allowed is refused inside the update, and nothing changes
+    Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
+    And a closed room "Mine" with the members "bea@example.com"
+    And a direct room with the members "ana@example.com, bea@example.com"
+    When "<editor>" asks Rooms.update_closed to rename the room <room> and swap its members
+    Then the update is refused
+    And the query "select count(*) from rooms where name in ('All Talk', 'Secret', 'Mine')" gives 3
+    And the query "select count(*) from rooms where name = 'Renamed'" gives 0
+    And the query "select count(*) from memberships" gives 8
+
+    Examples:
+      | room | editor          | why                                             |
+      | 2    | bea@example.com | a member who is neither maker nor administrator |
+      | 3    | cy@example.com  | a person who is not in the room                 |
+      | 3    | ana@example.com | an administrator who is not in the room         |
+      | 4    | ana@example.com | a direct room                                   |
+      | 1    | ana@example.com | an open room                                    |

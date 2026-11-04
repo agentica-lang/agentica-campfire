@@ -235,9 +235,8 @@ def save_settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) 
 end
 
 # The form is read only after the membership check, so that a 400 for a missing field does not tell a person who is not
-# in a room that it exists. A member who may not change the room (not its maker, not an administrator) is told
-# 403: they
-# are in the room, so that tells them nothing new.
+# in a room that it exists. A member who may not change the room (not its maker, not an administrator) is told 403:
+# they are in the room, so that tells them nothing new.
 def saved_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
   room = try closed_room(db, person, id)
   case room
@@ -270,7 +269,13 @@ def change_settings(
     return ok(Answer.Page(422, page))
   end
 
-  try Rooms.update_closed(db, room.id, person.id, name, chosen, was)
+  changed = try Rooms.update_closed(db, room.id, person.id, name, chosen, was)
+  # The check before the form said they may; a refusal now is a change that happened meanwhile (they were taken out,
+  # or lost the role), so they are told what a person who is not in the room is.
+  if not changed
+    return ok(Answer.NotFound)
+  end
+
   return ok(Answer.Redirect(Routes.room_path(room.id)))
 end
 
@@ -401,8 +406,7 @@ def closed_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Resu
 end
 
 # The ids that a form posts under `field`, in the order sent: a value that is not a whole number is a 400, since only
-# a tool
-# posts one.
+# a tool posts one.
 def ids_of(conn: Bond.Conn, field: String) -> Result[List[Int]]
   values = try Bond.form_all(conn, field)
   ids: List[Int] = []

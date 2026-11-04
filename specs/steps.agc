@@ -18,6 +18,7 @@ DB_DIR = "db_dir"
 DB_URL = "db_url"
 STARTED = "started"
 STARTUP = "startup_lines"
+UPDATED = "updated"
 SQL_ERROR = "sql_error"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
@@ -45,6 +46,8 @@ def main() -> Void
     BDD.step("a closed room {string} with the members {string}", &closed_room_exists),
     BDD.step("a direct room with the members {string}", &direct_room_exists),
     BDD.step("the room {int} has {int} messages", &room_has_messages),
+    BDD.step("{string} asks Rooms.update_closed to rename the room {int} and swap its members", &ask_update_closed),
+    BDD.step("the update is refused", &update_is_refused),
     BDD.step("I run the sql {string}", &run_sql),
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
@@ -234,6 +237,28 @@ def add_messages(conn: Db.Connection, room_id: Int, count: Int) -> Result[Int]
     "select ?, (select creator_id from rooms where id = ?), printf('message %03d', i), 'seed-' || i from n",
     [Db.Value.Int(count), Db.Value.Int(room_id), Db.Value.Int(room_id)],
   )
+end
+
+# `Rooms.update_closed` straight, as the person with that email: it renames the room, takes out the first two people
+# and puts in the third. The pages check who may edit before they call it, so only a call that skips them reaches the
+# check inside the transaction.
+def ask_update_closed(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| update_as(conn, args[0], args[1].to_i!) end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Rooms.update_closed failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, UPDATED, JSON.from("#{outcome.unwrap!}"))
+end
+
+def update_as(conn: Db.Connection, email: String, room_id: Int) -> Result[Bool]
+  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  editor_id = value_int(rows[0].get("id", Db.Value.Null))
+  return Rooms.update_closed(conn, room_id, editor_id, "Renamed", [3], [1, 2])
+end
+
+def update_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, UPDATED) == "false", "the update said #{text_of(ctx, UPDATED)}")
 end
 
 def applied_every_migration(ctx: BDD.Context, args: List[String]) -> BDD.Context
