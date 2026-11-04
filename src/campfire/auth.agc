@@ -2,7 +2,7 @@
 ## `password_resets` tables. These functions take an open connection and never see a request. A session is a row with a
 ## random token that the cookie carries, so deleting the row ends the session on the server whatever cookie a client
 ## keeps. The token is not hashed in the table: the cookie that holds it is signed, so a copy of the database alone does
-## not give a session.
+## not give a session. `ip_address` is the address of the client that started the session ("" when the caller has none).
 
 import Db from "pkg/db/db"
 import Accounts from "accounts"
@@ -25,6 +25,13 @@ EMAIL_TAKEN = "An account with that email exists already"
 export RESET_MINUTES = 30
 RESEND_SECONDS = 300
 
+# A session works for this long, as the cookie does (the web side takes its `max_age` from here): a row older than that
+# is dead whatever the cookie says, and `purge_sessions` removes it.
+export SESSION_SECONDS = 2_592_000
+
+# `last_active_at` is written at most this often per session, so a busy tab does not write on every request.
+TOUCH_SECONDS = 300
+
 # A reset token is TOKEN_BYTES of hex, which is 64 characters: nothing longer is looked up.
 MAX_TOKEN_LENGTH = 128
 
@@ -32,6 +39,8 @@ MAX_TOKEN_LENGTH = 128
 NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 RESET_EXPIRY = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+#{RESET_MINUTES} minutes')"
 RESEND_LIMIT = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-#{RESEND_SECONDS} seconds')"
+SESSION_EXPIRY = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-#{SESSION_SECONDS} seconds')"
+TOUCH_LIMIT = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-#{TOUCH_SECONDS} seconds')"
 
 ## A person who is signed in.
 export struct User
@@ -46,6 +55,13 @@ export struct PasswordReset
   name: String
   email: String
   token: String
+end
+
+# Who a session is for, as far as the server knows: the `User-Agent` and the address of the client, each ""
+# when unknown.
+struct Client
+  user_agent: String
+  ip_address: String
 end
 
 ## What setting a new password with a reset link did. `SignedIn` holds the token of the new session. `Gone` is a link
@@ -90,6 +106,7 @@ export def first_run(
   email: String,
   password: String,
   user_agent: String,
+  ip_address: String,
 ) -> Result[FirstRun]
   # Before the form and the hashing: once the app has its account, any form is a redirect and costs nothing. The
   # transaction below checks again, for the forms that were sent together.
@@ -105,7 +122,8 @@ export def first_run(
 
   digest = try Passwords.hash(password)
   token = SecureRandom.hex(TOKEN_BYTES)
-  made = try Db.transaction(conn) do |tx| make_account(tx, name.strip, normal(email), digest, token, user_agent) end
+  client = Client(user_agent: user_agent, ip_address: ip_address)
+  made = try Db.transaction(conn) do |tx| make_account(tx, name.strip, normal(email), digest, token, client) end
   if made
     return ok(FirstRun.Created(token))
   end
@@ -125,6 +143,7 @@ export def join(
   email: String,
   password: String,
   user_agent: String,
+  ip_address: String,
 ) -> Result[JoinOutcome]
   valid = try Accounts.join_code_valid?(conn, code)
   if not valid
@@ -137,7 +156,7 @@ export def join(
   end
 
   digest = try Passwords.hash(password)
-  return join_hashed(conn, code, name, email, digest, user_agent)
+  return join_hashed(conn, code, name, email, digest, user_agent, ip_address)
 end
 
 ## What is wrong with a join form, or "": a name, email or password that does not do, or an email that has an account
@@ -167,9 +186,11 @@ export def join_hashed(
   email: String,
   digest: String,
   user_agent: String,
+  ip_address: String,
 ) -> Result[JoinOutcome]
   token = SecureRandom.hex(TOKEN_BYTES)
-  return Db.transaction(conn) do |tx| make_member(tx, code, name.strip, normal(email), digest, token, user_agent) end
+  client = Client(user_agent: user_agent, ip_address: ip_address)
+  return Db.transaction(conn) do |tx| make_member(tx, code, name.strip, normal(email), digest, token, client) end
 end
 
 ## Starts a session for the user whose email and password these are and gives its token, or `none` when the email is
@@ -180,6 +201,7 @@ export def sign_in(
   email: String,
   password: String,
   user_agent: String,
+  ip_address: String,
 ) -> Result[Optional[String]]
   # Nothing that long is a real email or password, and hashing one is work that a stranger could ask for.
   if email.length > MAX_EMAIL_LENGTH or password.bytes.size > Passwords.MAX_BYTES
@@ -202,18 +224,25 @@ export def sign_in(
     return ok(none)
   end
 
-  return open_session(conn, int_of(rows[0], "id"), user_agent)
+  return open_session(conn, int_of(rows[0], "id"), user_agent, ip_address)
 end
 
 ## The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
 ## reads `active` itself, in the one statement, so a deactivation that commits first leaves no row, and one that commits
 ## after it deletes the row: no session survives for a later reactivation to revive.
-export def open_session(conn: Db.Connection, user_id: Int, user_agent: String) -> Result[Optional[String]]
+export def open_session(
+  conn: Db.Connection,
+  user_id: Int,
+  user_agent: String,
+  ip_address: String,
+) -> Result[Optional[String]]
+  try purge_sessions(conn)
   token = SecureRandom.hex(TOKEN_BYTES)
   inserted = try Db.execute(
     conn,
-    "insert into sessions (user_id, token, user_agent) select id, ?, ? from users where id = ? and active = 1",
-    [Db.Value.Text(token), text_or_null(user_agent), Db.Value.Int(user_id)],
+    "insert into sessions (user_id, token, user_agent, ip_address) select id, ?, ?, ? from users " +
+    "where id = ? and active = 1",
+    [Db.Value.Text(token), text_or_null(user_agent), text_or_null(ip_address), Db.Value.Int(user_id)],
   )
 
   if inserted == 0
@@ -223,17 +252,22 @@ export def open_session(conn: Db.Connection, user_id: Int, user_agent: String) -
   return ok(some(token))
 end
 
-## The user of the session with this token, or `none` when there is no such session or its user is deactivated.
+## The user of the session with this token, or `none` when there is no such session or its user is deactivated. A
+## session that was last active more than five minutes ago is marked active now; a request inside that time only reads.
 export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]]
   rows = try Db.query(
     conn,
-    "select users.id, users.name, users.role from sessions join users on users.id = sessions.user_id " +
-    "where sessions.token = ? and users.active = 1",
+    "select users.id, users.name, users.role, sessions.last_active_at < #{TOUCH_LIMIT} as stale " +
+    "from sessions join users on users.id = sessions.user_id where sessions.token = ? and users.active = 1",
     [Db.Value.Text(token)],
   )
 
   if rows.empty?
     return ok(none)
+  end
+
+  if int_of(rows[0], "stale") == 1
+    touch_session(conn, token)
   end
 
   return ok(some(User(id: int_of(rows[0], "id"), name: text_of(rows[0], "name"), role: text_of(rows[0], "role"))))
@@ -298,6 +332,7 @@ export def reset_password(
   token: String,
   password: String,
   user_agent: String,
+  ip_address: String,
 ) -> Result[ResetOutcome]
   valid = try reset_token_valid?(conn, token)
   if not valid
@@ -311,7 +346,8 @@ export def reset_password(
 
   digest = try Passwords.hash(password)
   session = SecureRandom.hex(TOKEN_BYTES)
-  made = try Db.transaction(conn) do |tx| finish_reset(tx, token, digest, session, user_agent) end
+  client = Client(user_agent: user_agent, ip_address: ip_address)
+  made = try Db.transaction(conn) do |tx| finish_reset(tx, token, digest, session, client) end
   if made
     return ok(ResetOutcome.SignedIn(session))
   end
@@ -395,7 +431,7 @@ def token_digest(token: String) -> String
 end
 
 # False when the link was used or expired since it was looked at, or when its person is gone, with no session started.
-def finish_reset(tx: Db.Connection, token: String, digest: String, session: String, user_agent: String) -> Result[Bool]
+def finish_reset(tx: Db.Connection, token: String, digest: String, session: String, client: Client) -> Result[Bool]
   used = try Db.query(
     tx,
     "update password_resets set used_at = #{NOW} where token_digest = ? and used_at is null and expires_at > #{NOW} " +
@@ -420,7 +456,7 @@ def finish_reset(tx: Db.Connection, token: String, digest: String, session: Stri
 
   try Db.execute(tx, "delete from sessions where user_id = ?", [Db.Value.Int(user_id)])
   try Db.execute(tx, "delete from password_resets where user_id = ? and used_at is null", [Db.Value.Int(user_id)])
-  try insert_session(tx, user_id, session, user_agent)
+  try insert_session(tx, user_id, session, client)
   return ok(true)
 end
 
@@ -438,7 +474,7 @@ def make_account(
   email: String,
   digest: String,
   token: String,
-  user_agent: String,
+  client: Client,
 ) -> Result[Bool]
   exists = try account_exists?(tx)
   if exists
@@ -459,7 +495,7 @@ def make_account(
 
   admin_id = int_of(users[0], "id")
   try Rooms.create_open_in(tx, admin_id, FIRST_ROOM_NAME)
-  try insert_session(tx, admin_id, token, user_agent)
+  try insert_session(tx, admin_id, token, client)
   return ok(true)
 end
 
@@ -473,7 +509,7 @@ def make_member(
   email: String,
   digest: String,
   token: String,
-  user_agent: String,
+  client: Client,
 ) -> Result[JoinOutcome]
   valid = try Accounts.join_code_valid?(tx, code)
   if not valid
@@ -493,7 +529,7 @@ def make_member(
 
   user_id = int_of(users[0], "id")
   try Rooms.grant_open_rooms(tx, user_id)
-  try insert_session(tx, user_id, token, user_agent)
+  try insert_session(tx, user_id, token, client)
   return ok(JoinOutcome.Joined(token))
 end
 
@@ -502,13 +538,33 @@ def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
   return ok(int_of(rows[0], "total") > 0)
 end
 
-# The address of the client is not here yet: the Bond pin has no `Conn.remote_addr`
-# (agentica-lang/agentica-campfire#9).
-def insert_session(conn: Db.Connection, user_id: Int, token: String, user_agent: String) -> Result[Int]
+def insert_session(conn: Db.Connection, user_id: Int, token: String, client: Client) -> Result[Int]
+  try purge_sessions(conn)
   return Db.execute(
     conn,
-    "insert into sessions (user_id, token, user_agent) values (?, ?, ?)",
-    [Db.Value.Int(user_id), Db.Value.Text(token), text_or_null(user_agent)],
+    "insert into sessions (user_id, token, user_agent, ip_address) values (?, ?, ?, ?)",
+    [Db.Value.Int(user_id), Db.Value.Text(token), text_or_null(client.user_agent), text_or_null(client.ip_address)],
+  )
+end
+
+# A missed touch is not worth failing the request for (the page is a read, and the next request tries again), so its
+# result is dropped.
+def touch_session(conn: Db.Connection, token: String) -> Void
+  Db.execute(
+    conn,
+    "update sessions set last_active_at = #{NOW}, updated_at = #{NOW} where token = ?",
+    [Db.Value.Text(token)],
+  )
+end
+
+# Removes the sessions that no cookie can use any more: those older than the cookie life, and those of a person who is
+# deactivated (deactivating ends them already; this is the net for a row that gets past it). It runs whenever a session
+# starts, since that is already a write, and a sign-in is the only time the table grows.
+def purge_sessions(conn: Db.Connection) -> Result[Int]
+  return Db.execute(
+    conn,
+    "delete from sessions where created_at < #{SESSION_EXPIRY} or user_id in (select id from users where active = 0)",
+    [],
   )
 end
 

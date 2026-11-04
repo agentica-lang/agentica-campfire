@@ -9,6 +9,7 @@ import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import Database from "../campfire/repo/database"
 import Mailer from "../campfire/mail/mailer"
+import RateLimit from "../campfire/rate_limit"
 import Routes from "routes"
 import Slots from "../campfire/slots"
 import Smtp from "../campfire/mail/smtp"
@@ -19,7 +20,6 @@ import {Config} from "../campfire/config"
 # `Secure`, no domain and the path `/`).
 COOKIE_NAME = "_campfire_session"
 SECURE_COOKIE_NAME = "__Host-session"
-THIRTY_DAYS = 2_592_000
 TOKEN_KEY = "token"
 
 PUBLIC_PATHS = Set.new([
@@ -40,6 +40,12 @@ JOIN_SEGMENTS = 3
 
 BAD_LOGIN = "Wrong email or password"
 BUSY = "The server is busy, try again in a moment"
+TOO_MANY = "Too many sign-in attempts, try again later"
+
+# At most this many attempts to sign in (every post to `Routes.SESSION`, right or wrong) from one address in this time,
+# as upstream Campfire has it: 10 in 3 minutes.
+SIGN_IN_ATTEMPTS = 10
+SIGN_IN_WINDOW_MS = 180_000
 
 # How many password hashes may run at once: 64 MiB and about a second of a scheduler each. The two routes that hash
 # are open to anyone, so a burst past this is answered 503 with `Retry-After` at once instead of queueing.
@@ -54,10 +60,9 @@ RESET_SUBJECT = "Reset your Campfire password"
 ## any work. A missing `Sec-Fetch-Site` and `Origin` (a tool, not a browser) passes, which is what the specs and `curl`
 ## send.
 export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
-  # Per-IP limit: upstream allows 10 sign-ins per 3 minutes per address. It goes here, as a filter on `Routes.SESSION`
-  # with an ATS counter, once the Bond pin has `Conn.remote_addr` (agentica-lang/agentica-campfire#9). Until then
-  # `slots` bounds the hashing for everyone together, so a stranger can slow sign-in down but not take the server down.
+  # `slots` bounds the hashing for everyone together; `attempts` bounds the sign-in posts of one address.
   slots = Slots.new()
+  attempts = RateLimit.new()
   return (
     app
     |> Bond.csrf()
@@ -68,7 +73,7 @@ export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
     |> Bond.get(Routes.JOIN) do |conn| show_join(conn, config) end
     |> Bond.post(Routes.JOIN) do |conn| create_join(conn, config, slots) end
     |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, config, mailer) end
-    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, mailer) end
+    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, attempts, mailer) end
     |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, config) end
     |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
     |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, mailer) end
@@ -104,12 +109,12 @@ def session_options(config: Config) -> Bond.SessionOptions
     return Bond.SessionOptions(
       secret: config.session_secret,
       name: SECURE_COOKIE_NAME,
-      max_age: THIRTY_DAYS,
+      max_age: Auth.SESSION_SECONDS,
       secure: true,
     )
   end
 
-  return Bond.SessionOptions(secret: config.session_secret, name: COOKIE_NAME, max_age: THIRTY_DAYS)
+  return Bond.SessionOptions(secret: config.session_secret, name: COOKIE_NAME, max_age: Auth.SESSION_SECONDS)
 end
 
 # A visitor goes to the first run while there is no account, and to the sign-in page after that.
@@ -173,7 +178,10 @@ def create_first_run(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -
     return ok(busy(conn))
   end
 
-  made = Database.with_connection(config.database_url) do |db| Auth.first_run(db, name, email, password, agent) end
+  made = Database.with_connection(config.database_url) do |db|
+    Auth.first_run(db, name, email, password, agent, conn.remote_addr)
+  end
+
   Slots.release(slots)
   outcome = try made
   case outcome
@@ -219,7 +227,10 @@ def create_join(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Res
     return ok(retry_later(private_page(Bond.html(conn, 503, Views.join(code, name, email, BUSY)))))
   end
 
-  joined = Database.with_connection(config.database_url) do |db| Auth.join(db, code, name, email, password, agent) end
+  joined = Database.with_connection(config.database_url) do |db|
+    Auth.join(db, code, name, email, password, agent, conn.remote_addr)
+  end
+
   Slots.release(slots)
   outcome = try joined
   case outcome
@@ -255,12 +266,23 @@ def show_sign_in(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Resu
   end
 end
 
+# The attempt is counted here, in the handler of the route, and not by a filter that matches the path: the router also
+# takes `/session/` and `//session` to this handler, and a filter that missed one of those would let a person guess
+# passwords without limit. It is counted first, so a refused attempt reads no form and takes no hashing slot. The
+# address is the peer of the connection: behind a proxy it is the proxy's, so every visitor shares one window
+# (docs/security.md).
 def create_session(
   conn: Bond.Conn,
   config: Config,
   slots: ATS[String, Int],
+  attempts: ATS[String, Int],
   mailer: Mailer.Mailer,
 ) -> Result[Bond.Conn]
+  wait = RateLimit.hit(attempts, conn.remote_addr, Time.monotonic_ms(), SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS)
+  if wait > 0
+    return ok(Bond.header(Bond.html(conn, 429, Views.busy(TOO_MANY)), "retry-after", wait.to_s))
+  end
+
   email = try Bond.form(conn, "email")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
@@ -268,7 +290,10 @@ def create_session(
     return ok(busy(conn))
   end
 
-  checked = Database.with_connection(config.database_url) do |db| Auth.sign_in(db, email, password, agent) end
+  checked = Database.with_connection(config.database_url) do |db|
+    Auth.sign_in(db, email, password, agent, conn.remote_addr)
+  end
+
   Slots.release(slots)
   token = try checked
   case token
@@ -376,7 +401,10 @@ def update_password(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) ->
 
   # `Auth.reset_password` checks the link again inside its write transaction, so two forms for one link change the
   # password once; the second one hashes for nothing, which the slot already bounds.
-  changed = Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
+  changed = Database.with_connection(config.database_url) do |db|
+    Auth.reset_password(db, token, password, agent, conn.remote_addr)
+  end
+
   Slots.release(slots)
   outcome = try changed
   case outcome
