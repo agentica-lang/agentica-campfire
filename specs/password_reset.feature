@@ -115,7 +115,7 @@ Feature: Password reset
     And the mail server received a message to "ana@example.com" with the subject "Reset your Campfire password"
     And I open the link of the email
     Then the status is 200
-    When I run the sql "update password_resets set expires_at = '2000-01-01T00:00:00.000Z'"
+    When I run the sql "update password_resets set expires_at = '2000-01-01 00:00:00.000000'"
     And I open the link of the email
     Then the status is 410
     When I set the password "a brand new password" with the token of the link
@@ -125,7 +125,7 @@ Feature: Password reset
   Scenario: A token lasts about 30 minutes
     When I post to "/password_reset" the form:
       | email | ana@example.com |
-    Then the query "select count(*) from password_resets where expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+29 minutes') and expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 minutes')" gives 1
+    Then the query "select count(*) from password_resets where expires_at > strftime('%Y-%m-%d %H:%M:%f000', 'now', '+29 minutes') and expires_at <= strftime('%Y-%m-%d %H:%M:%f000', 'now', '+30 minutes')" gives 1
 
   Scenario Outline: A new password that breaks the rules is refused and the link stays good
     When I post to "/password_reset" the form:
@@ -191,7 +191,7 @@ Feature: Password reset
     And I post to "/password_reset" the form:
       | email | ana@example.com |
     Then the query "select count(*) from password_resets where used_at is null" gives 0
-    When I run the sql "update password_resets set created_at = '2000-01-01T00:00:00.000Z'"
+    When I run the sql "update password_resets set created_at = '2000-01-01 00:00:00.000000'"
     And I post to "/password_reset" the form:
       | email | ana@example.com |
     Then the query "select count(*) from password_resets where used_at is null" gives 1
@@ -232,7 +232,7 @@ Feature: Password reset
     And each 503 answer has a body that contains "name=\"password\" type=\"password\""
 
   Scenario: A person who is deactivated gets no link
-    Given I run the sql "update users set active = 0"
+    Given I run the sql "update users set status = 1"
     When I post to "/password_reset" the form:
       | email | ana@example.com |
     Then the status is 200

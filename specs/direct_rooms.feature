@@ -10,7 +10,7 @@ Feature: Direct messages
     And the first admin exists
     And a member "Bea" with the email "bea@example.com" exists
     And a member "Cy" with the email "cy@example.com" exists
-    And I run the sql "insert into users (name, email, password_digest, active) values ('Di', 'di@example.com', 'x', 0)"
+    And a user "Di" with the email "di@example.com", the role "member" and the status "deactivated" exists
 
   Scenario: The form of a direct message lists the active people but the person, and the sidebar has the way to it
     When I get "/"

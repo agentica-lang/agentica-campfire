@@ -1,3 +1,4 @@
+import Bcrypt from "../src/campfire/bcrypt"
 import Passwords from "../src/campfire/passwords"
 
 # What `verify_nobody?` must cost to hide that an email is not registered: well over the time of a rejected digest.
@@ -29,6 +30,9 @@ def main() -> Void
       started = Time.now_ms()
       try Test.assert(not Passwords.verify_nobody?(), "nobody has a password")
       Test.assert(Time.now_ms() - started >= MIN_WORK_MS, "the check was too quick to hide a missing user")
+    end,
+    Test.test("the limit of a password is the one that the bcrypt check takes") do
+      Test.eq(Passwords.MAX_BYTES, Bcrypt.MAX_PASSWORD_BYTES)
     end,
     Test.test("a new password needs 8 characters and at most 256 bytes") do
       try Test.eq(Passwords.problem("correct horse"), "")

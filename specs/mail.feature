@@ -82,7 +82,8 @@ Feature: Sending email from the app
     And the app queues at most 1 messages for the mail server
     And the app starts
     And the first admin exists
-    And I run the sql "insert into users (name, email, password_digest) values ('Bea', 'bea@example.com', 'x'), ('Cy', 'cy@example.com', 'x')"
+    And a user "Bea" with the email "bea@example.com", the role "member" and the status "active" exists
+    And a user "Cy" with the email "cy@example.com", the role "member" and the status "active" exists
     When I post to "/password_reset" the form:
       | email | ana@example.com |
     And I post to "/password_reset" the form:

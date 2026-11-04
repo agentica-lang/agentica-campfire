@@ -7,6 +7,7 @@
 
 import Db from "pkg/db/db"
 import Rooms from "rooms"
+import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
 JOIN_CODE_BYTES = 6
@@ -15,7 +16,7 @@ GROUP = 4
 # The code that the join page was asked for is a few characters; nothing longer is looked up.
 MAX_CODE_LENGTH = 64
 
-NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+NOW = Rails.NOW
 
 ## A person of the account as the people page lists them. A bot is not a person, so it is never in the list.
 export struct Person
@@ -44,7 +45,7 @@ end
 
 ## The join code of the account, or "" before the first run has made it.
 export def join_code(conn: Db.Connection) -> Result[String]
-  rows = try Db.query(conn, "select join_code from accounts where id = 1", [])
+  rows = try Db.query(conn, "select join_code from accounts order by id limit 1", [])
   if rows.empty?
     return ok("")
   end
@@ -71,20 +72,23 @@ end
 ## The people of the account by name: the active ones, or with `everyone` the deactivated ones too, for the
 ## administrator who may bring them back.
 export def people(conn: Db.Connection, everyone: Bool) -> Result[List[Person]]
-  sql = "select id, name, email, role, active from users where role <> 'bot'"
-  if not everyone
-    sql = "#{sql} and active = 1"
+  # A banned person is not in the list: banning is not something the app does yet, and the people page has no way back
+  # from it.
+  shown = "status = #{Rails.ACTIVE}"
+  if everyone
+    shown = "status in (#{Rails.ACTIVE}, #{Rails.DEACTIVATED})"
   end
 
+  sql = "select id, name, email_address, role, status from users where role <> #{Rails.BOT} and #{shown}"
   rows = try Db.query(conn, "#{sql} order by lower(name), id", [])
   return ok(
     rows.map do |row|
       Person(
         id: int_of(row, "id"),
         name: text_of(row, "name"),
-        email: text_of(row, "email"),
-        role: text_of(row, "role"),
-        active: int_of(row, "active") == 1,
+        email: text_of(row, "email_address"),
+        role: Rails.role_name(int_of(row, "role")),
+        active: int_of(row, "status") == Rails.ACTIVE,
       )
     end,
   )
@@ -110,7 +114,7 @@ def regenerate_in(tx: Db.Connection, actor_id: Int) -> Result[Bool]
 
   try Db.execute(
     tx,
-    "update accounts set join_code = ?, updated_at = #{NOW} where id = 1",
+    "update accounts set join_code = ?, updated_at = #{NOW} where singleton_guard = 0",
     [Db.Value.Text(new_join_code())],
   )
 
@@ -125,7 +129,8 @@ def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
 
   changed = try Db.execute(
     tx,
-    "update users set active = 0, updated_at = #{NOW} where id = ? and active = 1 and role <> 'bot'",
+    "update users set status = #{Rails.DEACTIVATED}, updated_at = #{NOW} where id = ? and " +
+    "status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
     [Db.Value.Int(user_id)],
   )
 
@@ -146,7 +151,8 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
 
   changed = try Db.execute(
     tx,
-    "update users set active = 1, updated_at = #{NOW} where id = ? and active = 0 and role <> 'bot'",
+    "update users set status = #{Rails.ACTIVE}, updated_at = #{NOW} where id = ? and " +
+    "status = #{Rails.DEACTIVATED} and role <> #{Rails.BOT}",
     [Db.Value.Int(user_id)],
   )
 
@@ -162,7 +168,7 @@ end
 def unchanged_or_missing(tx: Db.Connection, user_id: Int) -> Result[Change]
   rows = try Db.query(
     tx,
-    "select count(*) as total from users where id = ? and role <> 'bot'",
+    "select count(*) as total from users where id = ? and role <> #{Rails.BOT}",
     [Db.Value.Int(user_id)],
   )
 
@@ -176,8 +182,8 @@ end
 def administrator?(tx: Db.Connection, user_id: Int) -> Result[Bool]
   rows = try Db.query(
     tx,
-    "select count(*) as total from users where id = ? and role = ? and active = 1",
-    [Db.Value.Int(user_id), Db.Value.Text(Rooms.ADMINISTRATOR)],
+    "select count(*) as total from users where id = ? and role = ? and status = #{Rails.ACTIVE}",
+    [Db.Value.Int(user_id), Db.Value.Int(Rails.ADMINISTRATOR)],
   )
 
   return ok(int_of(rows[0], "total") > 0)

@@ -40,7 +40,12 @@ export def start(config: Config) -> Result[Running]
   end
 
   schema = migrated.unwrap!
-  puts("database: schema version #{schema.version}, migrations applied: #{schema.applied.length}")
+  if schema.rails
+    puts("database: made by Rails, opened as it is, schema version #{schema.version}")
+  else
+    puts("database: schema version #{schema.version}, migrations applied: #{schema.applied.length}")
+  end
+
   opened = Database.open_pool(config.database_url, config.db_pool_size, config.db_checkout_ms)
   if not opened.ok?
     return error("cannot open the database connections (CAMPFIRE_DATABASE_URL): #{opened.message}")

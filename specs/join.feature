@@ -41,7 +41,7 @@ Feature: Joining with the link
     And the body contains "<a href=\"/rooms/1\">All Talk</a>"
     And the body contains "<a href=\"/rooms/2\">Lunch</a>"
     And the body does not contain "Secret"
-    And the query "select count(*) from users where (id, name, email, role, active) = (2, 'Bea', 'bea@example.com', 'member', 1)" gives 1
+    And the query "select count(*) from users where (id, name, email_address, role, status) = (2, 'Bea', 'bea@example.com', 0, 0)" gives 1
     And the query "select count(*) from users where id = 2 and password_digest like 'scrypt$%'" gives 1
     And the query "select count(*) from memberships where user_id = 2 and room_id in (1, 2)" gives 2
     And the query "select count(*) from memberships where user_id = 2" gives 2
@@ -115,7 +115,7 @@ Feature: Joining with the link
 
   Scenario: An email that has an account, whatever its case, is refused, and so is one of a deactivated person
     Given a member "Bea" with the email "bea@example.com" exists
-    And I run the sql "insert into users (name, email, password_digest, active) values ('Cy', 'cy@example.com', 'x', 0)"
+    And a user "Cy" with the email "cy@example.com", the role "member" and the status "deactivated" exists
     And the browser has no cookies
     When I post to "/join/aaaa-bbbb-cccc" the form:
       | name     | Bea Two               |
@@ -129,7 +129,7 @@ Feature: Joining with the link
       | password | another long password |
     Then the status is 422
     And the query "select count(*) from users" gives 3
-    And the query "select count(*) from users where active = 0" gives 1
+    And the query "select count(*) from users where status = 1" gives 1
 
   Scenario: Forms for one email that arrive together make one person
     Given the browser has no cookies
@@ -140,7 +140,7 @@ Feature: Joining with the link
     Then each status is one of "302, 422, 503"
     And exactly 1 statuses are 302
     And each 503 answer has the header "retry-after" "1"
-    And the query "select count(*) from users where email = 'bea@example.com'" gives 1
+    And the query "select count(*) from users where email_address = 'bea@example.com'" gives 1
     And the query "select count(*) from memberships where user_id = 2" gives 1
     And the query "select count(*) from sessions where user_id = 2" gives 1
     When I get "/health"
@@ -167,7 +167,7 @@ Feature: Joining with the link
     And the query "select count(*) from users" gives 1
     When "late@example.com" asks Auth.join_hashed to sign up with the code "aaaa-bbbb-cccc"
     Then the join is "Joined"
-    And the query "select count(*) from users where id = 2 and email = 'late@example.com'" gives 1
+    And the query "select count(*) from users where id = 2 and email_address = 'late@example.com'" gives 1
     And the query "select count(*) from memberships where user_id = 2 and room_id = 1" gives 1
 
   Scenario: A page of another site cannot sign anybody up

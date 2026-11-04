@@ -5,6 +5,7 @@
 ## exactly as a room that does not exist is, and a caller cannot tell them apart.
 
 import Db from "pkg/db/db"
+import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
 ## How many messages a page of a room holds.
@@ -16,7 +17,7 @@ export CLOSED = "closed"
 export DIRECT = "direct"
 
 ## The role of an account administrator, who may edit any closed room (`users.role`).
-export ADMINISTRATOR = "administrator"
+export ADMINISTRATOR = Rails.ADMINISTRATOR_NAME
 
 ## The longest name of a room, in characters, and the longest message.
 export MAX_NAME_LENGTH = 100
@@ -32,7 +33,7 @@ NO_PEOPLE = "Choose at least one person"
 NO_NAME = "Direct message"
 
 # What `updated_at` is set to when a room changes, in the form of the schema.
-NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+NOW = Rails.NOW
 
 # Greater than any id, so that "before this id" with no id is the whole room.
 NEWEST = 9_223_372_036_854_775_807
@@ -64,7 +65,9 @@ export struct Person
   name: String
 end
 
-## A message with the name of its author. `created_at` is the text of the schema (UTC, ISO 8601).
+## A message with the name of its author. `created_at` is an ISO 8601 UTC instant with milliseconds
+## (`2026-03-01T09:00:00.123Z`), made from the Rails form of the column, so that `<time datetime>` and the scripts that
+## read it take it as UTC.
 export struct Message
   id: Int
   author: String
@@ -157,7 +160,7 @@ export def create_open_in(tx: Db.Connection, creator_id: Int, name: String) -> R
   room_id = int_of(rooms[0], "id")
   try Db.execute(
     tx,
-    "insert into memberships (room_id, user_id) select ?, id from users where active = 1",
+    "insert into memberships (room_id, user_id) select ?, id from users where status = #{Rails.ACTIVE}",
     [Db.Value.Int(room_id)],
   )
 
@@ -188,7 +191,7 @@ end
 export def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
   rows = try Db.query(
     conn,
-    "select id, name from users where active = 1 and id <> ? order by lower(name), id",
+    "select id, name from users where status = #{Rails.ACTIVE} and id <> ? order by lower(name), id",
     [Db.Value.Int(user_id)],
   )
 
@@ -240,7 +243,8 @@ end
 export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Page]
   rows = try Db.query(
     conn,
-    "select messages.id, users.name as author, messages.body, messages.created_at " +
+    "select messages.id, users.name as author, messages.body, " +
+    "strftime('%Y-%m-%dT%H:%M:%fZ', messages.created_at) as created_at " +
     "from messages join users on users.id = messages.creator_id " +
     "where messages.room_id = ? and messages.id < ? order by messages.id desc limit ?",
     [Db.Value.Int(room_id), Db.Value.Int(before.unwrap_or(NEWEST)), Db.Value.Int(PAGE_SIZE + 1)],
@@ -271,7 +275,7 @@ export def post(
   stored = try Db.execute(
     conn,
     "insert into messages (room_id, creator_id, body, client_message_id) " +
-    "select ?, ?, ?, ? where exists (select 1 from users where id = ? and active = 1) " +
+    "select ?, ?, ?, ? where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
     "on conflict (creator_id, client_message_id) do nothing",
     [
       Db.Value.Int(room_id),
@@ -287,7 +291,7 @@ export def post(
   end
 
   # Nothing was stored: either the message was a repeat (the person is active) or the person is not.
-  rows = try Db.query(conn, "select 1 from users where id = ? and active = 1", [Db.Value.Int(user_id)])
+  rows = try Db.query(conn, "select 1 from users where id = ? and status = #{Rails.ACTIVE}", [Db.Value.Int(user_id)])
   return ok(not rows.empty?)
 end
 
@@ -312,7 +316,8 @@ def update_closed_in(
   changed = try Db.execute(
     tx,
     "update rooms set name = ?, updated_at = #{NOW} where id = ? and kind = 'closed' " +
-    "and (creator_id = ? or exists (select 1 from users where id = ? and role = '#{ADMINISTRATOR}' and active = 1)) " +
+    "and (creator_id = ? or exists (select 1 from users where id = ? and role = #{Rails.ADMINISTRATOR} and " +
+    "status = #{Rails.ACTIVE})) " +
     "and exists (select 1 from memberships where room_id = rooms.id and user_id = ?)",
     [
       Db.Value.Text(name),
@@ -361,7 +366,7 @@ def active_among(tx: Db.Connection, ids: List[Int]) -> Result[List[Int]]
   marks = ids.map do |_| "?" end.join(", ")
   rows = try Db.query(
     tx,
-    "select id from users where active = 1 and id in (#{marks}) order by id",
+    "select id from users where status = #{Rails.ACTIVE} and id in (#{marks}) order by id",
     ids.map do |id| Db.Value.Int(id) end,
   )
 
@@ -413,7 +418,8 @@ end
 def add_member(tx: Db.Connection, room_id: Int, user_id: Int, involvement: String) -> Result[Void]
   try Db.execute(
     tx,
-    "insert into memberships (room_id, user_id, involvement) select ?, id, ? from users where id = ? and active = 1 " +
+    "insert into memberships (room_id, user_id, involvement) select ?, id, ? from users where id = ? and " +
+    "status = #{Rails.ACTIVE} " +
     "on conflict (room_id, user_id) do nothing",
     [Db.Value.Int(room_id), Db.Value.Text(involvement), Db.Value.Int(user_id)],
   )

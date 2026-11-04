@@ -8,6 +8,7 @@ import Db from "pkg/db/db"
 import Accounts from "accounts"
 import Passwords from "passwords"
 import Rooms from "rooms"
+import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
 # The name of the account that the first run makes, and of the open room that it starts with (as upstream does).
@@ -35,12 +36,12 @@ TOUCH_SECONDS = 300
 # A reset token is TOKEN_BYTES of hex, which is 64 characters: nothing longer is looked up.
 MAX_TOKEN_LENGTH = 128
 
-# The time as the schema writes it (see `repo/migrations.agc`), and the time that a reset link lasts to.
-NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
-RESET_EXPIRY = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+#{RESET_MINUTES} minutes')"
-RESEND_LIMIT = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-#{RESEND_SECONDS} seconds')"
-SESSION_EXPIRY = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-#{SESSION_SECONDS} seconds')"
-TOUCH_LIMIT = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-#{TOUCH_SECONDS} seconds')"
+# The time as the schema writes it (Rails' form, see `repo/rails.agc`), and the times that the rules below count from.
+NOW = Rails.NOW
+RESET_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '+#{RESET_MINUTES} minutes')"
+RESEND_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{RESEND_SECONDS} seconds')"
+SESSION_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '-#{SESSION_SECONDS} seconds')"
+TOUCH_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{TOUCH_SECONDS} seconds')"
 
 ## A person who is signed in.
 export struct User
@@ -212,8 +213,9 @@ export def sign_in(
 
   rows = try Db.query(
     conn,
-    "select id, password_digest from users where email = ? and active = 1 and role <> 'bot'",
-    [Db.Value.Text(normal(email))],
+    "select id, password_digest from users where lower(email_address) = ? and status = #{Rails.ACTIVE} and " +
+    "role <> #{Rails.BOT} order by email_address = ? desc, id limit 1",
+    [Db.Value.Text(normal(email)), Db.Value.Text(normal(email))],
   )
 
   if rows.empty?
@@ -232,8 +234,8 @@ export def sign_in(
 end
 
 ## The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
-## reads `active` itself, in the one statement, so a deactivation that commits first leaves no row, and one that commits
-## after it deletes the row: no session survives for a later reactivation to revive.
+## reads `status` itself, in the one statement, so a deactivation that commits first leaves no row, and one that
+## commits after it deletes the row: no session survives for a later reactivation to revive.
 export def open_session(
   conn: Db.Connection,
   user_id: Int,
@@ -244,8 +246,8 @@ export def open_session(
   token = SecureRandom.hex(TOKEN_BYTES)
   inserted = try Db.execute(
     conn,
-    "insert into sessions (user_id, token, user_agent, ip_address) select id, ?, ?, ? from users " +
-    "where id = ? and active = 1",
+    "insert into sessions (user_id, token, user_agent, ip_address, last_active_at, created_at, updated_at) " +
+    "select id, ?, ?, ?, #{NOW}, #{NOW}, #{NOW} from users where id = ? and status = #{Rails.ACTIVE}",
     [Db.Value.Text(token), text_or_null(user_agent), text_or_null(ip_address), Db.Value.Int(user_id)],
   )
 
@@ -262,7 +264,8 @@ export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]
   rows = try Db.query(
     conn,
     "select users.id, users.name, users.role, sessions.last_active_at < #{TOUCH_LIMIT} as stale " +
-    "from sessions join users on users.id = sessions.user_id where sessions.token = ? and users.active = 1",
+    "from sessions join users on users.id = sessions.user_id where sessions.token = ? and " +
+    "users.status = #{Rails.ACTIVE}",
     [Db.Value.Text(token)],
   )
 
@@ -274,7 +277,11 @@ export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]
     touch_session(conn, token)
   end
 
-  return ok(some(User(id: int_of(rows[0], "id"), name: text_of(rows[0], "name"), role: text_of(rows[0], "role"))))
+  return ok(
+    some(
+      User(id: int_of(rows[0], "id"), name: text_of(rows[0], "name"), role: Rails.role_name(int_of(rows[0], "role"))),
+    ),
+  )
 end
 
 ## Ends the session with this token. A token that is not there is not an error.
@@ -388,8 +395,11 @@ def valid_email?(email: String) -> Bool
   )
 end
 
-# Emails compare without case and without the spaces around them (the column is `collate nocase`, and this keeps the
-# stored value the one that a person types again).
+# Emails compare without case and without the spaces around them. The unique index of `email_address` compares bytes
+# (it is Rails' own, and Rails stores an address as it was typed), so the app stores this form and looks an address up
+# with `lower(email_address)`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and
+# is not made twice by a join. The lookup scans `users`, which is small; where two rows differ only in case (the index
+# lets Rails make them), the one that is already lower case is the person.
 def normal(email: String) -> String
   return email.strip.downcase
 end
@@ -399,8 +409,9 @@ end
 def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Optional[PasswordReset]]
   rows = try Db.query(
     tx,
-    "select id, name, email from users where email = ? and active = 1 and role <> 'bot'",
-    [Db.Value.Text(email)],
+    "select id, name, email_address from users where lower(email_address) = ? and status = #{Rails.ACTIVE} and " +
+    "role <> #{Rails.BOT} order by email_address = ? desc, id limit 1",
+    [Db.Value.Text(email), Db.Value.Text(email)],
   )
 
   if rows.empty?
@@ -426,7 +437,9 @@ def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Option
     [Db.Value.Int(user_id), Db.Value.Text(token_digest(token))],
   )
 
-  return ok(some(PasswordReset(name: text_of(rows[0], "name"), email: text_of(rows[0], "email"), token: token)))
+  return ok(
+    some(PasswordReset(name: text_of(rows[0], "name"), email: text_of(rows[0], "email_address"), token: token)),
+  )
 end
 
 # The hash of a token, as the table keeps it.
@@ -450,7 +463,8 @@ def finish_reset(tx: Db.Connection, token: String, digest: String, session: Stri
   user_id = int_of(used[0], "user_id")
   changed = try Db.execute(
     tx,
-    "update users set password_digest = ?, updated_at = #{NOW} where id = ? and active = 1 and role <> 'bot'",
+    "update users set password_digest = ?, updated_at = #{NOW} where id = ? and status = #{Rails.ACTIVE} and " +
+    "role <> #{Rails.BOT}",
     [Db.Value.Text(digest), Db.Value.Int(user_id)],
   )
 
@@ -470,8 +484,8 @@ def account_exists?(conn: Db.Connection) -> Result[Bool]
 end
 
 # True when it made the account; false when there is one, with nothing written. The insert of the account is also
-# refused by its primary key, and the transaction takes the write lock before the count, so a second first run waits
-# and then finds the account.
+# refused by the unique `singleton_guard`, and the transaction takes the write lock before the count, so a second first
+# run waits and then finds the account.
 def make_account(
   tx: Db.Connection,
   name: String,
@@ -487,14 +501,21 @@ def make_account(
 
   try Db.execute(
     tx,
-    "insert into accounts (id, name, join_code) values (1, ?, ?)",
+    "insert into accounts (name, join_code, created_at, updated_at) values (?, ?, #{NOW}, #{NOW})",
     [Db.Value.Text(ACCOUNT_NAME), Db.Value.Text(Accounts.new_join_code())],
   )
 
   users = try Db.query(
     tx,
-    "insert into users (name, email, password_digest, role) values (?, ?, ?, ?) returning id",
-    [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest), Db.Value.Text(Rooms.ADMINISTRATOR)],
+    "insert into users (name, email_address, password_digest, role, status, created_at, updated_at) " +
+    "values (?, ?, ?, ?, ?, #{NOW}, #{NOW}) returning id",
+    [
+      Db.Value.Text(name),
+      Db.Value.Text(email),
+      Db.Value.Text(digest),
+      Db.Value.Int(Rails.ADMINISTRATOR),
+      Db.Value.Int(Rails.ACTIVE),
+    ],
   )
 
   admin_id = int_of(users[0], "id")
@@ -527,8 +548,15 @@ def make_member(
 
   users = try Db.query(
     tx,
-    "insert into users (name, email, password_digest) values (?, ?, ?) returning id",
-    [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest)],
+    "insert into users (name, email_address, password_digest, role, status, created_at, updated_at) " +
+    "values (?, ?, ?, ?, ?, #{NOW}, #{NOW}) returning id",
+    [
+      Db.Value.Text(name),
+      Db.Value.Text(email),
+      Db.Value.Text(digest),
+      Db.Value.Int(Rails.MEMBER),
+      Db.Value.Int(Rails.ACTIVE),
+    ],
   )
 
   user_id = int_of(users[0], "id")
@@ -538,7 +566,12 @@ def make_member(
 end
 
 def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
-  rows = try Db.query(conn, "select count(*) as total from users where email = ?", [Db.Value.Text(email)])
+  rows = try Db.query(
+    conn,
+    "select count(*) as total from users where lower(email_address) = ?",
+    [Db.Value.Text(email)],
+  )
+
   return ok(int_of(rows[0], "total") > 0)
 end
 
@@ -546,7 +579,8 @@ def insert_session(conn: Db.Connection, user_id: Int, token: String, client: Cli
   try purge_sessions(conn)
   return Db.execute(
     conn,
-    "insert into sessions (user_id, token, user_agent, ip_address) values (?, ?, ?, ?)",
+    "insert into sessions (user_id, token, user_agent, ip_address, last_active_at, created_at, updated_at) " +
+    "values (?, ?, ?, ?, #{NOW}, #{NOW}, #{NOW})",
     [Db.Value.Int(user_id), Db.Value.Text(token), text_or_null(client.user_agent), text_or_null(client.ip_address)],
   )
 end
@@ -567,7 +601,8 @@ end
 def purge_sessions(conn: Db.Connection) -> Result[Int]
   return Db.execute(
     conn,
-    "delete from sessions where created_at < #{SESSION_EXPIRY} or user_id in (select id from users where active = 0)",
+    "delete from sessions where created_at < #{SESSION_EXPIRY} or " +
+    "user_id in (select id from users where status <> #{Rails.ACTIVE})",
     [],
   )
 end

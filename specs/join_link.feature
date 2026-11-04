@@ -29,7 +29,7 @@ Feature: The join link
       | email    | cy@example.com        |
       | password | another long password |
     Then the status is 302
-    And the query "select count(*) from users where email = 'cy@example.com' and active = 1" gives 1
+    And the query "select count(*) from users where email_address = 'cy@example.com' and status = 0" gives 1
     And the query "select count(*) from memberships where user_id = 3 and room_id = 1" gives 1
 
   Scenario: A new link replaces the old one, which stops working

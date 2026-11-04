@@ -40,13 +40,13 @@ Feature: The people of the account
   Scenario: Deactivating a person ends their sessions and keeps them out
     Given I sign in as "bea@example.com"
     And the browser saves a copy of its cookies
-    And I run the sql "insert into password_resets (user_id, token_digest, expires_at) values (2, 'abc', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 minutes'))"
+    And I run the sql "insert into password_resets (user_id, token_digest, expires_at) values (2, 'abc', strftime('%Y-%m-%d %H:%M:%f000', 'now', '+30 minutes'))"
     And I sign in as "ana@example.com"
     When I get "/users"
     And I submit the form of the page that posts to "/users/2/deactivate"
     Then the status is 302
     And the header "location" is "/users"
-    And the query "select count(*) from users where id = 2 and active = 0" gives 1
+    And the query "select count(*) from users where id = 2 and status = 1" gives 1
     And the query "select count(*) from sessions where user_id = 2" gives 0
     And the query "select count(*) from password_resets where user_id = 2" gives 0
     When the browser restores its saved cookies
@@ -65,7 +65,7 @@ Feature: The people of the account
     Then the body does not contain "Bea"
 
   Scenario: An administrator still sees a deactivated person, and can reactivate them
-    Given I run the sql "update users set active = 0 where id = 2"
+    Given I run the sql "update users set status = 1 where id = 2"
     When I get "/users"
     Then the body contains "bea@example.com"
     And the body contains "action=\"/users/2/reactivate\""
@@ -73,7 +73,7 @@ Feature: The people of the account
     When I submit the form of the page that posts to "/users/2/reactivate"
     Then the status is 302
     And the header "location" is "/users"
-    And the query "select count(*) from users where id = 2 and active = 1" gives 1
+    And the query "select count(*) from users where id = 2 and status = 0" gives 1
     When I sign in as "bea@example.com"
     Then the status is 302
 
@@ -95,18 +95,18 @@ Feature: The people of the account
     When I post nothing to "/users/2/deactivate"
     And I post nothing to "/users/2/deactivate"
     Then the status is 302
-    And the query "select count(*) from users where id = 2 and active = 0" gives 1
+    And the query "select count(*) from users where id = 2 and status = 1" gives 1
     When I post nothing to "/users/2/reactivate"
     And I post nothing to "/users/2/reactivate"
     Then the status is 302
-    And the query "select count(*) from users where id = 2 and active = 1" gives 1
+    And the query "select count(*) from users where id = 2 and status = 0" gives 1
     And the query "select count(*) from memberships where user_id = 2" gives 1
 
   Scenario Outline: A member who is not an administrator is refused, and nothing changes
     Given I sign in as "bea@example.com"
     When I post nothing to "<path>"
     Then the status is 403
-    And the query "select count(*) from users where active = 1" gives 3
+    And the query "select count(*) from users where status = 0" gives 3
     And the query "select count(*) from accounts where join_code = 'aaaa-bbbb-cccc'" gives 1
 
     Examples:
@@ -119,7 +119,7 @@ Feature: The people of the account
   Scenario Outline: An administrator cannot deactivate themselves, and a person who is not there is a 404
     When I post nothing to "<path>"
     Then the status is <status>
-    And the query "select count(*) from users where active = 1" gives 3
+    And the query "select count(*) from users where status = 0" gives 3
 
     Examples:
       | path                | status |
@@ -129,12 +129,12 @@ Feature: The people of the account
       | /users/x/deactivate | 404    |
 
   Scenario: A bot is not a person to deactivate
-    Given I run the sql "insert into users (name, role, bot_token) values ('Hook', 'bot', 'tok')"
+    Given a bot "Hook" with the token "tok" exists
     When I get "/users"
     Then the body does not contain "Hook"
     When I post nothing to "/users/4/deactivate"
     Then the status is 404
-    And the query "select count(*) from users where id = 4 and active = 1" gives 1
+    And the query "select count(*) from users where id = 4 and status = 0" gives 1
 
   Scenario: A visitor with no session is sent to sign in, and nothing changes
     Given the browser has no cookies
@@ -144,14 +144,14 @@ Feature: The people of the account
     When I post nothing to "/users/2/deactivate"
     Then the status is 302
     And the header "location" is "/session/new"
-    And the query "select count(*) from users where active = 1" gives 3
+    And the query "select count(*) from users where status = 0" gives 3
 
   Scenario Outline: A page of another site cannot deactivate or reactivate anybody
-    Given I run the sql "update users set active = 0 where id = 3"
+    Given I run the sql "update users set status = 1 where id = 3"
     And the request header "sec-fetch-site" is "cross-site"
     When I post nothing to "<path>"
     Then the status is 403
-    And the query "select count(*) from users where active = 1" gives 2
+    And the query "select count(*) from users where status = 0" gives 2
 
     Examples:
       | path                |
@@ -159,7 +159,7 @@ Feature: The people of the account
       | /users/3/reactivate |
 
   Scenario: A session is not opened for a person who was deactivated after their password was checked
-    Given I run the sql "update users set active = 0 where id = 3"
+    Given I run the sql "update users set status = 1 where id = 3"
     When Auth.open_session is asked for the user 3
     Then the session is refused
     And the query "select count(*) from sessions where user_id = 3" gives 0
@@ -168,12 +168,12 @@ Feature: The people of the account
     And the query "select count(*) from sessions where user_id = 2" gives 1
 
   Scenario Outline: The check inside the transaction refuses an actor who is not an active administrator, and changes nothing
-    Given I run the sql "insert into users (name, email, password_digest, role, active) values ('Di', 'di@example.com', 'x', 'administrator', 0)"
-    And I run the sql "update users set active = 0 where id = 3"
+    Given a user "Di" with the email "di@example.com", the role "administrator" and the status "deactivated" exists
+    And I run the sql "update users set status = 1 where id = 3"
     When "<actor>" asks Accounts to "<action>" the user <user>
     Then the change is refused
-    And the query "select count(*) from users where id = 2 and active = 1" gives 1
-    And the query "select count(*) from users where id = 3 and active = 0" gives 1
+    And the query "select count(*) from users where id = 2 and status = 0" gives 1
+    And the query "select count(*) from users where id = 3 and status = 1" gives 1
     And the query "select count(*) from accounts where join_code = 'aaaa-bbbb-cccc'" gives 1
 
     Examples:

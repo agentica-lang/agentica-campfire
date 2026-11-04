@@ -13,21 +13,21 @@ Feature: What a session row records, and what keeps the table small
     Then the query "select count(*) from sessions where user_id = 1 and ip_address = '127.0.0.1'" gives 1
 
   Scenario: A request marks the session active only when the last mark is five minutes old
-    When I run the sql "update sessions set last_active_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 minutes')"
+    When I run the sql "update sessions set last_active_at = strftime('%Y-%m-%d %H:%M:%f000', 'now', '-1 minutes')"
     And I get "/"
     Then the status is 200
-    And the query "select count(*) from sessions where last_active_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 seconds')" gives 1
-    When I run the sql "update sessions set last_active_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')"
+    And the query "select count(*) from sessions where last_active_at < strftime('%Y-%m-%d %H:%M:%f000', 'now', '-30 seconds')" gives 1
+    When I run the sql "update sessions set last_active_at = strftime('%Y-%m-%d %H:%M:%f000', 'now', '-10 minutes')"
     And I get "/"
     Then the status is 200
-    And the query "select count(*) from sessions where last_active_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 seconds')" gives 1
+    And the query "select count(*) from sessions where last_active_at > strftime('%Y-%m-%d %H:%M:%f000', 'now', '-30 seconds')" gives 1
 
   Scenario: A new session removes the rows past the cookie life and those of a deactivated person
     Given a member "Bea" with the email "bea@example.com" exists
-    And I run the sql "insert into sessions (user_id, token, created_at) values (1, 'old', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-31 days'))"
-    And I run the sql "insert into sessions (user_id, token, created_at) values (1, 'recent', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-29 days'))"
-    And I run the sql "update users set active = 0 where id = 2"
-    And I run the sql "insert into sessions (user_id, token) values (2, 'gone')"
+    And I run the sql "insert into sessions (user_id, token, last_active_at, created_at, updated_at) values (1, 'old', datetime('now'), datetime('now', '-31 days'), datetime('now'))"
+    And I run the sql "insert into sessions (user_id, token, last_active_at, created_at, updated_at) values (1, 'recent', datetime('now'), datetime('now', '-29 days'), datetime('now'))"
+    And I run the sql "update users set status = 1 where id = 2"
+    And I run the sql "insert into sessions (user_id, token, last_active_at, created_at, updated_at) values (2, 'gone', datetime('now'), datetime('now'), datetime('now'))"
     When I sign in as "ana@example.com"
     Then the query "select count(*) from sessions where token in ('old', 'gone')" gives 0
     And the query "select count(*) from sessions where token = 'recent'" gives 1

@@ -4,6 +4,7 @@ import Db from "pkg/db/db"
 import DbPool from "pkg/db/db_pool"
 import Migrate from "pkg/db/migrate"
 import Migrations from "migrations"
+import {int_of, text_of} from "rows"
 
 # How long `close_pool` lets the running requests finish.
 CLOSE_MS = 1_000
@@ -12,21 +13,25 @@ CLOSE_MS = 1_000
 export type Pool = DbPool.Pool
 
 ## The schema version of a database after `migrate`, and the migrations that this call applied (none when the database
-## was already up to date).
+## was already up to date). `rails` is a database that Rails made, which `migrate` left as it was: its version is the
+## last one that Rails recorded (`20251212154340` for the schema of Campfire at 90b3300), not one of this app's.
 export struct Schema
   version: Int
   applied: List[Int]
+  rails: Bool
 end
 
 ## Opens the database at `url` (see agentica-db for the url of SQLite), runs the migrations that it has not seen and
-## closes it again. The connection belongs to the task that opened it, so the app does not keep this one. An `error`
-## says what failed, and stops the start.
+## closes it again. The connection belongs to the task that opened it, so the app does not keep this one. A database
+## that Rails made (it has `ar_internal_metadata`, which Rails writes and this app never does) is the schema of the
+## app already, so it is opened as it is and no migration runs, not even a history table: the only thing added is the
+## table of the password resets, which Rails has not (`Migrations.extensions`). An `error` says what failed, and stops
+## the start.
 export def migrate(url: String) -> Result[Schema]
   conn = try Db.open(url)
   migrated = migrate_open(conn)
   Db.close(conn)
-  applied = try migrated
-  return ok(Schema(version: Migrations.latest(), applied: applied))
+  return migrated
 end
 
 ## Opens `size` connections to the database at `url` (0 takes the size of the database, 4 for SQLite) and starts the
@@ -64,14 +69,114 @@ export def busy?(message: String) -> Bool
 end
 
 # The cascades of the schema (a room takes its messages, and through them the search index) need foreign keys on, and
-# a `foreign_keys=off` in the url turns them off without a word.
-def migrate_open(conn: Db.Connection) -> Result[List[Int]]
+# a `foreign_keys=off` in the url turns them off without a word. A Rails database has them on in the app too.
+def migrate_open(conn: Db.Connection) -> Result[Schema]
   rows = try Db.query(conn, "pragma foreign_keys", [])
   if not rows.any? do |row| on?(row.get("foreign_keys", Db.Value.Null)) end
     return error("database error: foreign keys are off, so remove foreign_keys=off from the url")
   end
 
-  return Migrate.up(conn, Migrations.all())
+  from_rails = try rails_made?(conn)
+  if from_rails
+    try check_rails_columns(conn)
+    try Db.transaction(conn) do |tx| add_extensions(tx) end
+    version = try rails_version(conn)
+    return ok(Schema(version: version, applied: [], rails: true))
+  end
+
+  earlier = try earlier_version?(conn)
+  if earlier
+    return error(
+      "database error: this database was made by an earlier version of the app, whose migration history was " +
+      "rewritten before the first release: delete the database file and start again",
+    )
+  end
+
+  applied = try Migrate.up(conn, Migrations.all(), Migrations.HISTORY_TABLE)
+  return ok(Schema(version: Migrations.latest(), applied: applied, rails: false))
+end
+
+# The columns of the Rails schema that the app reads or writes. A database that has `ar_internal_metadata` is trusted
+# to be the schema of Campfire at 90b3300 and is not migrated, so a start checks these, and a database of some other
+# Rails app, or an older Campfire, stops it with the name of what is missing, instead of failing in a request.
+def needed_columns() -> Map[String, List[String]]
+  return {
+    "accounts": ["id", "name", "join_code", "singleton_guard", "created_at", "updated_at"],
+    "users": [
+      "id",
+      "name",
+      "email_address",
+      "password_digest",
+      "bot_token",
+      "role",
+      "status",
+      "created_at",
+      "updated_at",
+    ],
+    "sessions": ["id", "user_id", "token", "user_agent", "ip_address", "last_active_at", "created_at", "updated_at"],
+  }
+end
+
+def check_rails_columns(conn: Db.Connection) -> Result[Void]
+  needed = needed_columns()
+  for table in needed.keys
+    rows = try Db.query(conn, "pragma table_info(#{table})", [])
+    present = rows.map do |row| text_of(row, "name") end
+    for column in needed.get(table, [])
+      if not present.include?(column)
+        return error("database error: the database made by Rails has no column #{table}.#{column}")
+      end
+    end
+  end
+
+  return ok()
+end
+
+# The tables that the app has and Rails has not. They are not a migration: there is no history to record, and the
+# statements are safe to run at every start.
+def add_extensions(tx: Db.Connection) -> Result[Void]
+  for sql in Migrations.extensions()
+    try Db.execute(tx, sql, [])
+  end
+
+  return ok()
+end
+
+# What the app made before its history was rewritten to the Rails schema: it has `schema_migrations` (the default
+# table of `Migrate`), and neither `ar_internal_metadata` nor the table of the history now. Its tables are not the
+# Rails ones and no migration turns them into those.
+def earlier_version?(conn: Db.Connection) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select name from sqlite_master where type = 'table' and name in ('schema_migrations', ?)",
+    [Db.Value.Text(Migrations.HISTORY_TABLE)],
+  )
+
+  names = rows.map do |row| text_of(row, "name") end
+  return ok(names.include?("schema_migrations") and not names.include?(Migrations.HISTORY_TABLE))
+end
+
+# `ar_internal_metadata` is the table that Active Record makes for itself in every database it creates, with the
+# environment in it. A database that this app made never has it, so a start never takes its own database for Rails'.
+def rails_made?(conn: Db.Connection) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select count(*) as total from sqlite_master where type = 'table' and name = 'ar_internal_metadata'",
+    [],
+  )
+
+  return ok(int_of(rows[0], "total") > 0)
+end
+
+# The newest `schema_migrations.version` (a timestamp, kept as text), or 0 when there is none.
+def rails_version(conn: Db.Connection) -> Result[Int]
+  rows = try Db.query(conn, "select max(cast(version as integer)) as newest from schema_migrations", [])
+  newest = int_of(rows[0], "newest")
+  if newest < 0
+    return ok(0)
+  end
+
+  return ok(newest)
 end
 
 def on?(value: Db.Value) -> Bool

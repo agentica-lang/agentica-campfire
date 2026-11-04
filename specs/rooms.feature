@@ -37,7 +37,7 @@ Feature: Rooms
 
   Scenario: An open room puts every active person in it, and nobody else
     Given a member "Bea" with the email "bea@example.com" exists
-    And I run the sql "insert into users (name, email, password_digest, active) values ('Cy', 'cy@example.com', 'x', 0)"
+    And a user "Cy" with the email "cy@example.com", the role "member" and the status "deactivated" exists
     When I post to "/rooms" the form:
       | name | Lunch |
     Then the status is 302

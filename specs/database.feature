@@ -20,7 +20,7 @@ Feature: The database and its migrations
       | webhooks            |
       | password_resets     |
       | message_search_index  |
-      | schema_migrations   |
+      | agentica_schema_migrations |
 
   Scenario: A second start does not run the migrations again
     Given a fresh database
