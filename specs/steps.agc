@@ -23,6 +23,7 @@ STARTUP = "startup_lines"
 UPDATED = "updated"
 CHANGED = "changed"
 JOINED = "joined"
+SESSION = "session"
 SQL_ERROR = "sql_error"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
@@ -55,6 +56,9 @@ def main() -> Void
     BDD.step("{string} asks Accounts to {string} the user {int}", &ask_accounts),
     BDD.step("{string} asks Auth.join_hashed to sign up with the code {string}", &ask_join_hashed),
     BDD.step("the join is {string}", &join_is),
+    BDD.step("Auth.open_session is asked for the user {int}", &ask_open_session),
+    BDD.step("the session is refused", &session_is_refused),
+    BDD.step("the session is opened", &session_is_opened),
     BDD.step("the change is refused", &change_is_refused),
     BDD.step("I run the sql {string}", &run_sql),
     BDD.step("I try the sql {string}", &try_sql),
@@ -323,6 +327,25 @@ def ask_join_hashed(ctx: BDD.Context, args: List[String]) -> BDD.Context
   end
 
   return BDD.set(ctx, JOINED, JSON.from(join_name(outcome.unwrap!)))
+end
+
+# `Auth.open_session` straight: `Auth.sign_in` checks `active` first, so only a person who is deactivated between that
+# check and the insert reaches the condition of the insert, and a call that skips the check stands for that.
+def ask_open_session(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| Auth.open_session(conn, args[0].to_i!, "") end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Auth.open_session failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, SESSION, JSON.from("#{outcome.unwrap!.some?}"))
+end
+
+def session_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, SESSION) == "false", "a session was opened")
+end
+
+def session_is_opened(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, SESSION) == "true", "no session was opened")
 end
 
 def join_name(outcome: Auth.JoinOutcome) -> String

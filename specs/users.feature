@@ -158,6 +158,15 @@ Feature: The people of the account
       | /users/2/deactivate |
       | /users/3/reactivate |
 
+  Scenario: A session is not opened for a person who was deactivated after their password was checked
+    Given I run the sql "update users set active = 0 where id = 3"
+    When Auth.open_session is asked for the user 3
+    Then the session is refused
+    And the query "select count(*) from sessions where user_id = 3" gives 0
+    When Auth.open_session is asked for the user 2
+    Then the session is opened
+    And the query "select count(*) from sessions where user_id = 2" gives 1
+
   Scenario Outline: The check inside the transaction refuses an actor who is not an active administrator, and changes nothing
     Given I run the sql "insert into users (name, email, password_digest, role, active) values ('Di', 'di@example.com', 'x', 'administrator', 0)"
     And I run the sql "update users set active = 0 where id = 3"
@@ -169,7 +178,7 @@ Feature: The people of the account
 
     Examples:
       | actor           | action     | user |
-      | bea@example.com | deactivate | 2    |
+      | bea@example.com | deactivate | 3    |
       | bea@example.com | reactivate | 3    |
       | bea@example.com | regenerate | 0    |
       | di@example.com  | deactivate | 2    |

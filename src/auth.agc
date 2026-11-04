@@ -131,18 +131,29 @@ export def join(
     return ok(JoinOutcome.Gone)
   end
 
-  problem = form_problem(name, email, password)
+  problem = try join_problem(conn, name, email, password)
   if problem != ""
     return ok(JoinOutcome.Invalid(problem))
   end
 
-  taken = try email_taken?(conn, normal(email))
-  if taken
-    return ok(JoinOutcome.Invalid(EMAIL_TAKEN))
-  end
-
   digest = try Passwords.hash(password)
   return join_hashed(conn, code, name, email, digest, user_agent)
+end
+
+## What is wrong with a join form, or "": a name, email or password that does not do, or an email that has an account
+## already. It hashes nothing, so the web layer asks it before it takes a hashing slot.
+export def join_problem(conn: Db.Connection, name: String, email: String, password: String) -> Result[String]
+  problem = form_problem(name, email, password)
+  if problem != ""
+    return ok(problem)
+  end
+
+  taken = try email_taken?(conn, normal(email))
+  if taken
+    return ok(EMAIL_TAKEN)
+  end
+
+  return ok("")
 end
 
 ## The write half of `join`, for a password that is hashed already: the transaction, which checks again that the code
@@ -192,6 +203,24 @@ export def sign_in(
   end
 
   return open_session(conn, int_of(rows[0], "id"), user_agent)
+end
+
+## The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
+## reads `active` itself, in the one statement, so a deactivation that commits first leaves no row, and one that commits
+## after it deletes the row: no session survives for a later reactivation to revive.
+export def open_session(conn: Db.Connection, user_id: Int, user_agent: String) -> Result[Optional[String]]
+  token = SecureRandom.hex(TOKEN_BYTES)
+  inserted = try Db.execute(
+    conn,
+    "insert into sessions (user_id, token, user_agent) select id, ?, ? from users where id = ? and active = 1",
+    [Db.Value.Text(token), text_or_null(user_agent), Db.Value.Int(user_id)],
+  )
+
+  if inserted == 0
+    return ok(none)
+  end
+
+  return ok(some(token))
 end
 
 ## The user of the session with this token, or `none` when there is no such session or its user is deactivated.
@@ -434,10 +463,9 @@ def make_account(
   return ok(true)
 end
 
-# The body of `join`. The email is looked at inside the transaction (it holds the write lock), so the second of
-# two forms
-# for one address finds the person that the first made, and the unique index is never what refuses it. Everybody who
-# has the address is counted, a deactivated person too: only an administrator brings them back.
+# The body of `join_hashed`. The email is looked at inside the transaction (it holds the write lock), so the second of
+# two forms for one address finds the person that the first made, and the unique index is never what refuses it.
+# Everybody who has the address is counted, a deactivated person too: only an administrator brings them back.
 def make_member(
   tx: Db.Connection,
   code: String,
@@ -472,24 +500,6 @@ end
 def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
   rows = try Db.query(conn, "select count(*) as total from users where email = ?", [Db.Value.Text(email)])
   return ok(int_of(rows[0], "total") > 0)
-end
-
-# The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
-# reads `active` itself, in the one statement, so a deactivation that commits first leaves no row, and one that commits
-# after it deletes the row: no session survives for a later reactivation to revive.
-def open_session(conn: Db.Connection, user_id: Int, user_agent: String) -> Result[Optional[String]]
-  token = SecureRandom.hex(TOKEN_BYTES)
-  inserted = try Db.execute(
-    conn,
-    "insert into sessions (user_id, token, user_agent) select id, ?, ? from users where id = ? and active = 1",
-    [Db.Value.Text(token), text_or_null(user_agent), Db.Value.Int(user_id)],
-  )
-
-  if inserted == 0
-    return ok(none)
-  end
-
-  return ok(some(token))
 end
 
 # The address of the client is not here yet: Bond does not give it to a handler (its `Conn` has no `remote_addr`).

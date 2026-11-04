@@ -59,13 +59,13 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
   code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any missing
   page (`Routes.MISSING`, the one 404 text of every handler and of the app for a path with no route). A request opens
-  its own database connection (`Database.with_connection`), since Bond runs a request in its own task (a handler opens one and does all its work on it, the person included:
-  `AuthWeb.current_user_in`; the sign-in filter still opens another, since a Bond `Conn` cannot carry the person
-  on); a `sqlite::memory:` database is therefore not usable by the app. Never log or store a plain
+  its own database connection (`Database.with_connection`), since Bond runs a request in its own task (a handler
+  opens one and does all its work on it, the person included: `AuthWeb.current_user_in`; the sign-in filter still
+  opens another, since a Bond `Conn` cannot carry the person on); a `sqlite::memory:` database is therefore not usable by the app. Never log or store a plain
   password; a form that is shown again never holds the password.
 - Invitation: `Auth.join` makes a member for `/join/CODE` (the form's own path) and calls `Rooms.grant_open_rooms` in
-  the transaction that makes the user; the code, the form and the email are checked before the hashing (a form that
-  cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code refuses
+  the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a form
+  that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code refuses
   a form that was open and two forms with one email make one person. Joining never reactivates a deactivated person
   (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
   `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an

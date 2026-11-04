@@ -194,8 +194,8 @@ def show_join(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
 end
 
 # The code is looked at first and the form after it, so a wrong code is the same 404 whatever is posted. The hashing
-# slot is taken only for a code that works: a wrong one costs nothing, and the code is looked at again in the
-# transaction of `Auth.join`.
+# slot is taken only for a code and a form that work, and the code is looked at again in the transaction
+# of `Auth.join`.
 def create_join(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Result[Bond.Conn]
   code = Bond.param(conn, "code").unwrap_or("")
   valid = try join_code_valid?(config, code)
@@ -207,6 +207,14 @@ def create_join(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Res
   email = try Bond.form(conn, "email")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
+  # A form that cannot work (a bad value, an email that has an account) is answered before a slot is taken, since
+  # it needs
+  # no hashing; `Auth.join` looks again, and the transaction once more.
+  problem = try join_problem(config, name, email, password)
+  if problem != ""
+    return ok(private_page(Bond.html(conn, 422, Views.join(code, name, email, problem))))
+  end
+
   if not Slots.take?(slots, MAX_HASHES)
     return ok(retry_later(private_page(Bond.html(conn, 503, Views.join(code, name, email, BUSY)))))
   end
@@ -220,6 +228,10 @@ def create_join(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Res
     Auth.JoinOutcome.Invalid(message) ->
       return ok(private_page(Bond.html(conn, 422, Views.join(code, name, email, message))))
   end
+end
+
+def join_problem(config: Config, name: String, email: String, password: String) -> Result[String]
+  return Database.with_connection(config.database_url) do |db| Auth.join_problem(db, name, email, password) end
 end
 
 def join_code_valid?(config: Config, code: String) -> Result[Bool]
