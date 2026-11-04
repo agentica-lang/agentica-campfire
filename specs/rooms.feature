@@ -1,8 +1,8 @@
 Feature: Rooms
   A room is open (every person on the account is a member), closed (only the people on its member list) or direct
   (between people). A person sees the rooms that they are a member of, and nothing tells them that another one exists:
-  a room that they are not in answers 404, the same as a room that was never made. This feature makes open rooms; the
-  closed and direct rooms of the scenarios are made by their steps until those kinds have pages of their own. The first
+  a room that they are not in answers 404, the same as a room that was never made. This feature makes open rooms; closed_rooms.feature and direct_rooms.feature make the
+  other kinds through their pages, and the closed and direct rooms of the scenarios here are made by steps. The first
   admin is user 1 and "All Talk", which the first run makes, is room 1; the next room is 2.
 
   Background:

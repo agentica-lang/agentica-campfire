@@ -53,6 +53,8 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
     <% end %>
       </ul>
       <p><a href="<%= Routes.ROOM_NEW %>">New room</a></p>
+      <p><a href="<%= Routes.CLOSED_ROOM_NEW %>">New closed room</a></p>
+      <p><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></p>
     <% if not direct.empty? %>
       <h2>Direct messages</h2>
       <ul>
@@ -106,6 +108,113 @@ export def new_room(sidebar: String, name: String, message: String) -> String
   return layout("New room", body)
 end
 
+## The people to pick, as checkboxes named `member` with their ids as values: the ones whose id is in `chosen` come
+## checked. It is raw HTML that this file made, for the forms below to put in.
+export def member_picker(people: List[Rooms.Person], chosen: List[Int]) -> String
+  return <<~EAG
+    <%@ escape &Bond.escape %>
+    <fieldset>
+      <legend>People</legend>
+    <% for person in people %>
+    <% if chosen.include?(person.id) %>
+      <p><label><input type="checkbox" name="member" value="<%= person.id %>" checked> <%= person.name %></label></p>
+    <% else %>
+      <p><label><input type="checkbox" name="member" value="<%= person.id %>"> <%= person.name %></label></p>
+    <% end %>
+    <% end %>
+    </fieldset>
+  EAG
+end
+
+## The form that makes a closed room: the people to offer and which of them to show checked, with `name` and `message`
+## as in `new_room`. The person who makes it is always in it, so it is not among `people`.
+export def new_closed_room(
+  sidebar: String,
+  name: String,
+  people: List[Rooms.Person],
+  chosen: List[Int],
+  message: String,
+) -> String
+  picker = member_picker(people, chosen)
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1>New closed room</h1>
+      <p>Only you and the people you pick will be in it.</p>
+    <% if not message.empty? %>
+      <p role="alert"><%= message %></p>
+    <% end %>
+      <form method="post" action="<%= Routes.CLOSED_ROOMS %>">
+        <p>
+          <label>Name
+            <input name="name" type="text" value="<%= name %>" maxlength="<%= Rooms.MAX_NAME_LENGTH %>"
+              required autofocus></label>
+        </p>
+        <%== picker.strip %>
+        <p><button type="submit">Make the room</button></p>
+      </form>
+    </main>
+  EAG
+  return layout("New closed room", body)
+end
+
+## The form that starts a direct message with the people that are picked. `message` says why the last try was refused
+## ("" shows none).
+export def new_direct_room(sidebar: String, people: List[Rooms.Person], chosen: List[Int], message: String) -> String
+  picker = member_picker(people, chosen)
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1>New direct message</h1>
+      <p>Pick the people to write to. If you wrote to exactly them before, that conversation opens.</p>
+    <% if not message.empty? %>
+      <p role="alert"><%= message %></p>
+    <% end %>
+      <form method="post" action="<%= Routes.DIRECT_ROOMS %>">
+        <%== picker.strip %>
+        <p><button type="submit">Start</button></p>
+      </form>
+    </main>
+  EAG
+  return layout("New direct message", body)
+end
+
+## The settings of a closed room: its name and who is in it (`chosen` of `people`, the others than the person who is
+## looking, who stays). `name` and `message` fill the form again after a refusal.
+export def room_settings(
+  sidebar: String,
+  room: Rooms.Room,
+  name: String,
+  people: List[Rooms.Person],
+  chosen: List[Int],
+  message: String,
+) -> String
+  picker = member_picker(people, chosen)
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1>Settings of <%= room.name %></h1>
+    <% if not message.empty? %>
+      <p role="alert"><%= message %></p>
+    <% end %>
+      <form method="post" action="<%= Routes.room_settings_path(room.id) %>">
+        <p>
+          <label>Name
+            <input name="name" type="text" value="<%= name %>" maxlength="<%= Rooms.MAX_NAME_LENGTH %>"
+              required autofocus></label>
+        </p>
+        <%== picker.strip %>
+        <p><button type="submit">Save</button></p>
+      </form>
+      <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
+    </main>
+  EAG
+  return layout("Settings of #{room.name}", body)
+end
+
 ## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
 ## the form that posts a message.
 export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer) -> String
@@ -114,6 +223,9 @@ export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: C
     <%== sidebar %>
     <main>
       <h1><%= room.name %></h1>
+    <% if room.kind == Rooms.CLOSED %>
+      <p><a href="<%= Routes.room_settings_path(room.id) %>">Settings</a></p>
+    <% end %>
     <% if page.older.some? %>
       <p><a href="<%= Routes.room_before_path(room.id, page.older.unwrap!) %>">Older messages</a></p>
     <% end %>

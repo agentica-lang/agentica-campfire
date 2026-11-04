@@ -10,7 +10,9 @@ import {int_of, text_of} from "rows"
 ## How many messages a page of a room holds.
 export PAGE_SIZE = 40
 
-## The kind of a room between people, which has no name of its own.
+## The kinds of room that this module makes besides the open one: a room with a member list, and a room between people,
+## which has no name of its own.
+export CLOSED = "closed"
 export DIRECT = "direct"
 
 ## The longest name of a room, in characters, and the longest message.
@@ -23,7 +25,11 @@ export MAX_CLIENT_ID_LENGTH = 64
 NAME_PROBLEM = "Give the room a name of 1 to #{MAX_NAME_LENGTH} characters"
 BODY_BLANK = "Write something to send"
 BODY_LONG = "A message is at most #{MAX_BODY_LENGTH} characters"
+NO_PEOPLE = "Choose at least one person"
 NO_NAME = "Direct message"
+
+# What `updated_at` is set to when a room changes, in the form of the schema.
+NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 
 # Greater than any id, so that "before this id" with no id is the whole room.
 NEWEST = 9_223_372_036_854_775_807
@@ -48,6 +54,12 @@ export struct Room
   kind: String
 end
 
+## A person that a room form offers, an active user.
+export struct Person
+  id: Int
+  name: String
+end
+
 ## A message with the name of its author. `created_at` is the text of the schema (UTC, ISO 8601).
 export struct Message
   id: Int
@@ -68,6 +80,15 @@ end
 export def name_problem(name: String) -> String
   if name.empty? or name.length > MAX_NAME_LENGTH
     return NAME_PROBLEM
+  end
+
+  return ""
+end
+
+## What is wrong with the people of a direct message, or "": it needs one besides the person who starts it.
+export def people_problem(chosen: List[Int]) -> String
+  if chosen.empty?
+    return NO_PEOPLE
   end
 
   return ""
@@ -152,6 +173,51 @@ export def grant_open_rooms(conn: Db.Connection, user_id: Int) -> Result[Void]
   return ok()
 end
 
+## The active people that a person can put in a room, other than themselves (they are always in what they make), by
+## name.
+export def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
+  rows = try Db.query(
+    conn,
+    "select id, name from users where active = 1 and id <> ? order by lower(name), id",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok(rows.map do |row| Person(id: int_of(row, "id"), name: text_of(row, "name")) end)
+end
+
+## The ids of everyone in the room, the people who are not active included.
+export def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
+  rows = try Db.query(conn, "select user_id from memberships where room_id = ?", [Db.Value.Int(room_id)])
+  return ok(rows.map do |row| int_of(row, "user_id") end)
+end
+
+## Makes a closed room of `creator_id` with them and `members` in it, in one transaction, and gives its id. A member
+## that is not an active user is left out, and the creator may be in `members`.
+export def create_closed(conn: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
+  return Db.transaction(conn) do |tx| create_closed_in(tx, creator_id, name, members) end
+end
+
+## Renames the closed room and makes `chosen` the people in it among `others`, the active people that the form offered
+## (never the person who sends it): the ones of `others` that are not in `chosen` leave. Someone who is in the room
+## and is not in `others` (a person who is not active now) stays, and so does the person who sends the form, whom the
+## caller keeps out of `others`: a stale form must not put out someone who has gone, nor bring them back.
+export def update_closed(
+  conn: Db.Connection,
+  room_id: Int,
+  name: String,
+  chosen: List[Int],
+  others: List[Person],
+) -> Result[Void]
+  return Db.transaction(conn) do |tx| update_closed_in(tx, room_id, name, chosen, others) end
+end
+
+## The direct room between `creator_id` and `others` (the people they picked, not themselves), which is the one that
+## exists with exactly those people in it, or a new one. The search and the insert are in one write transaction, so two
+## requests that ask for the same people get one room.
+export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Int]
+  return Db.transaction(conn) do |tx| open_direct_in(tx, creator_id, others) end
+end
+
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
 ## first. It reads one more than a page, to know whether there is an older page without a count. Paged by `id`, never
 ## by `created_at`, which can tie (see `migrations.agc`).
@@ -189,6 +255,106 @@ export def post(
     "insert into messages (room_id, creator_id, body, client_message_id) values (?, ?, ?, ?) " +
     "on conflict (creator_id, client_message_id) do nothing",
     [Db.Value.Int(room_id), Db.Value.Int(user_id), Db.Value.Text(body), Db.Value.Text(client_message_id)],
+  )
+
+  return ok()
+end
+
+def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
+  room_id = try insert_room(tx, Db.Value.Text(name), CLOSED, creator_id)
+  try add_member(tx, room_id, creator_id, "mentions")
+  for member in members
+    try add_member(tx, room_id, member, "mentions")
+  end
+
+  return ok(room_id)
+end
+
+def update_closed_in(
+  tx: Db.Connection,
+  room_id: Int,
+  name: String,
+  chosen: List[Int],
+  others: List[Person],
+) -> Result[Void]
+  try Db.execute(
+    tx,
+    "update rooms set name = ?, updated_at = #{NOW} where id = ? and kind = 'closed'",
+    [Db.Value.Text(name), Db.Value.Int(room_id)],
+  )
+
+  for person in others
+    if chosen.include?(person.id)
+      try add_member(tx, room_id, person.id, "mentions")
+    else
+      try Db.execute(
+        tx,
+        "delete from memberships where room_id = ? and user_id = ?",
+        [Db.Value.Int(room_id), Db.Value.Int(person.id)],
+      )
+    end
+  end
+
+  return ok()
+end
+
+def open_direct_in(tx: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Int]
+  everyone = [creator_id].concat(others.select do |id| id != creator_id end).uniq
+  existing = try direct_between(tx, everyone)
+  case existing
+    some(room_id) -> return ok(room_id)
+    none -> return make_direct(tx, creator_id, everyone)
+  end
+end
+
+# A direct room that has all of `everyone` in it and nobody else: as many members as people, and all of them among
+# the people (a room with the same count but another person is not it).
+def direct_between(tx: Db.Connection, everyone: List[Int]) -> Result[Optional[Int]]
+  marks = everyone.map do |_| "?" end.join(", ")
+  size = Db.Value.Int(everyone.size)
+  rows = try Db.query(
+    tx,
+    "select rooms.id from rooms where rooms.kind = 'direct' " +
+    "and (select count(*) from memberships where room_id = rooms.id) = ? " +
+    "and (select count(*) from memberships where room_id = rooms.id and user_id in (#{marks})) = ? " +
+    "order by rooms.id limit 1",
+    [size].concat(everyone.map do |id| Db.Value.Int(id) end).push(size),
+  )
+
+  if rows.empty?
+    return ok(none)
+  end
+
+  return ok(some(int_of(rows[0], "id")))
+end
+
+# Everyone is in at once, and sees every message ("everything" is what upstream gives a direct room).
+def make_direct(tx: Db.Connection, creator_id: Int, everyone: List[Int]) -> Result[Int]
+  room_id = try insert_room(tx, Db.Value.Null, DIRECT, creator_id)
+  for member in everyone
+    try add_member(tx, room_id, member, "everything")
+  end
+
+  return ok(room_id)
+end
+
+def insert_room(tx: Db.Connection, name: Db.Value, kind: String, creator_id: Int) -> Result[Int]
+  rows = try Db.query(
+    tx,
+    "insert into rooms (name, kind, creator_id) values (?, ?, ?) returning id",
+    [name, Db.Value.Text(kind), Db.Value.Int(creator_id)],
+  )
+
+  return ok(int_of(rows[0], "id"))
+end
+
+# Only an active user can be put in a room, whatever the caller passed; one that is in already stays as they are.
+def add_member(tx: Db.Connection, room_id: Int, user_id: Int, involvement: String) -> Result[Void]
+  try Db.execute(
+    tx,
+    "insert into memberships (room_id, user_id, involvement) select ?, id, ? from users where id = ? and active = 1 " +
+    "on conflict (room_id, user_id) do nothing",
+    [Db.Value.Int(room_id), Db.Value.Text(involvement), Db.Value.Int(user_id)],
   )
 
   return ok()

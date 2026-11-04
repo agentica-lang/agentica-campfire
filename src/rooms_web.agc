@@ -1,10 +1,12 @@
-## The web side of rooms and messages: the form of a new room, a room page and the post of a message. Each handler
+## The web side of rooms and messages: the forms of a new room (open, closed or direct), a room page, the settings of
+## a closed room and the post of a message. Each handler
 ## opens one connection and does everything on it, the person included (`AuthWeb.current_user_in`). The sign-in
 ## filter of `AuthWeb` has let in only a person with a session, but the session may have ended since, so a handler
 ## that finds nobody sends the visitor to sign in.
 ##
 ## A room that the person is not in is answered 404 with the same body as a room that was never made, before anything
-## about the room (or the form posted to it) is looked at, so no answer tells that a room exists.
+## about the room (or the form posted to it) is looked at, so no answer tells that a room exists. The settings are
+## only for a closed room: for a room of another kind the person is in, they are the same 404.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
@@ -35,6 +37,12 @@ export def add(app: Bond.App, config: Config) -> Bond.App
     |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, config) end
     |> Bond.get(Routes.ROOM) do |conn| show_room(conn, config) end
     |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, config) end
+    |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, config) end
+    |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, config) end
+    |> Bond.get(Routes.DIRECT_ROOM_NEW) do |conn| show_new_direct_room(conn, config) end
+    |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, config) end
+    |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, config) end
+    |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, config) end
   )
 end
 
@@ -87,6 +95,193 @@ def made_room(db: Db.Connection, person: Auth.User, name: String) -> Result[Answ
 
   room_id = try Rooms.create_open(db, person.id, name)
   return ok(Answer.Redirect(Routes.room_path(room_id)))
+end
+
+def show_new_closed_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  answer = try Database.with_connection(config.database_url) do |db| new_closed_room_answer(conn, db) end
+  return ok(respond(conn, answer))
+end
+
+def new_closed_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
+  user = try AuthWeb.current_user_in(conn, db)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return ok(Answer.Page(200, try closed_room_form(db, person, "", [], "")))
+  end
+end
+
+def create_closed_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  name = (try Bond.form(conn, "name")).strip
+  ids = try member_ids(conn)
+  answer = try Database.with_connection(config.database_url) do |db| create_closed_answer(conn, db, name, ids) end
+  return ok(respond(conn, answer))
+end
+
+def create_closed_answer(conn: Bond.Conn, db: Db.Connection, name: String, ids: List[Int]) -> Result[Answer]
+  user = try AuthWeb.current_user_in(conn, db)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return made_closed_room(db, person, name, ids)
+  end
+end
+
+def made_closed_room(db: Db.Connection, person: Auth.User, name: String, ids: List[Int]) -> Result[Answer]
+  people = try Rooms.people(db, person.id)
+  chosen = chosen_of(people, ids)
+  problem = Rooms.name_problem(name)
+  if problem != ""
+    return ok(Answer.Page(422, try closed_room_form(db, person, name, chosen, problem)))
+  end
+
+  room_id = try Rooms.create_closed(db, person.id, name, chosen)
+  return ok(Answer.Redirect(Routes.room_path(room_id)))
+end
+
+def closed_room_form(
+  db: Db.Connection,
+  person: Auth.User,
+  name: String,
+  chosen: List[Int],
+  message: String,
+) -> Result[String]
+  people = try Rooms.people(db, person.id)
+  return ok(Views.new_closed_room(try sidebar_of(db, person), name, people, chosen, message))
+end
+
+def show_new_direct_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  answer = try Database.with_connection(config.database_url) do |db| new_direct_room_answer(conn, db) end
+  return ok(respond(conn, answer))
+end
+
+def new_direct_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
+  user = try AuthWeb.current_user_in(conn, db)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return ok(Answer.Page(200, try direct_room_form(db, person, [], "")))
+  end
+end
+
+def create_direct_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  ids = try member_ids(conn)
+  answer = try Database.with_connection(config.database_url) do |db| create_direct_answer(conn, db, ids) end
+  return ok(respond(conn, answer))
+end
+
+def create_direct_answer(conn: Bond.Conn, db: Db.Connection, ids: List[Int]) -> Result[Answer]
+  user = try AuthWeb.current_user_in(conn, db)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return started_direct_room(db, person, ids)
+  end
+end
+
+# The same people again open the room that exists (`Rooms.open_direct`), so this redirects either way.
+def started_direct_room(db: Db.Connection, person: Auth.User, ids: List[Int]) -> Result[Answer]
+  people = try Rooms.people(db, person.id)
+  chosen = chosen_of(people, ids)
+  problem = Rooms.people_problem(chosen)
+  if problem != ""
+    return ok(Answer.Page(422, try direct_room_form(db, person, chosen, problem)))
+  end
+
+  room_id = try Rooms.open_direct(db, person.id, chosen)
+  return ok(Answer.Redirect(Routes.room_path(room_id)))
+end
+
+def direct_room_form(db: Db.Connection, person: Auth.User, chosen: List[Int], message: String) -> Result[String]
+  people = try Rooms.people(db, person.id)
+  return ok(Views.new_direct_room(try sidebar_of(db, person), people, chosen, message))
+end
+
+def show_settings(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  id = room_id(conn)
+  answer = try Database.with_connection(config.database_url) do |db| settings_answer(conn, db, id) end
+  return ok(respond(conn, answer))
+end
+
+def settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
+  user = try AuthWeb.current_user_in(conn, db)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return shown_settings(db, person, id)
+  end
+end
+
+def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
+  room = try closed_room(db, person, id)
+  case room
+    none -> return ok(Answer.NotFound)
+    some(found) -> return ok(Answer.Page(200, try settings_form(db, person, found, found.name, none, "")))
+  end
+end
+
+def save_settings(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  id = room_id(conn)
+  answer = try Database.with_connection(config.database_url) do |db| save_settings_answer(conn, db, id) end
+  return ok(respond(conn, answer))
+end
+
+def save_settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
+  user = try AuthWeb.current_user_in(conn, db)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return saved_settings(conn, db, person, id)
+  end
+end
+
+# The form is read only after the membership check, so that a 400 for a missing field does not tell a person who is not
+# in a room that it exists.
+def saved_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
+  room = try closed_room(db, person, id)
+  case room
+    none -> return ok(Answer.NotFound)
+    some(found) -> return form_settings(conn, db, person, found)
+  end
+end
+
+def form_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
+  name = (try Bond.form(conn, "name")).strip
+  ids = try member_ids(conn)
+  return change_settings(db, person, room, name, ids)
+end
+
+def change_settings(
+  db: Db.Connection,
+  person: Auth.User,
+  room: Rooms.Room,
+  name: String,
+  ids: List[Int],
+) -> Result[Answer]
+  people = try Rooms.people(db, person.id)
+  chosen = chosen_of(people, ids)
+  problem = Rooms.name_problem(name)
+  if problem != ""
+    page = try settings_form(db, person, room, name, some(chosen), problem)
+    return ok(Answer.Page(422, page))
+  end
+
+  try Rooms.update_closed(db, room.id, name, chosen, people)
+  return ok(Answer.Redirect(Routes.room_path(room.id)))
+end
+
+# `chosen` is none for the first look, which shows the people who are in the room now; a refused form shows what it
+# had.
+def settings_form(
+  db: Db.Connection,
+  person: Auth.User,
+  room: Rooms.Room,
+  name: String,
+  chosen: Optional[List[Int]],
+  message: String,
+) -> Result[String]
+  people = try Rooms.people(db, person.id)
+  shown: List[Int] = []
+  case chosen
+    some(ids) -> shown = ids
+    none -> shown = try Rooms.member_ids(db, room.id)
+  end
+
+  return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, shown, message))
 end
 
 def show_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
@@ -182,6 +377,39 @@ def member_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Resu
     none -> return ok(none)
     some(room_id) -> return Rooms.find(db, person.id, room_id)
   end
+end
+
+# A room of the person that is closed: the settings exist for no other kind, so another kind is as missing as a room
+# of other people.
+def closed_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]
+  room = try member_room(db, person, id)
+  case room
+    some(found) if found.kind == Rooms.CLOSED -> return ok(room)
+    _ -> return ok(none)
+  end
+end
+
+# The ids that a form posts as `member`, once each field: a value that is not a whole number is a 400, since only a
+# tool posts one.
+def member_ids(conn: Bond.Conn) -> Result[List[Int]]
+  values = try Bond.form_all(conn, "member")
+  ids: List[Int] = []
+  for value in values
+    parsed = value.to_i
+    if not parsed.ok?
+      return Bond.bad_request("member must be a whole number")
+    end
+
+    ids = ids.push(parsed.unwrap!)
+  end
+
+  return ok(ids)
+end
+
+# The ids among `ids` that name one of the `people` that the form offered: the ones that name nobody (an inactive
+# person, a number that is no user) are left out, and so is the person who sends the form, who is never in `people`.
+def chosen_of(people: List[Rooms.Person], ids: List[Int]) -> List[Int]
+  return people.select do |person| ids.include?(person.id) end.map do |person| person.id end
 end
 
 # A room id that is not a whole number (or is too big for one) names no room, which is a 404 like any other.
