@@ -127,8 +127,9 @@ def app_logs_in(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.set(BDD.set(ctx, USER, JSON.from(args[0])), PASSWORD, JSON.from(args[1]))
 end
 
-# The peer serves one connection, which is all that one email needs. A process belongs to the task that opened it,
-# which is the scenario, so the service block that reads it is the one place that touches it.
+# The peer serves `PEER_CONNECTIONS` connections one after the other, so a scenario can send a few emails (the mailer
+# opens one connection per message). A process belongs to the task that opened it, which is the scenario, so the
+# service block that reads it is the one place that touches it.
 def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
   root = Path.cwd().unwrap!
   env = {

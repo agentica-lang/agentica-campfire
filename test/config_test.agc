@@ -39,7 +39,13 @@ def smtp_of(url: String) -> Result[Optional[Smtp.Options]]
   return ok(config.smtp)
 end
 
-def mail_queue_of(size: String) -> Result[Config.Config]
+# `parse` with email on (or off, for an empty url) and this size of the queue of emails.
+def mail_queue_of(url: String, size: String) -> Result[Config.Config]
+  base_url = ""
+  if not url.empty?
+    base_url = "https://chat.example.com"
+  end
+
   return Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
@@ -47,8 +53,8 @@ def mail_queue_of(size: String) -> Result[Config.Config]
     "",
     SECRET,
     "false",
-    "",
-    "",
+    url,
+    base_url,
     "",
     "",
     size,
@@ -249,11 +255,14 @@ def main() -> Void
       Test.ok?(Config.parse(Config.DEFAULT_HOST, "3000", "data", "", SECRET, "true", "", "https://chat.example.com"))
     end,
     Test.test("the queue of emails is 32 unless the environment says another size from 1 to 1024") do
-      try Test.eq(mail_queue_of("").unwrap!.mail_queue, 32)
-      try Test.eq(mail_queue_of(" 5 ").unwrap!.mail_queue, 5)
-      try Test.error?(mail_queue_of("0"))
-      try Test.error?(mail_queue_of("1025"))
-      Test.error?(mail_queue_of("many"))
+      mail = "smtp://mail.example.com"
+      try Test.eq(mail_queue_of(mail, "").unwrap!.mail_queue, 32)
+      try Test.eq(mail_queue_of(mail, " 5 ").unwrap!.mail_queue, 5)
+      try Test.error?(mail_queue_of(mail, "0"))
+      try Test.error?(mail_queue_of(mail, "1025"))
+      try Test.error?(mail_queue_of(mail, "many"))
+      # With email off nothing uses the queue, so its size is not checked.
+      Test.eq(mail_queue_of("", "many").unwrap!.mail_queue, 32)
     end,
   ])
 end

@@ -1,6 +1,7 @@
 ## Where the server listens, where its data lives and the secret that signs the session cookie. It is read from the
 ## environment, so the same program runs on a laptop and in a container.
 
+import Mailer from "mailer"
 import Smtp from "smtp"
 import URI from "std/uri"
 
@@ -20,7 +21,6 @@ export DEFAULT_SECURE_COOKIES = "false"
 
 ## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set, and the most that it may be.
 export DEFAULT_MAIL_QUEUE = 32
-MAX_MAIL_QUEUE = 1024
 
 ## The plain port that a `smtp+plain://` url uses when it names none (a mail catcher on this machine).
 PLAIN_SMTP_PORT = 25
@@ -160,7 +160,13 @@ export def parse(
   end
 
   mail = try parse_mail(smtp_url, base, smtp_hostname, smtp_from)
-  queue = try parse_mail_queue(mail_queue)
+  # The size of a queue that nothing uses is not checked, so a variable left over from a setup with email does not
+  # stop the start of one without.
+  queue = DEFAULT_MAIL_QUEUE
+  if mail.smtp.some?
+    queue = try parse_mail_queue(mail_queue)
+  end
+
   folder = data_dir.strip
   url = database_url.strip
   if url.empty?
@@ -189,15 +195,15 @@ export def plain_link?(config: Config) -> Bool
   return config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
 end
 
-# The size of the queue of emails, 32 when it is not set.
+# The size of the queue of emails, 32 when it is not set. Only read when email is on.
 def parse_mail_queue(text: String) -> Result[Int]
   if text.strip.empty?
     return ok(DEFAULT_MAIL_QUEUE)
   end
 
   number = text.strip.to_i
-  if not number.ok? or number.unwrap! < 1 or number.unwrap! > MAX_MAIL_QUEUE
-    return error("CAMPFIRE_MAIL_QUEUE_SIZE must be a number from 1 to #{MAX_MAIL_QUEUE}, not #{text.inspect}")
+  if not number.ok? or number.unwrap! < 1 or number.unwrap! > Mailer.MAX_CAPACITY
+    return error("CAMPFIRE_MAIL_QUEUE_SIZE must be a number from 1 to #{Mailer.MAX_CAPACITY}, not #{text.inspect}")
   end
 
   return number

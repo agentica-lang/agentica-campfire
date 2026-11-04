@@ -27,7 +27,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
 
 ## Commands
 
-- `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make fmt-check`, `make test`, `make run`.
+- `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make fmt-check`, `make test`,
+  `make run`.
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
 - Agentica 0.23.0 or later. CI pins it with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in
@@ -57,8 +58,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   plain password; a form that is shown again never holds the password.
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A link in
   an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email answers
-  the same for every address (no enumeration). A reset token is stored as a hash only. The write transactions of the reset run under the lock of
-  `Slots.with_lock` (SQLite's busy wait blocks a scheduler); `update_password` holds it while it hashes.
+  the same for every address (no enumeration). A reset token is stored as a hash only. The write transactions of the
+  reset (`Db.transaction`, which begins with `BEGIN IMMEDIATE`) are what make concurrent requests send one email and change a password once;
+  there is no app-level lock, since agentica-db waits for a busy database by sleeping in the task.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

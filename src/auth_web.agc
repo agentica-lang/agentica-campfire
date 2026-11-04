@@ -38,8 +38,6 @@ BUSY = "The server is busy, try again in a moment"
 MAX_HASHES = 2
 RETRY_AFTER_SECONDS = "1"
 
-LOCK_WAIT_MS = 5_000
-
 RESET_SUBJECT = "Reset your Campfire password"
 
 ## Adds to `app` the cookie sessions, the check against requests from other sites, the sign-in filter and the routes
@@ -52,7 +50,6 @@ export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
   # with an ATS counter, once `Bond.Conn` has the address of the client (agentica-lang/bond#46). Until then `slots`
   # bounds the hashing for everyone together, so a stranger can slow sign-in down but not take the server down.
   slots = Slots.new()
-  reset_lock = Slots.new()
   return (
     app
     |> Bond.csrf()
@@ -64,9 +61,9 @@ export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
     |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, mailer) end
     |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, config) end
     |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
-    |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, mailer, reset_lock) end
+    |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, mailer) end
     |> Bond.get(Routes.PASSWORD_RESET_EDIT) do |conn| show_reset_password(conn, config) end
-    |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, config, slots, reset_lock) end
+    |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, config, slots) end
   )
 end
 
@@ -220,45 +217,29 @@ end
 
 # The answer is the page of `Views.reset_requested` whatever the email is (and whatever the mailer does with the
 # message), so the form does not tell who has an account. The sending is the mailer's, off this request.
-def create_password_reset(
-  conn: Bond.Conn,
-  config: Config,
-  mailer: Mailer.Mailer,
-  lock: ATS[String, Int],
-) -> Result[Bond.Conn]
+def create_password_reset(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Result[Bond.Conn]
   if not Mailer.enabled?(mailer)
     return ok(Bond.text(conn, 404, "Not Found"))
   end
 
   email = try Bond.form(conn, "email")
-  # One request at a time makes its write transaction. SQLite's wait for a busy database blocks the scheduler, and
-  # tasks that all wait that way can leave no scheduler for the one that holds the write lock, so they end in "database
-  # is locked": waiting here, with a sleep, keeps the schedulers free.
-  locked = Slots.with_lock(lock, LOCK_WAIT_MS) do
-    Database.with_connection(config.database_url) do |db| Auth.request_password_reset(db, email) end
-  end
-
-  if locked.none?
-    return ok(busy(conn))
-  end
-
-  reset = try locked.unwrap!
+  # Requests that come together are decided inside the transaction of `Auth.request_password_reset`, which takes the
+  # write lock first, so they send one email.
+  made = Database.with_connection(config.database_url) do |db| Auth.request_password_reset(db, email) end
+  reset = try made
   if reset.some? and not Mailer.enqueue(mailer, reset_message(config, reset.unwrap!))
     # The link was made but no email will carry it (the queue is full or the mailer has stopped): it goes, or the
     # person could not have another until it expired.
-    forget_reset(config, lock, reset.unwrap!.token)
+    forget_reset(config, reset.unwrap!.token)
   end
 
   return ok(Bond.html(conn, 200, Views.reset_requested()))
 end
 
 # Takes back a link that could not be sent. A failure only shows in the log: the page answers the same.
-def forget_reset(config: Config, lock: ATS[String, Int], token: String) -> Void
-  cancelled = Slots.with_lock(lock, LOCK_WAIT_MS) do
-    Database.with_connection(config.database_url) do |db| Auth.cancel_password_reset(db, token) end
-  end
-
-  if cancelled.none? or not cancelled.unwrap!.ok?
+def forget_reset(config: Config, token: String) -> Void
+  cancelled = Database.with_connection(config.database_url) do |db| Auth.cancel_password_reset(db, token) end
+  if not cancelled.ok?
     IO.warn(
       "campfire: a reset link that could not be sent could not be removed either, and works for " +
       "#{Auth.RESET_MINUTES} minutes",
@@ -289,12 +270,7 @@ def show_reset_password(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
   return ok(private_page(Bond.html(conn, 200, Views.reset_password(token, ""))))
 end
 
-def update_password(
-  conn: Bond.Conn,
-  config: Config,
-  slots: ATS[String, Int],
-  lock: ATS[String, Int],
-) -> Result[Bond.Conn]
+def update_password(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Result[Bond.Conn]
   token = try Bond.form(conn, "token")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
@@ -308,18 +284,11 @@ def update_password(
     return ok(busy_reset_form(conn, token))
   end
 
-  # The same lock as the request for a link, for the same reason: the write transactions of the reset do not collide.
-  # It is held while the password is hashed, so two forms for one link do not both hash.
-  changed = Slots.with_lock(lock, LOCK_WAIT_MS) do
-    Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
-  end
-
+  # `Auth.reset_password` checks the link again inside its write transaction, so two forms for one link change the
+  # password once; the second one hashes for nothing, which the slot already bounds.
+  changed = Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
   Slots.release(slots)
-  if changed.none?
-    return ok(busy_reset_form(conn, token))
-  end
-
-  outcome = try changed.unwrap!
+  outcome = try changed
   case outcome
     Auth.ResetOutcome.SignedIn(session) -> return ok(signed_in(conn, session))
     Auth.ResetOutcome.Gone -> return ok(link_gone(conn))
