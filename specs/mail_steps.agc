@@ -68,10 +68,12 @@ export def steps() -> List[BDD.Step]
 end
 
 ## The environment that the app starts with for its email: the url of the mail server when a scenario has one (and the
-## public address that goes with it), else nothing, so that the environment of whoever runs the specs does not leak.
+## public address that goes with it), else nothing (but the public address, when a scenario gives one), so that the
+## environment of whoever runs the specs does not leak.
 export def app_environment(ctx: BDD.Context) -> Map[String, String]
   if not BDD.get(ctx, PORT).ok? or not flag(ctx, ENABLED)
-    return {"CAMPFIRE_SMTP_URL": "", "CAMPFIRE_BASE_URL": "", "CAMPFIRE_MAIL_QUEUE_SIZE": ""}
+    # A public address does not need a mail server: the join link starts with it too.
+    return {"CAMPFIRE_SMTP_URL": "", "CAMPFIRE_BASE_URL": text_of(ctx, ADDRESS), "CAMPFIRE_MAIL_QUEUE_SIZE": ""}
   end
 
   login = ""

@@ -1,9 +1,11 @@
-## The web side of first run, sign in, sign out and password reset: the session cookie, the CSRF check, the filter that
-## asks for a signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS` names it, so a
-## route that a later change adds needs a sign-in without anyone remembering to ask for it.
+## The web side of first run, the join link, sign in, sign out and password reset: the session cookie, the CSRF check,
+## the filter that asks for a signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS` names
+## it (or it is the join page, see `public?`), so a route that a later change adds needs a sign-in without anyone
+## remembering to ask for it.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
+import Accounts from "accounts"
 import Auth from "auth"
 import Database from "database"
 import Mailer from "mailer"
@@ -30,6 +32,11 @@ PUBLIC_PATHS = Set.new([
   Routes.PASSWORD_RESET_EDIT,
   Routes.PASSWORD_RESET_UPDATE,
 ])
+
+# `/join/CODE` (and nothing longer) is the join page: its code is the secret that lets a stranger in, so it cannot be a
+# fixed path of `PUBLIC_PATHS`. A path with more segments, or none, is not public, and a wrong code answers 404 inside
+# the handler without telling anything else.
+JOIN_SEGMENTS = 3
 
 BAD_LOGIN = "Wrong email or password"
 BUSY = "The server is busy, try again in a moment"
@@ -58,6 +65,8 @@ export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
     |> Bond.before() do |conn| require_sign_in(conn, config) end
     |> Bond.get(Routes.FIRST_RUN) do |conn| show_first_run(conn, config) end
     |> Bond.post(Routes.FIRST_RUN) do |conn| create_first_run(conn, config, slots) end
+    |> Bond.get(Routes.JOIN) do |conn| show_join(conn, config) end
+    |> Bond.post(Routes.JOIN) do |conn| create_join(conn, config, slots) end
     |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, config, mailer) end
     |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, mailer) end
     |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, config) end
@@ -85,6 +94,11 @@ export def current_user_in(conn: Bond.Conn, db: Db.Connection) -> Result[Optiona
   return Auth.user_for(db, token.unwrap!)
 end
 
+## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it.
+export def private_page(conn: Bond.Conn) -> Bond.Conn
+  return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "no-referrer")
+end
+
 def session_options(config: Config) -> Bond.SessionOptions
   if config.secure_cookies
     return Bond.SessionOptions(
@@ -100,7 +114,7 @@ end
 
 # A visitor goes to the first run while there is no account, and to the sign-in page after that.
 def require_sign_in(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  if PUBLIC_PATHS.include?(conn.path)
+  if public?(conn.path)
     return ok(conn)
   end
 
@@ -109,6 +123,16 @@ def require_sign_in(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
     some(_) -> return ok(conn)
     none -> return ok(Bond.redirect(conn, try entry_path(config)))
   end
+end
+
+def public?(path: String) -> Bool
+  if PUBLIC_PATHS.include?(path)
+    return true
+  end
+
+  # "/join/CODE" splits into "", "join" and the code.
+  parts = path.split("/")
+  return parts.size == JOIN_SEGMENTS and parts[0].empty? and parts[1] == "join" and not parts[2].empty?
 end
 
 def entry_path(config: Config) -> Result[String]
@@ -157,6 +181,53 @@ def create_first_run(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -
     Auth.FirstRun.Closed -> return ok(Bond.redirect(conn, Routes.HOME))
     Auth.FirstRun.Invalid(message) -> return ok(Bond.html(conn, 422, Views.first_run(name, email, message)))
   end
+end
+
+def show_join(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  code = Bond.param(conn, "code").unwrap_or("")
+  valid = try join_code_valid?(config, code)
+  if not valid
+    return ok(not_found(conn))
+  end
+
+  return ok(private_page(Bond.html(conn, 200, Views.join(code, "", "", ""))))
+end
+
+# The code is looked at first and the form after it, so a wrong code is the same 404 whatever is posted. The hashing
+# slot is taken only for a code that works: a wrong one costs nothing, and the code is looked at again in the
+# transaction of `Auth.join`.
+def create_join(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Result[Bond.Conn]
+  code = Bond.param(conn, "code").unwrap_or("")
+  valid = try join_code_valid?(config, code)
+  if not valid
+    return ok(not_found(conn))
+  end
+
+  name = try Bond.form(conn, "name")
+  email = try Bond.form(conn, "email")
+  password = try Bond.form(conn, "password")
+  agent = Bond.request_header(conn, "user-agent").unwrap_or("")
+  if not Slots.take?(slots, MAX_HASHES)
+    return ok(retry_later(private_page(Bond.html(conn, 503, Views.join(code, name, email, BUSY)))))
+  end
+
+  joined = Database.with_connection(config.database_url) do |db| Auth.join(db, code, name, email, password, agent) end
+  Slots.release(slots)
+  outcome = try joined
+  case outcome
+    Auth.JoinOutcome.Joined(token) -> return ok(signed_in(conn, token))
+    Auth.JoinOutcome.Gone -> return ok(not_found(conn))
+    Auth.JoinOutcome.Invalid(message) ->
+      return ok(private_page(Bond.html(conn, 422, Views.join(code, name, email, message))))
+  end
+end
+
+def join_code_valid?(config: Config, code: String) -> Result[Bool]
+  return Database.with_connection(config.database_url) do |db| Accounts.join_code_valid?(db, code) end
+end
+
+def not_found(conn: Bond.Conn) -> Bond.Conn
+  return Bond.text(conn, 404, "Not Found")
 end
 
 def show_sign_in(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Result[Bond.Conn]
@@ -310,11 +381,6 @@ end
 
 def link_gone(conn: Bond.Conn) -> Bond.Conn
   return private_page(Bond.html(conn, 410, Views.reset_link_gone()))
-end
-
-# A page that holds a token is kept out of caches and out of the `Referer` of the links on it.
-def private_page(conn: Bond.Conn) -> Bond.Conn
-  return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "no-referrer")
 end
 
 # The session starts empty, so nothing of an earlier one (a fixed cookie that the visitor had) is kept.

@@ -1,10 +1,11 @@
-## First run, sign in, sign out and password reset over the `accounts`, `users`, `sessions` and `password_resets`
-## tables. These functions take an open connection and never see a request. A session is a row with a random token that
-## the cookie carries, so deleting the row ends the session on the server whatever cookie a client keeps. The token is
-## not hashed in the table: the cookie that holds it is signed, so a copy of the database alone does not give a
-## session.
+## First run, joining with a code, sign in, sign out and password reset over the `accounts`, `users`, `sessions` and
+## `password_resets` tables. These functions take an open connection and never see a request. A session is a row with a
+## random token that the cookie carries, so deleting the row ends the session on the server whatever cookie a client
+## keeps. The token is not hashed in the table: the cookie that holds it is signed, so a copy of the database alone does
+## not give a session.
 
 import Db from "pkg/db/db"
+import Accounts from "accounts"
 import Passwords from "passwords"
 import Rooms from "rooms"
 import {int_of, text_of} from "rows"
@@ -13,12 +14,10 @@ import {int_of, text_of} from "rows"
 ACCOUNT_NAME = "Campfire"
 FIRST_ROOM_NAME = "All Talk"
 
-ADMINISTRATOR = "administrator"
 MAX_NAME_LENGTH = 100
 MAX_EMAIL_LENGTH = 254
 TOKEN_BYTES = 32
-JOIN_CODE_BYTES = 6
-GROUP = 4
+EMAIL_TAKEN = "An account with that email exists already"
 
 # A reset link works for this long. While a link works nobody gets another one, and after it was used a new one comes
 # only this long after it was made: a stranger who types an email into the form can neither make the app send mail to
@@ -66,6 +65,15 @@ export enum FirstRun
   Invalid(String)
 end
 
+## What joining with a code did. `Joined` holds the token of the session of the new person. `Gone` is a code that is not
+## the account's (unknown, or the old one of a regenerated code). `Invalid` holds what is wrong with the form, to show
+## again.
+export enum JoinOutcome
+  Joined(String)
+  Gone
+  Invalid(String)
+end
+
 ## True while the app has no account: the first run has not happened.
 export def first_run?(conn: Db.Connection) -> Result[Bool]
   exists = try account_exists?(conn)
@@ -103,6 +111,39 @@ export def first_run(
   end
 
   return ok(FirstRun.Closed)
+end
+
+## Makes a member of the account for the person who used the join code, puts them in every open room that exists and
+## signs them in, in one transaction that checks again that the code is still the account's and that nobody took the
+## email, so forms that arrive together with one email make one person. `password` is hashed before the transaction
+## starts, since hashing is slow and the transaction holds the write lock; the code and the email are looked at before
+## the hashing too, so a form that cannot work costs none. An `error` is a database or hashing failure, not a bad form.
+export def join(
+  conn: Db.Connection,
+  code: String,
+  name: String,
+  email: String,
+  password: String,
+  user_agent: String,
+) -> Result[JoinOutcome]
+  valid = try Accounts.join_code_valid?(conn, code)
+  if not valid
+    return ok(JoinOutcome.Gone)
+  end
+
+  problem = form_problem(name, email, password)
+  if problem != ""
+    return ok(JoinOutcome.Invalid(problem))
+  end
+
+  taken = try email_taken?(conn, normal(email))
+  if taken
+    return ok(JoinOutcome.Invalid(EMAIL_TAKEN))
+  end
+
+  digest = try Passwords.hash(password)
+  token = SecureRandom.hex(TOKEN_BYTES)
+  return Db.transaction(conn) do |tx| make_member(tx, code, name.strip, normal(email), digest, token, user_agent) end
 end
 
 ## Starts a session for the user whose email and password these are and gives its token, or `none` when the email is
@@ -363,19 +404,59 @@ def make_account(
   try Db.execute(
     tx,
     "insert into accounts (id, name, join_code) values (1, ?, ?)",
-    [Db.Value.Text(ACCOUNT_NAME), Db.Value.Text(join_code())],
+    [Db.Value.Text(ACCOUNT_NAME), Db.Value.Text(Accounts.new_join_code())],
   )
 
   users = try Db.query(
     tx,
     "insert into users (name, email, password_digest, role) values (?, ?, ?, ?) returning id",
-    [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest), Db.Value.Text(ADMINISTRATOR)],
+    [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest), Db.Value.Text(Rooms.ADMINISTRATOR)],
   )
 
   admin_id = int_of(users[0], "id")
   try Rooms.create_open_in(tx, admin_id, FIRST_ROOM_NAME)
   try insert_session(tx, admin_id, token, user_agent)
   return ok(true)
+end
+
+# The body of `join`. The email is looked at inside the transaction (it holds the write lock), so the second of
+# two forms
+# for one address finds the person that the first made, and the unique index is never what refuses it. Everybody who
+# has the address is counted, a deactivated person too: only an administrator brings them back.
+def make_member(
+  tx: Db.Connection,
+  code: String,
+  name: String,
+  email: String,
+  digest: String,
+  token: String,
+  user_agent: String,
+) -> Result[JoinOutcome]
+  valid = try Accounts.join_code_valid?(tx, code)
+  if not valid
+    return ok(JoinOutcome.Gone)
+  end
+
+  taken = try email_taken?(tx, email)
+  if taken
+    return ok(JoinOutcome.Invalid(EMAIL_TAKEN))
+  end
+
+  users = try Db.query(
+    tx,
+    "insert into users (name, email, password_digest) values (?, ?, ?) returning id",
+    [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest)],
+  )
+
+  user_id = int_of(users[0], "id")
+  try Rooms.grant_open_rooms(tx, user_id)
+  try insert_session(tx, user_id, token, user_agent)
+  return ok(JoinOutcome.Joined(token))
+end
+
+def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
+  rows = try Db.query(conn, "select count(*) as total from users where email = ?", [Db.Value.Text(email)])
+  return ok(int_of(rows[0], "total") > 0)
 end
 
 def open_session(conn: Db.Connection, user_id: Int, user_agent: String) -> Result[String]
@@ -391,12 +472,6 @@ def insert_session(conn: Db.Connection, user_id: Int, token: String, user_agent:
     "insert into sessions (user_id, token, user_agent) values (?, ?, ?)",
     [Db.Value.Int(user_id), Db.Value.Text(token), text_or_null(user_agent)],
   )
-end
-
-# Three groups of four hex digits, `a1b2-c3d4-e5f6`, to type or read out.
-def join_code() -> String
-  digits = SecureRandom.hex(JOIN_CODE_BYTES)
-  return "#{digits.slice(0, GROUP)}-#{digits.slice(GROUP, GROUP)}-#{digits.slice(GROUP * 2, GROUP)}"
 end
 
 def text_or_null(text: String) -> Db.Value

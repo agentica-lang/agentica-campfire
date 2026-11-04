@@ -3,6 +3,7 @@
 
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
+import Accounts from "accounts"
 import Rooms from "rooms"
 import Routes from "routes"
 
@@ -55,6 +56,7 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
       <p><a href="<%= Routes.ROOM_NEW %>">New room</a></p>
       <p><a href="<%= Routes.CLOSED_ROOM_NEW %>">New closed room</a></p>
       <p><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></p>
+      <p><a href="<%= Routes.USERS %>">People</a></p>
     <% if not direct.empty? %>
       <h2>Direct messages</h2>
       <ul>
@@ -411,6 +413,78 @@ export def reset_mail(name: String, link: String, minutes: Int) -> String
 
     If you did not ask for this, ignore this email: your password stays as it is.
   EAG
+end
+
+## The form of the join page, for the account whose join code is `code`: it posts to the page itself. `name` and `email`
+## fill the fields again after a refusal, and `message` says why ("" shows none). The password is never put back.
+export def join(code: String, name: String, email: String, message: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <main>
+      <h1>Join <%= NAME %></h1>
+      <p>Make your account.</p>
+    <% if not message.empty? %>
+      <p role="alert"><%= message %></p>
+    <% end %>
+      <form method="post" action="<%= Routes.join_path(code) %>">
+        <p>
+          <label>Your name
+            <input name="name" type="text" value="<%= name %>" autocomplete="name" required autofocus></label>
+        </p>
+        <p>
+          <label>Email
+            <input name="email" type="email" value="<%= email %>" autocomplete="username" required></label>
+        </p>
+        <p>
+          <label>Password
+            <input name="password" type="password" autocomplete="new-password" required></label>
+        </p>
+        <p><button type="submit">Join</button></p>
+      </form>
+    </main>
+  EAG
+  return layout("Join #{NAME}", body)
+end
+
+## The people page, around the `sidebar`. Everybody sees the names. For an administrator (`admin`) it also has the emails,
+## the roles, the buttons that deactivate and reactivate (not for `me`, who may not deactivate themselves), and the join
+## `link` with the button that makes a new one; `link` is "" for anybody else.
+export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin: Bool, link: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1>People</h1>
+    <% if admin %>
+      <h2>Invite people</h2>
+      <p>Anybody with this link can join: <code id="join-link"><%= link %></code></p>
+      <form method="post" action="<%= Routes.JOIN_CODE %>">
+        <p><button type="submit">Make a new link</button> The old link stops working.</p>
+      </form>
+    <% end %>
+      <ul>
+    <% for person in people %>
+        <li>
+          <%= person.name %>
+    <% if admin %>
+          (<%= person.email %><% if person.role == Rooms.ADMINISTRATOR %>, administrator<% end %><% if not person.active %>, deactivated<% end %>)
+    <% end %>
+    <% if admin and person.id != me and person.active %>
+          <form method="post" action="<%= Routes.user_deactivate_path(person.id) %>">
+            <button type="submit">Deactivate</button>
+          </form>
+    <% end %>
+    <% if admin and not person.active %>
+          <form method="post" action="<%= Routes.user_reactivate_path(person.id) %>">
+            <button type="submit">Reactivate</button>
+          </form>
+    <% end %>
+        </li>
+    <% end %>
+      </ul>
+    </main>
+  EAG
+  return layout("People", body)
 end
 
 ## The page of a 503: `message` says that the server is busy.

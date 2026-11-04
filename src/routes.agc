@@ -30,6 +30,17 @@ export DIRECT_ROOM_NEW = "/direct_rooms/new"
 export DIRECT_ROOMS = "/direct_rooms"
 export ROOM_SETTINGS = "/rooms/:id/settings"
 
+## The join link of the account: its page and the post of its form, which is the same path, with the join code as
+## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
+export JOIN = "/join/:code"
+
+## The people page, the posts that deactivate and reactivate a person (`:id` is the id of the user), and the post that
+## makes a new join code.
+export USERS = "/users"
+export USER_DEACTIVATE = "/users/:id/deactivate"
+export USER_REACTIVATE = "/users/:id/reactivate"
+export JOIN_CODE = "/account/join_code"
+
 ## The path of the room page.
 export def room_path(room_id: Int) -> String
   return "/rooms/#{room_id}"
@@ -48,4 +59,19 @@ end
 ## The path of the settings of a closed room, which is also where its form posts.
 export def room_settings_path(room_id: Int) -> String
   return "/rooms/#{room_id}/settings"
+end
+
+## The path of the join page of this code, which is also where its form posts.
+export def join_path(code: String) -> String
+  return "/join/#{code}"
+end
+
+## The path that deactivates this user.
+export def user_deactivate_path(user_id: Int) -> String
+  return "/users/#{user_id}/deactivate"
+end
+
+## The path that reactivates this user.
+export def user_reactivate_path(user_id: Int) -> String
+  return "/users/#{user_id}/reactivate"
 end

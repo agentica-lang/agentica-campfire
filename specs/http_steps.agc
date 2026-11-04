@@ -18,6 +18,7 @@ export MEMBER_PASSWORD = "another long password"
 
 REPLY = "reply"
 REMEMBERED = "remembered_reply"
+JOIN_LINK = "join_link"
 STATUSES = "statuses"
 ALL_AT_ONCE_MS = 60_000
 BROWSER = "browser"
@@ -58,6 +59,12 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
     BDD.step("I post to {string} twice the form of the page with the body {string}", &post_page_form_twice),
     BDD.step("I post nothing to {string}", &post_nothing),
+    BDD.step("I submit the form of the page that posts to {string}", &submit_page_form),
+    BDD.step("I submit the join form of the page with:", &submit_join_form),
+    BDD.step("I remember the join link", &remember_join_link),
+    BDD.step("I get the join link that I remembered", &get_remembered_join_link),
+    BDD.step("I post to the join link that I remembered the form:", &post_to_remembered_join_link),
+    BDD.step("the join link of the page is not the one that I remembered", &join_link_changed),
     BDD.step("I sign in as {string}", &sign_in_as),
     BDD.step("the first admin exists", &first_admin),
     BDD.step("I remember the answer", &remember_answer),
@@ -146,6 +153,92 @@ def post_page_form_twice(ctx: BDD.Context, args: List[String]) -> BDD.Context
   id = rest.split("\"")[0]
   form = URI.encode_www_form([URI.Pair(name: "body", value: args[1]), URI.Pair(name: "client_message_id", value: id)])
   return send(send(ctx, "POST", args[0], form), "POST", args[0], form)
+end
+
+# The form of the page that was just got, found by the `action` that it names, and posted to that action as the page
+# wrote it: a form that the page does not have fails the step, so the page is what makes the post possible.
+def submit_page_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  marker = "<form method=\"post\" action=\"#{args[0]}\">"
+  page = last_reply(ctx).body
+  if not page.include?(marker)
+    return BDD.assert(ctx, false, "the page has no form that posts to #{args[0]}: #{page}")
+  end
+
+  return send(ctx, "POST", args[0], "")
+end
+
+# The form of the join page, whose action holds the code that the page was got with: the fields of the table are posted
+# to the action that the page names.
+def submit_join_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  action = text_after(last_reply(ctx).body, "<form method=\"post\" action=\"", "\"")
+  if action.none? or not action.unwrap!.start_with?("/join/")
+    return BDD.assert(ctx, false, "the page has no join form: #{last_reply(ctx).body}")
+  end
+
+  pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
+  return send(ctx, "POST", action.unwrap!, URI.encode_www_form(pairs))
+end
+
+# The path of the join link that the page shows (an administrator's people page), whatever address it starts with.
+def join_link_of(ctx: BDD.Context) -> Optional[String]
+  link = text_after(last_reply(ctx).body, "<code id=\"join-link\">", "<")
+  if link.none?
+    return none
+  end
+
+  start = link.unwrap!.index_of("/join/")
+  if start.none?
+    return none
+  end
+
+  return some(link.unwrap!.slice(start.unwrap!, link.unwrap!.length - start.unwrap!))
+end
+
+def remember_join_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  path = join_link_of(ctx)
+  if path.none?
+    return BDD.assert(ctx, false, "the page has no join link: #{last_reply(ctx).body}")
+  end
+
+  return BDD.set(ctx, JOIN_LINK, JSON.from(path.unwrap!))
+end
+
+def remembered_join_link(ctx: BDD.Context) -> String
+  return JSON.string(BDD.get(ctx, JOIN_LINK).unwrap!).unwrap!
+end
+
+def get_remembered_join_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return send(ctx, "GET", remembered_join_link(ctx), "")
+end
+
+def post_to_remembered_join_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
+  return send(ctx, "POST", remembered_join_link(ctx), URI.encode_www_form(pairs))
+end
+
+def join_link_changed(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  path = join_link_of(ctx)
+  return BDD.assert(
+    ctx,
+    path.some? and path.unwrap! != remembered_join_link(ctx),
+    "the join link of the page is #{path}, the remembered one is #{remembered_join_link(ctx)}",
+  )
+end
+
+# The text of `text` between the first `start` and the next `stop` after it.
+def text_after(text: String, start: String, stop: String) -> Optional[String]
+  at = text.index_of(start)
+  if at.none?
+    return none
+  end
+
+  rest = text.slice(at.unwrap! + start.length, text.length - at.unwrap! - start.length)
+  end_at = rest.index_of(stop)
+  if end_at.none?
+    return none
+  end
+
+  return some(rest.slice(0, end_at.unwrap!))
 end
 
 def post_nothing(ctx: BDD.Context, args: List[String]) -> BDD.Context

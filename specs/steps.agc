@@ -9,6 +9,7 @@ import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
 import SmtpSteps from "smtp_steps"
 import DataDir from "../src/data_dir"
+import Accounts from "../src/accounts"
 import Database from "../src/database"
 import Migrations from "../src/migrations"
 import Passwords from "../src/passwords"
@@ -19,6 +20,7 @@ DB_URL = "db_url"
 STARTED = "started"
 STARTUP = "startup_lines"
 UPDATED = "updated"
+CHANGED = "changed"
 SQL_ERROR = "sql_error"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
@@ -48,6 +50,8 @@ def main() -> Void
     BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("{string} asks Rooms.update_closed to rename the room {int} and swap its members", &ask_update_closed),
     BDD.step("the update is refused", &update_is_refused),
+    BDD.step("{string} asks Accounts.deactivate for the user {int}", &ask_deactivate),
+    BDD.step("the change is refused", &change_is_refused),
     BDD.step("I run the sql {string}", &run_sql),
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
@@ -259,6 +263,26 @@ end
 
 def update_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, text_of(ctx, UPDATED) == "false", "the update said #{text_of(ctx, UPDATED)}")
+end
+
+# `Accounts.deactivate` straight, as the person with that email, skipping the check of the page, so that only the check
+# inside the transaction can refuse it.
+def ask_deactivate(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| deactivate_as(conn, args[0], args[1].to_i!) end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Accounts.deactivate failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, CHANGED, JSON.from("#{outcome.unwrap!}"))
+end
+
+def deactivate_as(conn: Db.Connection, email: String, user_id: Int) -> Result[Accounts.Change]
+  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  return Accounts.deactivate(conn, value_int(rows[0].get("id", Db.Value.Null)), user_id)
+end
+
+def change_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, CHANGED) == "Change.Refused", "the change was #{text_of(ctx, CHANGED)}")
 end
 
 def applied_every_migration(ctx: BDD.Context, args: List[String]) -> BDD.Context
