@@ -128,7 +128,7 @@ Feature: Sending email from the app
     And the environment variable "CAMPFIRE_SESSION_SECRET" is "0123456789abcdef0123456789abcdef"
     And the environment variable "CAMPFIRE_SMTP_URL" is "smtp://ana:hunter2@mail.example.com"
     And the Agentica program "fixtures/server.agc"
-    Then the program exits with code 1 within 5000 milliseconds
+    Then the program exits with code 1 within 30000 milliseconds
     And stderr is:
       """
       campfire: CAMPFIRE_BASE_URL is required with CAMPFIRE_SMTP_URL: the links in emails start with it
@@ -169,7 +169,7 @@ Feature: Sending email from the app
     And the environment variable "CAMPFIRE_SECURE_COOKIES" is "true"
     And the environment variable "CAMPFIRE_BASE_URL" is "http://chat.example.com"
     And the Agentica program "fixtures/server.agc"
-    Then the program exits with code 1 within 5000 milliseconds
+    Then the program exits with code 1 within 30000 milliseconds
     And stderr is:
       """
       campfire: CAMPFIRE_BASE_URL must start with https:// when CAMPFIRE_SECURE_COOKIES is true

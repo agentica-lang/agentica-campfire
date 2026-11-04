@@ -20,7 +20,7 @@ Feature: The session secret and the cookie
     And the environment variable "CAMPFIRE_DATA_DIR" is "unused"
     And the environment variable "CAMPFIRE_SESSION_SECRET" is "<secret>"
     And the Agentica program "fixtures/server.agc"
-    Then the program exits with code 1 within 5000 milliseconds
+    Then the program exits with code 1 within 30000 milliseconds
     And stderr is:
       """
       campfire: CAMPFIRE_SESSION_SECRET must have at least 32 bytes (make one with: openssl rand -hex 32)
@@ -39,7 +39,7 @@ Feature: The session secret and the cookie
     And the environment variable "CAMPFIRE_SESSION_SECRET" is "0123456789abcdef0123456789abcdef"
     And the environment variable "CAMPFIRE_SECURE_COOKIES" is "yes"
     And the Agentica program "fixtures/server.agc"
-    Then the program exits with code 1 within 5000 milliseconds
+    Then the program exits with code 1 within 30000 milliseconds
     And stderr is:
       """
       campfire: CAMPFIRE_SECURE_COOKIES must be true or false, not "yes"

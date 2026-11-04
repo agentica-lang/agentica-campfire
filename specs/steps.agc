@@ -28,7 +28,7 @@ SQL_ERROR = "sql_error"
 LISTENING = "listening on "
 # How long a start may take before its `listening on` line: the first start after a source change compiles the whole
 # app (about 6 s on a CI runner). The wait ends at the line, so a warm start does not wait; only an app that never
-# listens costs the full time. The waits of the other steps stay short.
+# listens costs the full time. The steps that expect a failing start to exit use the same bound.
 START_MS = 30_000
 FOLDER_PREFIX = "campfire-spec-"
 PRIVATE_FOLDER_MODE = 448
