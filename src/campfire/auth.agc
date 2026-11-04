@@ -502,7 +502,8 @@ def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
   return ok(int_of(rows[0], "total") > 0)
 end
 
-# The address of the client is not here yet: the Bond pin has no `Conn.remote_addr` (agentica-lang/agentica-campfire#9).
+# The address of the client is not here yet: the Bond pin has no `Conn.remote_addr`
+# (agentica-lang/agentica-campfire#9).
 def insert_session(conn: Db.Connection, user_id: Int, token: String, user_agent: String) -> Result[Int]
   return Db.execute(
     conn,
