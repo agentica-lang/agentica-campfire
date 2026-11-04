@@ -99,7 +99,7 @@ Feature: Rooms
     Then the status is 200
     And the body contains "<h1>Secret</h1>"
     When I post to "/rooms/2/messages" the form:
-      | body | Hi Secret |
+      | message[body] | Hi Secret |
     Then the status is 302
     When I get "/rooms/2"
     Then the body contains "Hi Secret"
@@ -107,7 +107,7 @@ Feature: Rooms
     Then the status is 200
     And the body contains "<h1>Ana</h1>"
     When I post to "/rooms/3/messages" the form:
-      | body | Hi Ana |
+      | message[body] | Hi Ana |
     Then the status is 302
     When I get "/rooms/3"
     Then the body contains "Hi Ana"
@@ -136,7 +136,7 @@ Feature: Rooms
     And a closed room "Secret" with the members "bea@example.com"
     And a direct room with the members "bea@example.com, cy@example.com"
     When I post to "<path>" the form:
-      | body | hello |
+      | message[body] | hello |
     Then the status is 404
     And the body is "Not Found"
     And the query "select count(*) from messages" gives 0
@@ -163,7 +163,7 @@ Feature: Rooms
     Given the browser has no cookies
     When I post to "<path>" the form:
       | name | Lunch |
-      | body | hello |
+      | message[body] | hello |
     Then the status is 302
     And the header "location" is "/session/new"
     And the query "select count(*) from rooms" gives 1

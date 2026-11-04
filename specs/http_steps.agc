@@ -69,6 +69,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("the first admin exists", &first_admin),
     BDD.step("I remember the answer", &remember_answer),
     BDD.step("the answer is the one that I remembered", &answer_is_remembered),
+    BDD.step("the body contains the message of the answer that I remembered", &body_has_remembered_message),
     BDD.step("the answer came within {int} milliseconds", &answer_was_quick),
     BDD.step("the status is {int}", &status_is),
     BDD.step("the header {string} is {string}", &header_is),
@@ -83,6 +84,9 @@ export def steps() -> List[BDD.Step]
     BDD.step("the body is {string}", &body_is),
     BDD.step("the body contains {string}", &body_contains),
     BDD.step("the body does not contain {string}", &body_lacks),
+    BDD.step("the body contains {string} {int} times", &body_contains_times),
+    BDD.step("the body starts with {string}", &body_starts_with),
+    BDD.step("the body ends with {string}", &body_ends_with),
     BDD.step("the body shows {string} before {string}", &body_shows_before),
     BDD.step("the browser has no cookies", &forget_cookies),
     BDD.step("the browser saves a copy of its cookies", &save_cookies),
@@ -125,8 +129,8 @@ def post_messages_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
   count = args[0].to_i!
   answers = Task.map((1..count).to_a, count, ALL_AT_ONCE_MS) do |n|
     form = URI.encode_www_form([
-      URI.Pair(name: "body", value: "burst #{n}"),
-      URI.Pair(name: "client_message_id", value: "burst-#{n}"),
+      URI.Pair(name: "message[body]", value: "burst #{n}"),
+      URI.Pair(name: "message[client_message_id]", value: "burst-#{n}"),
     ])
 
     post_answer(port, state, args[1], form)
@@ -155,13 +159,13 @@ end
 # A `body` of `args[1]` letters, for the limit on the size of a message.
 def post_message_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
   text = List.repeat("x", args[1].to_i!).join("")
-  return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "body", value: text)]))
+  return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "message[body]", value: text)]))
 end
 
 # A `body` that starts with `args[1]` and is padded with letters to `args[2]` characters.
 def post_long_message(ctx: BDD.Context, args: List[String]) -> BDD.Context
   padding = List.repeat("x", args[2].to_i! - args[1].length).join("")
-  return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "body", value: args[1] + padding)]))
+  return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "message[body]", value: args[1] + padding)]))
 end
 
 # The form of the page that was just got, found by the `action` that it names, and posted to that action as the page
@@ -415,6 +419,19 @@ def answer_is_remembered(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, before.status == now.status and before.body == now.body, "the answers differ: #{now.body}")
 end
 
+# The Turbo Stream that a post answered carries the message in its `<template>`; the page that reads the same message
+# back must write the same markup, the time and the author included.
+def body_has_remembered_message(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  before = JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!
+  message = text_after(before.body, "<template>", "</template>")
+  if message.none?
+    return BDD.assert(ctx, false, "the remembered answer has no template: #{before.body}")
+  end
+
+  body = last_reply(ctx).body
+  return BDD.assert(ctx, body.include?(message.unwrap!), "the message #{message.unwrap!} is not in #{body}")
+end
+
 def answer_was_quick(ctx: BDD.Context, args: List[String]) -> BDD.Context
   reply = last_reply(ctx)
   return BDD.assert(ctx, reply.elapsed_ms < args[0].to_i!, "the answer took #{reply.elapsed_ms} milliseconds")
@@ -459,6 +476,23 @@ end
 def body_lacks(ctx: BDD.Context, args: List[String]) -> BDD.Context
   reply = last_reply(ctx)
   return BDD.assert(ctx, not reply.body.include?(args[0]), "the body is #{reply.body}")
+end
+
+def body_contains_times(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  body = last_reply(ctx).body
+  found = body.split(args[0]).size - 1
+  return BDD.assert(ctx, found == args[1].to_i!, "the body has #{found} of #{args[0]}: #{body}")
+end
+
+def body_starts_with(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  body = last_reply(ctx).body
+  return BDD.assert(ctx, body.start_with?(args[0]), "the body is #{body}")
+end
+
+# The end of the text without the white space after it, as the benchmark reads it.
+def body_ends_with(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  body = last_reply(ctx).body
+  return BDD.assert(ctx, body.strip.end_with?(args[0]), "the body is #{body}")
 end
 
 def body_shows_before(ctx: BDD.Context, args: List[String]) -> BDD.Context

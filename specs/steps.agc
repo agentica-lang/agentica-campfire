@@ -390,9 +390,8 @@ def room_has_messages(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, seeded.ok?, "cannot add the messages: #{seeded.message}")
 end
 
-# A message as Rails writes it (the row, its body and its search row) at a time that the scenario names,
-# which `Rooms.post`
-# cannot do: it stamps the time of the call. The author is the person who made the room.
+# A message as Rails writes it (the row, its body and its search row) at a time that the scenario names, which
+# `Rooms.post` cannot do: it stamps the time of the call. The author is the person who made the room.
 def message_at(ctx: BDD.Context, args: List[String]) -> BDD.Context
   stored = with_database(ctx) do |conn| insert_message(conn, args[1].to_i!, args[0], args[2], false) end
   return BDD.assert(ctx, stored.ok?, "cannot add the message: #{stored.message}")
@@ -486,7 +485,9 @@ end
 
 def post_as(conn: Db.Connection, email: String, room_id: Int, body: String) -> Result[Bool]
   rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
-  return Rooms.post(conn, room_id, value_int(rows[0].get("id", Db.Value.Null)), "stale-#{SecureRandom.hex(4)}", body)
+  user_id = value_int(rows[0].get("id", Db.Value.Null))
+  stored = try Rooms.post(conn, room_id, user_id, "stale-#{SecureRandom.hex(4)}", body)
+  return ok(stored.some?)
 end
 
 def update_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context

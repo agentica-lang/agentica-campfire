@@ -384,6 +384,9 @@ def main() -> Void
       )
 
       try Test.eq(HtmlSanitizer.plain_text("5 &lt; 6 <i onclick=\"x\">ok</i>"), "5 < 6 ok")
+      # The write path sanitizes once and reads the text of the clean body, which is the same text.
+      dirty = "<p>Hi <b onclick=\"x()\">there</b><script>alert(1)</script></p><p>&amp; more</p>"
+      try Test.eq(HtmlSanitizer.plain_text_of_clean(HtmlSanitizer.sanitize(dirty)), HtmlSanitizer.plain_text(dirty))
       Test.eq(HtmlSanitizer.plain_text(""), "")
     end,
     Test.test("the HTML of a plain text is what sanitize leaves as it is") do

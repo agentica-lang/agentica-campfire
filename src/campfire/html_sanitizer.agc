@@ -253,7 +253,13 @@ end
 ## a block and at a `<br>`, and no empty line. It reads what `sanitize` wrote, so a tag in it is a name, maybe the
 ## attributes of a link, then the first `>`: a `>` in a value is written as `&gt;`.
 export def plain_text(html: String) -> String
-  cs = sanitize(html).split("")
+  return plain_text_of_clean(sanitize(html))
+end
+
+## `plain_text` of a body that `sanitize` has cleaned already, for the caller that has the clean text and so does not
+## sanitize it a second time.
+export def plain_text_of_clean(clean: String) -> String
+  cs = clean.split("")
   n = cs.size
   out: List[String] = []
   i = 0

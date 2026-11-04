@@ -13,7 +13,7 @@ Feature: Messages
 
   Scenario: A message is posted in the room and shown with its author
     When I post to "/rooms/1/messages" the form:
-      | body | Hello team |
+      | message[body] | Hello team |
     Then the status is 302
     And the header "location" is "/rooms/1"
     When I get "/rooms/1"
@@ -33,12 +33,12 @@ Feature: Messages
   Scenario: The room page has the form to post, which carries an id for the message
     When I get "/rooms/1"
     Then the body contains "<form method=\"post\" action=\"/rooms/1/messages\">"
-    And the body contains "name=\"body\""
-    And the body contains "name=\"client_message_id\" type=\"hidden\""
+    And the body contains "name=\"message[body]\""
+    And the body contains "name=\"message[client_message_id]\" type=\"hidden\""
 
   Scenario: What the form sends is plain text, stored as HTML and escaped in the page
     When I post to "/rooms/1/messages" the form:
-      | body | <script>alert(1)</script> & **bold** |
+      | message[body] | <script>alert(1)</script> & **bold** |
     Then the status is 302
     When I get "/rooms/1"
     Then the body contains "&lt;script&gt;alert(1)&lt;/script&gt; &amp; **bold**"
@@ -61,9 +61,9 @@ Feature: Messages
 
   Scenario: A message is found by the stems of its words, and each message has one search row
     When I post to "/rooms/1/messages" the form:
-      | body | The fire is burning |
+      | message[body] | The fire is burning |
     And I post to "/rooms/1/messages" the form:
-      | body | Cold embers |
+      | message[body] | Cold embers |
     Then the query "select count(*) from message_search_index where message_search_index match 'burn'" gives 1
     And the query "select rowid from message_search_index where message_search_index match 'burn'" gives 1
     And the query "select count(*) from message_search_index" gives 2
@@ -71,7 +71,7 @@ Feature: Messages
 
   Scenario: A message that is only spaces is refused
     When I post to "/rooms/1/messages" the form:
-      | body |     |
+      | message[body] |     |
     Then the status is 422
     And the body contains "Write something to send"
     And the query "select count(*) from messages" gives 0
@@ -87,18 +87,18 @@ Feature: Messages
 
   Scenario: The id of the browser is stored as it came, and a second post with it is a second message
     When I post to "/rooms/1/messages" the form:
-      | body              | Twice |
-      | client_message_id | c-1   |
+      | message[body]              | Twice |
+      | message[client_message_id] | c-1   |
     And I post to "/rooms/1/messages" the form:
-      | body              | Twice |
-      | client_message_id | c-1   |
+      | message[body]              | Twice |
+      | message[client_message_id] | c-1   |
     Then the status is 302
     And the query "select count(*) from messages where client_message_id = 'c-1'" gives 2
 
   Scenario: A client message id that is too long is refused
     When I post to "/rooms/1/messages" the form:
-      | body              | Hi                                                                    |
-      | client_message_id | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx |
+      | message[body]              | Hi                                                                    |
+      | message[client_message_id] | xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx |
     Then the status is 400
     And the query "select count(*) from messages" gives 0
 
@@ -181,9 +181,9 @@ Feature: Messages
     Given I post to "/rooms" the form:
       | name | Lunch |
     When I post to "/rooms/1/messages" the form:
-      | body | In talk |
+      | message[body] | In talk |
     And I post to "/rooms/2/messages" the form:
-      | body | In lunch |
+      | message[body] | In lunch |
     And I get "/rooms/1"
     Then the body contains "In talk"
     And the body does not contain "In lunch"
@@ -211,7 +211,7 @@ Feature: Messages
   Scenario: A page of another site cannot post a message
     Given the request header "sec-fetch-site" is "cross-site"
     When I post to "/rooms/1/messages" the form:
-      | body | Hello |
+      | message[body] | Hello |
     Then the status is 403
     And the query "select count(*) from messages" gives 0
 

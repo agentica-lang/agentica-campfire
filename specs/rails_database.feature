@@ -101,8 +101,8 @@ Feature: A database that Rails made
     And the body does not contain "onclick"
     And the body does not contain "alert(1)"
     When I post to "/rooms/1/messages" the form:
-      | body              | Posted into Rails |
-      | client_message_id | c-9               |
+      | message[body]              | Posted into Rails |
+      | message[client_message_id] | c-9               |
     Then the status is 302
     And the query "select count(*) from action_text_rich_texts where record_type = 'Message' and name = 'body' and record_id = 3 and body = 'Posted into Rails'" gives 1
     And the query "select count(*) from message_search_index where rowid = 3 and body = 'Posted into Rails'" gives 1
