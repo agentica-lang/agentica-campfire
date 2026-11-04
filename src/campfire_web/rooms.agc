@@ -18,12 +18,22 @@ import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
 
+# The field names of the form of a message, as Rails nests them (`params.require(:message)`).
+MESSAGE_BODY = "message[body]"
+MESSAGE_CLIENT_ID = "message[client_message_id]"
+
+# What a post that asks for a Turbo Stream sends in `Accept`, and what the answer is typed.
+TURBO_STREAM_TYPE = "text/vnd.turbo-stream.html"
+
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
 
 # What a handler makes of its request, decided while its connection is open and answered after it is closed.
 enum Answer
   Page(Int, String)
+  Fragment(String)
+  TurboStream(String)
+  NoContent
   Redirect(String)
   NotFound
   Forbidden
@@ -37,6 +47,7 @@ export def add(app: Bond.App, pool: Database.Pool) -> Bond.App
     |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
     |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool) end
     |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool) end
+    |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool) end
     |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool) end
     |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
     |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool) end
@@ -323,14 +334,55 @@ def shown_room(db: Db.Connection, person: Auth.User, id: Optional[Int], before: 
   end
 end
 
+# The messages that come before `?before=ID` (the newest 40 without it), as the fragment that the script of the page
+# puts in the list: no layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
+def older_messages(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  before = try cursor(conn)
+  id = room_id(conn)
+  answer = try Database.with_connection(pool) do |db| older_answer(conn, db, id, before) end
+  return ok(respond(conn, answer))
+end
+
+def older_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], before: Optional[Int]) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return older_fragment(db, person, id, before)
+  end
+end
+
+def older_fragment(db: Db.Connection, person: Auth.User, id: Optional[Int], before: Optional[Int]) -> Result[Answer]
+  room = try member_room(db, person, id)
+  case room
+    none -> return ok(Answer.NotFound)
+    some(found) -> return ok(fragment_of(try Rooms.page(db, found.id, before)))
+  end
+end
+
+def fragment_of(page: Rooms.Page) -> Answer
+  if page.messages.empty?
+    return Answer.NoContent
+  end
+
+  return Answer.Fragment(Views.messages_list(page.messages))
+end
+
 def create_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
   # whatever the room: nothing here depends on the room.
-  body = (try Bond.form(conn, "body")).strip
+  body = (try Bond.form(conn, MESSAGE_BODY)).strip
   sent_id = try client_id(conn)
   id = room_id(conn)
-  answer = try Database.with_connection(pool) do |db| message_answer(conn, db, id, body, sent_id) end
+  stream = wants_stream?(conn)
+  answer = try Database.with_connection(pool) do |db| message_answer(conn, db, id, body, sent_id, stream) end
   return ok(respond(conn, answer))
+end
+
+# A browser that runs the scripts of the page asks for a Turbo Stream, and gets the message to append; a form that
+# was sent without them (`Accept` of a plain browser, or none) gets the redirect to the room page.
+def wants_stream?(conn: Bond.Conn) -> Bool
+  accept = Bond.request_header(conn, "accept")
+  return accept.ok? and accept.unwrap!.include?(TURBO_STREAM_TYPE)
 end
 
 def message_answer(
@@ -339,24 +391,39 @@ def message_answer(
   id: Optional[Int],
   body: String,
   sent_id: String,
+  stream: Bool,
 ) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return posted(db, person, id, body, sent_id)
+    some(person) -> return posted(db, person, id, body, sent_id, stream)
   end
 end
 
 # Membership first: a refusal of the text must not tell a person who is not in a room that it exists.
-def posted(db: Db.Connection, person: Auth.User, id: Optional[Int], body: String, sent_id: String) -> Result[Answer]
+def posted(
+  db: Db.Connection,
+  person: Auth.User,
+  id: Optional[Int],
+  body: String,
+  sent_id: String,
+  stream: Bool,
+) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return post_to(db, person, found, body, sent_id)
+    some(found) -> return post_to(db, person, found, body, sent_id, stream)
   end
 end
 
-def post_to(db: Db.Connection, person: Auth.User, room: Rooms.Room, body: String, sent_id: String) -> Result[Answer]
+def post_to(
+  db: Db.Connection,
+  person: Auth.User,
+  room: Rooms.Room,
+  body: String,
+  sent_id: String,
+  stream: Bool,
+) -> Result[Answer]
   problem = Rooms.body_problem(body)
   if problem != ""
     page = try room_page(db, person, room, none, composer(problem, body))
@@ -365,11 +432,11 @@ def post_to(db: Db.Connection, person: Auth.User, room: Rooms.Room, body: String
 
   # The person may have been deactivated since the filter looked them up: the insert stores nothing for them.
   stored = try Rooms.post(db, room.id, person.id, sent_id, HtmlSanitizer.from_text(body))
-  if not stored
-    return ok(Answer.SignedOut)
+  case stored
+    none -> return ok(Answer.SignedOut)
+    some(message) if stream -> return ok(Answer.TurboStream(Views.message_stream(room, message)))
+    some(_) -> return ok(Answer.Redirect(Routes.room_path(room.id)))
   end
-
-  return ok(Answer.Redirect(Routes.room_path(room.id)))
 end
 
 # A page of the room with a form that has a new id, so that sending it again after a refusal is a new message.
@@ -462,13 +529,13 @@ end
 # The id that the form carries for its message, or a new one for a post that has none (a tool, not our page). Too
 # long a value is a 400: the column holds anything, so the limit is ours.
 def client_id(conn: Bond.Conn) -> Result[String]
-  values = try Bond.form_all(conn, "client_message_id")
+  values = try Bond.form_all(conn, MESSAGE_CLIENT_ID)
   if values.empty? or values[0].empty?
     return ok(SecureRandom.hex(CLIENT_ID_BYTES))
   end
 
   if values[0].length > Rooms.MAX_CLIENT_ID_LENGTH
-    return Bond.bad_request("client_message_id is at most #{Rooms.MAX_CLIENT_ID_LENGTH} characters")
+    return Bond.bad_request("#{MESSAGE_CLIENT_ID} is at most #{Rooms.MAX_CLIENT_ID_LENGTH} characters")
   end
 
   return ok(values[0])
@@ -477,6 +544,10 @@ end
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Page(status, html) -> return Bond.html(conn, status, html)
+    Answer.Fragment(html) -> return Bond.html(conn, 200, html)
+    Answer.TurboStream(html) ->
+      return Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
+    Answer.NoContent -> return Bond.status(conn, 204)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
     Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")

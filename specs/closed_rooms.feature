@@ -42,7 +42,7 @@ Feature: Closed rooms
     And I get "/"
     Then the body contains "<a href=\"/rooms/2\">Secret</a>"
     When I post to "/rooms/2/messages" the form:
-      | body | Hi Ana |
+      | message[body] | Hi Ana |
     Then the status is 302
     When I sign in as "cy@example.com"
     And I get "/"

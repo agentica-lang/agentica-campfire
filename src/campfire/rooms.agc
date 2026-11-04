@@ -261,7 +261,7 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
     conn,
     "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
     "coalesce(rich_texts.body, '') as body, " +
-    "strftime('%Y-%m-%dT%H:%M:%fZ', messages.created_at) as created_at " +
+    "#{iso("messages.created_at")} as created_at " +
     "from messages left join users on users.id = messages.creator_id " +
     "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
     "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}' " +
@@ -278,37 +278,48 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
   return ok(Page(messages: shown.reverse, older: older, at_latest: before.none?))
 end
 
-## Stores a message of the person in the room, which the caller has checked they are in, and says whether the person
-## is still active: the insert itself needs an active person, so a deactivation that came after the sign-in check (the
-## request may have waited for a connection) stores nothing and gives `false`. `html` is the body as the editor sent
-## it, cleaned here by `HtmlSanitizer.sanitize`, and goes in `action_text_rich_texts`; the plain text of it goes in
-## `message_search_index` with the id of the message as its rowid. The three rows are written in one transaction, so
-## the audits of the harness (and a reader of the database) never see a message without its body or its index row.
-## `client_message_id` is what the browser made for the message; it is stored, and there is no check on it (Rails has
-## none): a second post with the same one is a second message.
+## Stores a message of the person in the room, which the caller has checked they are in, and gives it as it is stored
+## (`some`), or `none` when the person is not active any more: the insert itself needs an active person, so a
+## deactivation that came after the sign-in check (the request may have waited for a connection) stores nothing.
+## `html` is the body as the editor sent it. It is cleaned here by `HtmlSanitizer.sanitize` before the transaction
+## begins, so the work of the sanitizer does not hold the write lock of the database that the other writers wait for,
+## and goes in `action_text_rich_texts`; the plain text of it goes in `message_search_index` with the id of the message
+## as its rowid. The rows are written in one transaction, so the audits of the harness (and a reader of the database)
+## never see a message without its body or its index row. As Rails does (`belongs_to :room, touch: true` and
+## `Room#receive`), the room is touched and the people in it who are not the author, who did not set the room to
+## invisible and are not connected get `unread_at`. `client_message_id` is what the browser made for the message; it is
+## stored, and there is no check on it (Rails has none): a second post with the same one is a second message.
 export def post(
   conn: Db.Connection,
   room_id: Int,
   user_id: Int,
   client_message_id: String,
   html: String,
-) -> Result[Bool]
-  return Db.transaction(conn) do |tx|
-    post_in(tx, room_id, user_id, client_message_id, HtmlSanitizer.sanitize(html))
-  end
+) -> Result[Optional[Message]]
+  body = HtmlSanitizer.sanitize(html)
+  text = HtmlSanitizer.plain_text_of_clean(body)
+  return Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text) end
 end
 
-def post_in(tx: Db.Connection, room_id: Int, user_id: Int, client_message_id: String, body: String) -> Result[Bool]
+def post_in(
+  tx: Db.Connection,
+  room_id: Int,
+  user_id: Int,
+  client_message_id: String,
+  body: String,
+  text: String,
+) -> Result[Optional[Message]]
   rows = try Db.query(
     tx,
     "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) " +
     "select ?, ?, ?, #{NOW}, #{NOW} where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
-    "returning id",
+    "returning id, #{iso("created_at")} as created_at, " +
+    "coalesce((select name from users where id = messages.creator_id), '#{UNKNOWN_AUTHOR}') as author",
     [Db.Value.Int(room_id), Db.Value.Int(user_id), Db.Value.Text(client_message_id), Db.Value.Int(user_id)],
   )
 
   if rows.empty?
-    return ok(false)
+    return ok(none)
   end
 
   message_id = Db.Value.Int(int_of(rows[0], "id"))
@@ -319,13 +330,34 @@ def post_in(tx: Db.Connection, room_id: Int, user_id: Int, client_message_id: St
     [message_id, Db.Value.Text(body)],
   )
 
+  try Db.execute(tx, "insert into message_search_index (rowid, body) values (?, ?)", [message_id, Db.Value.Text(text)])
+  try receive(tx, room_id, user_id, message_id)
+  return ok(
+    some(
+      Message(
+        id: int_of(rows[0], "id"),
+        author: text_of(rows[0], "author"),
+        body: body,
+        created_at: text_of(rows[0], "created_at"),
+      ),
+    ),
+  )
+end
+
+# What a message does to its room, as `Message` and `Room#receive` of Rails do: the room is touched, and each member
+# who is not the author, has not set the room to invisible and is not connected now (`connected_at` older than
+# `Rails.CONNECTION_TTL_SECONDS`, or none) has the room unread since the time of the message.
+def receive(tx: Db.Connection, room_id: Int, user_id: Int, message_id: Db.Value) -> Result[Void]
+  try Db.execute(tx, "update rooms set updated_at = #{NOW} where id = ?", [Db.Value.Int(room_id)])
   try Db.execute(
     tx,
-    "insert into message_search_index (rowid, body) values (?, ?)",
-    [message_id, Db.Value.Text(HtmlSanitizer.plain_text(body))],
+    "update memberships set unread_at = (select created_at from messages where id = ?), updated_at = #{NOW} " +
+    "where room_id = ? and user_id <> ? and involvement <> 'invisible' and (connected_at is null or " +
+    "connected_at < strftime('#{Rails.STAMP}', 'now', '-#{Rails.CONNECTION_TTL_SECONDS} seconds'))",
+    [message_id, Db.Value.Int(room_id), Db.Value.Int(user_id)],
   )
 
-  return ok(true)
+  return ok()
 end
 
 def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
@@ -458,6 +490,11 @@ def add_member(tx: Db.Connection, room_id: Int, user_id: Int, involvement: Strin
   )
 
   return ok()
+end
+
+# The SQL for the ISO 8601 UTC form of a timestamp column, which a page writes in `<time datetime>`.
+def iso(column: String) -> String
+  return "strftime('%Y-%m-%dT%H:%M:%fZ', #{column})"
 end
 
 def room_of(row: Db.Row) -> Room

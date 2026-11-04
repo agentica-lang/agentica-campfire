@@ -34,6 +34,10 @@ export STAMP = "%Y-%m-%d %H:%M:%f000"
 ## `created_at` and `updated_at` with it.
 export NOW = "strftime('#{STAMP}', 'now')"
 
+## How long after `memberships.connected_at` a person counts as connected to a room (`CONNECTION_TTL` of
+## `Membership::Connectable`): a message makes a room unread only for the people who are not.
+export CONNECTION_TTL_SECONDS = 60
+
 ## The names of the roles as the pages and `Auth.User` carry them.
 export MEMBER_NAME = "member"
 export ADMINISTRATOR_NAME = "administrator"

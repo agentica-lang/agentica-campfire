@@ -34,7 +34,7 @@ Feature: Direct messages
     When I get "/"
     Then the body contains "<a href=\"/rooms/2\">Bea</a>"
     When I post to "/rooms/2/messages" the form:
-      | body | Hello Bea |
+      | message[body] | Hello Bea |
     And I sign in as "bea@example.com"
     And I get "/"
     Then the body contains "<a href=\"/rooms/2\">Ana</a>"
@@ -49,7 +49,7 @@ Feature: Direct messages
     Then the status is 404
     And the body is "Not Found"
     When I post to "/rooms/2/messages" the form:
-      | body | Let me in |
+      | message[body] | Let me in |
     Then the status is 404
     And the query "select count(*) from messages where room_id = 2" gives 1
 

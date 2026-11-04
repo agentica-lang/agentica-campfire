@@ -15,6 +15,10 @@ export UP = "/up"
 ## of, so no 404 tells which of them it is.
 export MISSING = "Not Found"
 
+## The stylesheet that every page links. The benchmark reads the link out of the room page (`/assets/....css`) and
+## expects the file to answer `text/css`; the file itself is not served yet.
+export STYLESHEET = "/assets/campfire.css"
+
 ## The password reset: the form for the email, the post that asks for the link, the page of the link (with `?token=`)
 ## and the post that sets the new password.
 export PASSWORD_RESET_NEW = "/password_reset/new"
@@ -23,7 +27,8 @@ export PASSWORD_RESET_EDIT = "/password_reset/edit"
 export PASSWORD_RESET_UPDATE = "/password_reset/confirm"
 
 ## The rooms: the form of a new one, the post that makes it, a room page (with `?before=ID` for the messages before
-## that one) and the post of a message to it. `:id` is the id of the room.
+## that one) and the messages of a room: a `GET` gives the fragment of the 40 before `?before=ID` (without the layout, for
+## the script that loads older messages) and a `POST` stores one. `:id` is the id of the room.
 export ROOMS = "/rooms"
 export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"

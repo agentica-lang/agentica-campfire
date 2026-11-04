@@ -9,22 +9,22 @@ Feature: The database and its migrations
     Then the start applied every migration
     And the health check reports the latest schema version
     And the database has the tables:
-      | accounts            |
-      | users               |
-      | sessions            |
-      | rooms               |
-      | memberships         |
-      | messages            |
-      | boosts              |
-      | action_text_rich_texts |
-      | active_storage_blobs |
+      | accounts                   |
+      | users                      |
+      | sessions                   |
+      | rooms                      |
+      | memberships                |
+      | messages                   |
+      | boosts                     |
+      | action_text_rich_texts     |
+      | active_storage_blobs       |
       | active_storage_attachments |
-      | bans                |
-      | searches            |
-      | push_subscriptions  |
-      | webhooks            |
-      | password_resets     |
-      | message_search_index  |
+      | bans                       |
+      | searches                   |
+      | push_subscriptions         |
+      | webhooks                   |
+      | password_resets            |
+      | message_search_index       |
       | agentica_schema_migrations |
 
   Scenario: A second start does not run the migrations again

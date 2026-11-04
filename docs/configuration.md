@@ -62,8 +62,8 @@ by Rails work on it. The app keeps one table of its own, `password_resets`, in t
 for a database it makes, and adds it with `if not exists` to a database that Rails made.
 
 At the start the app checks that such a database has the columns that it reads (`users.status`,
-`rooms.type`, `messages.client_message_id`, `message_search_index.body`...) and stops, naming the first one missing, when one is not
-there. A database that the app made before its history was rewritten to the Rails schema (it has
+`rooms.type`, `messages.client_message_id`, `message_search_index.body`...) and stops, naming the first
+one missing, when one is not there. A database that the app made before its history was rewritten to the Rails schema (it has
 `schema_migrations`, and neither `ar_internal_metadata` nor `agentica_schema_migrations`) also stops the
 start: delete the file and start again, since there has been no release to convert from.
 

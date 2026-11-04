@@ -75,9 +75,10 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   makes has it in its history, and `Migrations.extensions()` hands the same `if not exists` statements to a database
   that Rails made. Keys are Rails': no cascade, and no key where Rails has none (`memberships`, `rooms.creator_id`).
   `users.role` and `users.status` are integers and `rooms.type` is `Rooms::Open|Closed|Direct` (`repo/rails.agc` names
-  them: never write a bare number or type string in SQL of `src/`; `Rooms.OPEN`, `CLOSED` and `DIRECT` are the types,
-  and `Rooms.ADMINISTRATOR_ROLE_NAME` is the label of the role, not the integer), and timestamps are `Rails.NOW` text with
-  no default in the table, so every insert sets `created_at` and `updated_at`.
+  them: never write a bare number or type string in SQL of `src/`; `Rooms.CLOSED` and `Rooms.DIRECT` are the types the
+  rest of the app names (`OPEN` is private to `rooms.agc`), and `Rooms.ADMINISTRATOR_ROLE_NAME` is the label of the
+  role, not the integer), and timestamps are `Rails.NOW` text with no default in the table, so every insert sets
+  `created_at` and `updated_at`.
   A database with `ar_internal_metadata` was made by Rails and is opened as it is (`Database.migrate`, after a check
   of the columns the app reads, `needed_columns`: add a column there when the app starts to read it): no migration
   runs on it, and the one thing added is `Migrations.extensions()`. The app never makes `ar_internal_metadata` or
@@ -92,7 +93,11 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   standalone FTS5 table `message_search_index` with the message id as `rowid`. There are no triggers, so whatever
   writes or deletes a message writes or deletes the other two. Never write `insert or replace into messages`. Page a
   room by `created_at` and then `id` (`Rooms.page`), as Rails does: the id of a database that Rails seeded does not
-  follow time. There is no unique index on `client_message_id` (Rails has none), so the app does not drop a repeat.
+  follow time. There is no unique index on `client_message_id` (Rails has none), so the app does not drop a repeat. The same
+  transaction touches the room and sets `unread_at` (`Room#receive`), and the sanitizing happens before it begins, so
+  the write lock that the writers queue on is not held for it. The markup of a message (`Views.message`) is what the
+  benchmark of basecamp/once-campfire-verification checks (`specs/message_routes.feature` lists its rules): change it
+  only with that feature.
 - Auth: a page is public only if `PUBLIC_PATHS` in `src/campfire_web/auth.agc` names it (the sign-in filter is
   deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
   code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any

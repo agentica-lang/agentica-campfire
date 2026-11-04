@@ -29,6 +29,7 @@ export def layout(title: String, content: String) -> String
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title><%= title %></title>
+      <link rel="stylesheet" href="<%= Routes.STYLESHEET %>">
     </head>
     <body>
     <%== content.strip %>
@@ -225,6 +226,39 @@ export def room_settings(
   return layout("Settings of #{room.name}", body)
 end
 
+## The id of the element that holds the messages of a room (`dom_id(room, :messages)` of Rails, which names the type of
+## the room: `messages_rooms_open_7`), and so the target of a Turbo Stream that appends a message to it.
+export def messages_id(room: Rooms.Room) -> String
+  return "messages_rooms_#{room.room_type.split("::").last.downcase}_#{room.id}"
+end
+
+## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the presentation
+## `<div>` inside the frame that Turbo edits it in. The body is HTML that `Rooms.page` or `Rooms.post` has cleaned, the
+## one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
+## where a message ends (see specs/message_routes.feature).
+export def message(message: Rooms.Message) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <div id="message_<%= message.id %>" data-message-id="<%= message.id %>">
+      <h3><strong><%= message.author %></strong>
+        <time datetime="<%= message.created_at %>"><%= message.created_at %></time></h3>
+      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div></turbo-frame></div>
+  EAG
+end
+
+## The messages one after the other, as the room page and the page of older messages write them.
+export def messages_list(messages: List[Rooms.Message]) -> String
+  return messages.map do |one| message(one) end.join("\n")
+end
+
+## The Turbo Stream that appends the message to the list of the room, which a post answers to a browser.
+export def message_stream(room: Rooms.Room, one: Rooms.Message) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== message(one) %></template></turbo-stream>
+  EAG
+end
+
 ## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
 ## the form that posts a message. The body of a message is HTML that `Rooms.page` has cleaned, so it is the one value
 ## here that is written with `<%== %>`. `can_edit` adds the link to the settings, for the people who may change the
@@ -244,15 +278,9 @@ export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: C
     <% if page.messages.empty? %>
       <p>No messages here yet.</p>
     <% end %>
-    <% for message in page.messages %>
-      <article id="message_<%= message.id %>">
-        <header>
-          <strong><%= message.author %></strong>
-          <time datetime="<%= message.created_at %>"><%= message.created_at %></time>
-        </header>
-        <div><%== message.body %></div>
-      </article>
-    <% end %>
+    <div id="<%= messages_id(room) %>">
+    <%== messages_list(page.messages) %>
+    </div>
     <% if not page.at_latest %>
       <p><a href="<%= Routes.room_path(room.id) %>">Latest messages</a></p>
     <% end %>
@@ -260,10 +288,10 @@ export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: C
       <p role="alert"><%= composer.note %></p>
     <% end %>
       <form method="post" action="<%= Routes.room_messages_path(room.id) %>">
-        <input name="client_message_id" type="hidden" value="<%= composer.message_id %>">
+        <input name="message[client_message_id]" type="hidden" value="<%= composer.message_id %>">
         <p>
           <label>Message
-            <textarea name="body" required autofocus><%= composer.draft %></textarea></label>
+            <textarea name="message[body]" required autofocus><%= composer.draft %></textarea></label>
         </p>
         <p><button type="submit">Send</button></p>
       </form>
