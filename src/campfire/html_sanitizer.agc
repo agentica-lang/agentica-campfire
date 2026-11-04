@@ -11,20 +11,24 @@
 ## `allowed_attributes` in
 ## https://github.com/rails/rails-html-sanitizer/blob/master/lib/rails/html/sanitizer.rb and the URL schemes of
 ## Loofah, https://github.com/flavorjones/loofah/blob/main/lib/loofah/html5/safelist.rb):
-## - fewer tags: Rails also lets through u, mark, h2 to h6, hr, span, sub, sup, dl, dt, dd, abbr, address, cite, ins,
-##   kbd, samp, small, time, tt, var, figure and figcaption; each is one more word in `ALLOWED_TAGS`.
+## - fewer tags: Rails also lets through dl, dt, dd, abbr, acronym, address, big, dfn, ins, kbd, samp, small, time,
+##   tt, var, figure and figcaption; each is one more word in `ALLOWED_TAGS`.
+## - a tag that is not allowed: Rails drops the element with its text; here the tag goes and its text stays.
 ## - fewer attributes: Rails keeps `class`, `title`, `alt`, `src`, `width`, `height`, `data-language` and a few more;
 ##   here only `href` of a link survives (and `rel`, which is written, not copied).
 ## - schemes: Loofah's list has more (ftp, tel, ...); here only http, https and mailto, and a relative address.
 ## - `<a>` with no usable `href` is dropped (its text stays); Rails keeps the tag without the attribute.
-## - tags that are mis-nested are closed in order; Rails (Nokogiri) rebuilds the tree the way a browser does.
+## - tags that are mis-nested are closed in order; Rails (Nokogiri) rebuilds the tree the way a browser does. Only its
+##   common implied end tags are done here: a new `li`, `tr`, `td` or `th` ends the open one, and a `p` ends at a
+##   block tag.
 
 import HTML from "std/html"
 
-# The tags that are kept, with the attributes dropped. `br` is void, `a` is handled apart.
+# The tags that are kept, with the attributes dropped. `br` and `hr` are void, `a` is handled apart.
 ALLOWED_TAGS = Set.new([
   "p",
   "br",
+  "hr",
   "div",
   "strong",
   "em",
@@ -39,6 +43,17 @@ ALLOWED_TAGS = Set.new([
   "ol",
   "li",
   "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "u",
+  "mark",
+  "sub",
+  "sup",
+  "span",
+  "cite",
   "a",
   "table",
   "thead",
@@ -47,6 +62,40 @@ ALLOWED_TAGS = Set.new([
   "tr",
   "th",
   "td",
+])
+
+VOID_TAGS = Set.new(["br", "hr"])
+
+# The implied end tags of HTML, in the common cases. A start tag ends the innermost open tag of a kind (the targets)
+# and what lies inside it, as long as no wall comes first: a wall starts a context of its own, so a `li` in a nested
+# `ul` does not end the `li` outside it. What is closed here is what the output closes, so sanitizing it again changes
+# nothing.
+LIST_ITEMS = Set.new(["li"])
+PARAGRAPHS = Set.new(["p"])
+TABLE_ROWS = Set.new(["tr"])
+TABLE_CELLS = Set.new(["td", "th"])
+LIST_ITEM_WALLS = Set.new(["ul", "ol", "blockquote", "pre", "table", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"])
+PARAGRAPH_WALLS = Set.new(["table", "td", "th"])
+TABLE_ROW_WALLS = Set.new(["table"])
+TABLE_CELL_WALLS = Set.new(["tr", "table"])
+
+# The tags that end an open `p` when they start.
+ENDS_PARAGRAPH = Set.new([
+  "p",
+  "div",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "pre",
+  "table",
+  "hr",
 ])
 
 # The tags that go with everything in them. The ones with raw text (script, style, textarea, title, iframe, xmp,
@@ -113,6 +162,12 @@ struct Tag
   closing: Bool
   href: Optional[String]
   next: Int
+end
+
+# The HTML to write and the open tags after the tags that a start tag ends.
+struct Closed
+  html: String
+  open: List[String]
 end
 
 # What one `<` makes: the HTML to write, the open tags after it, and where the input goes on.
@@ -216,19 +271,58 @@ def open_piece(cs: List[String], n: Int, tag: Tag, open: List[String]) -> Piece
     return Piece(html: "", open: open, next: tag.next)
   end
 
-  if name == "br"
-    return Piece(html: "<br>", open: open, next: tag.next)
+  closed = auto_close(open, name)
+  if VOID_TAGS.include?(name)
+    return Piece(html: "#{closed.html}<#{name}>", open: closed.open, next: tag.next)
   end
 
-  if open.size >= MAX_DEPTH
-    return Piece(html: "", open: open, next: tag.next)
+  # The cap is checked after the end tags above, which make room.
+  if closed.open.size >= MAX_DEPTH
+    return Piece(html: closed.html, open: closed.open, next: tag.next)
   end
 
   if name == "a"
-    return link_piece(tag, open)
+    return link_piece(tag, closed.open)
   end
 
-  return Piece(html: "<#{name}>", open: open.push(name), next: tag.next)
+  return Piece(html: "#{closed.html}<#{name}>", open: closed.open.push(name), next: tag.next)
+end
+
+# The end tags that the start tag `name` implies. The cost is bounded by MAX_DEPTH, as the stack is.
+def auto_close(open: List[String], name: String) -> Closed
+  closed = Closed(html: "", open: open)
+  if name == "li"
+    closed = end_open(closed, LIST_ITEMS, LIST_ITEM_WALLS)
+  elsif name == "tr"
+    closed = end_open(closed, TABLE_ROWS, TABLE_ROW_WALLS)
+  elsif name == "td" or name == "th"
+    closed = end_open(closed, TABLE_CELLS, TABLE_CELL_WALLS)
+  end
+
+  if ENDS_PARAGRAPH.include?(name)
+    closed = end_open(closed, PARAGRAPHS, PARAGRAPH_WALLS)
+  end
+
+  return closed
+end
+
+# Ends the innermost open tag of `targets`, and what is inside it, unless a wall comes first.
+def end_open(closed: Closed, targets: Set[String], walls: Set[String]) -> Closed
+  open = closed.open
+  k = open.size - 1
+  while k >= 0 and not targets.include?(open[k])
+    if walls.include?(open[k])
+      return closed
+    end
+
+    k -= 1
+  end
+
+  if k < 0
+    return closed
+  end
+
+  return Closed(html: "#{closed.html}#{closing_tags(open, k)}", open: open.take(k))
 end
 
 # A link opens only with a good address. One link inside another closes the first, as in a browser.

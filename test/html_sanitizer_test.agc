@@ -3,6 +3,9 @@ import HtmlSanitizer from "../src/campfire/html_sanitizer"
 NUL = String.from_code(0)
 LINK_REL = "rel=\"noopener noreferrer\""
 
+# The new tags of the editor, which keep no attribute.
+EDITOR_TAGS = ["u", "mark", "h2", "h3", "h4", "h5", "h6", "sub", "sup", "span", "cite"]
+
 # The names that the output may open or close; the one tag with attributes is the link.
 OUTPUT_TAGS = Set.new([
   "p",
@@ -21,6 +24,18 @@ OUTPUT_TAGS = Set.new([
   "ol",
   "li",
   "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "u",
+  "mark",
+  "sub",
+  "sup",
+  "span",
+  "cite",
+  "hr",
   "a",
   "table",
   "thead",
@@ -96,7 +111,26 @@ def well_formed_cases() -> List[Case]
     Case(input: "</b>x</p></div>", want: "x"),
     Case(input: "<p>a</p></p>b", want: "<p>a</p>b"),
     Case(input: "<br/><BR><br />a</br>", want: "<br><br><br>a"),
-    Case(input: "<ul><li>a<li>b</ul>", want: "<ul><li>a<li>b</li></li></ul>"),
+    Case(input: "<ul><li>a<li>b</ul>", want: "<ul><li>a</li><li>b</li></ul>"),
+    Case(input: "<ul><li>a <b>b<li>c</ul>", want: "<ul><li>a <b>b</b></li><li>c</li></ul>"),
+    Case(input: "<ul><li><p>a<li>b</ul>", want: "<ul><li><p>a</p></li><li>b</li></ul>"),
+    Case(
+      input: "<ul><li>a<ul><li>b<li>c</ul><li>d</ul>",
+      want: "<ul><li>a<ul><li>b</li><li>c</li></ul></li><li>d</li></ul>",
+    ),
+    Case(input: "<ol><li>a<blockquote><li>b</ol>", want: "<ol><li>a<blockquote><li>b</li></blockquote></li></ol>"),
+    Case(input: "<p>a<p>b <i>c<div>d</div>e", want: "<p>a</p><p>b <i>c</i></p><div>d</div>e"),
+    Case(input: "<p>a<ul><li>b</ul><p>c<hr>d<h2>e</h2>", want: "<p>a</p><ul><li>b</li></ul><p>c</p><hr>d<h2>e</h2>"),
+    Case(input: "<p>a<table><tr><td>b<p>c</table>", want: "<p>a</p><table><tr><td>b<p>c</p></td></tr></table>"),
+    Case(
+      input: "<table><tr><th>a<th>b<tr><td>c<td>d<tr><td>e</table>",
+      want: "<table><tr><th>a</th><th>b</th></tr><tr><td>c</td><td>d</td></tr><tr><td>e</td></tr></table>",
+    ),
+    Case(
+      input: "<table><tr><td>a<table><tr><td>b<td>c</table><td>d</table>",
+      want: "<table><tr><td>a<table><tr><td>b</td><td>c</td></tr></table></td><td>d</td></tr></table>",
+    ),
+    Case(input: "<hr/>a</hr><HR class=x>", want: "<hr>a<hr>"),
     Case(
       input: "<a href=\"http://a\">one<a href=\"http://b\">two</a></a>",
       want: "<a href=\"http://a\" #{LINK_REL}>one</a><a href=\"http://b\" #{LINK_REL}>two</a>",
@@ -128,7 +162,7 @@ def dropped_cases() -> List[Case]
     Case(input: "<math><mtext><style><img src=x onerror=alert(1)></style></mtext></math>u", want: "u"),
     Case(input: "<object data=\"x.swf\"></object><embed src=\"x.swf\">u", want: "u"),
     Case(input: "<form action=\"/x\"><input name=a><button>go</button></form>", want: "go"),
-    Case(input: "<span style=\"color:red\">a</span><font color=red>b</font><u>c</u>", want: "abc"),
+    Case(input: "<font color=red>a</font><big>b</big><kbd>c</kbd><figure>d</figure>", want: "abcd"),
     Case(input: "a<!-- one -->b<!-- <b>two</b> -->c", want: "abc"),
     Case(input: "<b>a</b><!-- never closed <b>b</b>", want: "<b>a</b>"),
     Case(input: "<!--><script>alert(1)</script>-->", want: "--&gt;"),
@@ -185,6 +219,19 @@ def xss_cases() -> List[Case]
     Case(input: "<a/href=\"http://x\">t</a>", want: "<a href=\"http://x\" #{LINK_REL}>t</a>"),
     Case(input: "<a href>t</a><a href=\"\">u</a><a name=\"x\">v</a>", want: "tuv"),
   ]
+end
+
+# Each new tag of the editor, with attributes and an event handler, comes out with neither.
+def editor_tag_cases() -> List[Case]
+  cases = EDITOR_TAGS.map do |t|
+    Case(input: "<#{t} onclick=\"alert(1)\" style=\"x:expression(alert(1))\" class=x>a</#{t}>", want: "<#{t}>a</#{t}>")
+  end
+
+  return cases.concat([
+    Case(input: "<hr onclick=\"alert(1)\" style=\"x\"/>t", want: "<hr>t"),
+    Case(input: "<hr><script>alert(1)</script></hr>t", want: "<hr>t"),
+    Case(input: "<span title=\"</span><script>alert(1)</script>\">t</span>", want: "<span>t</span>"),
+  ])
 end
 
 # The scheme of a link, written in every way that a browser reads as that scheme.
@@ -309,11 +356,13 @@ def main() -> Void
     Test.test("the evasion tricks of the XSS cheat sheet come out as plain text or nothing") do
       run_cases(xss_cases())
     end,
+    Test.test("the tags of the editor keep no attribute") do run_cases(editor_tag_cases()) end,
     Test.test("a link keeps http, https, mailto and a relative address, in whatever way the scheme is written") do
       run_cases(scheme_cases())
     end,
     Test.test("every output is made of allowed tags only and is a fixed point") do
       cases = action_text_cases().concat(well_formed_cases()).concat(dropped_cases()).concat(xss_cases())
+      cases = cases.concat(editor_tag_cases())
       try run_invariants(cases.concat(scheme_cases()))
       run_invariants([
         Case(input: "<a href=\"x\" <a href=\"y\">", want: ""),
@@ -328,9 +377,17 @@ def main() -> Void
       try Test.eq(out.split("<b>").size, 65)
       Test.eq(out.split("</b>").size, 65)
     end,
+    Test.test("omitted end tags do not nest, so none is lost to the cap") do
+      out = HtmlSanitizer.sanitize("<ul>" + List.repeat("<li>x", 100).join("") + "</ul>")
+      try Test.eq(out.split("<li>").size, 101)
+      try Test.eq(out.split("</li>").size, 101)
+      cells = HtmlSanitizer.sanitize("<table><tr>" + List.repeat("<td>x", 100).join("") + "</table>")
+      Test.eq(cells.split("</td>").size, 101)
+    end,
     Test.test("the cost grows with the input") do
       try linear?("<p>text <b>bold</b> &amp; <a href=\"http://x/?a=1&b=2\">link</a></p>")
       try linear?("<b>")
+      try linear?("<ul><li>x <b>y<p>z")
       try linear?("</i>")
       linear?("&#x")
     end,
