@@ -9,6 +9,8 @@ import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
 import SmtpSteps from "smtp_steps"
 import DataDir from "../src/data_dir"
+import Accounts from "../src/accounts"
+import Auth from "../src/auth"
 import Database from "../src/database"
 import Migrations from "../src/migrations"
 import Passwords from "../src/passwords"
@@ -19,6 +21,9 @@ DB_URL = "db_url"
 STARTED = "started"
 STARTUP = "startup_lines"
 UPDATED = "updated"
+CHANGED = "changed"
+JOINED = "joined"
+SESSION = "session"
 SQL_ERROR = "sql_error"
 LISTENING = "listening on "
 SOCKET_MS = 5_000
@@ -48,6 +53,13 @@ def main() -> Void
     BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("{string} asks Rooms.update_closed to rename the room {int} and swap its members", &ask_update_closed),
     BDD.step("the update is refused", &update_is_refused),
+    BDD.step("{string} asks Accounts to {string} the user {int}", &ask_accounts),
+    BDD.step("{string} asks Auth.join_hashed to sign up with the code {string}", &ask_join_hashed),
+    BDD.step("the join is {string}", &join_is),
+    BDD.step("Auth.open_session is asked for the user {int}", &ask_open_session),
+    BDD.step("the session is refused", &session_is_refused),
+    BDD.step("the session is opened", &session_is_opened),
+    BDD.step("the change is refused", &change_is_refused),
     BDD.step("I run the sql {string}", &run_sql),
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
@@ -259,6 +271,93 @@ end
 
 def update_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, text_of(ctx, UPDATED) == "false", "the update said #{text_of(ctx, UPDATED)}")
+end
+
+# `Accounts` straight, as the person with that email, skipping the check of the page, so that only the check inside the
+# transaction can refuse it. `action` is `deactivate` or `reactivate` of the user `user_id`, or `regenerate` (which
+# takes no user). The outcome is kept as `Changed` or `Refused` (and the others of `Accounts.Change`).
+def ask_accounts(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| accounts_as(conn, args[0], args[1], args[2].to_i!) end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Accounts.#{args[1]} failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, CHANGED, JSON.from(outcome.unwrap!))
+end
+
+def accounts_as(conn: Db.Connection, email: String, action: String, user_id: Int) -> Result[String]
+  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  actor_id = value_int(rows[0].get("id", Db.Value.Null))
+  if action == "regenerate"
+    done = try Accounts.regenerate_join_code(conn, actor_id)
+    if done
+      return ok("Changed")
+    end
+
+    return ok("Refused")
+  end
+
+  if action == "deactivate"
+    return ok(change_name(try Accounts.deactivate(conn, actor_id, user_id)))
+  end
+
+  return ok(change_name(try Accounts.reactivate(conn, actor_id, user_id)))
+end
+
+def change_name(change: Accounts.Change) -> String
+  case change
+    Accounts.Change.Changed -> return "Changed"
+    Accounts.Change.Unchanged -> return "Unchanged"
+    Accounts.Change.Missing -> return "Missing"
+    Accounts.Change.Refused -> return "Refused"
+  end
+end
+
+def change_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, CHANGED) == "Refused", "the change was #{text_of(ctx, CHANGED)}")
+end
+
+# `Auth.join_hashed` straight, which is `Auth.join` after its checks and its hashing: the code and the email are
+# looked at again inside its transaction, and only a call that skips the first look reaches that.
+def ask_join_hashed(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| Auth.join_hashed(conn, args[1], "Late", args[0], "scrypt$digest", "") end
+
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Auth.join_hashed failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, JOINED, JSON.from(join_name(outcome.unwrap!)))
+end
+
+# `Auth.open_session` straight: `Auth.sign_in` checks `active` first, so only a person who is deactivated between that
+# check and the insert reaches the condition of the insert, and a call that skips the check stands for that.
+def ask_open_session(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| Auth.open_session(conn, args[0].to_i!, "") end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Auth.open_session failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, SESSION, JSON.from("#{outcome.unwrap!.some?}"))
+end
+
+def session_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, SESSION) == "false", "a session was opened")
+end
+
+def session_is_opened(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, SESSION) == "true", "no session was opened")
+end
+
+def join_name(outcome: Auth.JoinOutcome) -> String
+  case outcome
+    Auth.JoinOutcome.Joined(_) -> return "Joined"
+    Auth.JoinOutcome.Gone -> return "Gone"
+    Auth.JoinOutcome.Invalid(_) -> return "Invalid"
+  end
+end
+
+def join_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.assert(ctx, text_of(ctx, JOINED) == args[0], "the join was #{text_of(ctx, JOINED)}")
 end
 
 def applied_every_migration(ctx: BDD.Context, args: List[String]) -> BDD.Context

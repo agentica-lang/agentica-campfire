@@ -1,6 +1,7 @@
 ## The routes of the app, on Bond.
 
 import Bond from "pkg/bond/bond"
+import AccountsWeb from "accounts_web"
 import AuthWeb from "auth_web"
 import Mailer from "mailer"
 import Routes from "routes"
@@ -13,14 +14,17 @@ struct Health
 end
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
-## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, and those of `RoomsWeb`.
+## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, and those of `RoomsWeb` and
+## `AccountsWeb`.
 export def build(config: Config, schema_version: Int, mailer: Mailer.Mailer) -> Bond.App
   return (
     Bond.app()
     |> AuthWeb.add(config, mailer)
     |> RoomsWeb.add(config)
+    |> AccountsWeb.add(config)
     |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, config) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
+    |> Bond.not_found() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
   )
 end
 
