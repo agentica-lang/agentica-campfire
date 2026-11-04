@@ -1,7 +1,8 @@
 ## First run, sign in, sign out and password reset over the `accounts`, `users`, `sessions` and `password_resets`
-## tables. These functions take an open connection and never see a request. A session is a row with a random token that the cookie carries, so deleting the
-## row ends the session on the server whatever cookie a client keeps. The token is not hashed in the table: the cookie
-## that holds it is signed, so a copy of the database alone does not give a session.
+## tables. These functions take an open connection and never see a request. A session is a row with a random token that
+## the cookie carries, so deleting the row ends the session on the server whatever cookie a client keeps. The token is
+## not hashed in the table: the cookie that holds it is signed, so a copy of the database alone does not give a
+## session.
 
 import Db from "pkg/db/db"
 import Passwords from "passwords"
@@ -16,10 +17,11 @@ TOKEN_BYTES = 32
 JOIN_CODE_BYTES = 6
 GROUP = 4
 
-# A reset link works for this long, and a person can have a new one only this long after the last (a stranger who
-# types an email into the form cannot make the app send mail to that address more often).
+# A reset link works for this long. While a link works nobody gets another one, and after it was used a new one comes
+# only this long after it was made: a stranger who types an email into the form can neither make the app send mail to
+# that address more often than that, nor replace the link that the person is about to open.
 export RESET_MINUTES = 30
-RESEND_SECONDS = 60
+RESEND_SECONDS = 300
 
 # A reset token is TOKEN_BYTES of hex, which is 64 characters: nothing longer is looked up.
 MAX_TOKEN_LENGTH = 128
@@ -155,38 +157,18 @@ export def sign_out(conn: Db.Connection, token: String) -> Result[Void]
 end
 
 ## Makes a reset link for the person with this email, and gives what the email needs, or `none` when nothing is to be
-## sent: no such person, a deactivated one or a bot, an address that is too long, or a link made less than a minute ago.
-## The caller answers the same whatever this gives. A new link replaces the person's older ones, and the expired links
-## of everybody go with it.
+## sent: no such person, a deactivated one or a bot, an address that is too long, a link of that person that still
+## works (a request must not replace it, or a stranger could keep the person from ever using one), or a link made less
+## than five minutes ago. The caller answers the same whatever this gives. The expired links of everybody go with it.
+## It is one transaction, which takes the write lock first, so requests that come together find each other's link and
+## only one of them sends.
 export def request_password_reset(conn: Db.Connection, email: String) -> Result[Optional[PasswordReset]]
   if email.length > MAX_EMAIL_LENGTH
     return ok(none)
   end
 
-  rows = try Db.query(
-    conn,
-    "select id, name, email from users where email = ? and active = 1 and role <> 'bot'",
-    [Db.Value.Text(normal(email))],
-  )
-
-  if rows.empty?
-    return ok(none)
-  end
-
-  user_id = int_of(rows[0], "id")
-  recent = try Db.query(
-    conn,
-    "select count(*) as total from password_resets where user_id = ? and created_at > #{RESEND_LIMIT}",
-    [Db.Value.Int(user_id)],
-  )
-
-  if int_of(recent[0], "total") > 0
-    return ok(none)
-  end
-
   token = SecureRandom.hex(TOKEN_BYTES)
-  try Db.transaction(conn) do |tx| store_reset(tx, user_id, token) end
-  return ok(some(PasswordReset(name: text_of(rows[0], "name"), email: text_of(rows[0], "email"), token: token)))
+  return Db.transaction(conn) do |tx| make_reset(tx, normal(email), token) end
 end
 
 ## True when the token belongs to a link that has not been used or expired. It changes nothing, so a page may call it.
@@ -197,17 +179,19 @@ export def reset_token_valid?(conn: Db.Connection, token: String) -> Result[Bool
 
   rows = try Db.query(
     conn,
-    "select count(*) as total from password_resets where token_digest = ? and expires_at > #{NOW}",
+    "select count(*) as total from password_resets where token_digest = ? and used_at is null and expires_at > #{NOW}",
     [Db.Value.Text(token_digest(token))],
   )
 
   return ok(int_of(rows[0], "total") > 0)
 end
 
-## Sets the new password of the person that the link belongs to, ends every session that they had, starts a new one
-## and uses up the link, in one transaction: two forms sent together with one link make one change, since the delete of
-## the link tells which of them got it. The link is looked at before the password is hashed, so a link that does not
-## work costs no hashing. An `error` is a database or hashing failure.
+## Sets the new password of the person that the link belongs to, ends every session that they had, starts a new one and
+## uses up the link, in one transaction: two forms sent together with one link make one change, since the update that
+## marks the link used tells which of them got it. The link is looked at before the password is hashed, so a link that
+## does not work costs no hashing. The web layer looks at it too, before it takes a hash slot: a link that does not
+## work is answered at once, even while the slots are all busy, and this function stays right for any other caller. An
+## `error` is a database or hashing failure.
 export def reset_password(
   conn: Db.Connection,
   token: String,
@@ -269,13 +253,31 @@ def normal(email: String) -> String
   return email.strip.downcase
 end
 
-# The hash of a token, as the table keeps it.
-def token_digest(token: String) -> String
-  return Digest.sha256_hexdigest(token.bytes)
-end
+# The body of `request_password_reset`: a link only for an active person who has no link that works and none made
+# within the resend time. The person's earlier rows (used, expired) go when a new link is made.
+def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Optional[PasswordReset]]
+  rows = try Db.query(
+    tx,
+    "select id, name, email from users where email = ? and active = 1 and role <> 'bot'",
+    [Db.Value.Text(email)],
+  )
 
-# One live link per person: the older ones go, and so does every link that has expired.
-def store_reset(tx: Db.Connection, user_id: Int, token: String) -> Result[Bool]
+  if rows.empty?
+    return ok(none)
+  end
+
+  user_id = int_of(rows[0], "id")
+  held = try Db.query(
+    tx,
+    "select count(*) as total from password_resets where user_id = ? and " +
+    "((used_at is null and expires_at > #{NOW}) or created_at > #{RESEND_LIMIT})",
+    [Db.Value.Int(user_id)],
+  )
+
+  if int_of(held[0], "total") > 0
+    return ok(none)
+  end
+
   try Db.execute(tx, "delete from password_resets where user_id = ? or expires_at <= #{NOW}", [Db.Value.Int(user_id)])
   try Db.execute(
     tx,
@@ -283,14 +285,20 @@ def store_reset(tx: Db.Connection, user_id: Int, token: String) -> Result[Bool]
     [Db.Value.Int(user_id), Db.Value.Text(token_digest(token))],
   )
 
-  return ok(true)
+  return ok(some(PasswordReset(name: text_of(rows[0], "name"), email: text_of(rows[0], "email"), token: token)))
+end
+
+# The hash of a token, as the table keeps it.
+def token_digest(token: String) -> String
+  return Digest.sha256_hexdigest(token.bytes)
 end
 
 # False when the link was used or expired since it was looked at, or when its person is gone, with no session started.
 def finish_reset(tx: Db.Connection, token: String, digest: String, session: String, user_agent: String) -> Result[Bool]
   used = try Db.query(
     tx,
-    "delete from password_resets where token_digest = ? and expires_at > #{NOW} returning user_id",
+    "update password_resets set used_at = #{NOW} where token_digest = ? and used_at is null and expires_at > #{NOW} " +
+    "returning user_id",
     [Db.Value.Text(token_digest(token))],
   )
 
@@ -310,7 +318,7 @@ def finish_reset(tx: Db.Connection, token: String, digest: String, session: Stri
   end
 
   try Db.execute(tx, "delete from sessions where user_id = ?", [Db.Value.Int(user_id)])
-  try Db.execute(tx, "delete from password_resets where user_id = ?", [Db.Value.Int(user_id)])
+  try Db.execute(tx, "delete from password_resets where user_id = ? and used_at is null", [Db.Value.Int(user_id)])
   try insert_session(tx, user_id, session, user_agent)
   return ok(true)
 end

@@ -51,7 +51,7 @@ Feature: The schema
       | 8 | b44ac0593437668bb2af54fa31e7d6b9a2e809c8eb1f5d3290906cc7aed4c03d |
       | 9 | 984c50d51fa1f18070d6edb70e1e9dbb3c63ef8e9a6ec15249206174f01ab14f |
       | 10 | be991ad069123d9bda2092dfe66a96a334471e6466400736538f674aeaeb2051 |
-      | 11 | 22aa303e7aaff67a2a0dda2ea2a77cdbbc8ea10de6dfbacc7542a5af54588149 |
+      | 11 | 88e62b6b64b5176b12efce732338edb449522ddb48a7aba88cfe736387294d65 |
 
   Scenario Outline: The database refuses a row that breaks a rule
     Given I run the sql "insert into memberships (room_id, user_id) values (1, 1)"

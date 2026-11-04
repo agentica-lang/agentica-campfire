@@ -443,6 +443,8 @@ def unicode_control?(code: Int) -> Bool
     code == 8207 or
     (code >= 8232 and code <= 8238) or
     (code >= 8294 and code <= 8297) or
+    (code >= 8203 and code <= 8205) or
+    (code >= 8298 and code <= 8303) or
     code == 65279
   )
 end

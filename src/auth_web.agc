@@ -1,6 +1,6 @@
 ## The web side of first run, sign in, sign out and password reset: the session cookie, the CSRF check, the filter that
-## asks for a signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS` names it, so a route that a
-## later change adds needs a sign-in without anyone remembering to ask for it.
+## asks for a signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS` names it, so a
+## route that a later change adds needs a sign-in without anyone remembering to ask for it.
 
 import Bond from "pkg/bond/bond"
 import Auth from "auth"
@@ -266,7 +266,8 @@ def update_password(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) ->
   end
 
   if not Slots.take?(slots, MAX_HASHES)
-    return ok(busy(conn))
+    # The form comes back with the token, so a person does not have to ask for another link because of a burst.
+    return ok(retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, BUSY)))))
   end
 
   changed = Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
@@ -301,5 +302,9 @@ end
 
 # 503 for a burst of requests that hash, and when to ask again. Nothing of the form is shown again.
 def busy(conn: Bond.Conn) -> Bond.Conn
-  return Bond.header(Bond.html(conn, 503, Views.busy(BUSY)), "retry-after", RETRY_AFTER_SECONDS)
+  return retry_later(Bond.html(conn, 503, Views.busy(BUSY)))
+end
+
+def retry_later(conn: Bond.Conn) -> Bond.Conn
+  return Bond.header(conn, "retry-after", RETRY_AFTER_SECONDS)
 end

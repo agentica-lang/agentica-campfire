@@ -15,9 +15,9 @@
 ## SMTP_PEER_CANNED instead: lines separated by `|`, each sent as it is, so `250` alone, `OK` or an empty line are
 ## replies that a client has to survive. `~N` stands for N lines `250-line` and a last `250 end`. Between those lines
 ## the peer waits SMTP_PEER_LINE_DELAY_MS. `~N:M` is the same with M letters x after `250-` on each line. `^N` is one
-## line `550 ` and N letters x. In a line, `<ESC>` is the escape character, `<CSI>` U+009B (a C1 control), `<RLO>` U+202E
-## (a bidi override) and `<LS>` U+2028 (a line separator). SMTP_PEER_DATA_DELAY_MS is how long it waits after the
-## message before it answers 250.
+## line `550 ` and N letters x. In a line, `<ESC>` is the escape character, `<CSI>` U+009B (a C1 control), `<RLO>`
+## U+202E (a bidi override), `<LS>` U+2028 (a line separator), `<ZWJ>` U+200D (zero width) and `<ISS>` U+206A (a
+## deprecated format control). SMTP_PEER_DATA_DELAY_MS is how long it waits after the message before it answers 250.
 
 HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000
@@ -184,6 +184,8 @@ def controls(line: String) -> String
     .replace("<CSI>", String.from_code(155))
     .replace("<RLO>", String.from_code(8238))
     .replace("<LS>", String.from_code(8232))
+    .replace("<ZWJ>", String.from_code(8205))
+    .replace("<ISS>", String.from_code(8298))
 end
 
 # Never answers: reads until the client gives up and closes.

@@ -4,7 +4,7 @@ import Bond from "pkg/bond/bond"
 import Database from "database"
 import Mailer from "mailer"
 import Web from "web"
-import {Config} from "config"
+import {Config, plain_link?} from "config"
 
 ## The server and the mailer that a start made, for `stop` and `wait`.
 export struct Running
@@ -21,6 +21,13 @@ end
 export def start(config: Config) -> Result[Running]
   puts(cookie_line(config.secure_cookies))
   puts(Mailer.status(config.smtp))
+  if config.smtp.some? and plain_link?(config)
+    IO.warn(
+      "campfire: warning: CAMPFIRE_BASE_URL is http:// for a host that is not this machine, " +
+      "so the links in emails and what follows them go over plain HTTP",
+    )
+  end
+
   migrated = Database.migrate(config.database_url)
   if not migrated.ok?
     return error(

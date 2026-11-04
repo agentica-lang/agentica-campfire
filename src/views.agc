@@ -123,7 +123,8 @@ export def forgot_password() -> String
   return layout("Reset your password", body)
 end
 
-## The answer to a request for a link. It is the same for every email, so it says what happens "if" there is an account.
+## The answer to a request for a link. It is the same for every email, so it says what happens "if" there is an
+## account.
 export def reset_requested() -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>

@@ -198,7 +198,7 @@ Feature: Sending email over SMTP
       Hi.
       """
     Then the send fails with the code 550
-    And the error mentions "recipient eve@example.com refused"
+    And the error mentions "eve@example.com"
     And the server transcript has the line "C: RCPT TO:<bob@example.com>"
     And the server transcript has the line "C: RCPT TO:<eve@example.com>"
     And the server transcript has the line "C: RSET"
@@ -571,9 +571,9 @@ Feature: Sending email over SMTP
       | 506     | the send fails with the code 550                         |
       | 507     | the send fails without a code                            |
 
-  Scenario: C1 controls and Unicode line and bidi controls of the server text do not reach the error
+  Scenario: C1 controls and Unicode line, bidi and zero-width controls of the server text do not reach the error
     Given the SMTP server speaks "plain"
-    And the SMTP server answers "RCPT" with "550 bad<CSI>[31m<RLO>ok<LS>end"
+    And the SMTP server answers "RCPT" with "550 bad<CSI>[31m<RLO>ok<LS>end<ZWJ>!<ISS>"
     And the SMTP server is listening
     And the client uses "plain" security
     When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
@@ -581,7 +581,7 @@ Feature: Sending email over SMTP
       Hi Bob.
       """
     Then the send fails with the code 550
-    And the error mentions "bad[31mokend"
+    And the error mentions "bad[31mokend!"
     And the error has no C1 or bidi control characters
 
   Scenario: The end of the message has a longer wait than the other replies

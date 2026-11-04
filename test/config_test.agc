@@ -205,5 +205,29 @@ def main() -> Void
       try Test.ok?(mail_with("smtp://mail.example.com", "https://[::1]:3000", "Chat <chat@acme.test>", "acme.test"))
       Test.error?(mail_with("smtp://mail.example.com", "https://chat.example.com", "", "two words"))
     end,
+    Test.test(
+      "a base url on plain HTTP is a warning for a host that is not this machine, and an error with secure cookies",
+    ) do
+      plain = mail_with("smtp://mail.example.com", "http://chat.example.com", "", "").unwrap!
+      try Test.eq(Config.plain_link?(plain), true)
+      for base in ["http://localhost:3000", "http://127.0.0.1", "http://[::1]:3000", "https://chat.example.com"]
+        named = mail_with("smtp://mail.example.com", base, "Chat <chat@acme.test>", "acme.test").unwrap!
+        try Test.eq(Config.plain_link?(named), false)
+      end
+
+      secure = Config.parse(
+        Config.DEFAULT_HOST,
+        Config.DEFAULT_PORT,
+        Config.DEFAULT_DATA_DIR,
+        "",
+        SECRET,
+        "true",
+        "",
+        "http://chat.example.com",
+      )
+
+      try Test.error?(secure)
+      Test.ok?(Config.parse(Config.DEFAULT_HOST, "3000", "data", "", SECRET, "true", "", "https://chat.example.com"))
+    end,
   ])
 end

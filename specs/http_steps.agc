@@ -27,10 +27,11 @@ struct Reply
   elapsed_ms: Int
 end
 
-# What a parallel request answered: the status, and the `Retry-After` header ("" when it has none).
+# What a parallel request answered: the status, the `Retry-After` header ("" when it has none) and the body.
 struct Answer
   status: Int
   retry_after: String
+  body: String
 end
 
 struct Answers
@@ -61,7 +62,9 @@ export def steps() -> List[BDD.Step]
     BDD.step("the header {string} does not contain {string}", &header_lacks),
     BDD.step("each status is one of {string}", &each_status_is_one_of),
     BDD.step("at least one status is {int}", &some_status_is),
+    BDD.step("exactly {int} statuses are {int}", &count_statuses),
     BDD.step("each 503 answer has the header \"retry-after\" {string}", &each_503_says_retry_after),
+    BDD.step("each 503 answer has a body that contains {string}", &each_503_body_contains),
     BDD.step("the body is {string}", &body_is),
     BDD.step("the body contains {string}", &body_contains),
     BDD.step("the body does not contain {string}", &body_lacks),
@@ -86,6 +89,21 @@ end
 ## Posts `body`, a form that a step encoded, to `path`.
 export def post(ctx: BDD.Context, path: String, body: String) -> BDD.Context
   return send(ctx, "POST", path, body)
+end
+
+## Posts `body` to `path` `count` times in parallel with the browser as it is, and keeps the statuses (see
+## `I post to {string} {int} times at once the form:`).
+export def post_at_once(ctx: BDD.Context, path: String, body: String, count: Int) -> BDD.Context
+  port = port_of(ctx)
+  state = browser(ctx)
+  attempts = (1..count).to_a
+  answers = Task.map(attempts, count, ALL_AT_ONCE_MS) do |_| post_answer(port, state, path, body) end
+  failed = answers.select do |answer| not answer.ok? end
+  if not failed.empty?
+    return BDD.assert(ctx, false, "a request failed: #{failed[0].message}")
+  end
+
+  return BDD.set(ctx, STATUSES, JSON.from(Answers(values: answers.map do |answer| answer.unwrap! end)))
 end
 
 # The table has one field per row: its name, then its value.
@@ -128,24 +146,14 @@ end
 # read them; the answers themselves (and their cookies) are not, since each request is its own.
 def post_form_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
   pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
-  body = URI.encode_www_form(pairs)
-  port = port_of(ctx)
-  state = browser(ctx)
-  count = args[1].to_i!
-  attempts = (1..count).to_a
-  answers = Task.map(attempts, count, ALL_AT_ONCE_MS) do |_| post_answer(port, state, args[0], body) end
-  failed = answers.select do |answer| not answer.ok? end
-  if not failed.empty?
-    return BDD.assert(ctx, false, "a request failed: #{failed[0].message}")
-  end
-
-  return BDD.set(ctx, STATUSES, JSON.from(Answers(values: answers.map do |answer| answer.unwrap! end)))
+  return post_at_once(ctx, args[0], URI.encode_www_form(pairs), args[1].to_i!)
 end
 
 def post_answer(port: Int, state: Browser, path: String, body: String) -> Result[Answer]
   response = try perform(port, state, "POST", path, body)
   retries = HTTP.header_values(response.headers, "retry-after")
-  return ok(Answer(status: response.status, retry_after: retries.join(",")))
+  text = String.from_bytes(response.body).unwrap_or("")
+  return ok(Answer(status: response.status, retry_after: retries.join(","), body: text))
 end
 
 def perform(port: Int, state: Browser, method: String, path: String, body: String) -> Result[HttpResponse]
@@ -308,6 +316,22 @@ end
 def some_status_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
   statuses = statuses_of(ctx)
   return BDD.assert(ctx, statuses.include?(args[0].to_i!), "the statuses are #{statuses}")
+end
+
+def count_statuses(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  statuses = statuses_of(ctx)
+  found = statuses.select do |status| status == args[1].to_i! end
+  return BDD.assert(ctx, found.size == args[0].to_i!, "the statuses are #{statuses}")
+end
+
+def each_503_body_contains(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  refused = answers_of(ctx).select do |answer| answer.status == 503 end
+  wrong = refused.select do |answer| not answer.body.include?(args[0]) end
+  return BDD.assert(
+    ctx,
+    not refused.empty? and wrong.empty?,
+    "the 503 answers are #{refused.size}, #{wrong.size} lack it",
+  )
 end
 
 def each_503_says_retry_after(ctx: BDD.Context, args: List[String]) -> BDD.Context

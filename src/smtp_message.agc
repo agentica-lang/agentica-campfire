@@ -441,16 +441,12 @@ def chomp(text: String) -> String
   return text
 end
 
-# The same message always gets the same boundary, since it comes from the parts. A boundary must not be in a part, so
-# it grows until it is not.
+# The same message always gets the same boundary, since it comes from the parts. The boundary is made of a SHA-256 of
+# the parts, so a part cannot hold it: that would be a text that contains its own digest, which nobody can make. A
+# check and a longer boundary would be a branch that no input reaches.
 def boundary_for(text: String, html: String) -> String
   digest = Digest.sha256_hexdigest("#{text}\n#{html}".bytes)
-  boundary = "=_#{digest.slice(0, 32)}"
-  while text.include?(boundary) or html.include?(boundary)
-    boundary = "#{boundary}x"
-  end
-
-  return boundary
+  return "=_#{digest.slice(0, 32)}"
 end
 
 def crlf(text: String) -> String

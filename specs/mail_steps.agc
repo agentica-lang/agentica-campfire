@@ -10,6 +10,8 @@ import HttpSteps from "http_steps"
 PORT = "mail_port"
 AUTH = "mail_auth"
 STALL = "mail_stall"
+REFUSED = "mail_refused"
+ADDRESS = "mail_address"
 USER = "mail_user"
 PASSWORD = "mail_password"
 SERVICE = "mail"
@@ -18,7 +20,7 @@ LINK = "mail_link"
 ENABLED = "mail_enabled"
 
 ## The public address that the app is given, so that the links in its emails do not depend on the port it listens on.
-export BASE_URL = "http://campfire.test"
+export BASE_URL = "https://campfire.test"
 
 LISTENING = "listening on "
 CLOSED = "closed"
@@ -31,6 +33,7 @@ CLIENT = "C: "
 SOFT_BREAK = "="
 HEX_DIGITS = "0123456789ABCDEF"
 PEER = "specs/fixtures/smtp_peer.agc"
+UPDATE_PATH = "/password_reset/confirm"
 
 struct Transcript
   lines: List[String]
@@ -42,6 +45,8 @@ export def steps() -> List[BDD.Step]
   return [
     BDD.step("the mail server offers AUTH {string}", &server_offers_auth),
     BDD.step("the mail server never answers {string}", &server_never_answers),
+    BDD.step("the mail server refuses the recipient {string}", &server_refuses_recipient),
+    BDD.step("the app is given the public address {string}", &app_has_address),
     BDD.step("the mail server is listening", &server_listens),
     BDD.step("the app sends its email through the mail server", &app_uses_server),
     BDD.step("the app sends its email to a port where no mail server listens", &app_uses_closed_port),
@@ -50,6 +55,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("the mail server received nothing within {int} milliseconds", &server_received_nothing),
     BDD.step("I open the link of the email", &open_link),
     BDD.step("I set the password {string} with the token of the link", &set_password_with_link),
+    BDD.step("I set the password {string} with the token of the link {int} times at once", &set_password_at_once),
     BDD.step("I set the password {string} with the token {string}", &set_password),
   ]
 end
@@ -67,7 +73,12 @@ export def app_environment(ctx: BDD.Context) -> Map[String, String]
   end
 
   url = "smtp+plain://#{login}127.0.0.1:#{JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!}"
-  return {"CAMPFIRE_SMTP_URL": url, "CAMPFIRE_BASE_URL": BASE_URL}
+  address = text_of(ctx, ADDRESS)
+  if address.empty?
+    address = BASE_URL
+  end
+
+  return {"CAMPFIRE_SMTP_URL": url, "CAMPFIRE_BASE_URL": address}
 end
 
 ## The token in the link of the last email that a step opened.
@@ -81,6 +92,14 @@ end
 
 def server_never_answers(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.set(ctx, STALL, JSON.from(args[0]))
+end
+
+def server_refuses_recipient(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.set(ctx, REFUSED, JSON.from(args[0]))
+end
+
+def app_has_address(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.set(ctx, ADDRESS, JSON.from(args[0]))
 end
 
 def app_uses_server(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -100,7 +119,13 @@ end
 # which is the scenario, so the service block that reads it is the one place that touches it.
 def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
   root = Path.cwd().unwrap!
-  env = {"SMTP_PEER_MODE": "plain", "SMTP_PEER_AUTH": text_of(ctx, AUTH), "SMTP_PEER_STALL": text_of(ctx, STALL)}
+  env = {
+    "SMTP_PEER_MODE": "plain",
+    "SMTP_PEER_AUTH": text_of(ctx, AUTH),
+    "SMTP_PEER_STALL": text_of(ctx, STALL),
+    "SMTP_PEER_REJECT_RCPT": text_of(ctx, REFUSED),
+  }
+
   started = Process.spawn_captured("agentica", [Path.join([root, PEER]).unwrap!], ".", 30_000, env)
   if not started.ok?
     return BDD.assert(ctx, false, "cannot start the mail server: #{started.message}")
@@ -238,13 +263,20 @@ def set_password_with_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return submit(ctx, args[0], text_of(ctx, LINK))
 end
 
+def set_password_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return HttpSteps.post_at_once(ctx, UPDATE_PATH, form_of(args[0], text_of(ctx, LINK)), args[1].to_i!)
+end
+
 def set_password(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return submit(ctx, args[0], args[1])
 end
 
 def submit(ctx: BDD.Context, password: String, token: String) -> BDD.Context
-  form = URI.encode_www_form([URI.Pair(name: "token", value: token), URI.Pair(name: "password", value: password)])
-  return HttpSteps.post(ctx, "/password_reset/confirm", form)
+  return HttpSteps.post(ctx, UPDATE_PATH, form_of(password, token))
+end
+
+def form_of(password: String, token: String) -> String
+  return URI.encode_www_form([URI.Pair(name: "token", value: token), URI.Pair(name: "password", value: password)])
 end
 
 def text_of(ctx: BDD.Context, name: String) -> String

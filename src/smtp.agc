@@ -4,8 +4,9 @@
 ## server that needs them in another order.
 ##
 ## Every function returns a `Result`. An `error` for a server that answered has the reply code in its message,
-## `smtp 550: recipient ana@example.com refused: mailbox unavailable`, and `error_code` reads it back. An error without
-## a code (a timeout, a connection that broke, a bad message) starts `smtp: `. The password of the `Options` is
+## `smtp 550: a recipient was refused: mailbox unavailable (ana@example.com)`, and `error_code` reads it back. An error
+## without a code from the dialogue (a timeout, a connection that broke) starts `smtp: `; one for a message that is not
+## valid names what is wrong with it. `error_summary` keeps what is safe for a log. The password of the `Options` is
 ## never part of an error and is never logged: do not print an `Options`.
 ##
 ## STARTTLS is required: a server that does not offer it gets no message, and no password, unless the options say
@@ -54,15 +55,19 @@ CODE_UNAVAILABLE = 421
 MIN_REPLY_CODE = 200
 MAX_REPLY_CODE = 599
 
-# The code points of the Unicode line and bidirectional controls that `server_text` drops (the C1 controls, 127 to
-# 159, are a range of their own).
+# The code points of the Unicode line, bidirectional and zero-width controls that `server_text` drops (the C1
+# controls, 127 to 159, are a range of their own).
 ARABIC_LETTER_MARK = 0x061C
+ZERO_WIDTH_SPACE = 0x200B
+ZERO_WIDTH_JOINER = 0x200D
 LEFT_TO_RIGHT_MARK = 0x200E
 RIGHT_TO_LEFT_MARK = 0x200F
 LINE_SEPARATOR = 0x2028
 RIGHT_TO_LEFT_OVERRIDE = 0x202E
 LEFT_TO_RIGHT_ISOLATE = 0x2066
 POP_DIRECTIONAL_ISOLATE = 0x2069
+INHIBIT_SYMMETRIC_SWAPPING = 0x206A
+NOMINAL_DIGIT_SHAPES = 0x206F
 BYTE_ORDER_MARK = 0xFEFF
 
 AUTH_FAILED = "authentication failed"
@@ -291,6 +296,23 @@ export def error_code(message: String) -> Optional[Int]
   return some(code.unwrap!)
 end
 
+## What of an `error` of this module is safe for a log that many people read: the code and the label of a refusal
+## (`smtp 550: a recipient was refused`), or the first words of an error without a code (`smtp: timed out waiting for
+## the reply to RCPT TO`). It has no server text, no address and no system message. Anything else (a message that is
+## not valid, whose error names what is wrong with it, such as an address) is `the message was not valid`.
+export def error_summary(message: String) -> String
+  parts = message.split(": ")
+  if error_code(message).some? and parts.size > 1
+    return "#{parts[0]}: #{parts[1]}"
+  end
+
+  if message.start_with?("smtp: ") and parts.size > 1
+    return "#{parts[0]}: #{parts[1]}"
+  end
+
+  return "the message was not valid"
+end
+
 ## True for a host on this machine: `localhost`, an address of `127.0.0.0/8` and `::1`. A name that only starts with
 ## `127.` is not.
 export def loopback?(host: String) -> Bool
@@ -322,7 +344,12 @@ end
 def upgrade(client: Client) -> Result[Client]
   _ = try ask(client, "STARTTLS", "STARTTLS", [CODE_READY], "STARTTLS refused")
   context = try tls_context(client.options)
-  upgraded = try TLS.upgrade(client.socket, context, tls_host(client.options.host), client.options.timeout_ms)
+  encrypted = TLS.upgrade(client.socket, context, tls_host(client.options.host), client.options.timeout_ms)
+  if not encrypted.ok?
+    return error(network_failure(encrypted.message, "upgrading to TLS"))
+  end
+
+  upgraded = encrypted.unwrap!
   secure = client.with(socket: upgraded, secure: true, features: [])
   said = ehlo(secure)
   if not said.ok?
@@ -375,14 +402,29 @@ end
 def connect_socket(options: Options) -> Result[Socket]
   if options.security == Security.Implicit
     context = try tls_context(options)
-    return TLS.connect(tls_host(options.host), options.port, context, options.timeout_ms)
+    return connected(TLS.connect(tls_host(options.host), options.port, context, options.timeout_ms))
   end
 
-  return TCP.connect(tls_host(options.host), options.port, options.timeout_ms)
+  return connected(TCP.connect(tls_host(options.host), options.port, options.timeout_ms))
+end
+
+# The system's message names the host and the port, and is more than one line: it goes after the part that a summary
+# keeps.
+def connected(socket: Result[Socket]) -> Result[Socket]
+  if socket.ok?
+    return socket
+  end
+
+  return error(network_failure(socket.message, "connecting"))
 end
 
 def tls_context(options: Options) -> Result[TlsContext]
-  return TLS.client_context(TlsClientOptions(ca_file: options.ca_file))
+  context = TLS.client_context(TlsClientOptions(ca_file: options.ca_file))
+  if not context.ok?
+    return error(network_failure(context.message, "setting up TLS"))
+  end
+
+  return context
 end
 
 # `[::1]` is how a url writes an IPv6 host; the socket calls take it without the brackets.
@@ -474,10 +516,11 @@ end
 
 def transact(client: Client, prepared: Prepared) -> Result[Void]
   sender = prepared.envelope.sender
-  _ = try ask(client, "MAIL FROM:<#{sender}>", "MAIL FROM", [CODE_OK], "sender #{sender} refused")
+  mail = ask(client, "MAIL FROM:<#{sender}>", "MAIL FROM", [CODE_OK], "the sender was refused")
+  _ = try about(mail, sender)
   for recipient in prepared.envelope.recipients
-    refused = "recipient #{recipient} refused"
-    _ = try ask(client, "RCPT TO:<#{recipient}>", "RCPT TO", [CODE_OK, CODE_FORWARDED], refused)
+    rcpt = ask(client, "RCPT TO:<#{recipient}>", "RCPT TO", [CODE_OK, CODE_FORWARDED], "a recipient was refused")
+    _ = try about(rcpt, recipient)
   end
 
   _ = try ask(client, "DATA", "DATA", [CODE_START_DATA], "the server refused DATA")
@@ -485,6 +528,16 @@ def transact(client: Client, prepared: Prepared) -> Result[Void]
   done = try read_reply_within(client, "the end of the message", client.options.data_timeout_ms)
   _ = try expect(done, [CODE_OK], "the message was refused")
   return ok()
+end
+
+# The refusal of a command about an address says the address after the server text, so that the label before it holds
+# no address and `error_summary` can keep the label alone.
+def about(outcome: Result[Reply], address: String) -> Result[Reply]
+  if outcome.ok?
+    return outcome
+  end
+
+  return error("#{outcome.message} (#{address})")
 end
 
 # A line of the message that starts with a dot gets another one, so that it is not taken for the end `.` (RFC 5321
@@ -538,10 +591,12 @@ def control_code?(code: Int) -> Bool
     code < 32 or
     (code >= 127 and code <= 159) or
     code == ARABIC_LETTER_MARK or
+    (code >= ZERO_WIDTH_SPACE and code <= ZERO_WIDTH_JOINER) or
     code == LEFT_TO_RIGHT_MARK or
     code == RIGHT_TO_LEFT_MARK or
     (code >= LINE_SEPARATOR and code <= RIGHT_TO_LEFT_OVERRIDE) or
     (code >= LEFT_TO_RIGHT_ISOLATE and code <= POP_DIRECTIONAL_ISOLATE) or
+    (code >= INHIBIT_SYMMETRIC_SWAPPING and code <= NOMINAL_DIGIT_SHAPES) or
     code == BYTE_ORDER_MARK
   )
 end

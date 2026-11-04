@@ -248,9 +248,9 @@ def webhooks() -> String
 end
 
 # A link in an email to reset a password. Only a hash of its token is kept, so a copy of the database does not give a
-# link that works. The token is random and 256 bits, so a plain SHA-256 is enough (no slow hash). The row is
-# deleted when
-# the token is used, which is what makes a link single-use, and it goes with its user.
+# link that works. The token is random and 256 bits, so a plain SHA-256 is enough (no slow hash). `used_at` is set by
+# the one request that uses the link, which is what makes it single-use; the row stays for a while so that the next
+# request for a link waits (see `Auth.request_password_reset`). It goes with its user.
 def password_resets() -> String
   return <<~SQL
     create table password_resets (
@@ -258,6 +258,7 @@ def password_resets() -> String
       user_id integer not null references users (id) on delete cascade,
       token_digest text not null unique,
       expires_at text not null,
+      used_at text,
       created_at text not null default #{NOW}
     )
   SQL

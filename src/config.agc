@@ -146,6 +146,10 @@ export def parse(
   end
 
   base = try parse_base_url(base_url)
+  if secure_cookies == "true" and base.start_with?("http://")
+    return error("CAMPFIRE_BASE_URL must start with https:// when CAMPFIRE_SECURE_COOKIES is true")
+  end
+
   mail = try parse_mail(smtp_url, base, smtp_hostname, smtp_from)
   folder = data_dir.strip
   url = database_url.strip
@@ -166,6 +170,12 @@ export def parse(
       mail_from: mail.from,
     ),
   )
+end
+
+## True when the links in emails go over plain HTTP to a host that is not this machine: a token that crosses the
+## network in the clear. The app says so at start; with secure cookies it is an error of `parse` instead.
+export def plain_link?(config: Config) -> Bool
+  return config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
 end
 
 # `https://campfire.example.com`, or "" when it is not set. Only the origin: a link adds the path.
@@ -221,12 +231,22 @@ def parse_mail(smtp_url: String, base: String, smtp_hostname: String, smtp_from:
   return ok(Mail(smtp: some(smtp), from: from))
 end
 
-# The host of the base url: no port, and "" for an IPv6 address in brackets, which EHLO writes another way.
+# The host of the base url for EHLO: no port, and "" for an IPv6 address in brackets, which EHLO writes another way.
 def base_host(base: String) -> String
+  host = authority_host(base)
+  if host.start_with?("[")
+    return ""
+  end
+
+  return host
+end
+
+# The host of the base url as a URL writes it: no port, the brackets of an IPv6 address kept.
+def authority_host(base: String) -> String
   marker = base.index_of("://").unwrap_or(0)
   authority = base.slice(marker + 3, base.length - marker - 3)
   if authority.start_with?("[")
-    return ""
+    return authority.slice(0, authority.index_of("]").unwrap_or(authority.length - 1) + 1)
   end
 
   return authority.split(":")[0]
