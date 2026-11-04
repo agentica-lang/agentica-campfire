@@ -1,4 +1,3 @@
-import Bond from "pkg/bond/bond"
 import Testing from "pkg/bond/testing"
 import HTTP from "std/http"
 import Config from "../src/campfire/config"

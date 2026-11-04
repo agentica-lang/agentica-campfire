@@ -707,8 +707,8 @@ def copy_file(relative: String, to: String) -> Result[Void]
   from = try File.open(source, "read", FILE_MS)
   target = try File.open(to, "write", FILE_MS)
   copied = copy_bytes(from, target)
-  File.close(from, FILE_MS)
-  File.close(target, FILE_MS)
+  _ = File.close(from, FILE_MS)
+  _ = File.close(target, FILE_MS)
   return copied
 end
 

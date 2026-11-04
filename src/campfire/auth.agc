@@ -599,7 +599,7 @@ end
 # A missed touch is not worth failing the request for (the page is a read, and the next request tries again), so its
 # result is dropped.
 def touch_session(conn: Db.Connection, token: String) -> Void
-  Db.execute(
+  _ = Db.execute(
     conn,
     "update sessions set last_active_at = #{NOW}, updated_at = #{NOW} where token = ?",
     [Db.Value.Text(token)],
