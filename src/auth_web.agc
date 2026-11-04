@@ -1,12 +1,14 @@
-## The web side of first run, sign in and sign out: the session cookie, the CSRF check, the filter that asks for a
-## signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS` names it, so a route that a
-## later change adds needs a sign-in without anyone remembering to ask for it.
+## The web side of first run, sign in, sign out and password reset: the session cookie, the CSRF check, the filter that
+## asks for a signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS` names it, so a
+## route that a later change adds needs a sign-in without anyone remembering to ask for it.
 
 import Bond from "pkg/bond/bond"
 import Auth from "auth"
 import Database from "database"
+import Mailer from "mailer"
 import Routes from "routes"
 import Slots from "slots"
+import Smtp from "smtp"
 import Views from "views"
 import {Config} from "config"
 
@@ -17,7 +19,17 @@ SECURE_COOKIE_NAME = "__Host-session"
 THIRTY_DAYS = 2_592_000
 TOKEN_KEY = "token"
 
-PUBLIC_PATHS = Set.new([Routes.HEALTH, Routes.FIRST_RUN, Routes.SIGN_IN, Routes.SESSION])
+PUBLIC_PATHS = Set.new([
+  Routes.HEALTH,
+  Routes.FIRST_RUN,
+  Routes.SIGN_IN,
+  Routes.SESSION,
+  Routes.PASSWORD_RESET_NEW,
+  Routes.PASSWORD_RESET,
+  Routes.PASSWORD_RESET_EDIT,
+  Routes.PASSWORD_RESET_UPDATE,
+])
+
 BAD_LOGIN = "Wrong email or password"
 BUSY = "The server is busy, try again in a moment"
 
@@ -26,15 +38,21 @@ BUSY = "The server is busy, try again in a moment"
 MAX_HASHES = 2
 RETRY_AFTER_SECONDS = "1"
 
+LOCK_WAIT_MS = 5_000
+
+RESET_SUBJECT = "Reset your Campfire password"
+
 ## Adds to `app` the cookie sessions, the check against requests from other sites, the sign-in filter and the routes
-## of the first run, the sign-in page and the sign-out. The filters run in this order, and `Bond.csrf` goes first so
-## that a forged request is refused before any work. A missing `Sec-Fetch-Site` and `Origin` (a tool, not a browser)
-## passes, which is what the specs and `curl` send.
-export def add(app: Bond.App, config: Config) -> Bond.App
+## of the first run, the sign-in page, the sign-out and the password reset (which is only there while the `mailer` can
+## send email). The filters run in this order, and `Bond.csrf` goes first so that a forged request is refused before
+## any work. A missing `Sec-Fetch-Site` and `Origin` (a tool, not a browser) passes, which is what the specs and `curl`
+## send.
+export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
   # Per-IP limit: upstream allows 10 sign-ins per 3 minutes per address. It goes here, as a filter on `Routes.SESSION`
   # with an ATS counter, once `Bond.Conn` has the address of the client (agentica-lang/bond#46). Until then `slots`
   # bounds the hashing for everyone together, so a stranger can slow sign-in down but not take the server down.
   slots = Slots.new()
+  reset_lock = Slots.new()
   return (
     app
     |> Bond.csrf()
@@ -42,9 +60,13 @@ export def add(app: Bond.App, config: Config) -> Bond.App
     |> Bond.before() do |conn| require_sign_in(conn, config) end
     |> Bond.get(Routes.FIRST_RUN) do |conn| show_first_run(conn, config) end
     |> Bond.post(Routes.FIRST_RUN) do |conn| create_first_run(conn, config, slots) end
-    |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, config) end
-    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots) end
+    |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, config, mailer) end
+    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, mailer) end
     |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, config) end
+    |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
+    |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, mailer, reset_lock) end
+    |> Bond.get(Routes.PASSWORD_RESET_EDIT) do |conn| show_reset_password(conn, config) end
+    |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, config, slots, reset_lock) end
   )
 end
 
@@ -133,7 +155,7 @@ def create_first_run(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -
   end
 end
 
-def show_sign_in(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+def show_sign_in(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Result[Bond.Conn]
   open = try first_run_open?(config)
   if open
     return ok(Bond.redirect(conn, Routes.FIRST_RUN))
@@ -142,11 +164,16 @@ def show_sign_in(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
   user = try current_user(conn, config)
   case user
     some(_) -> return ok(Bond.redirect(conn, Routes.HOME))
-    none -> return ok(Bond.html(conn, 200, Views.sign_in("", "")))
+    none -> return ok(Bond.html(conn, 200, Views.sign_in("", "", Mailer.enabled?(mailer))))
   end
 end
 
-def create_session(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> Result[Bond.Conn]
+def create_session(
+  conn: Bond.Conn,
+  config: Config,
+  slots: ATS[String, Int],
+  mailer: Mailer.Mailer,
+) -> Result[Bond.Conn]
   email = try Bond.form(conn, "email")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
@@ -159,7 +186,7 @@ def create_session(conn: Bond.Conn, config: Config, slots: ATS[String, Int]) -> 
   token = try checked
   case token
     some(value) -> return ok(signed_in(conn, value))
-    none -> return ok(Bond.html(conn, 422, Views.sign_in(email, BAD_LOGIN)))
+    none -> return ok(Bond.html(conn, 422, Views.sign_in(email, BAD_LOGIN, Mailer.enabled?(mailer))))
   end
 end
 
@@ -181,6 +208,139 @@ def destroy_session(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
   return ok(Bond.redirect(cleared, Routes.SIGN_IN))
 end
 
+# Without email there is nothing to send a link with, so the pages of the reset are not there (a fact about the app,
+# the same for every visitor).
+def show_forgot_password(conn: Bond.Conn, mailer: Mailer.Mailer) -> Result[Bond.Conn]
+  if not Mailer.enabled?(mailer)
+    return ok(Bond.text(conn, 404, "Not Found"))
+  end
+
+  return ok(Bond.html(conn, 200, Views.forgot_password()))
+end
+
+# The answer is the page of `Views.reset_requested` whatever the email is (and whatever the mailer does with the
+# message), so the form does not tell who has an account. The sending is the mailer's, off this request.
+def create_password_reset(
+  conn: Bond.Conn,
+  config: Config,
+  mailer: Mailer.Mailer,
+  lock: ATS[String, Int],
+) -> Result[Bond.Conn]
+  if not Mailer.enabled?(mailer)
+    return ok(Bond.text(conn, 404, "Not Found"))
+  end
+
+  email = try Bond.form(conn, "email")
+  # One request at a time makes its write transaction. SQLite's wait for a busy database blocks the scheduler, and
+  # tasks that all wait that way can leave no scheduler for the one that holds the write lock, so they end in "database
+  # is locked": waiting here, with a sleep, keeps the schedulers free.
+  locked = Slots.with_lock(lock, LOCK_WAIT_MS) do
+    Database.with_connection(config.database_url) do |db| Auth.request_password_reset(db, email) end
+  end
+
+  if locked.none?
+    return ok(busy(conn))
+  end
+
+  reset = try locked.unwrap!
+  if reset.some? and not Mailer.enqueue(mailer, reset_message(config, reset.unwrap!))
+    # The link was made but no email will carry it (the queue is full or the mailer has stopped): it goes, or the
+    # person could not have another until it expired.
+    forget_reset(config, lock, reset.unwrap!.token)
+  end
+
+  return ok(Bond.html(conn, 200, Views.reset_requested()))
+end
+
+# Takes back a link that could not be sent. A failure only shows in the log: the page answers the same.
+def forget_reset(config: Config, lock: ATS[String, Int], token: String) -> Void
+  cancelled = Slots.with_lock(lock, LOCK_WAIT_MS) do
+    Database.with_connection(config.database_url) do |db| Auth.cancel_password_reset(db, token) end
+  end
+
+  if cancelled.none? or not cancelled.unwrap!.ok?
+    IO.warn(
+      "campfire: a reset link that could not be sent could not be removed either, and works for " +
+      "#{Auth.RESET_MINUTES} minutes",
+    )
+  end
+end
+
+# The link starts with the address that the app is configured with, never with the `Host` of the request, which the
+# visitor chooses: a link that went to another site would give the token to it.
+def reset_message(config: Config, reset: Auth.PasswordReset) -> Smtp.Message
+  link = "#{config.base_url}#{Routes.PASSWORD_RESET_EDIT}?token=#{reset.token}"
+  return Smtp.Message(
+    from: config.mail_from,
+    to: [reset.email],
+    subject: RESET_SUBJECT,
+    text: Views.reset_mail(reset.name, link, Auth.RESET_MINUTES),
+  )
+end
+
+# A GET changes nothing (a mail scanner opens links), so the link is used up by the post of the form, not by this page.
+def show_reset_password(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
+  token = Bond.query(conn, "token").unwrap_or("")
+  valid = try reset_token_valid?(config, token)
+  if not valid
+    return ok(link_gone(conn))
+  end
+
+  return ok(private_page(Bond.html(conn, 200, Views.reset_password(token, ""))))
+end
+
+def update_password(
+  conn: Bond.Conn,
+  config: Config,
+  slots: ATS[String, Int],
+  lock: ATS[String, Int],
+) -> Result[Bond.Conn]
+  token = try Bond.form(conn, "token")
+  password = try Bond.form(conn, "password")
+  agent = Bond.request_header(conn, "user-agent").unwrap_or("")
+  # A link that does not work is answered before a slot is taken, since it needs no hashing.
+  valid = try reset_token_valid?(config, token)
+  if not valid
+    return ok(link_gone(conn))
+  end
+
+  if not Slots.take?(slots, MAX_HASHES)
+    return ok(busy_reset_form(conn, token))
+  end
+
+  # The same lock as the request for a link, for the same reason: the write transactions of the reset do not collide.
+  # It is held while the password is hashed, so two forms for one link do not both hash.
+  changed = Slots.with_lock(lock, LOCK_WAIT_MS) do
+    Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
+  end
+
+  Slots.release(slots)
+  if changed.none?
+    return ok(busy_reset_form(conn, token))
+  end
+
+  outcome = try changed.unwrap!
+  case outcome
+    Auth.ResetOutcome.SignedIn(session) -> return ok(signed_in(conn, session))
+    Auth.ResetOutcome.Gone -> return ok(link_gone(conn))
+    Auth.ResetOutcome.Invalid(message) ->
+      return ok(private_page(Bond.html(conn, 422, Views.reset_password(token, message))))
+  end
+end
+
+def reset_token_valid?(config: Config, token: String) -> Result[Bool]
+  return Database.with_connection(config.database_url) do |db| Auth.reset_token_valid?(db, token) end
+end
+
+def link_gone(conn: Bond.Conn) -> Bond.Conn
+  return private_page(Bond.html(conn, 410, Views.reset_link_gone()))
+end
+
+# A page that holds a token is kept out of caches and out of the `Referer` of the links on it.
+def private_page(conn: Bond.Conn) -> Bond.Conn
+  return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "no-referrer")
+end
+
 # The session starts empty, so nothing of an earlier one (a fixed cookie that the visitor had) is kept.
 def signed_in(conn: Bond.Conn, token: String) -> Bond.Conn
   fresh = Bond.set_session(Bond.clear_session(conn), TOKEN_KEY, token)
@@ -189,5 +349,14 @@ end
 
 # 503 for a burst of requests that hash, and when to ask again. Nothing of the form is shown again.
 def busy(conn: Bond.Conn) -> Bond.Conn
-  return Bond.header(Bond.html(conn, 503, Views.busy(BUSY)), "retry-after", RETRY_AFTER_SECONDS)
+  return retry_later(Bond.html(conn, 503, Views.busy(BUSY)))
+end
+
+# The form comes back with the token, so a person does not have to ask for another link because of a burst.
+def busy_reset_form(conn: Bond.Conn, token: String) -> Bond.Conn
+  return retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, BUSY))))
+end
+
+def retry_later(conn: Bond.Conn) -> Bond.Conn
+  return Bond.header(conn, "retry-after", RETRY_AFTER_SECONDS)
 end

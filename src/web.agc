@@ -2,6 +2,7 @@
 
 import Bond from "pkg/bond/bond"
 import AuthWeb from "auth_web"
+import Mailer from "mailer"
 import Routes from "routes"
 import Views from "views"
 import {Config} from "config"
@@ -12,11 +13,11 @@ struct Health
 end
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
-## the database was migrated to, and the routes of `AuthWeb`.
-export def build(config: Config, schema_version: Int) -> Bond.App
+## the database was migrated to, and the routes of `AuthWeb`, which send email through `mailer`.
+export def build(config: Config, schema_version: Int, mailer: Mailer.Mailer) -> Bond.App
   return (
     Bond.app()
-    |> AuthWeb.add(config)
+    |> AuthWeb.add(config, mailer)
     |> Bond.get(Routes.HOME) do |conn| home(conn, config) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
   )

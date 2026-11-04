@@ -51,6 +51,7 @@ Feature: The schema
       | 8 | b44ac0593437668bb2af54fa31e7d6b9a2e809c8eb1f5d3290906cc7aed4c03d |
       | 9 | 984c50d51fa1f18070d6edb70e1e9dbb3c63ef8e9a6ec15249206174f01ab14f |
       | 10 | be991ad069123d9bda2092dfe66a96a334471e6466400736538f674aeaeb2051 |
+      | 11 | 88e62b6b64b5176b12efce732338edb449522ddb48a7aba88cfe736387294d65 |
 
   Scenario Outline: The database refuses a row that breaks a rule
     Given I run the sql "insert into memberships (room_id, user_id) values (1, 1)"
@@ -58,6 +59,7 @@ Feature: The schema
     And I run the sql "insert into attachments (message_id, key, filename, content_type, byte_size, checksum) values (1, 'k1', 'a.txt', 'text/plain', 2, 'abc')"
     And I run the sql "insert into users (name, role, bot_token) values ('Bot', 'bot', 'tok')"
     And I run the sql "insert into webhooks (user_id, url) values (2, 'http://localhost/hook')"
+    And I run the sql "insert into password_resets (user_id, token_digest, expires_at) values (1, 'd1', '2030-01-01T00:00:00.000Z')"
     When I try the sql "<sql>"
     Then the sql fails with "<error>"
 
@@ -68,6 +70,8 @@ Feature: The schema
       | insert into attachments (message_id, key, filename, content_type, byte_size, checksum) values (1, 'k2', 'b.txt', 'text/plain', 2, 'abc') | UNIQUE constraint failed |
       | insert into webhooks (user_id, url) values (2, 'http://localhost/other') | UNIQUE constraint failed |
       | insert into memberships (room_id, user_id) values (1, 1) | UNIQUE constraint failed |
+      | insert into password_resets (user_id, token_digest, expires_at) values (1, 'd1', 'x') | UNIQUE constraint failed |
+      | insert into password_resets (user_id, token_digest, expires_at) values (9, 'd2', 'x') | FOREIGN KEY constraint failed |
       | insert into memberships (room_id, user_id, involvement) values (1, 2, 'always') | CHECK constraint failed |
       | insert into boosts (message_id, booster_id, content) values (1, 1, '') | CHECK constraint failed |
       | insert into users (name, email, password_digest) values ('Bea', 'ANA@example.com', 'x') | UNIQUE constraint failed |

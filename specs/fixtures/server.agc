@@ -1,10 +1,9 @@
 ## The program of the features: the app on the address and the database of its environment (CAMPFIRE_HOST,
 ## CAMPFIRE_PORT and CAMPFIRE_DATABASE_URL, which the steps set), as `campfire.agc` reads them. It prints the lines
 ## that `App.start` does. A line `restart` on its input stops the server and starts another on the same database, and
-## the end of input stops the program.
+## the end of input stops the program, once the mailer has sent what it had.
 
 import App from "../../src/app"
-import Bond from "pkg/bond/bond"
 import Config from "../../src/config"
 
 def main() -> Void
@@ -15,19 +14,20 @@ def main() -> Void
 end
 
 # `restart` goes back to the same database: the migrations run again and find nothing to do.
-def serve(config: Config.Config, server: HttpServer) -> Void
+def serve(config: Config.Config, running: App.Running) -> Void
   line = IO.gets()
   if not line.ok?
+    App.stop(running)
     return
   end
 
   if line.unwrap! == "restart"
-    Bond.stop(server)
+    App.stop(running)
     serve(config, start(config))
   end
 end
 
-def start(config: Config.Config) -> HttpServer
+def start(config: Config.Config) -> App.Running
   started = App.start(config)
   if not started.ok?
     fail(started.message)

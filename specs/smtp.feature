@@ -198,7 +198,7 @@ Feature: Sending email over SMTP
       Hi.
       """
     Then the send fails with the code 550
-    And the error mentions "recipient eve@example.com refused"
+    And the error mentions "eve@example.com"
     And the server transcript has the line "C: RCPT TO:<bob@example.com>"
     And the server transcript has the line "C: RCPT TO:<eve@example.com>"
     And the server transcript has the line "C: RSET"
@@ -467,3 +467,146 @@ Feature: Sending email over SMTP
       | command |
       | EHLO    |
       | AUTH    |
+
+  Scenario Outline: A 421 on EHLO or on AUTH closes the connection
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "PLAIN"
+    And the SMTP server answers "<command>" with "421 service not available"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "secret"
+    When I open the connection, say EHLO, upgrade it and log in, and leave it as it is
+    Then the send fails with the code 421
+    And the server saw the connection close
+
+    Examples:
+      | command |
+      | EHLO    |
+      | AUTH    |
+
+  Scenario Outline: A refusal of EHLO or of the login that is not a 421 leaves the connection to the caller
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "PLAIN"
+    And the SMTP server answers "<command>" with "<reply>"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "secret"
+    When I open the connection, say EHLO, upgrade it and log in, and leave it as it is
+    Then the send fails with the code <code>
+    And the server did not see the connection close
+
+    Examples:
+      | command | reply              | code |
+      | EHLO    | 550 not today      | 550  |
+      | AUTH    | 535 not that one   | 535  |
+
+  Scenario: A reply to AUTH that is not a refusal and not the one awaited closes the connection
+    Given the SMTP server speaks "starttls"
+    And the SMTP server offers AUTH "PLAIN"
+    And the SMTP server answers "AUTH" with "250 what is this"
+    And the SMTP server is listening
+    And the client uses "starttls" security
+    And the client logs in as "ana" with the password "secret"
+    When I open the connection, say EHLO, upgrade it and log in, and leave it as it is
+    Then the send fails with the code 250
+    And the server saw the connection close
+
+  Scenario: A refused recipient resets the connection and leaves it open for the next message
+    Given the SMTP server speaks "plain"
+    And the SMTP server refuses the recipient "bob@example.com"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message on a connection that I connect and leave as it is
+    Then the send fails with the code 550
+    And the server transcript has the line "C: RSET"
+    And the server did not see the connection close
+
+  Scenario: A reset that the server does not accept closes the connection
+    Given the SMTP server speaks "plain"
+    And the SMTP server refuses the recipient "bob@example.com"
+    And the SMTP server answers "RSET" with "500 what"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message on a connection that I connect and leave as it is
+    Then the send fails with the code 550
+    And the server saw the connection close
+
+  Scenario: A reset that the server never answers closes the connection
+    Given the SMTP server speaks "plain"
+    And the SMTP server refuses the recipient "bob@example.com"
+    And the SMTP server never answers "RSET"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    And the client waits 300 milliseconds for each reply
+    When I send a message on a connection that I connect and leave as it is
+    Then the send fails with the code 550
+    And the server saw the connection close
+
+  Scenario: A reply of many long lines is too long as a whole, though each line and the line count are fine
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "~90:400"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the error mentions "too long"
+    And the server saw the connection close
+
+  Scenario Outline: A reply line is read up to 512 octets with its line end, which is 510 without it
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "^<letters>"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then <outcome>
+
+    Examples:
+      | letters | outcome                                                  |
+      | 506     | the send fails with the code 550                         |
+      | 507     | the send fails without a code                            |
+
+  Scenario: C1 controls and Unicode line, bidi and zero-width controls of the server text do not reach the error
+    Given the SMTP server speaks "plain"
+    And the SMTP server answers "RCPT" with "550 bad<CSI>[31m<RLO>ok<LS>end<ZWJ>!<ISS>"
+    And the SMTP server is listening
+    And the client uses "plain" security
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails with the code 550
+    And the error mentions "bad[31mokend!"
+    And the error has no C1 or bidi control characters
+
+  Scenario: The end of the message has a longer wait than the other replies
+    Given the SMTP server speaks "plain"
+    And the SMTP server waits 700 milliseconds before it accepts the message
+    And the SMTP server is listening
+    And the client uses "plain" security
+    And the client waits 300 milliseconds for each reply
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send succeeds
+
+  Scenario: A server that does not accept the message within the time for it fails the send
+    Given the SMTP server speaks "plain"
+    And the SMTP server waits 700 milliseconds before it accepts the message
+    And the SMTP server is listening
+    And the client uses "plain" security
+    And the client waits 300 milliseconds for each reply
+    And the client waits 400 milliseconds for the end of the message
+    When I send a message from "ana@example.com" to "bob@example.com" with the subject "Hello" and the text:
+      """
+      Hi Bob.
+      """
+    Then the send fails without a code
+    And the error mentions "timed out"
+    And the server saw the connection close
