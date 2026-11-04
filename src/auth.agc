@@ -6,9 +6,12 @@
 
 import Db from "pkg/db/db"
 import Passwords from "passwords"
+import Rooms from "rooms"
+import {int_of, text_of} from "rows"
 
-# The name of the account that the first run makes.
+# The name of the account that the first run makes, and of the open room that it starts with (as upstream does).
 ACCOUNT_NAME = "Campfire"
+FIRST_ROOM_NAME = "All Talk"
 
 ADMINISTRATOR = "administrator"
 MAX_NAME_LENGTH = 100
@@ -69,8 +72,8 @@ export def first_run?(conn: Db.Connection) -> Result[Bool]
   return ok(not exists)
 end
 
-## Makes the account and its administrator and signs them in, in one transaction that checks again that there is no
-## account, so two forms sent together make one. `password` is hashed before the transaction starts, since hashing
+## Makes the account, its administrator and the open room "All Talk", and signs them in, in one transaction that
+## checks again that there is no account, so two forms sent together make one. `password` is hashed before the transaction starts, since hashing
 ## is slow and the transaction holds the write lock. An `error` is a database or hashing failure, not a bad form.
 export def first_run(
   conn: Db.Connection,
@@ -368,7 +371,9 @@ def make_account(
     [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest), Db.Value.Text(ADMINISTRATOR)],
   )
 
-  try insert_session(tx, int_of(users[0], "id"), token, user_agent)
+  admin_id = int_of(users[0], "id")
+  try Rooms.create_open_in(tx, admin_id, FIRST_ROOM_NAME)
+  try insert_session(tx, admin_id, token, user_agent)
   return ok(true)
 end
 
@@ -399,21 +404,4 @@ def text_or_null(text: String) -> Db.Value
   end
 
   return Db.Value.Text(text)
-end
-
-def text_of(row: Db.Row, column: String) -> String
-  case row.get(column, Db.Value.Null)
-    Db.Value.Text(text) -> return text
-    # Every other variant (and a missing column) is "no text", also one that `Db.Value` gets later: the columns that
-    # these read are `text` in the schema, so anything else is a row that did not come from it.
-    _ -> return ""
-  end
-end
-
-def int_of(row: Db.Row, column: String) -> Int
-  case row.get(column, Db.Value.Null)
-    Db.Value.Int(number) -> return number
-    # Like `text_of`: any other variant is -1, which no id or count is, so a caller never takes it for a row.
-    _ -> return -1
-  end
 end

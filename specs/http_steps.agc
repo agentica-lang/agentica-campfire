@@ -13,6 +13,9 @@ export PORT = "port"
 export ADMIN_EMAIL = "ana@example.com"
 export ADMIN_PASSWORD = "correct horse battery"
 
+## The password of every other person that `a member ... exists` makes.
+export MEMBER_PASSWORD = "another long password"
+
 REPLY = "reply"
 REMEMBERED = "remembered_reply"
 STATUSES = "statuses"
@@ -51,7 +54,10 @@ export def steps() -> List[BDD.Step]
     BDD.step("I get {string}", &get),
     BDD.step("I post to {string} the form:", &post_form),
     BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
+    BDD.step("I post to {string} a message of {int} characters", &post_message_of_length),
+    BDD.step("I post to {string} twice the form of the page with the body {string}", &post_page_form_twice),
     BDD.step("I post nothing to {string}", &post_nothing),
+    BDD.step("I sign in as {string}", &sign_in_as),
     BDD.step("the first admin exists", &first_admin),
     BDD.step("I remember the answer", &remember_answer),
     BDD.step("the answer is the one that I remembered", &answer_is_remembered),
@@ -68,6 +74,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("the body is {string}", &body_is),
     BDD.step("the body contains {string}", &body_contains),
     BDD.step("the body does not contain {string}", &body_lacks),
+    BDD.step("the body shows {string} before {string}", &body_shows_before),
     BDD.step("the browser has no cookies", &forget_cookies),
     BDD.step("the browser saves a copy of its cookies", &save_cookies),
     BDD.step("the browser restores its saved cookies", &restore_cookies),
@@ -112,8 +119,47 @@ def post_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "POST", args[0], URI.encode_www_form(pairs))
 end
 
+# A `body` of `args[1]` letters, for the limit on the size of a message.
+def post_message_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  text = List.repeat("x", args[1].to_i!).join("")
+  return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "body", value: text)]))
+end
+
+# The form of the page that was just got, as its own fields say: the hidden `client_message_id` goes back as it came,
+# so what the page writes is what the post reads.
+def post_page_form_twice(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  marker = "name=\"client_message_id\" type=\"hidden\" value=\""
+  page = last_reply(ctx).body
+  start = page.index_of(marker)
+  if start.none?
+    return BDD.assert(ctx, false, "the page has no client_message_id: #{page}")
+  end
+
+  rest = page.slice(start.unwrap! + marker.length, page.length - start.unwrap! - marker.length)
+  id = rest.split("\"")[0]
+  form = URI.encode_www_form([URI.Pair(name: "body", value: args[1]), URI.Pair(name: "client_message_id", value: id)])
+  return send(send(ctx, "POST", args[0], form), "POST", args[0], form)
+end
+
 def post_nothing(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "POST", args[0], "")
+end
+
+# A new session: the browser forgets its cookies and signs in through the form, as a person does. The first admin has
+# its own password and the members that `a member ... exists` makes share another.
+def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  password = MEMBER_PASSWORD
+  if args[0] == ADMIN_EMAIL
+    password = ADMIN_PASSWORD
+  end
+
+  form = URI.encode_www_form([URI.Pair(name: "email", value: args[0]), URI.Pair(name: "password", value: password)])
+  made = send(forget_cookies(ctx, []), "POST", "/session", form)
+  return BDD.assert(
+    made,
+    last_reply(made).status == 302,
+    "signing in as #{args[0]} answered #{last_reply(made).status}",
+  )
 end
 
 # Through the first-run form, so the browser ends signed in as that person, like the person who sets the app up.
@@ -290,6 +336,13 @@ end
 def body_lacks(ctx: BDD.Context, args: List[String]) -> BDD.Context
   reply = last_reply(ctx)
   return BDD.assert(ctx, not reply.body.include?(args[0]), "the body is #{reply.body}")
+end
+
+def body_shows_before(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  body = last_reply(ctx).body
+  first = body.index_of(args[0])
+  second = body.index_of(args[1])
+  return BDD.assert(ctx, first.some? and second.some? and first.unwrap! < second.unwrap!, "the body is #{body}")
 end
 
 def header_lacks(ctx: BDD.Context, args: List[String]) -> BDD.Context

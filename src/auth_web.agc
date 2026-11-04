@@ -3,6 +3,7 @@
 ## route that a later change adds needs a sign-in without anyone remembering to ask for it.
 
 import Bond from "pkg/bond/bond"
+import Db from "pkg/db/db"
 import Auth from "auth"
 import Database from "database"
 import Mailer from "mailer"
@@ -70,12 +71,18 @@ end
 ## The person of the request, or `none` for a visitor with no session, a session that was ended, or a user that was
 ## deactivated.
 export def current_user(conn: Bond.Conn, config: Config) -> Result[Optional[Auth.User]]
+  return Database.with_connection(config.database_url) do |db| current_user_in(conn, db) end
+end
+
+## `current_user` on a connection that the handler has open already, so that a request that reads more than the
+## person needs only one.
+export def current_user_in(conn: Bond.Conn, db: Db.Connection) -> Result[Optional[Auth.User]]
   token = Bond.get_session(conn, TOKEN_KEY)
   if not token.ok?
     return ok(none)
   end
 
-  return Database.with_connection(config.database_url) do |db| Auth.user_for(db, token.unwrap!) end
+  return Auth.user_for(db, token.unwrap!)
 end
 
 def session_options(config: Config) -> Bond.SessionOptions

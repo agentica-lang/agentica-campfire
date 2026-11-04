@@ -11,6 +11,8 @@ import SmtpSteps from "smtp_steps"
 import DataDir from "../src/data_dir"
 import Database from "../src/database"
 import Migrations from "../src/migrations"
+import Passwords from "../src/passwords"
+import Rooms from "../src/rooms"
 
 DB_DIR = "db_dir"
 DB_URL = "db_url"
@@ -39,6 +41,10 @@ def main() -> Void
     BDD.step("the data folder {string} is prepared", &prepare_data_dir),
     BDD.step("the data folder {string} is private", &data_dir_is_private),
     BDD.step("the recorded checksums are:", &checksums_are),
+    BDD.step("a member {string} with the email {string} exists", &member_exists),
+    BDD.step("a closed room {string} with the members {string}", &closed_room_exists),
+    BDD.step("a direct room with the members {string}", &direct_room_exists),
+    BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("I run the sql {string}", &run_sql),
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
@@ -155,6 +161,79 @@ def checksums_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   expected = BDD.table(ctx).map do |row| "#{row[0]} #{row[1]}" end
   return BDD.assert(ctx, recorded == expected, "the recorded checksums are #{recorded}")
+end
+
+# A person that the app did not make through a page (there is no invitation yet): the password is the same for every
+# member, so `I sign in as` can sign them in, and they join the open rooms that exist, as an invitation will make them.
+def member_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  digest = Passwords.hash(HttpSteps.MEMBER_PASSWORD)
+  if not digest.ok?
+    return BDD.assert(ctx, false, "cannot hash the password: #{digest.message}")
+  end
+
+  made = with_database(ctx) do |conn| add_member(conn, args[0], args[1], digest.unwrap!) end
+  return BDD.assert(ctx, made.ok?, "cannot make the member #{args[1]}: #{made.message}")
+end
+
+def add_member(conn: Db.Connection, name: String, email: String, digest: String) -> Result[Void]
+  rows = try Db.query(
+    conn,
+    "insert into users (name, email, password_digest) values (?, ?, ?) returning id",
+    [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest)],
+  )
+
+  return Rooms.grant_open_rooms(conn, value_int(rows[0].get("id", Db.Value.Null)))
+end
+
+# The first person on the list makes the room. `members` are emails separated by commas.
+def closed_room_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return make_room(ctx, Db.Value.Text(args[0]), "closed", args[1])
+end
+
+def direct_room_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return make_room(ctx, Db.Value.Null, "direct", args[0])
+end
+
+def make_room(ctx: BDD.Context, name: Db.Value, kind: String, members: String) -> BDD.Context
+  emails = members.split(",").map do |email| email.strip end
+  made = with_database(ctx) do |conn| insert_room(conn, name, kind, emails) end
+  return BDD.assert(ctx, made.ok?, "cannot make the #{kind} room: #{made.message}")
+end
+
+def insert_room(conn: Db.Connection, name: Db.Value, kind: String, emails: List[String]) -> Result[Void]
+  rooms = try Db.query(
+    conn,
+    "insert into rooms (name, kind, creator_id) values (?, ?, (select id from users where email = ?)) returning id",
+    [name, Db.Value.Text(kind), Db.Value.Text(emails[0])],
+  )
+
+  room_id = value_int(rooms[0].get("id", Db.Value.Null))
+  for email in emails
+    try Db.execute(
+      conn,
+      "insert into memberships (room_id, user_id) select ?, id from users where email = ?",
+      [Db.Value.Int(room_id), Db.Value.Text(email)],
+    )
+  end
+
+  return ok()
+end
+
+# Messages `message 001`, `message 002`... by the person who made the room. The zero padding keeps one text from being
+# a part of another (`message 04` is in `message 045`, `message 004` is not).
+def room_has_messages(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  seeded = with_database(ctx) do |conn| add_messages(conn, args[0].to_i!, args[1].to_i!) end
+  return BDD.assert(ctx, seeded.ok?, "cannot add the messages: #{seeded.message}")
+end
+
+def add_messages(conn: Db.Connection, room_id: Int, count: Int) -> Result[Int]
+  return Db.execute(
+    conn,
+    "with recursive n(i) as (select 1 union all select i + 1 from n where i < ?) " +
+    "insert into messages (room_id, creator_id, body, client_message_id) " +
+    "select ?, (select creator_id from rooms where id = ?), printf('message %03d', i), 'seed-' || i from n",
+    [Db.Value.Int(count), Db.Value.Int(room_id), Db.Value.Int(room_id)],
+  )
 end
 
 def applied_every_migration(ctx: BDD.Context, args: List[String]) -> BDD.Context
