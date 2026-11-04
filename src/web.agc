@@ -8,17 +8,14 @@ import Routes from "routes"
 import RoomsWeb from "rooms_web"
 import {Config} from "config"
 
-# What a page that is not there answers. A room, a person or a join code that a visitor may not know of answers the
-# same words (their handlers say them too), so no 404 tells which of them it is.
-MISSING = "Not Found"
-
 struct Health
   status: String
   schema_version: Int
 end
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
-## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, and those of `RoomsWeb` and `AccountsWeb`.
+## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, and those of `RoomsWeb` and
+## `AccountsWeb`.
 export def build(config: Config, schema_version: Int, mailer: Mailer.Mailer) -> Bond.App
   return (
     Bond.app()
@@ -27,7 +24,7 @@ export def build(config: Config, schema_version: Int, mailer: Mailer.Mailer) -> 
     |> AccountsWeb.add(config)
     |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, config) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
-    |> Bond.not_found() do |conn| ok(Bond.text(conn, 404, MISSING)) end
+    |> Bond.not_found() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
   )
 end
 

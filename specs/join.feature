@@ -157,6 +157,19 @@ Feature: Joining with the link
     Then the status is 404
     And the query "select count(*) from users" gives 1
 
+  Scenario: The write half of the join looks at the code and the email again, for a code that went stale while hashing
+    When "late@example.com" asks Auth.join_hashed to sign up with the code "dddd-eeee-ffff"
+    Then the join is "Gone"
+    And the query "select count(*) from users" gives 1
+    And the query "select count(*) from sessions" gives 1
+    When "ana@example.com" asks Auth.join_hashed to sign up with the code "aaaa-bbbb-cccc"
+    Then the join is "Invalid"
+    And the query "select count(*) from users" gives 1
+    When "late@example.com" asks Auth.join_hashed to sign up with the code "aaaa-bbbb-cccc"
+    Then the join is "Joined"
+    And the query "select count(*) from users where id = 2 and email = 'late@example.com'" gives 1
+    And the query "select count(*) from memberships where user_id = 2 and room_id = 1" gives 1
+
   Scenario: A page of another site cannot sign anybody up
     Given the browser has no cookies
     And the request header "sec-fetch-site" is "cross-site"

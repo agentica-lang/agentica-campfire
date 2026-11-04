@@ -58,8 +58,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
 - Auth: a page is public only if `PUBLIC_PATHS` in `src/auth_web.agc` names it (the sign-in filter is
   deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
   code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any missing
-  page (`MISSING` in `src/web.agc`, also the answer of the app for a path with no route). A request opens its own database connection (`Database.with_connection`), since Bond runs a
-  request in its own task (a handler opens one and does all its work on it, the person included:
+  page (`Routes.MISSING`, the one 404 text of every handler and of the app for a path with no route). A request opens
+  its own database connection (`Database.with_connection`), since Bond runs a request in its own task (a handler opens one and does all its work on it, the person included:
   `AuthWeb.current_user_in`; the sign-in filter still opens another, since a Bond `Conn` cannot carry the person
   on); a `sqlite::memory:` database is therefore not usable by the app. Never log or store a plain
   password; a form that is shown again never holds the password.
@@ -70,7 +70,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
   `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an
   administrator cannot deactivate themselves; deactivating deletes the person's sessions and reset links, and
-  reactivating calls `Rooms.grant_open_rooms`. The pages with the join code are `no-store` and `no-referrer`.
+  reactivating calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `active` itself
+  (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive. The pages with
+  the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an email
+  answers the same for every address": it answers 422 for an email that has an account, since a person who is joining
+  needs to know to sign in instead, and only whoever holds the link can ask; regenerating the link ends that.
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A
   link in an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email
   answers the same for every address (no enumeration). A reset token is stored as a hash only. The write

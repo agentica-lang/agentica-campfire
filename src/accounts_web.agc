@@ -144,7 +144,7 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Page(html) -> return AuthWeb.private_page(Bond.html(conn, 200, html))
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
-    Answer.NotFound -> return Bond.text(conn, 404, "Not Found")
+    Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
     Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
   end

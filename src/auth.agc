@@ -142,6 +142,21 @@ export def join(
   end
 
   digest = try Passwords.hash(password)
+  return join_hashed(conn, code, name, email, digest, user_agent)
+end
+
+## The write half of `join`, for a password that is hashed already: the transaction, which checks again that the code
+## is the account's and that the email is free. `join` has looked at both before the hashing, so only a code that was
+## regenerated, or an email that was taken, while the password was being hashed gets here; the specs call this to
+## reach those checks directly.
+export def join_hashed(
+  conn: Db.Connection,
+  code: String,
+  name: String,
+  email: String,
+  digest: String,
+  user_agent: String,
+) -> Result[JoinOutcome]
   token = SecureRandom.hex(TOKEN_BYTES)
   return Db.transaction(conn) do |tx| make_member(tx, code, name.strip, normal(email), digest, token, user_agent) end
 end
@@ -176,7 +191,7 @@ export def sign_in(
     return ok(none)
   end
 
-  return ok(some(try open_session(conn, int_of(rows[0], "id"), user_agent)))
+  return open_session(conn, int_of(rows[0], "id"), user_agent)
 end
 
 ## The user of the session with this token, or `none` when there is no such session or its user is deactivated.
@@ -459,10 +474,22 @@ def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
   return ok(int_of(rows[0], "total") > 0)
 end
 
-def open_session(conn: Db.Connection, user_id: Int, user_agent: String) -> Result[String]
+# The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
+# reads `active` itself, in the one statement, so a deactivation that commits first leaves no row, and one that commits
+# after it deletes the row: no session survives for a later reactivation to revive.
+def open_session(conn: Db.Connection, user_id: Int, user_agent: String) -> Result[Optional[String]]
   token = SecureRandom.hex(TOKEN_BYTES)
-  try insert_session(conn, user_id, token, user_agent)
-  return ok(token)
+  inserted = try Db.execute(
+    conn,
+    "insert into sessions (user_id, token, user_agent) select id, ?, ? from users where id = ? and active = 1",
+    [Db.Value.Text(token), text_or_null(user_agent), Db.Value.Int(user_id)],
+  )
+
+  if inserted == 0
+    return ok(none)
+  end
+
+  return ok(some(token))
 end
 
 # The address of the client is not here yet: Bond does not give it to a handler (its `Conn` has no `remote_addr`).

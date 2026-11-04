@@ -8,6 +8,10 @@ export SESSION = "/session"
 export SIGN_OUT = "/sign_out"
 export HEALTH = "/health"
 
+## What every 404 of the app says: a path with no route, and a room, a person or a join code that a visitor may not know
+## of, so no 404 tells which of them it is.
+export MISSING = "Not Found"
+
 ## The password reset: the form for the email, the post that asks for the link, the page of the link (with `?token=`)
 ## and the post that sets the new password.
 export PASSWORD_RESET_NEW = "/password_reset/new"

@@ -227,7 +227,7 @@ def join_code_valid?(config: Config, code: String) -> Result[Bool]
 end
 
 def not_found(conn: Bond.Conn) -> Bond.Conn
-  return Bond.text(conn, 404, "Not Found")
+  return Bond.text(conn, 404, Routes.MISSING)
 end
 
 def show_sign_in(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Result[Bond.Conn]
@@ -287,7 +287,7 @@ end
 # the same for every visitor).
 def show_forgot_password(conn: Bond.Conn, mailer: Mailer.Mailer) -> Result[Bond.Conn]
   if not Mailer.enabled?(mailer)
-    return ok(Bond.text(conn, 404, "Not Found"))
+    return ok(Bond.text(conn, 404, Routes.MISSING))
   end
 
   return ok(Bond.html(conn, 200, Views.forgot_password()))
@@ -297,7 +297,7 @@ end
 # message), so the form does not tell who has an account. The sending is the mailer's, off this request.
 def create_password_reset(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Result[Bond.Conn]
   if not Mailer.enabled?(mailer)
-    return ok(Bond.text(conn, 404, "Not Found"))
+    return ok(Bond.text(conn, 404, Routes.MISSING))
   end
 
   email = try Bond.form(conn, "email")

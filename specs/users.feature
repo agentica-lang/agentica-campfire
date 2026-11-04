@@ -40,6 +40,7 @@ Feature: The people of the account
   Scenario: Deactivating a person ends their sessions and keeps them out
     Given I sign in as "bea@example.com"
     And the browser saves a copy of its cookies
+    And I run the sql "insert into password_resets (user_id, token_digest, expires_at) values (2, 'abc', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 minutes'))"
     And I sign in as "ana@example.com"
     When I get "/users"
     And I submit the form of the page that posts to "/users/2/deactivate"
@@ -47,6 +48,7 @@ Feature: The people of the account
     And the header "location" is "/users"
     And the query "select count(*) from users where id = 2 and active = 0" gives 1
     And the query "select count(*) from sessions where user_id = 2" gives 0
+    And the query "select count(*) from password_resets where user_id = 2" gives 0
     When the browser restores its saved cookies
     And I get "/"
     Then the status is 302
@@ -156,7 +158,20 @@ Feature: The people of the account
       | /users/2/deactivate |
       | /users/3/reactivate |
 
-  Scenario: The check inside the transaction refuses a person who is no longer an administrator
-    When "bea@example.com" asks Accounts.deactivate for the user 3
+  Scenario Outline: The check inside the transaction refuses an actor who is not an active administrator, and changes nothing
+    Given I run the sql "insert into users (name, email, password_digest, role, active) values ('Di', 'di@example.com', 'x', 'administrator', 0)"
+    And I run the sql "update users set active = 0 where id = 3"
+    When "<actor>" asks Accounts to "<action>" the user <user>
     Then the change is refused
-    And the query "select count(*) from users where active = 1" gives 3
+    And the query "select count(*) from users where id = 2 and active = 1" gives 1
+    And the query "select count(*) from users where id = 3 and active = 0" gives 1
+    And the query "select count(*) from accounts where join_code = 'aaaa-bbbb-cccc'" gives 1
+
+    Examples:
+      | actor           | action     | user |
+      | bea@example.com | deactivate | 2    |
+      | bea@example.com | reactivate | 3    |
+      | bea@example.com | regenerate | 0    |
+      | di@example.com  | deactivate | 2    |
+      | di@example.com  | reactivate | 3    |
+      | di@example.com  | regenerate | 0    |
