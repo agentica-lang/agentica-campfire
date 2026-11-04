@@ -39,7 +39,7 @@ Feature: First run, sign in and sign out
     Then the status is 200
     And the body contains "Signed in as Ana"
     And the query "select count(*) from accounts" gives 1
-    And the query "select count(*) from users where role = 'administrator' and email = 'ana@example.com'" gives 1
+    And the query "select count(*) from users where role = 1 and email_address = 'ana@example.com'" gives 1
     And the query "select count(*) from sessions" gives 1
 
   Scenario: The password is stored as a slow hash, never as text
@@ -190,7 +190,7 @@ Feature: First run, sign in and sign out
   Scenario: A bot cannot sign in
     Given the first admin exists
     And the browser has no cookies
-    And I run the sql "insert into users (name, role, bot_token) values ('Hook', 'bot', 'tok')"
+    And a bot "Hook" with the token "tok" exists
     When I post to "/session" the form:
       | email_address |     |
       | password      | tok |
@@ -263,7 +263,7 @@ Feature: First run, sign in and sign out
 
   Scenario: A user that was deactivated loses the session and cannot sign in
     Given the first admin exists
-    And I run the sql "update users set active = 0"
+    And I run the sql "update users set status = 1"
     When I get "/"
     Then the status is 302
     And the header "location" is "/session/new"

@@ -125,7 +125,7 @@ Feature: Password reset
   Scenario: A token lasts about 30 minutes
     When I post to "/password_reset" the form:
       | email | ana@example.com |
-    Then the query "select count(*) from password_resets where expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+29 minutes') and expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 minutes')" gives 1
+    Then the query "select count(*) from password_resets where expires_at > strftime('%Y-%m-%d %H:%M:%f000', 'now', '+29 minutes') and expires_at <= strftime('%Y-%m-%d %H:%M:%f000', 'now', '+30 minutes')" gives 1
 
   Scenario Outline: A new password that breaks the rules is refused and the link stays good
     When I post to "/password_reset" the form:
@@ -232,7 +232,7 @@ Feature: Password reset
     And each 503 answer has a body that contains "name=\"password\" type=\"password\""
 
   Scenario: A person who is deactivated gets no link
-    Given I run the sql "update users set active = 0"
+    Given I run the sql "update users set status = 1"
     When I post to "/password_reset" the form:
       | email | ana@example.com |
     Then the status is 200

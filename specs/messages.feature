@@ -147,7 +147,7 @@ Feature: Messages
     And the query "select count(*) from messages" gives 0
 
   Scenario: A person who was deactivated after the sign-in check cannot post
-    Given I run the sql "update users set active = 0 where id = 1"
+    Given I run the sql "update users set status = 1 where id = 1"
     When "ana@example.com" asks Rooms.post to post "too late" in the room 1
     Then the update is refused
     And the query "select count(*) from messages" gives 0

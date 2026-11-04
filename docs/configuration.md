@@ -46,12 +46,26 @@ A url that does not open stops the start. Put `timeout_ms` in the url to bound e
 (under 30 s, the time a request may hold a connection); a statement that runs over it is answered `503` too.
 
 At start-up the app runs the migrations that the database has not seen
-(`src/campfire/repo/migrations.agc`) and prints `database: schema version N, migrations applied:
-M`. If the database cannot be opened or migrated it exits with code 1 and a message that names the
-variable.
+(`src/campfire/repo/migrations.agc`, one file per migration in `migrations/`) and prints `database:
+schema version N, migrations applied: M`. If the database cannot be opened or migrated it exits
+with code 1 and a message that names the variable.
+
+The schema is the one of a Rails Campfire (`db/schema.rb` of basecamp/once-campfire at 90b3300),
+table by table, as step by step the app moves to it; `accounts`, `users` and `sessions` are there
+already (see [people.md](people.md)). A database that Rails made, which has the table
+`ar_internal_metadata`, is opened as it is: no migration runs, nothing is recorded, and the only
+thing added is the table `password_resets`, which Rails has not. The app prints `database: made by
+Rails, opened as it is, schema version V` (V is the last version Rails recorded) and `/health`
+reports V. The rooms, messages and search of the app still have their own tables, so a database
+made by Rails has no rooms for the app yet: sign-in and the people work on it, the pages of rooms do
+not.
+
+The history of the app is the table `agentica_schema_migrations`, not `schema_migrations`, which
+Rails owns. A database that the app makes never has `ar_internal_metadata` (that table is what tells
+the two apart), nor `schema_migrations`.
 
 Run one instance at a time per database: migrations run from one process, and two started together
-make one of them fail on `schema_migrations`.
+make one of them fail on `agentica_schema_migrations`.
 
 Back up with `VACUUM INTO`, or copy the file after the app stops: while it runs, recent writes may
 live in the `-wal` file.

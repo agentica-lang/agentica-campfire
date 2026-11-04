@@ -18,8 +18,9 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), html_sanitizer.agc (an allowlist
                 sanitizer for stored HTML bodies; pure)
-src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request), migrations.agc
-                (the schema, one numbered migration per table), rows.agc (reading a column of a row)
+src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request), migrations.agc (the list of the
+                schema) and migrations/ (one file per migration, `m0001_accounts.agc`...), rails.agc (the integer
+                enums and the timestamp form of the Rails schema), rows.agc (reading a column of a row)
 src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
                 smtp_message.agc (sending email: the client and the message builder; they import no other
                 app module, so they can move to their own package)
@@ -33,7 +34,9 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
                 the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
-                down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh)
+                down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh),
+                fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
+                `make.sh` makes it again in a ruby container)
 test/           unit tests (*_test.agc)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
 agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`pool` comes with it), agentica.lock has their hashes
@@ -65,10 +68,21 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   exception is a plain-text email (`Views.reset_mail`): nothing in it is HTML, so it has no escape directive.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
 - `agentica.toml` has `blank_line_after_end = true`: every bare `end` is followed by an empty line.
-- Schema changes are new migrations in `src/campfire/repo/migrations.agc`, numbered after the last one. Never edit one
-  that has shipped (`Migrate` refuses it on a database that ran it); `specs/schema.feature` pins the checksum of each
-  one, so a PR that edits shipped SQL fails there. A table that the specs name in `specs/database.feature` is added
-  there too.
+- The schema is the Rails one (`db/schema.rb` of basecamp/once-campfire at 90b3300): a table that Rails has is made as
+  Rails writes it, column names, types, indexes and keys included (`accounts`, `users` and `sessions` are; rooms,
+  memberships, messages, boosts, search, attachments and webhooks still have the shape of this app until they move),
+  and `specs/schema.feature` compares them with a database that Rails made (`specs/fixtures/rails/`). `users.role` and
+  `users.status` are integers (`repo/rails.agc` names them: never write a bare number in SQL of `src/`), and
+  timestamps are `Rails.NOW` text with no default in the table, so every insert sets `created_at` and `updated_at`.
+  A database with `ar_internal_metadata` was made by Rails and is opened as it is (`Database.migrate`): no migration
+  runs on it, and the one thing added is `Migrations.extensions()` (tables of the app that Rails has not, run as `if
+  not exists`). The app never makes `ar_internal_metadata` or `schema_migrations`: its history is
+  `agentica_schema_migrations`.
+- Migrations are one file per migration in `src/campfire/repo/migrations/`, `mNNNN_name.agc` exporting `migration()`,
+  listed in order in `migrations.agc` (`test/migrations_test.agc` catches a file missing from the list). There has been
+  no release, so the history is rewritten, with the checksums in `specs/schema.feature`, until the Rails schema is
+  complete; from the first release never edit one that has shipped (`Migrate` refuses it on a database that ran it)
+  and add the next number.
 - Never write `insert or replace into messages` (it skips the delete trigger and corrupts the search index; an
   upsert with `on conflict do update` is fine). Page a room by `id`, not by `created_at`.
 - Auth: a page is public only if `PUBLIC_PATHS` in `src/campfire_web/auth.agc` names it (the sign-in filter is
@@ -104,7 +118,7 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   person (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
   `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an
   administrator cannot deactivate themselves; deactivating deletes the person's sessions and reset links, and
-  reactivating calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `active` itself
+  reactivating calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `status` itself
   (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive. The pages with
   the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an
   email answers the same for every address": it answers 422 for an email that has an account (why: `docs/security.md`).
@@ -118,8 +132,8 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
 - Rooms: a person is in a room only by a `memberships` row, for every kind; every lookup for a person goes through it
   (`Rooms.find`), so a room of other people and a room that does not exist answer the same `404 Not Found`, and the
   membership check comes before anything about the room or the posted form is looked at (a 422 would tell that the room
-  exists). Whatever makes a user after the open rooms exist (the invitation), and whatever reactivates one (`active`
-  0 to 1, who has missed the rooms made meanwhile), calls `Rooms.grant_open_rooms`; whatever makes an open room puts
+  exists). Whatever makes a user after the open rooms exist (the invitation), and whatever reactivates one (`status`
+  deactivated to active, who has missed the rooms made meanwhile), calls `Rooms.grant_open_rooms`; whatever makes an open room puts
   every active person in it (`Rooms.create_open`); a closed room has only the chosen active people and its maker
   (`Rooms.create_closed`), and a direct room is found by its exact set of people before one is made
   (`Rooms.open_direct`), in one transaction (the people are checked as active inside it, so the search counts who

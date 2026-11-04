@@ -11,7 +11,7 @@ Feature: Closed rooms
     And the first admin exists
     And a member "Bea" with the email "bea@example.com" exists
     And a member "Cy" with the email "cy@example.com" exists
-    And I run the sql "insert into users (name, email, password_digest, active) values ('Di', 'di@example.com', 'x', 0)"
+    And a user "Di" with the email "di@example.com", the role "member" and the status "deactivated" exists
 
   Scenario: The form of a closed room lists the active people, and the sidebar has the way to it
     When I get "/"
@@ -165,7 +165,7 @@ Feature: Closed rooms
 
   Scenario: An administrator who is not the maker can change the room, and a form cannot take out its sender
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
-    And I run the sql "update users set role = 'administrator' where id = 2"
+    And I run the sql "update users set role = 1 where id = 2"
     When I sign in as "bea@example.com"
     And I post to "/rooms/2/settings" the form:
       | name   | Renamed |
@@ -211,7 +211,7 @@ Feature: Closed rooms
 
   Scenario: A form that was drawn before someone was added keeps them
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
-    And I run the sql "update users set role = 'administrator' where id = 2"
+    And I run the sql "update users set role = 1 where id = 2"
     When I get "/rooms/2/settings"
     Then the body contains "name=\"was\" type=\"hidden\" value=\"2\""
     When I sign in as "bea@example.com"
@@ -233,7 +233,7 @@ Feature: Closed rooms
 
   Scenario: A form that was drawn before someone was taken out does not bring them back
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com, cy@example.com"
-    And I run the sql "update users set role = 'administrator' where id = 2"
+    And I run the sql "update users set role = 1 where id = 2"
     When I get "/rooms/2/settings"
     Then the body contains "name=\"was\" type=\"hidden\" value=\"3\""
     When I sign in as "bea@example.com"

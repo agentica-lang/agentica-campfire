@@ -15,10 +15,13 @@ import Bcrypt from "../src/campfire/bcrypt"
 import Database from "../src/campfire/repo/database"
 import Migrations from "../src/campfire/repo/migrations"
 import Passwords from "../src/campfire/passwords"
+import Rails from "../src/campfire/repo/rails"
 import Rooms from "../src/campfire/rooms"
 
 DB_DIR = "db_dir"
 DB_URL = "db_url"
+RAILS_URL = "rails_url"
+RAILS_FIXTURE = "specs/fixtures/rails/campfire.sqlite3"
 STARTED = "started"
 STARTUP = "startup_lines"
 UPDATED = "updated"
@@ -34,6 +37,8 @@ LISTENING = "listening on "
 START_MS = 30_000
 FOLDER_PREFIX = "campfire-spec-"
 PRIVATE_FOLDER_MODE = 448
+FILE_MS = 5_000
+COPY_CHUNK = 65_536
 
 def main() -> Void
   own = [
@@ -56,7 +61,16 @@ def main() -> Void
     BDD.step("the data folder {string} is prepared", &prepare_data_dir),
     BDD.step("the data folder {string} is private", &data_dir_is_private),
     BDD.step("the recorded checksums are:", &checksums_are),
+    BDD.step("a database made by Rails", &rails_database),
+    BDD.step("a copy of the database made by Rails is next to it", &rails_copy),
+    BDD.step("{string} are as Rails made them", &tables_as_rails),
+    BDD.step("the database does not have the table {string}", &lacks_table),
     BDD.step("a member {string} with the email {string} exists", &member_exists),
+    BDD.step(
+      "a user {string} with the email {string}, the role {string} and the status {string} exists",
+      &user_exists,
+    ),
+    BDD.step("a bot {string} with the token {string} exists", &bot_exists),
     BDD.step("a member {string} with the email {string} and the password digest {string} exists", &member_with_digest),
     BDD.step("a closed room {string} with the members {string}", &closed_room_exists),
     BDD.step("a direct room with the members {string}", &direct_room_exists),
@@ -227,7 +241,7 @@ end
 
 # The table rows are `version | checksum`. The checksum is what `Migrate` recorded, so a changed statement shows here.
 def checksums_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  rows = rows_of(ctx, "select version, checksum from schema_migrations order by version")
+  rows = rows_of(ctx, "select version, checksum from #{Migrations.HISTORY_TABLE} order by version")
   recorded = rows.map do |row|
     "#{value_int(row.get("version", Db.Value.Null))} #{value_text(row.get("checksum", Db.Value.Null))}"
   end
@@ -257,11 +271,65 @@ end
 def add_member(conn: Db.Connection, name: String, email: String, digest: String) -> Result[Void]
   rows = try Db.query(
     conn,
-    "insert into users (name, email, password_digest) values (?, ?, ?) returning id",
+    "insert into users (name, email_address, password_digest, created_at, updated_at) " +
+    "values (?, ?, ?, #{Rails.NOW}, #{Rails.NOW}) returning id",
     [Db.Value.Text(name), Db.Value.Text(email), Db.Value.Text(digest)],
   )
 
   return Rooms.grant_open_rooms(conn, value_int(rows[0].get("id", Db.Value.Null)))
+end
+
+# A person with the role and the status that a scenario names, who joins no room and has a digest nobody can match.
+def user_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  role = role_number(args[2])
+  status = status_number(args[3])
+  made = with_database(ctx) do |conn|
+    Db.execute(
+      conn,
+      "insert into users (name, email_address, password_digest, role, status, created_at, updated_at) " +
+      "values (?, ?, 'x', ?, ?, #{Rails.NOW}, #{Rails.NOW})",
+      [Db.Value.Text(args[0]), Db.Value.Text(args[1]), Db.Value.Int(role), Db.Value.Int(status)],
+    )
+  end
+
+  return BDD.assert(ctx, made.ok?, "cannot make the user #{args[1]}: #{made.message}")
+end
+
+def bot_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  made = with_database(ctx) do |conn|
+    Db.execute(
+      conn,
+      "insert into users (name, role, bot_token, created_at, updated_at) " +
+      "values (?, #{Rails.BOT}, ?, #{Rails.NOW}, #{Rails.NOW})",
+      [Db.Value.Text(args[0]), Db.Value.Text(args[1])],
+    )
+  end
+
+  return BDD.assert(ctx, made.ok?, "cannot make the bot #{args[0]}: #{made.message}")
+end
+
+def role_number(name: String) -> Int
+  if name == "administrator"
+    return Rails.ADMINISTRATOR
+  end
+
+  if name == "bot"
+    return Rails.BOT
+  end
+
+  return Rails.MEMBER
+end
+
+def status_number(name: String) -> Int
+  if name == "deactivated"
+    return Rails.DEACTIVATED
+  end
+
+  if name == "banned"
+    return Rails.BANNED
+  end
+
+  return Rails.ACTIVE
 end
 
 # The first person on the list makes the room. `members` are emails separated by commas.
@@ -282,7 +350,7 @@ end
 def insert_room(conn: Db.Connection, name: Db.Value, kind: String, emails: List[String]) -> Result[Void]
   rooms = try Db.query(
     conn,
-    "insert into rooms (name, kind, creator_id) values (?, ?, (select id from users where email = ?)) returning id",
+    "insert into rooms (name, kind, creator_id) values (?, ?, (select id from users where email_address = ?)) returning id",
     [name, Db.Value.Text(kind), Db.Value.Text(emails[0])],
   )
 
@@ -290,7 +358,7 @@ def insert_room(conn: Db.Connection, name: Db.Value, kind: String, emails: List[
   for email in emails
     try Db.execute(
       conn,
-      "insert into memberships (room_id, user_id) select ?, id from users where email = ?",
+      "insert into memberships (room_id, user_id) select ?, id from users where email_address = ?",
       [Db.Value.Int(room_id), Db.Value.Text(email)],
     )
   end
@@ -328,7 +396,7 @@ def ask_update_closed(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 def update_as(conn: Db.Connection, email: String, room_id: Int) -> Result[Bool]
-  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
   editor_id = value_int(rows[0].get("id", Db.Value.Null))
   return Rooms.update_closed(conn, room_id, editor_id, "Renamed", [3], [1, 2])
 end
@@ -345,7 +413,7 @@ def ask_post(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 def post_as(conn: Db.Connection, email: String, room_id: Int, body: String) -> Result[Bool]
-  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
   return Rooms.post(conn, room_id, value_int(rows[0].get("id", Db.Value.Null)), "stale-#{SecureRandom.hex(4)}", body)
 end
 
@@ -366,7 +434,7 @@ def ask_accounts(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 def accounts_as(conn: Db.Connection, email: String, action: String, user_id: Int) -> Result[String]
-  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
   actor_id = value_int(rows[0].get("id", Db.Value.Null))
   if action == "regenerate"
     done = try Accounts.regenerate_join_code(conn, actor_id)
@@ -520,7 +588,121 @@ def query_gives_at_most(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, count <= args[1].to_i!, "the query gave #{count}")
 end
 
-# A connection belongs to the task that opened it, so each step opens its own and closes it.
+# The database file of a Rails Campfire, as Rails made it (`fixtures/rails/make.sh`), copied to where the app looks for
+# its own, so the app opens a database that was not made by it. A copy, since the app writes to what it opens.
+def rails_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  copied = copy_fixture(Path.join([text_of(ctx, DB_DIR), "campfire.db"]).unwrap!)
+  return BDD.assert(ctx, copied.ok?, "cannot copy the Rails database: #{copied.message}")
+end
+
+# A second copy that nothing opens but the specs, to set a schema that the app made beside the schema that Rails made.
+def rails_copy(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  path = Path.join([text_of(ctx, DB_DIR), "rails.db"]).unwrap!
+  copied = copy_fixture(path)
+  if not copied.ok?
+    return BDD.assert(ctx, false, "cannot copy the Rails database: #{copied.message}")
+  end
+
+  return BDD.set(ctx, RAILS_URL, JSON.from("sqlite:#{path}"))
+end
+
+def copy_fixture(to: String) -> Result[Void]
+  source = try Path.join([try Path.cwd(), RAILS_FIXTURE])
+  from = try File.open(source, "read", FILE_MS)
+  target = try File.open(to, "write", FILE_MS)
+  copied = copy_bytes(from, target)
+  File.close(from, FILE_MS)
+  File.close(target, FILE_MS)
+  return copied
+end
+
+def copy_bytes(from: FileHandle, target: FileHandle) -> Result[Void]
+  while true
+    chunk = try File.read_bytes(from, COPY_CHUNK, FILE_MS)
+    if chunk.size == 0
+      return ok()
+    end
+
+    try File.write_bytes(target, chunk, FILE_MS)
+  end
+
+  return ok()
+end
+
+# The columns, the indexes and the foreign keys of each table, as lines, from the database of `url`.
+def shape_of(url: String, tables: List[String]) -> Result[List[String]]
+  conn = try Db.open(url)
+  lines: List[String] = []
+  for table in tables
+    shaped = table_shape(conn, table)
+    if not shaped.ok?
+      Db.close(conn)
+      return error(shaped.message)
+    end
+
+    lines = lines.concat(shaped.unwrap!)
+  end
+
+  Db.close(conn)
+  return ok(lines)
+end
+
+def table_shape(conn: Db.Connection, table: String) -> Result[List[String]]
+  columns = try Db.query(conn, "pragma table_info(#{table})", [])
+  indexes = try Db.query(conn, "pragma index_list(#{table})", [])
+  keys = try Db.query(conn, "pragma foreign_key_list(#{table})", [])
+  lines = columns.map do |row|
+    name = shown(row, "name")
+    kind = shown(row, "type")
+    flags = "not-null #{shown(row, "notnull")} default #{shown(row, "dflt_value")} key #{shown(row, "pk")}"
+    "#{table} column #{name} #{kind} #{flags}"
+  end
+
+  for index in indexes
+    name = value_text(index.get("name", Db.Value.Null))
+    parts = try Db.query(conn, "pragma index_info(#{name})", [])
+    names = parts.map do |part| shown(part, "name") end
+    lines = lines.push("#{table} index #{name} unique #{shown(index, "unique")} on #{names.join(",")}")
+  end
+
+  for key in keys
+    lines = lines.push("#{table} key #{shown(key, "from")} to #{shown(key, "table")}.#{shown(key, "to")}")
+  end
+
+  return ok(lines)
+end
+
+def shown(row: Db.Row, column: String) -> String
+  case row.get(column, Db.Value.Null)
+    Db.Value.Text(text) -> return text
+    Db.Value.Int(number) -> return "#{number}"
+    _ -> return "null"
+  end
+end
+
+# The tables that a scenario names (`accounts, users, sessions`) have, in a database that the app made, the
+# same columns
+# with the same types, the same indexes and the same keys as in the copy of the database that Rails made.
+def tables_as_rails(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  tables = args[0].split(",").map do |table| table.strip end
+  ours = shape_of(text_of(ctx, DB_URL), tables)
+  theirs = shape_of(text_of(ctx, RAILS_URL), tables)
+  if not ours.ok? or not theirs.ok?
+    return BDD.assert(ctx, false, "cannot read the tables: #{ours.message} #{theirs.message}")
+  end
+
+  # A table has the same columns in any order, and the indexes in the order that SQLite lists them.
+  mine = ours.unwrap!.sort
+  rails = theirs.unwrap!.sort
+  return BDD.assert(ctx, mine == rails, "the app has\n#{mine.join("\n")}\nand Rails has\n#{rails.join("\n")}")
+end
+
+def lacks_table(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  rows = rows_of(ctx, "select name from sqlite_master where type = 'table'")
+  names = rows.map do |row| value_text(row.get("name", Db.Value.Null)) end
+  return BDD.assert(ctx, not names.include?(args[0]), "the database has the table #{args[0]}")
+end
+
 def with_database[R](ctx: BDD.Context, body: Fn[Db.Connection, Result[R]]) -> Result[R]
   conn = try Db.open(text_of(ctx, DB_URL))
   outcome = body.call(conn)
