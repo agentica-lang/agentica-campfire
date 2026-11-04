@@ -10,7 +10,8 @@ A port of ONCE Campfire (group chat) in Agentica, on Bond.
 campfire.agc    the program (`make run`): config from the environment, the data folder, then the app
 src/campfire/   the domain: it knows nothing about HTTP or Bond
                 config.agc (host, port, data folder, database url, session secret), data_dir.agc (the
-                private data folder), slots.agc (a limit on concurrent hashes), passwords.agc (scrypt),
+                private data folder), slots.agc (a limit on concurrent hashes), rate_limit.agc (attempts per
+                key in a window, for the per-IP sign-in limit), passwords.agc (scrypt),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL)
@@ -74,6 +75,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   handler opens one and does all its work on it, the person included: `AuthWeb.current_user_in`; the sign-in filter
   still opens another, since a Bond `Conn` cannot carry the person on); a `sqlite::memory:` database is therefore not
   usable by the app. Never log or store a plain password; a form that is shown again never holds the password.
+  Sign-in is limited per client address (`AuthWeb.limit_sign_in`, a Bond `before` filter on `POST /session`: 10 posts
+  in 3 minutes, then 429 with `Retry-After`, before the form is read); the address is `Conn.remote_addr`, which Bond
+  does not take from `X-Forwarded-For`. A session row keeps it (`ip_address`); `last_active_at` is written at most
+  every 5 minutes, in `Auth.user_for`, and starting a session purges the rows past the cookie life and those of a
+  deactivated person (`purge_sessions`).
 - Invitation: `Auth.join` makes a member for `/join/CODE` (the form's own path) and calls `Rooms.grant_open_rooms` in
   the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a
   form that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code
