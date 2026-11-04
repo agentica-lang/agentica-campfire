@@ -255,25 +255,40 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
   return ok(Page(messages: shown.reverse, older: older, at_latest: before.none?))
 end
 
-## Stores a message of the person in the room, which the caller has checked they are in. `client_message_id` is made by
-## the page of the form: a second post with the same one (a double click, a retry after a lost answer) stores
-## nothing, so one send is one message. It must be unique per person, not per room: the key is the person and the id,
-## so a reuse in another room is dropped without a word.
+## Stores a message of the person in the room, which the caller has checked they are in, and says whether the person
+## is still active: the insert itself needs an active person, so a deactivation that came after the sign-in check (the
+## request may have waited for a connection) stores nothing and gives `false`. `client_message_id` is made by the page
+## of the form: a second post with the same one (a double click, a retry after a lost answer) stores nothing, so one
+## send is one message. It must be unique per person, not per room: the key is the person and the id, so a reuse in
+## another room is dropped without a word.
 export def post(
   conn: Db.Connection,
   room_id: Int,
   user_id: Int,
   client_message_id: String,
   body: String,
-) -> Result[Void]
-  try Db.execute(
+) -> Result[Bool]
+  stored = try Db.execute(
     conn,
-    "insert into messages (room_id, creator_id, body, client_message_id) values (?, ?, ?, ?) " +
+    "insert into messages (room_id, creator_id, body, client_message_id) " +
+    "select ?, ?, ?, ? where exists (select 1 from users where id = ? and active = 1) " +
     "on conflict (creator_id, client_message_id) do nothing",
-    [Db.Value.Int(room_id), Db.Value.Int(user_id), Db.Value.Text(body), Db.Value.Text(client_message_id)],
+    [
+      Db.Value.Int(room_id),
+      Db.Value.Int(user_id),
+      Db.Value.Text(body),
+      Db.Value.Text(client_message_id),
+      Db.Value.Int(user_id),
+    ],
   )
 
-  return ok()
+  if stored > 0
+    return ok(true)
+  end
+
+  # Nothing was stored: either the message was a repeat (the person is active) or the person is not.
+  rows = try Db.query(conn, "select 1 from users where id = ? and active = 1", [Db.Value.Int(user_id)])
+  return ok(not rows.empty?)
 end
 
 def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]

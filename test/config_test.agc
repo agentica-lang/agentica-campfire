@@ -1,3 +1,4 @@
+import AuthWeb from "../src/campfire_web/auth"
 import Config from "../src/campfire/config"
 import Smtp from "../src/campfire/mail/smtp"
 
@@ -293,10 +294,14 @@ def main() -> Void
       defaults = pool_of("", "").unwrap!
       try Test.eq(defaults.db_pool_size, Config.DEFAULT_DB_POOL_SIZE)
       try Test.eq(defaults.db_checkout_ms, Config.DEFAULT_DB_CHECKOUT_MS)
-      chosen = pool_of(" 2 ", " 250 ").unwrap!
-      try Test.eq(chosen.db_pool_size, 2)
+      chosen = pool_of(" 4 ", " 250 ").unwrap!
+      try Test.eq(chosen.db_pool_size, 4)
       try Test.eq(chosen.db_checkout_ms, 250)
       try Test.error?(pool_of("-1", ""))
+      try Test.error?(pool_of("1", ""))
+      try Test.error?(pool_of("#{Config.MIN_DB_POOL_SIZE - 1}", ""))
+      try Test.ok?(pool_of("#{Config.MIN_DB_POOL_SIZE}", ""))
+      try Test.assert(Config.MIN_DB_POOL_SIZE > AuthWeb.MAX_HASHES, "a pool could be held by the hashing slots")
       try Test.error?(pool_of("#{Config.MAX_DB_POOL_SIZE + 1}", ""))
       try Test.error?(pool_of("", "0"))
       try Test.error?(pool_of("", "#{Config.MAX_DB_CHECKOUT_MS + 1}"))

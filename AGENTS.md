@@ -21,7 +21,8 @@ src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a re
 src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
                 smtp_message.agc (sending email: the client and the message builder; they import no other
                 app module, so they can move to their own package)
-src/campfire_web/    HTTP, on Bond: app.agc (start: database, then server), web.agc (the routes), routes.agc
+src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server), web.agc (the routes), failure.agc (the 500 and
+                the 503 of a failure), routes.agc
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
@@ -77,8 +78,8 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   the person up and keeps them with `Bond.assign`; a handler reads them with `AuthWeb.assigned_user` and does not look
   them up again. The block runs in a task of the pool, not in the task of the request. A wait for a connection that runs
   out (`CAMPFIRE_DB_CHECKOUT_MS`), or a statement over its `timeout_ms`, is answered 503 with `Retry-After` by the
-  `Bond.on_error` of `Web.build` (`Database.timeout?`). A `sqlite::memory:` database is not usable by the app (one
-  empty database per connection). Never log or store a plain password; a form that is shown again never holds the password.
+  `Bond.on_error` of `Web.build` (`Failure.answer`, `Database.busy?`; also for a full queue, a closing pool and SQLite error 5). A `sqlite::memory:` database is not usable by the app (one
+  empty database per connection). Hashing runs while the request holds its connection (at most `AuthWeb.MAX_HASHES` at a time), so `CAMPFIRE_DB_POOL_SIZE` is 0 or at least `Config.MIN_DB_POOL_SIZE` (3). Never log or store a plain password; a form that is shown again never holds the password.
   Sign-in is limited per client address (`RateLimit.hit`, called first in `AuthWeb.create_session` and not by a
   path-matching filter, since the router also takes `/session/` there: 10 posts in 3 minutes, then 429 with
   `Retry-After`, before the form is read; an IPv6 client counts by its /64); the address is `Conn.remote_addr`, which Bond

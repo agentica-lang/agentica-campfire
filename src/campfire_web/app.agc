@@ -13,10 +13,11 @@ export struct Running
   pool: Database.Pool
 end
 
-## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the mailer, then serves the app on the address of `config`. It
-## says what it did on four lines of output: whether the session cookie is `Secure`, whether email is off or where it
-## goes (`mail: ...`), `database: schema version N, migrations applied: M`, then `listening on http://HOST:PORT`
-## (with the real port when the config asks for 0, and `[HOST]` for an IPv6 host). An `error` is a database that
+## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
+## mailer, then serves the app on the address of `config`. It says what it did on four lines of output: whether the
+## session cookie is `Secure`, whether email is off or where it goes (`mail: ...`),
+## `database: schema version N, migrations applied: M`, then `listening on http://HOST:PORT` (with the real port
+## when the config asks for 0, and `[HOST]` for an IPv6 host). An `error` is a database that
 ## cannot be opened or migrated (it names `CAMPFIRE_DATABASE_URL`), or a failure to listen (it names `CAMPFIRE_HOST`
 ## and `CAMPFIRE_PORT`). The server, the mailer and the pool belong to the task that calls this, which must live as long
 ## as the app does (the pool opens its connections in it).

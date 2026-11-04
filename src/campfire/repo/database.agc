@@ -50,10 +50,17 @@ export def with_connection[R](pool: Pool, body: Fn[Db.Connection, Result[R]]) ->
   return DbPool.with(pool, body)
 end
 
-## True for the message of a failure that ran out of time: no free connection within `checkout_ms`, a block that ran
-## too long, or a statement over its `timeout_ms`. The app answers those with a 503 instead of a 500.
-export def timeout?(message: String) -> Bool
-  return DbPool.timeout?(message)
+## True for the message of a failure that means the database is busy, not broken: no free connection within
+## `checkout_ms`, more callers in line than the pool takes, a pool that is closing, a block or a statement that ran too
+## long (`DbPool.timeout?`), and SQLite's `database is locked` (error 5) once its `busy_timeout` is over. The app
+## answers those with a 503 instead of a 500.
+export def busy?(message: String) -> Bool
+  return (
+    DbPool.timeout?(message) or
+    message.include?("pool error: queue full") or
+    message.include?("pool error: closed") or
+    message.include?("sqlite error 5:")
+  )
 end
 
 # The cascades of the schema (a room takes its messages, and through them the search index) need foreign keys on, and

@@ -11,7 +11,7 @@ start-up with a message that names the variable.
 | `CAMPFIRE_PORT` | `3000` | 0 to 65535. `0` picks a free port; the last line of output says which. |
 | `CAMPFIRE_DATA_DIR` | `data` | Folder for the files of the app. No `?` in it. |
 | `CAMPFIRE_DATABASE_URL` | `sqlite:DATA_DIR/campfire.db?fts5=required` | Another [agentica-db SQLite url](https://agentica-lang.github.io/agentica-db/guide/sqlite/). |
-| `CAMPFIRE_DB_POOL_SIZE` | `0` | Database connections that the requests share, 0 to 64. `0` takes the size of the database (4 for SQLite). |
+| `CAMPFIRE_DB_POOL_SIZE` | `0` | Database connections that the requests share: `0` takes the size of the database (4 for SQLite), else 3 to 64. At least 3, since up to two sign-ins hash a password at a time while they hold a connection. |
 | `CAMPFIRE_DB_CHECKOUT_MS` | `3000` | How long a request waits for a free connection, 1 to 60000. After that it is answered `503` with `Retry-After: 1`. |
 | `CAMPFIRE_BASE_URL` | unset | Public address: a scheme, a host and maybe a port, no path (`https://campfire.example.com`). Required with `CAMPFIRE_SMTP_URL`. The join link starts with it. |
 | `CAMPFIRE_SMTP_URL` | unset (no email) | How to send email. See [mail.md](mail.md). |

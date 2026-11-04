@@ -31,7 +31,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 | Auth: sessions, bcrypt, rate limit 10/3 min, signed cookie, CSRF header-only (`sessions_controller.rb`, `concerns/authentication.rb`, `session.rb`, `user.rb`) | scrypt/PBKDF2, HMAC + `secure_compare`, std/cookie, Bond cookies | exists: Bond cookie sessions, `Bond.csrf` (Sec-Fetch-Site and Origin) and `Conn.remote_addr`; the rate limit is built per IP, 10 sign-in posts in 3 minutes (`src/campfire/rate_limit.agc`) | BOND, STD | M |
 | Invite link, first-run wizard, roles, bans by IP (`account/joinable.rb`, `first_runs_controller.rb`, `user/role.rb`, `user/bannable.rb`, `block_banned_requests.rb`) | SecureRandom | exists; bans by IP are not built, and can use `Conn.remote_addr` | APP, STD | S |
 | Session transfer by QR (`sessions/transfers_controller.rb`, `user/transferable.rb`, `qr_code_controller.rb`, rqrcode) | HMAC tokens | missing: QR encoder (or draw it client-side in JS) | APP | S |
-| DB: SQLite, WAL, 13 tables, FTS5 (`db/schema.rb`, `config/database.yml`, `initializers/sqlite_wal_checkpoint.rb`) | agentica-db `Db`/`Orm`, sqlite adapter (busy timeout 5 s, BEGIN IMMEDIATE) | partial: connection is owned by one task, no pool, no migrations runner | DB | M |
+| DB: SQLite, WAL, 13 tables, FTS5 (`db/schema.rb`, `config/database.yml`, `initializers/sqlite_wal_checkpoint.rb`) | agentica-db `Db`/`Orm`, sqlite adapter (busy timeout 5 s, BEGIN IMMEDIATE) | partial: a connection is owned by one task, so the app lends them from a `DbPool` (one per request); a migrations runner exists | DB | M |
 | Background jobs (resque + Redis, 6 jobs in `app/jobs/`) | Task, Channel, Task.map | exists in-process (not durable) | APP | S |
 | Redis use (Action Cable pub/sub, kredis, resque, rate limits) | ATS tables, Channel | replace: ATS for counters/presence/rate/cache, a hub task for fan-out | APP | M |
 | Caching (`response_cache.rb`, `fragment_cache.rb`, `record_cache.rb`, ETag in `messages_controller.rb`) | ATS, `Digest.sha256` | exists; Bond has no ETag/304 | BOND, APP | S |
@@ -77,8 +77,8 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
    `multipart/form-data` parser that streams to disk with a size cap, signed cookie/session helpers
    (HMAC exists), `Sec-Fetch-Site`/Origin CSRF check, gzip middleware, ETag/304 and `Cache-Control` for
    `Bond.static`.
-5. **agentica-db** (DB, M): a connection pool or a single DB-owner task (a `Handle` belongs to the task
-   that opened it: `sqlite.agc` header), a migrations runner (ORM plan item 6 is open), PRAGMAs
+5. **agentica-db** (DB, M): a connection pool (done: `DbPool`, one connection per request; a `Handle` belongs to
+   the task that opened it, `sqlite.agc` header), a migrations runner (ORM plan item 6 is open), PRAGMAs
    (`journal_mode=WAL`, `foreign_keys=ON`) in `open`, and a startup check that FTS5 is compiled in.
 6. **std/time** (STD, S): ISO 8601 / UTC civil date from `Time.now_ms`. §41 (dates) is "planned, not started";
    do only the small helper now.

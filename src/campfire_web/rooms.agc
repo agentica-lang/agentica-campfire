@@ -1,7 +1,7 @@
 ## The web side of rooms and messages: the forms of a new room (open, closed or direct), a room page, the settings of
 ## a closed room and the post of a message. Each handler takes one connection of the pool and does everything on it.
-## The person is the one that the sign-in filter of `AuthWeb` looked up and kept (`AuthWeb.assigned_user`); a request that
-## somehow has none sends the visitor to sign in.
+## The person is the one that the sign-in filter of `AuthWeb` looked up and kept (`AuthWeb.assigned_user`); a request
+## that somehow has none sends the visitor to sign in.
 ##
 ## A room that the person is not in is answered 404 with the same body as a room that was never made, before anything
 ## about the room (or the form posted to it) is looked at, so no answer tells that a room exists. The settings are
@@ -362,7 +362,12 @@ def post_to(db: Db.Connection, person: Auth.User, room: Rooms.Room, body: String
     return ok(Answer.Page(422, page))
   end
 
-  try Rooms.post(db, room.id, person.id, sent_id, body)
+  # The person may have been deactivated since the filter looked them up: the insert stores nothing for them.
+  stored = try Rooms.post(db, room.id, person.id, sent_id, body)
+  if not stored
+    return ok(Answer.SignedOut)
+  end
+
   return ok(Answer.Redirect(Routes.room_path(room.id)))
 end
 

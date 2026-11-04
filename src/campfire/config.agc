@@ -21,6 +21,11 @@ export DEFAULT_SECURE_COOKIES = "false"
 ## The connections of the pool when `CAMPFIRE_DB_POOL_SIZE` is not set: 0 takes the size of the database (4 for SQLite).
 export DEFAULT_DB_POOL_SIZE = 0
 
+## The fewest connections that `CAMPFIRE_DB_POOL_SIZE` may ask for, when it is not 0. Hashing a password runs while the
+## request holds its connection, and the web side lets `AuthWeb.MAX_HASHES` (2) hashes run at once, so a pool that small
+## could be held entirely by sign-ins of strangers. One more keeps a connection for everything else.
+export MIN_DB_POOL_SIZE = 3
+
 ## The most connections `CAMPFIRE_DB_POOL_SIZE` may ask for.
 export MAX_DB_POOL_SIZE = 64
 
@@ -55,7 +60,8 @@ SMTP_URL_FORM = (
 ## password, so it is as secret as the session secret. `base_url` is the public address of the app without a trailing
 ## slash (the links in emails start with it), and `mail_from` the sender of those emails: both are empty while `smtp`
 ## is `none`. `mail_queue` is how many emails may wait to be sent. `db_pool_size` is how many database connections the
-## requests share (0: the size the database prefers) and `db_checkout_ms` how long a request waits for one.
+## requests share (0: the size the database prefers, else at least `MIN_DB_POOL_SIZE`) and `db_checkout_ms` how long a
+## request waits for one.
 export struct Config
   host: String
   port: Int
@@ -136,8 +142,9 @@ end
 ## and the sender is `smtp_from`, `Campfire <campfire@HOST>` for that host when left out; a host that is an IPv6
 ## address needs both. `mail_queue` is the number of emails that may wait for the mail server (`DEFAULT_MAIL_QUEUE`
 ## when left out, at most `MAX_MAIL_QUEUE`): a link that finds the queue full is dropped. `db_pool_size` is the
-## number of database connections, 0 to `MAX_DB_POOL_SIZE` (`DEFAULT_DB_POOL_SIZE`, the size of the database, when left
-## out), and `db_checkout_ms` how long a request waits for one, 1 to `MAX_DB_CHECKOUT_MS` (`DEFAULT_DB_CHECKOUT_MS`).
+## number of database connections, 0 or `MIN_DB_POOL_SIZE` to `MAX_DB_POOL_SIZE` (`DEFAULT_DB_POOL_SIZE`, the size of
+## the database, when left out), and `db_checkout_ms` how long a request waits for one, 1 to `MAX_DB_CHECKOUT_MS`
+## (`DEFAULT_DB_CHECKOUT_MS`).
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -194,6 +201,13 @@ export def parse(
   end
 
   size = try parse_db_number("CAMPFIRE_DB_POOL_SIZE", db_pool_size, DEFAULT_DB_POOL_SIZE, 0, MAX_DB_POOL_SIZE)
+  if size != 0 and size < MIN_DB_POOL_SIZE
+    return error(
+      "CAMPFIRE_DB_POOL_SIZE must be 0 (the size of the database) or a number from #{MIN_DB_POOL_SIZE} to " +
+      "#{MAX_DB_POOL_SIZE}, not #{db_pool_size.inspect}: a smaller pool could be held entirely by sign-ins that hash",
+    )
+  end
+
   checkout = try parse_db_number(
     "CAMPFIRE_DB_CHECKOUT_MS",
     db_checkout_ms,

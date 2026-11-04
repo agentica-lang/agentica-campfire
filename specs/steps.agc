@@ -57,6 +57,7 @@ def main() -> Void
     BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("{string} asks Rooms.update_closed to rename the room {int} and swap its members", &ask_update_closed),
     BDD.step("the update is refused", &update_is_refused),
+    BDD.step("{string} asks Rooms.post to post {string} in the room {int}", &ask_post),
     BDD.step("{string} asks Accounts to {string} the user {int}", &ask_accounts),
     BDD.step("{string} asks Auth.join_hashed to sign up with the code {string}", &ask_join_hashed),
     BDD.step("the join is {string}", &join_is),
@@ -279,6 +280,22 @@ def update_as(conn: Db.Connection, email: String, room_id: Int) -> Result[Bool]
   rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
   editor_id = value_int(rows[0].get("id", Db.Value.Null))
   return Rooms.update_closed(conn, room_id, editor_id, "Renamed", [3], [1, 2])
+end
+
+# `Rooms.post` straight, as a person whose session the sign-in check let through before they were deactivated. The
+# answer is kept as the update's: `false` is a refusal.
+def ask_post(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| post_as(conn, args[0], args[2].to_i!, args[1]) end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Rooms.post failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, UPDATED, JSON.from("#{outcome.unwrap!}"))
+end
+
+def post_as(conn: Db.Connection, email: String, room_id: Int, body: String) -> Result[Bool]
+  rows = try Db.query(conn, "select id from users where email = ?", [Db.Value.Text(email)])
+  return Rooms.post(conn, room_id, value_int(rows[0].get("id", Db.Value.Null)), "stale-#{SecureRandom.hex(4)}", body)
 end
 
 def update_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context

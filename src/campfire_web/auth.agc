@@ -8,6 +8,7 @@ import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import Database from "../campfire/repo/database"
+import Failure from "failure"
 import Mailer from "../campfire/mail/mailer"
 import RateLimit from "../campfire/rate_limit"
 import Routes from "routes"
@@ -41,7 +42,6 @@ PUBLIC_PATHS = Set.new([
 JOIN_SEGMENTS = 3
 
 BAD_LOGIN = "Wrong email or password"
-BUSY = "The server is busy, try again in a moment"
 TOO_MANY = "Too many sign-in attempts, try again later"
 
 # At most this many attempts to sign in (every post to `Routes.SESSION`, right or wrong) from one address in this time,
@@ -51,8 +51,7 @@ SIGN_IN_WINDOW_MS = 180_000
 
 # How many password hashes may run at once: 64 MiB and about a second of a scheduler each. The two routes that hash
 # are open to anyone, so a burst past this is answered 503 with `Retry-After` at once instead of queueing.
-MAX_HASHES = 2
-RETRY_AFTER_SECONDS = "1"
+export MAX_HASHES = 2
 
 RESET_SUBJECT = "Reset your Campfire password"
 
@@ -233,7 +232,7 @@ def create_join(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, Int]) -
   end
 
   if not Slots.take?(slots, MAX_HASHES)
-    return ok(retry_later(private_page(Bond.html(conn, 503, Views.join(code, name, email, BUSY)))))
+    return ok(retry_later(private_page(Bond.html(conn, 503, Views.join(code, name, email, Failure.BUSY)))))
   end
 
   joined = Database.with_connection(pool) do |db|
@@ -319,9 +318,10 @@ def destroy_session(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   deleted = Database.with_connection(pool) do |db| Auth.sign_out(db, token.unwrap!) end
   if not deleted.ok?
     # The person asked to sign out, so the browser forgets the cookie even though the row stays (it is the one that
-    # the failure is about). An `error` here would be a 500 that keeps the cookie, so this is the 500 by hand.
+    # the failure is about). An `error` here would keep the cookie, so the answer is made by hand, as the app
+    # makes it for any failure (a 503 when the database was busy, else a 500).
     IO.warn("campfire: sign-out failed: #{deleted.message}")
-    return ok(Bond.text(cleared, 500, "Internal Server Error"))
+    return ok(Failure.answer(cleared, deleted.message))
   end
 
   return ok(Bond.redirect(cleared, Routes.SIGN_IN))
@@ -443,14 +443,14 @@ end
 
 # 503 for a burst of requests that hash, and when to ask again. Nothing of the form is shown again.
 def busy(conn: Bond.Conn) -> Bond.Conn
-  return retry_later(Bond.html(conn, 503, Views.busy(BUSY)))
+  return retry_later(Bond.html(conn, 503, Views.busy(Failure.BUSY)))
 end
 
 # The form comes back with the token, so a person does not have to ask for another link because of a burst.
 def busy_reset_form(conn: Bond.Conn, token: String) -> Bond.Conn
-  return retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, BUSY))))
+  return retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, Failure.BUSY))))
 end
 
 def retry_later(conn: Bond.Conn) -> Bond.Conn
-  return Bond.header(conn, "retry-after", RETRY_AFTER_SECONDS)
+  return Bond.header(conn, "retry-after", Failure.RETRY_AFTER_SECONDS)
 end
