@@ -13,10 +13,11 @@ src/            config.agc (host, port, data folder, database url, session secre
                 migration per table), web.agc (routes), auth_web.agc (cookie sessions, CSRF, the sign-in
                 filter, the routes of first run, sign in, sign out and password reset), auth.agc (those over
                 SQL), passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the
-                paths), rooms.agc (rooms, memberships and messages over SQL), rooms_web.agc (their routes), rows.agc
-                (reading a column of a row), views.agc (EAG templates, the reset email too), mailer.agc (the task
-                that sends email off the request path), smtp.agc and smtp_message.agc (sending email: the client and
-                the message builder; they import no other app module, so they can move to their own package)
+                paths), rooms.agc (open, closed and direct rooms, memberships and messages over SQL), rooms_web.agc
+                (their routes and forms), rows.agc (reading a column of a row), views.agc (EAG templates, the reset
+                email too), mailer.agc (the task that sends email off the request path), smtp.agc and
+                smtp_message.agc (sending email: the client and the message builder; they import no other app
+                module, so they can move to their own package)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
@@ -71,9 +72,19 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   membership check comes before anything about the room or the posted form is looked at (a 422 would tell that the room
   exists). Whatever makes a user after the open rooms exist (the invitation), and whatever reactivates one (`active`
   0 to 1, who has missed the rooms made meanwhile), calls `Rooms.grant_open_rooms`; whatever makes an open room puts
-  every active person in it (`Rooms.create_open`). A message is plain text: stripped of the space around it, stored
-  so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the dedupe key with
-  the creator, so it must be unique per person, not per room: a reuse in another room is dropped without a word.
+  every active person in it (`Rooms.create_open`); a closed room has only the chosen active people and its maker
+  (`Rooms.create_closed`), and a direct room is found by its exact set of people before one is made
+  (`Rooms.open_direct`), in one transaction (the people are checked as active inside it, so the search counts who
+  is inserted). The settings form carries `was`, the people in the room when it was drawn, and an update applies only
+  its diff (the chosen that are not in `was` are added, `was` minus the chosen is taken out), so a stale form neither
+  takes out someone added since nor brings back someone taken out; the sender is never offered. The settings of a room
+  exist for a closed room only, and for any other room the person is in they are the same 404. Only the maker and an
+  account administrator may change a closed room (`Rooms.editable?`): another member is answered 403, after the
+  membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
+  transaction and fails, rolling back, when it no longer holds. A message is plain text: stripped of the space around
+  it, stored so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the
+  dedupe key with the creator, so it must be unique per person, not per room: a reuse in another room is dropped
+  without a word.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

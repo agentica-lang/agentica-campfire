@@ -22,6 +22,14 @@ export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"
 export ROOM_MESSAGES = "/rooms/:id/messages"
 
+## The forms of a closed room and of a direct message, and the posts that make them (each makes a room and goes to its
+## page), and the settings of a closed room: its form and the post that saves it.
+export CLOSED_ROOM_NEW = "/closed_rooms/new"
+export CLOSED_ROOMS = "/closed_rooms"
+export DIRECT_ROOM_NEW = "/direct_rooms/new"
+export DIRECT_ROOMS = "/direct_rooms"
+export ROOM_SETTINGS = "/rooms/:id/settings"
+
 ## The path of the room page.
 export def room_path(room_id: Int) -> String
   return "/rooms/#{room_id}"
@@ -35,4 +43,9 @@ end
 ## The path that a message of the room is posted to.
 export def room_messages_path(room_id: Int) -> String
   return "/rooms/#{room_id}/messages"
+end
+
+## The path of the settings of a closed room, which is also where its form posts.
+export def room_settings_path(room_id: Int) -> String
+  return "/rooms/#{room_id}/settings"
 end
