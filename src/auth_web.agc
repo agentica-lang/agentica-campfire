@@ -234,18 +234,36 @@ def create_password_reset(
   # One request at a time makes its write transaction. SQLite's wait for a busy database blocks the scheduler, and
   # tasks that all wait that way can leave no scheduler for the one that holds the write lock, so they end in "database
   # is locked": waiting here, with a sleep, keeps the schedulers free.
-  if not Slots.wait?(lock, 1, LOCK_WAIT_MS)
+  locked = Slots.with_lock(lock, LOCK_WAIT_MS) do
+    Database.with_connection(config.database_url) do |db| Auth.request_password_reset(db, email) end
+  end
+
+  if locked.none?
     return ok(busy(conn))
   end
 
-  asked = Database.with_connection(config.database_url) do |db| Auth.request_password_reset(db, email) end
-  Slots.release(lock)
-  reset = try asked
-  if reset.some?
-    _ = Mailer.enqueue(mailer, reset_message(config, reset.unwrap!))
+  reset = try locked.unwrap!
+  if reset.some? and not Mailer.enqueue(mailer, reset_message(config, reset.unwrap!))
+    # The link was made but no email will carry it (the queue is full or the mailer has stopped): it goes, or the
+    # person could not have another until it expired.
+    forget_reset(config, lock, reset.unwrap!.token)
   end
 
   return ok(Bond.html(conn, 200, Views.reset_requested()))
+end
+
+# Takes back a link that could not be sent. A failure only shows in the log: the page answers the same.
+def forget_reset(config: Config, lock: ATS[String, Int], token: String) -> Void
+  cancelled = Slots.with_lock(lock, LOCK_WAIT_MS) do
+    Database.with_connection(config.database_url) do |db| Auth.cancel_password_reset(db, token) end
+  end
+
+  if cancelled.none? or not cancelled.unwrap!.ok?
+    IO.warn(
+      "campfire: a reset link that could not be sent could not be removed either, and works for " +
+      "#{Auth.RESET_MINUTES} minutes",
+    )
+  end
 end
 
 # The link starts with the address that the app is configured with, never with the `Host` of the request, which the
@@ -292,15 +310,16 @@ def update_password(
 
   # The same lock as the request for a link, for the same reason: the write transactions of the reset do not collide.
   # It is held while the password is hashed, so two forms for one link do not both hash.
-  if not Slots.wait?(lock, 1, LOCK_WAIT_MS)
-    Slots.release(slots)
+  changed = Slots.with_lock(lock, LOCK_WAIT_MS) do
+    Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
+  end
+
+  Slots.release(slots)
+  if changed.none?
     return ok(busy_reset_form(conn, token))
   end
 
-  changed = Database.with_connection(config.database_url) do |db| Auth.reset_password(db, token, password, agent) end
-  Slots.release(lock)
-  Slots.release(slots)
-  outcome = try changed
+  outcome = try changed.unwrap!
   case outcome
     Auth.ResetOutcome.SignedIn(session) -> return ok(signed_in(conn, session))
     Auth.ResetOutcome.Gone -> return ok(link_gone(conn))

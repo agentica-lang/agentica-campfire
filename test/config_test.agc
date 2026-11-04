@@ -39,6 +39,22 @@ def smtp_of(url: String) -> Result[Optional[Smtp.Options]]
   return ok(config.smtp)
 end
 
+def mail_queue_of(size: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    size,
+  )
+end
+
 def main() -> Void
   Test.run([
     Test.test("a host and a port make a config, and the database is a file of the data folder by default") do
@@ -55,6 +71,7 @@ def main() -> Void
             smtp: none,
             base_url: "",
             mail_from: "",
+            mail_queue: 32,
           ),
         ),
       )
@@ -73,6 +90,7 @@ def main() -> Void
             smtp: none,
             base_url: "",
             mail_from: "",
+            mail_queue: 32,
           ),
         ),
       )
@@ -91,6 +109,7 @@ def main() -> Void
             smtp: none,
             base_url: "",
             mail_from: "",
+            mail_queue: 32,
           ),
         ),
       )
@@ -228,6 +247,13 @@ def main() -> Void
 
       try Test.error?(secure)
       Test.ok?(Config.parse(Config.DEFAULT_HOST, "3000", "data", "", SECRET, "true", "", "https://chat.example.com"))
+    end,
+    Test.test("the queue of emails is 32 unless the environment says another size from 1 to 1024") do
+      try Test.eq(mail_queue_of("").unwrap!.mail_queue, 32)
+      try Test.eq(mail_queue_of(" 5 ").unwrap!.mail_queue, 5)
+      try Test.error?(mail_queue_of("0"))
+      try Test.error?(mail_queue_of("1025"))
+      Test.error?(mail_queue_of("many"))
     end,
   ])
 end

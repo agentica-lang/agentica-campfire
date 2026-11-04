@@ -42,6 +42,19 @@ export def wait?(slots: ATS[String, Int], limit: Int, wait_ms: Int) -> Bool
   return true
 end
 
+## Runs `body` with the one slot of `slots` held, and gives `some` of what it gave, or `none` when the slot did not
+## come free within `wait_ms` (and then `body` did not run). The slot goes back when `body` is done. `body` must not
+## halt (a halt would leave the slot taken): it keeps to `Result`.
+export def with_lock[R](slots: ATS[String, Int], wait_ms: Int, body: Fn[R]) -> Optional[R]
+  if not wait?(slots, 1, wait_ms)
+    return none
+  end
+
+  value = body.call()
+  release(slots)
+  return some(value)
+end
+
 ## Gives a slot back.
 export def release(slots: ATS[String, Int]) -> Void
   ATS.add(slots, COUNT, -1)

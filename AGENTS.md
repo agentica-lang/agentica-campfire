@@ -41,7 +41,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   Unit tests (`test/`) only for pure helpers. A scenario gives the app its settings with `the environment variable`
   steps (`CAMPFIRE_*`), never through stdin, and a step that makes something on disk registers its removal with
   `BDD.after`, so a failed scenario leaves nothing behind.
-- Views are EAG templates with `<%@ escape &Bond.escape %>` as the first line, so every `<%= %>` is escaped.
+- Views are EAG templates with `<%@ escape &Bond.escape %>` as the first line, so every `<%= %>` is escaped. The one
+  exception is a plain-text email (`Views.reset_mail`): nothing in it is HTML, so it has no escape directive.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
 - `agentica.toml` has `blank_line_after_end = true`: every bare `end` is followed by an empty line.
 - Schema changes are new migrations in `src/migrations.agc`, numbered after the last one. Never edit one that has
@@ -56,7 +57,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   plain password; a form that is shown again never holds the password.
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A link in
   an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email answers
-  the same for every address (no enumeration). A reset token is stored as a hash only.
+  the same for every address (no enumeration). A reset token is stored as a hash only. The write transactions of the reset run under the lock of
+  `Slots.with_lock` (SQLite's busy wait blocks a scheduler); `update_password` holds it while it hashes.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

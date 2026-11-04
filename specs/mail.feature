@@ -74,6 +74,41 @@ Feature: Sending email from the app
 
       """
 
+  Scenario: A message that the mailer drops leaves no link behind, so the person can ask again
+    Given a fresh database
+    And the mail server never answers "EHLO"
+    And the mail server is listening
+    And the app sends its email through the mail server
+    And the app queues at most 1 messages for the mail server
+    And the app starts
+    And the first admin exists
+    And I run the sql "insert into users (name, email, password_digest) values ('Bea', 'bea@example.com', 'x'), ('Cy', 'cy@example.com', 'x')"
+    When I post to "/password_reset" the form:
+      | email | ana@example.com |
+    And I post to "/password_reset" the form:
+      | email | bea@example.com |
+    And I post to "/password_reset" the form:
+      | email | cy@example.com |
+    Then the status is 200
+    And the query "select count(*) from password_resets" gives at most 2
+
+  Scenario: A stop that gives up on a mail server says what it dropped
+    Given a fresh database
+    And the mail server never answers "EHLO"
+    And the mail server is listening
+    And the app sends its email through the mail server
+    And the app starts
+    And the first admin exists
+    When I post to "/password_reset" the form:
+      | email | ana@example.com |
+    And I close stdin
+    Then the program exits with code 0 within 20000 milliseconds
+    And stderr is:
+      """
+      campfire: mail: the mailer was stopped while it was sending, so that message and 0 waiting ones were dropped
+
+      """
+
   Scenario: A mail server that is not there does not stop the app
     Given a fresh database
     And the app sends its email to a port where no mail server listens

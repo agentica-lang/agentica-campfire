@@ -171,6 +171,18 @@ export def request_password_reset(conn: Db.Connection, email: String) -> Result[
   return Db.transaction(conn) do |tx| make_reset(tx, normal(email), token) end
 end
 
+## Deletes the link of this token, if it was not used: for a link that was made and could not be sent, which would
+## otherwise keep the person from having another for as long as it works. A token that is not there is not an error.
+export def cancel_password_reset(conn: Db.Connection, token: String) -> Result[Void]
+  try Db.execute(
+    conn,
+    "delete from password_resets where token_digest = ? and used_at is null",
+    [Db.Value.Text(token_digest(token))],
+  )
+
+  return ok()
+end
+
 ## True when the token belongs to a link that has not been used or expired. It changes nothing, so a page may call it.
 export def reset_token_valid?(conn: Db.Connection, token: String) -> Result[Bool]
   if token.empty? or token.length > MAX_TOKEN_LENGTH

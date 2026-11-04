@@ -18,6 +18,10 @@ MIN_SECRET_BYTES = 32
 ## Cookies are `Secure` only when the environment says so, since a browser drops them on plain HTTP (a laptop).
 export DEFAULT_SECURE_COOKIES = "false"
 
+## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set, and the most that it may be.
+export DEFAULT_MAIL_QUEUE = 32
+MAX_MAIL_QUEUE = 1024
+
 ## The plain port that a `smtp+plain://` url uses when it names none (a mail catcher on this machine).
 PLAIN_SMTP_PORT = 25
 
@@ -35,7 +39,7 @@ SMTP_URL_FORM = (
 ## app behind HTTPS. `smtp` is how to send email, or `none` when `CAMPFIRE_SMTP_URL` is not set; it holds the SMTP
 ## password, so it is as secret as the session secret. `base_url` is the public address of the app without a trailing
 ## slash (the links in emails start with it), and `mail_from` the sender of those emails: both are empty while `smtp`
-## is `none`.
+## is `none`. `mail_queue` is how many emails may wait to be sent.
 export struct Config
   host: String
   port: Int
@@ -46,6 +50,7 @@ export struct Config
   smtp: Optional[Smtp.Options]
   base_url: String
   mail_from: String
+  mail_queue: Int
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -79,6 +84,7 @@ export def load() -> Result[Config]
   base_url = System.env("CAMPFIRE_BASE_URL").unwrap_or("")
   smtp_from = System.env("CAMPFIRE_SMTP_FROM").unwrap_or("")
   smtp_hostname = System.env("CAMPFIRE_SMTP_HOSTNAME").unwrap_or("")
+  mail_queue = System.env("CAMPFIRE_MAIL_QUEUE_SIZE").unwrap_or("")
   return parse(
     host,
     port,
@@ -90,6 +96,7 @@ export def load() -> Result[Config]
     base_url,
     smtp_from,
     smtp_hostname,
+    mail_queue,
   )
 end
 
@@ -105,7 +112,8 @@ end
 ## and maybe a port, no path) is required, since a link in an email cannot be made from the request that asked for it
 ## (its `Host` is the visitor's to choose). EHLO says `smtp_hostname`, the host of `base_url` when that is left out,
 ## and the sender is `smtp_from`, `Campfire <campfire@HOST>` for that host when left out; a host that is an IPv6
-## address needs both.
+## address needs both. `mail_queue` is the number of emails that may wait for the mail server (32 when left out, 1 to
+## 1024): a link that finds the queue full is dropped.
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -117,6 +125,7 @@ export def parse(
   base_url: String = "",
   smtp_from: String = "",
   smtp_hostname: String = "",
+  mail_queue: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -151,6 +160,7 @@ export def parse(
   end
 
   mail = try parse_mail(smtp_url, base, smtp_hostname, smtp_from)
+  queue = try parse_mail_queue(mail_queue)
   folder = data_dir.strip
   url = database_url.strip
   if url.empty?
@@ -168,6 +178,7 @@ export def parse(
       smtp: mail.smtp,
       base_url: base,
       mail_from: mail.from,
+      mail_queue: queue,
     ),
   )
 end
@@ -176,6 +187,20 @@ end
 ## network in the clear. The app says so at start; with secure cookies it is an error of `parse` instead.
 export def plain_link?(config: Config) -> Bool
   return config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
+end
+
+# The size of the queue of emails, 32 when it is not set.
+def parse_mail_queue(text: String) -> Result[Int]
+  if text.strip.empty?
+    return ok(DEFAULT_MAIL_QUEUE)
+  end
+
+  number = text.strip.to_i
+  if not number.ok? or number.unwrap! < 1 or number.unwrap! > MAX_MAIL_QUEUE
+    return error("CAMPFIRE_MAIL_QUEUE_SIZE must be a number from 1 to #{MAX_MAIL_QUEUE}, not #{text.inspect}")
+  end
+
+  return number
 end
 
 # `https://campfire.example.com`, or "" when it is not set. Only the origin: a link adds the path.

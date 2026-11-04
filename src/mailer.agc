@@ -7,10 +7,6 @@
 
 import Smtp from "smtp"
 
-# The messages that may wait for the task. The only ones are the links that people ask for, one a minute for each
-# person, so a queue that fills up means a mail server that is down: the next messages are dropped, not held.
-MAX_QUEUED = 32
-
 # How long the task waits for a message before it looks at the queue again, and how long `stop` waits for it to
 # finish what is queued before it gives up on it.
 IDLE_MS = 1_000
@@ -19,6 +15,7 @@ STOP_WAIT_MS = 10_000
 ## A mailer. `queue` and `worker` are `none` when email is off.
 export struct Mailer
   queue: Optional[Channel[Smtp.Message]]
+  capacity: Int
   worker: Optional[Task[Result[Void]]]
 end
 
@@ -27,15 +24,17 @@ struct Job
   options: Smtp.Options
 end
 
-## Starts the task for these options, or a mailer that sends nothing for `none`. It belongs to the task that calls it,
-## and the task that it starts owns its queue: if it ever crashes, the queue closes and `enqueue` finds out.
-export def start(options: Optional[Smtp.Options]) -> Mailer
+## Starts the task for these options, or a mailer that sends nothing for `none`. `capacity` is how many messages may
+## wait: they are the links that people ask for, one at a time for each person and five minutes apart, so a queue that
+## fills up means a mail server that is down, and the next messages are dropped, not held. It belongs to the task that
+## calls it, and the task that it starts owns its queue: if it ever crashes, the queue closes and `enqueue` finds out.
+export def start(options: Optional[Smtp.Options], capacity: Int) -> Mailer
   case options
-    none -> return Mailer(queue: none, worker: none)
+    none -> return Mailer(queue: none, capacity: 0, worker: none)
     some(chosen) ->
-      queue: Channel[Smtp.Message] = Channel.new(MAX_QUEUED)
+      queue: Channel[Smtp.Message] = Channel.new(capacity)
       worker = Task.spawn_owning(&work, Job(queue: queue, options: chosen))
-      return Mailer(queue: some(queue), worker: some(worker))
+      return Mailer(queue: some(queue), capacity: capacity, worker: some(worker))
   end
 end
 
@@ -72,7 +71,7 @@ export def enqueue(mailer: Mailer, message: Smtp.Message) -> Bool
       if Channel.closed?(queue)
         IO.warn("campfire: mail: a message was dropped, since the mailer has stopped")
       else
-        IO.warn("campfire: mail: a message was dropped, since #{MAX_QUEUED} are waiting to be sent")
+        IO.warn("campfire: mail: a message was dropped, since #{mailer.capacity} are waiting to be sent")
       end
 
       return false
@@ -94,9 +93,29 @@ export def stop(mailer: Mailer) -> Void
       # The task returns a `Result`, so that a crash is an `error` here and not a halt of the caller.
       case Task.await(worker, STOP_WAIT_MS)
         Await.Done(_) -> return
-        Await.TimedOut -> Task.cancel(worker)
+        Await.TimedOut -> give_up(worker, mailer.queue)
       end
   end
+end
+
+# The task did not finish in time: it is cut off, and the messages that still wait are counted and dropped (the
+# one that
+# it was sending is lost too). Nothing can be said of the recipients, which may be more than one a message.
+def give_up(worker: Task[Result[Void]], queue: Optional[Channel[Smtp.Message]]) -> Void
+  Task.cancel(worker)
+  waiting = 0
+  case queue
+    none -> waiting = 0
+    some(open) ->
+      while Channel.recv(open, 0).ok?
+        waiting += 1
+      end
+  end
+
+  IO.warn(
+    "campfire: mail: the mailer was stopped while it was sending, " +
+    "so that message and #{waiting} waiting ones were dropped",
+  )
 end
 
 # Takes messages until the queue is closed and empty. A timeout of the wait is not the end: the loop only stops when

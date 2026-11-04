@@ -38,7 +38,7 @@ export def start(config: Config) -> Result[Running]
 
   schema = migrated.unwrap!
   puts("database: schema version #{schema.version}, migrations applied: #{schema.applied.length}")
-  mailer = Mailer.start(config.smtp)
+  mailer = Mailer.start(config.smtp, config.mail_queue)
   started = Bond.start(Web.build(config, schema.version, mailer), config.host, config.port)
   if not started.ok?
     Mailer.stop(mailer)

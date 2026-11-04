@@ -12,6 +12,7 @@ AUTH = "mail_auth"
 STALL = "mail_stall"
 REFUSED = "mail_refused"
 ADDRESS = "mail_address"
+QUEUE = "mail_queue"
 USER = "mail_user"
 PASSWORD = "mail_password"
 SERVICE = "mail"
@@ -33,6 +34,10 @@ CLIENT = "C: "
 SOFT_BREAK = "="
 HEX_DIGITS = "0123456789ABCDEF"
 PEER = "specs/fixtures/smtp_peer.agc"
+
+# Connections that the mail server takes one after the other: a message sent twice shows as two of them.
+PEER_CONNECTIONS = 4
+COUNT_SEGMENTS_MS = 700
 UPDATE_PATH = "/password_reset/confirm"
 
 struct Transcript
@@ -53,6 +58,8 @@ export def steps() -> List[BDD.Step]
     BDD.step("the app logs in to the mail server as {string} with the password {string}", &app_logs_in),
     BDD.step("the mail server received a message to {string} with the subject {string}", &server_received),
     BDD.step("the mail server received nothing within {int} milliseconds", &server_received_nothing),
+    BDD.step("the mail server got {int} messages in all", &server_got_messages),
+    BDD.step("the app queues at most {int} messages for the mail server", &app_queues),
     BDD.step("I open the link of the email", &open_link),
     BDD.step("I set the password {string} with the token of the link", &set_password_with_link),
     BDD.step("I set the password {string} with the token of the link {int} times at once", &set_password_at_once),
@@ -64,7 +71,7 @@ end
 ## public address that goes with it), else nothing, so that the environment of whoever runs the specs does not leak.
 export def app_environment(ctx: BDD.Context) -> Map[String, String]
   if not BDD.get(ctx, PORT).ok? or not flag(ctx, ENABLED)
-    return {"CAMPFIRE_SMTP_URL": "", "CAMPFIRE_BASE_URL": ""}
+    return {"CAMPFIRE_SMTP_URL": "", "CAMPFIRE_BASE_URL": "", "CAMPFIRE_MAIL_QUEUE_SIZE": ""}
   end
 
   login = ""
@@ -78,7 +85,8 @@ export def app_environment(ctx: BDD.Context) -> Map[String, String]
     address = BASE_URL
   end
 
-  return {"CAMPFIRE_SMTP_URL": url, "CAMPFIRE_BASE_URL": address}
+  queue = text_of(ctx, QUEUE)
+  return {"CAMPFIRE_SMTP_URL": url, "CAMPFIRE_BASE_URL": address, "CAMPFIRE_MAIL_QUEUE_SIZE": queue}
 end
 
 ## The token in the link of the last email that a step opened.
@@ -88,6 +96,10 @@ end
 
 def server_offers_auth(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.set(ctx, AUTH, JSON.from(args[0]))
+end
+
+def app_queues(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.set(ctx, QUEUE, JSON.from(args[0]))
 end
 
 def server_never_answers(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -124,6 +136,7 @@ def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
     "SMTP_PEER_AUTH": text_of(ctx, AUTH),
     "SMTP_PEER_STALL": text_of(ctx, STALL),
     "SMTP_PEER_REJECT_RCPT": text_of(ctx, REFUSED),
+    "SMTP_PEER_CONNECTIONS": "#{PEER_CONNECTIONS}",
   }
 
   started = Process.spawn_captured("agentica", [Path.join([root, PEER]).unwrap!], ".", 30_000, env)
@@ -181,6 +194,27 @@ def server_received(ctx: BDD.Context, args: List[String]) -> BDD.Context
     found,
     "the mail server saw:\n#{lines.join("\n")}",
   )
+end
+
+# Reads the connections one after the other, as long as the next one comes, and counts the ones that carried a message.
+# A wait that ends with nothing stops the server process, so this is the last use of it.
+def server_got_messages(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  sent = 0
+  wait_ms = STARTUP_MS
+  for _ in 0...PEER_CONNECTIONS
+    read = transcript_of(ctx, wait_ms)
+    if not read.ok? or read.unwrap!.lines.empty?
+      break
+    end
+
+    if read.unwrap!.lines.include?("C: DATA")
+      sent += 1
+    end
+
+    wait_ms = COUNT_SEGMENTS_MS
+  end
+
+  return BDD.assert(ctx, sent == args[0].to_i!, "the mail server got #{sent} messages, not #{args[0]}")
 end
 
 def server_received_nothing(ctx: BDD.Context, args: List[String]) -> BDD.Context

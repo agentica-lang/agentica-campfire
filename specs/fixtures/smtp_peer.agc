@@ -17,7 +17,8 @@
 ## the peer waits SMTP_PEER_LINE_DELAY_MS. `~N:M` is the same with M letters x after `250-` on each line. `^N` is one
 ## line `550 ` and N letters x. In a line, `<ESC>` is the escape character, `<CSI>` U+009B (a C1 control), `<RLO>`
 ## U+202E (a bidi override), `<LS>` U+2028 (a line separator), `<ZWJ>` U+200D (zero width) and `<ISS>` U+206A (a
-## deprecated format control). SMTP_PEER_DATA_DELAY_MS is how long it waits after the message before it answers 250.
+## deprecated format control). SMTP_PEER_DATA_DELAY_MS is how long it waits after the message before it answers 250. SMTP_PEER_CONNECTIONS (1 by default) is
+## how many connections it serves one after the other, each ending with `closed`.
 
 HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000
@@ -37,6 +38,7 @@ struct Settings
   canned: String
   line_delay_ms: Int
   data_delay_ms: Int
+  connections: Int
   context: Optional[TlsContext]
 end
 
@@ -45,16 +47,21 @@ def main() -> Void
   listener = open_listener(settings)
   puts("listening on #{TCP.local_port(listener)}")
   IO.flush()
-  accepted = TCP.accept(listener, ACCEPT_MS)
-  if accepted.ok?
-    serve(accepted.unwrap!, settings)
-  else
-    # Implicit TLS: a client that refused the certificate never completes the handshake, which ends up here.
-    IO.warn("smtp peer: no client came: #{accepted.message}")
-  end
+  for _ in 0...settings.connections
+    accepted = TCP.accept(listener, ACCEPT_MS)
+    if accepted.ok?
+      serve(accepted.unwrap!, settings)
+    else
+      # Implicit TLS: a client that refused the certificate never completes the handshake, which ends up here.
+      IO.warn("smtp peer: no client came: #{accepted.message}")
+    end
 
-  puts("closed")
-  IO.flush()
+    puts("closed")
+    IO.flush()
+    if not accepted.ok?
+      return
+    end
+  end
 end
 
 def load_settings() -> Settings
@@ -75,6 +82,7 @@ def load_settings() -> Settings
     canned: System.env("SMTP_PEER_CANNED").unwrap_or(""),
     line_delay_ms: System.env("SMTP_PEER_LINE_DELAY_MS").unwrap_or("0").to_i!,
     data_delay_ms: System.env("SMTP_PEER_DATA_DELAY_MS").unwrap_or("0").to_i!,
+    connections: System.env("SMTP_PEER_CONNECTIONS").unwrap_or("1").to_i!,
     context: context,
   )
 end
