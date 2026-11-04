@@ -7,18 +7,22 @@ A port of ONCE Campfire (group chat) in Agentica, on Bond. `docs/plan.md` has th
 
 ```text
 campfire.agc    the program (`make run`): config from the environment, the data folder, then the app
-src/            config.agc (host, port, data folder, database url, session secret), data_dir.agc (the
-                private data folder), app.agc (start: database, then server), database.agc (open and
-                migrate; `with_connection` for a request), migrations.agc (the schema, one numbered
-                migration per table), web.agc (routes), auth_web.agc (cookie sessions, CSRF, the sign-in
-                filter, the routes of first run, the join link, sign in, sign out and password reset), auth.agc
-                (those over SQL), accounts.agc (the join code and the people: deactivate and reactivate, over SQL),
-                accounts_web.agc (the people page and those posts), passwords.agc (scrypt), slots.agc (a limit on concurrent hashes), routes.agc (the
-                paths), rooms.agc (open, closed and direct rooms, memberships and messages over SQL), rooms_web.agc
-                (their routes and forms), rows.agc (reading a column of a row), views.agc (EAG templates, the reset
-                email too), mailer.agc (the task that sends email off the request path), smtp.agc and
-                smtp_message.agc (sending email: the client and the message builder; they import no other app
-                module, so they can move to their own package)
+src/campfire/   the domain: it knows nothing about HTTP or Bond
+                config.agc (host, port, data folder, database url, session secret), data_dir.agc (the
+                private data folder), slots.agc (a limit on concurrent hashes), passwords.agc (scrypt),
+                accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
+                (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
+                closed and direct rooms, memberships and messages over SQL)
+src/campfire/repo/   database.agc (open and migrate; `with_connection` for a request), migrations.agc
+                (the schema, one numbered migration per table), rows.agc (reading a column of a row)
+src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
+                smtp_message.agc (sending email: the client and the message builder; they import no other
+                app module, so they can move to their own package)
+src/campfire_web/    HTTP, on Bond: app.agc (start: database, then server), web.agc (the routes), routes.agc
+                (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
+                CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
+                password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
+                and forms of rooms)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
@@ -41,6 +45,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
 
 ## Rules
 
+- Layers: `src/campfire/` (the domain: config, accounts, auth, rooms, passwords, `repo/`, `mail/`) never imports
+  `src/campfire_web/`, Bond (`pkg/bond/...`) or `std/http`, and never names `Bond.Conn`, `HttpRequest` or any other HTTP
+  type. `src/campfire_web/` calls the domain, never the reverse; a piece that needs HTTP or Bond is web, a piece that
+  needs neither belongs to the domain. Imports are relative to the importing file (`../campfire/rooms` from the web
+  side, `repo/rows` inside the domain).
 - BDD first: a behavior is a Gherkin scenario in `specs/` before the code. A test over HTTP uses 127.0.0.1 and port 0.
   Unit tests (`test/`) only for pure helpers. A scenario gives the app its settings with `the environment variable`
   steps (`CAMPFIRE_*`), never through stdin, and a step that makes something on disk registers its removal with
@@ -49,13 +58,13 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   exception is a plain-text email (`Views.reset_mail`): nothing in it is HTML, so it has no escape directive.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
 - `agentica.toml` has `blank_line_after_end = true`: every bare `end` is followed by an empty line.
-- Schema changes are new migrations in `src/migrations.agc`, numbered after the last one. Never edit one that has
+- Schema changes are new migrations in `src/campfire/repo/migrations.agc`, numbered after the last one. Never edit one that has
   shipped (`Migrate` refuses it on a database that ran it); `specs/schema.feature` pins the checksum of each one,
   so a PR that edits shipped SQL fails there. A table that the specs name in `specs/database.feature` is added there
   too.
 - Never write `insert or replace into messages` (it skips the delete trigger and corrupts the search index; an
   upsert with `on conflict do update` is fine). Page a room by `id`, not by `created_at`.
-- Auth: a page is public only if `PUBLIC_PATHS` in `src/auth_web.agc` names it (the sign-in filter is
+- Auth: a page is public only if `PUBLIC_PATHS` in `src/campfire_web/auth.agc` names it (the sign-in filter is
   deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
   code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any missing
   page (`Routes.MISSING`, the one 404 text of every handler and of the app for a path with no route). A request opens

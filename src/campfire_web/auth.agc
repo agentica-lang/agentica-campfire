@@ -5,15 +5,15 @@
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
-import Accounts from "accounts"
-import Auth from "auth"
-import Database from "database"
-import Mailer from "mailer"
+import Accounts from "../campfire/accounts"
+import Auth from "../campfire/auth"
+import Database from "../campfire/repo/database"
+import Mailer from "../campfire/mail/mailer"
 import Routes from "routes"
-import Slots from "slots"
-import Smtp from "smtp"
+import Slots from "../campfire/slots"
+import Smtp from "../campfire/mail/smtp"
 import Views from "views"
-import {Config} from "config"
+import {Config} from "../campfire/config"
 
 # The cookie of the session, and the name that browsers only take from the host itself (`__Host-`, which also needs
 # `Secure`, no domain and the path `/`).

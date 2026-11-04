@@ -1,4 +1,4 @@
-import Mail from "../src/smtp_message"
+import Mail from "../src/campfire/mail/smtp_message"
 
 DATE = "Tue, 03 Nov 2026 10:55:02 +0000"
 ID = "<t@example.com>"

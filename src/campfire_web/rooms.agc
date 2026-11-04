@@ -10,13 +10,13 @@
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
-import Auth from "auth"
-import AuthWeb from "auth_web"
-import Database from "database"
-import Rooms from "rooms"
+import Auth from "../campfire/auth"
+import AuthWeb from "auth"
+import Database from "../campfire/repo/database"
+import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
-import {Config} from "config"
+import {Config} from "../campfire/config"
 
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16

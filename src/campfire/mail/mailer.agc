@@ -5,7 +5,7 @@
 ## password), and dropped; nothing here retries, since the one message of today is a link that a person asks for again.
 ## With no `Smtp.Options` there is no task, and `enqueue` says no.
 
-import Config from "config"
+import Config from "../config"
 import Smtp from "smtp"
 
 # How long the task waits for a message before it looks at the queue again, and how long `stop` waits for it to

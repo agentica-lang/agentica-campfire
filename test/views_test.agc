@@ -1,4 +1,4 @@
-import Views from "../src/views"
+import Views from "../src/campfire_web/views"
 
 def main() -> Void
   Test.run([

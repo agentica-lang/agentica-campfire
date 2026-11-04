@@ -1,5 +1,5 @@
-import Config from "../src/config"
-import Smtp from "../src/smtp"
+import Config from "../src/campfire/config"
+import Smtp from "../src/campfire/mail/smtp"
 
 SECRET = "0123456789abcdef0123456789abcdef"
 

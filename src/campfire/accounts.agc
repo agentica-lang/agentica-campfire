@@ -7,7 +7,7 @@
 
 import Db from "pkg/db/db"
 import Rooms from "rooms"
-import {int_of, text_of} from "rows"
+import {int_of, text_of} from "repo/rows"
 
 JOIN_CODE_BYTES = 6
 GROUP = 4

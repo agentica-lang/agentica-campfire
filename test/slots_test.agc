@@ -1,4 +1,4 @@
-import Slots from "../src/slots"
+import Slots from "../src/campfire/slots"
 
 def main() -> Void
   Test.run([
