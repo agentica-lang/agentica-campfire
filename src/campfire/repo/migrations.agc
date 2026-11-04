@@ -1,8 +1,8 @@
 ## The schema of the app, as ordered migrations for `Migrate.up` (agentica-db), one file per migration in `migrations/`
 ## and numbered like the file: `m0001_accounts.agc` is version 1. Migrations 1 to 14 create the tables of a Rails
 ## Campfire (`db/schema.rb` at 90b3300) exactly as Rails writes them, so that a database made by Rails is the same
-## schema; the last (15, password resets) is the one table that Rails has not. There has been no release, so the history
-## was rewritten to this; once there is one, a change is a new migration.
+## schema; the last (15, password resets) is the one table that Rails has not. There has been no release, so the
+## history was rewritten to this; once there is one, a change is a new migration.
 ##
 ## Foreign keys are on (the driver's default, and `Database.migrate` refuses a connection that has them off), only
 ## where Rails declares them and with no cascade, as in Rails: a user is never deleted, only deactivated, and the app

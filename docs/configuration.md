@@ -67,6 +67,9 @@ there. A database that the app made before its history was rewritten to the Rail
 `schema_migrations`, and neither `ar_internal_metadata` nor `agentica_schema_migrations`) also stops the
 start: delete the file and start again, since there has been no release to convert from.
 
+A database that the app made between the people step and the rooms step (before the rooms moved to the Rails
+schema) fails at start with a checksum error and must be deleted, since there has been no release to convert from.
+
 The history of the app is the table `agentica_schema_migrations`, not `schema_migrations`, which
 Rails owns. A database that the app makes never has `ar_internal_metadata` (that table is what tells
 the two apart), nor `schema_migrations`.

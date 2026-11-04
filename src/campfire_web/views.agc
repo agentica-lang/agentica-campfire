@@ -227,7 +227,8 @@ end
 
 ## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
 ## the form that posts a message. The body of a message is HTML that `Rooms.page` has cleaned, so it is the one value
-## here that is written with `<%== %>`. `can_edit` adds the link to the settings, for the people who may change the room.
+## here that is written with `<%== %>`. `can_edit` adds the link to the settings, for the people who may change the
+## room.
 export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer, can_edit: Bool) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>

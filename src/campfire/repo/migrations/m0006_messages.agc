@@ -1,6 +1,6 @@
 ## The `messages` table of a Rails Campfire. It has no body: the text is HTML in `action_text_rich_texts` (the next
-## migration), which is how Action Text keeps it. `client_message_id` is the id that the browser made for a message, for
-## the DOM id of its optimistic copy: there is no unique index on it (Rails has none), so the app does not drop a
+## migration), which is how Action Text keeps it. `client_message_id` is the id that the browser made for a message,
+## for the DOM id of its optimistic copy: there is no unique index on it (Rails has none), so the app does not drop a
 ## message that repeats one.
 ##
 ## A page of a room is read by `created_at`, as Rails orders it, and not by `id`: the messages of a database that Rails

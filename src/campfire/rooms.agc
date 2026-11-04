@@ -14,8 +14,9 @@ import {int_of, text_of} from "repo/rows"
 export PAGE_SIZE = 40
 
 ## The types of room (`rooms.type`): every active person is in an open room, a closed room has a member list, and a
-## direct room is between people and has no name of its own.
-export OPEN = Rails.ROOM_OPEN
+## direct room is between people and has no name of its own. `OPEN` is for this module only; the rest of the app never
+## names it.
+OPEN = Rails.ROOM_OPEN
 export CLOSED = Rails.ROOM_CLOSED
 export DIRECT = Rails.ROOM_DIRECT
 
@@ -237,10 +238,10 @@ export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) 
 end
 
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
-## first, by `created_at` as Rails does: the rows of a database that Rails seeded are not in the order of their time, so
-## the id says nothing about it. Messages that share an instant go by `id`, so a page and the one before it neither
-## repeat nor skip one; a `before` that is no message gives an empty page, and one of another room serves for its time
-## only. It reads one more than a page, to know whether there is an older page without a count.
+## first, by `created_at` as Rails does: the rows of a database that Rails seeded are not in the order of their time,
+## so the id says nothing about it. Messages that share an instant go by `id`, so a page and the one before it neither
+## repeat nor skip one; a `before` that is no message of this room (unknown, or of another room) gives an empty page.
+## It reads one more than a page, to know whether there is an older page without a count.
 export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Page]
   params = [Db.Value.Int(room_id)]
   cursor = ""
@@ -248,7 +249,8 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
     some(anchor) ->
       cursor = (
         "and (messages.created_at, messages.id) < " +
-        "(select anchor.created_at, anchor.id from messages anchor where anchor.id = ?)"
+        "(select anchor.created_at, anchor.id from messages anchor where anchor.id = ? " +
+        "and anchor.room_id = messages.room_id)"
       )
 
       params = params.push(Db.Value.Int(anchor))
@@ -257,7 +259,8 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
 
   rows = try Db.query(
     conn,
-    "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, coalesce(rich_texts.body, '') as body, " +
+    "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
+    "coalesce(rich_texts.body, '') as body, " +
     "strftime('%Y-%m-%dT%H:%M:%fZ', messages.created_at) as created_at " +
     "from messages left join users on users.id = messages.creator_id " +
     "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +

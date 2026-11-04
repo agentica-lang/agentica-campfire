@@ -12,7 +12,8 @@ export def migration() -> Migrate.Migration
     "create action text rich texts",
     [
       rich_texts(),
-      "create unique index index_action_text_rich_texts_uniqueness on action_text_rich_texts (record_type, record_id, name)",
+      "create unique index index_action_text_rich_texts_uniqueness " +
+      "on action_text_rich_texts (record_type, record_id, name)",
     ],
   )
 end

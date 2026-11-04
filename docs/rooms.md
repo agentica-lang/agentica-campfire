@@ -45,6 +45,8 @@ that is to come or from Rails, is cleaned by `HtmlSanitizer.sanitize` before it 
 before it is shown. There is no link or mention handling yet.
 
 The form carries a random `client_message_id`, which is stored and used for nothing else: as in Rails
-there is no unique index on it, so posting it twice (a double click) stores two messages.
+there is no unique index on it, so posting it twice (a double click) stores two messages. This is a known
+gap: a double click or a retry after a lost answer posts twice, until the client checks `client_message_id`
+(the app does not).
 
 Who may see a room, and why a non-member gets `404`: [security.md](security.md).

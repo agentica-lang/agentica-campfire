@@ -10,7 +10,8 @@ export def migration() -> Migrate.Migration
     "create push subscriptions",
     [
       push_subscriptions(),
-      "create index idx_on_endpoint_p256dh_key_auth_key_7553014576 on push_subscriptions (endpoint, p256dh_key, auth_key)",
+      "create index idx_on_endpoint_p256dh_key_auth_key_7553014576 " +
+      "on push_subscriptions (endpoint, p256dh_key, auth_key)",
       "create index index_push_subscriptions_on_user_id on push_subscriptions (user_id)",
     ],
   )

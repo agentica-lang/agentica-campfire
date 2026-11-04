@@ -69,6 +69,22 @@ Feature: Messages
     And the query "select count(*) from message_search_index" gives 2
     And the query "select count(*) from messages where id not in (select rowid from message_search_index)" gives 0
 
+  Scenario: A message that is only spaces is refused
+    When I post to "/rooms/1/messages" the form:
+      | body |     |
+    Then the status is 422
+    And the body contains "Write something to send"
+    And the query "select count(*) from messages" gives 0
+    And the query "select count(*) from action_text_rich_texts" gives 0
+
+  Scenario: A message is at most 10000 characters
+    When I post to "/rooms/1/messages" a message of 10000 characters
+    Then the status is 302
+    When I post to "/rooms/1/messages" a message of 10001 characters
+    Then the status is 422
+    And the body contains "A message is at most 10000 characters"
+    And the query "select count(*) from messages" gives 1
+
   Scenario: The id of the browser is stored as it came, and a second post with it is a second message
     When I post to "/rooms/1/messages" the form:
       | body              | Twice |
@@ -175,11 +191,15 @@ Feature: Messages
     Then the body contains "In lunch"
     And the body does not contain "In talk"
     When I get "/rooms/1?before=2"
-    Then the body contains "In talk"
+    Then the status is 200
+    And the body does not contain "In talk"
     And the body does not contain "In lunch"
     When I get "/rooms/2?before=2"
     Then the status is 200
     And the body does not contain "In talk"
+    And the body does not contain "In lunch"
+    When I get "/rooms/2?before=1"
+    Then the status is 200
     And the body does not contain "In lunch"
 
   Scenario: A refused message comes back as a draft that is text, not markup

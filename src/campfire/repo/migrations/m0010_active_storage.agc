@@ -1,7 +1,7 @@
 ## The three tables of Active Storage as a Rails Campfire has them: `active_storage_blobs` (a stored file: its `key`,
 ## name, type and size), `active_storage_attachments` (which record has which blob, by `record_type`, `record_id` and
-## `name`) and `active_storage_variant_records` (a processed copy of an image). Rails keeps the avatar of a user and the
-## file of a message this way. The keys to the blobs have no cascade.
+## `name`) and `active_storage_variant_records` (a processed copy of an image). Rails keeps the avatar of a user and
+## the file of a message this way. The keys to the blobs have no cascade.
 
 import Migrate from "pkg/db/migrate"
 
@@ -15,9 +15,11 @@ export def migration() -> Migrate.Migration
       attachments(),
       variant_records(),
       "create index index_active_storage_attachments_on_blob_id on active_storage_attachments (blob_id)",
-      "create unique index index_active_storage_attachments_uniqueness on active_storage_attachments (record_type, record_id, name, blob_id)",
+      "create unique index index_active_storage_attachments_uniqueness " +
+      "on active_storage_attachments (record_type, record_id, name, blob_id)",
       "create unique index index_active_storage_blobs_on_key on active_storage_blobs (key)",
-      "create unique index index_active_storage_variant_records_uniqueness on active_storage_variant_records (blob_id, variation_digest)",
+      "create unique index index_active_storage_variant_records_uniqueness " +
+      "on active_storage_variant_records (blob_id, variation_digest)",
     ],
   )
 end
