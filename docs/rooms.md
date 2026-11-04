@@ -41,15 +41,15 @@ A message is a row of `messages`, its HTML body in `action_text_rich_texts` (`re
 `name` `body`) and its plain text in the FTS5 table `message_search_index` (`rowid` is the message id),
 all written in one transaction. The form sends plain text of at most 10000 characters, stripped of the
 space around it, which is stored as HTML (escaped, a new line as `<br>`). An HTML body, from the form
-that is to come or from Rails, is cleaned by `HtmlSanitizer.sanitize` before it is stored and again
-before it is shown. There is no link or mention handling yet.
+that is to come or from Rails, is cleaned by `HtmlSanitizer.sanitize` before it is stored and when it
+is read. There is no link or mention handling yet.
 
 Each message on a page is `<div id="message_ID" data-message-id="ID">` with the author and the time, and its
 body in `<div id="presentation_message_ID">` inside `<turbo-frame id="edit_message_ID">`; the list is
 `<div id="messages_rooms_open_ID">` (`closed` or `direct` for the other types). `GET /rooms/ID/messages` is
 the same markup without the layout or the sidebar: the 40 messages before `?before=ID` (the newest 40 without
-it), `204` when there are none, `404` for a room that is not the person's. The page links `/assets/campfire.css`,
-which is not served yet.
+it), `204` when there are none, `404` for a room that is not the person's. Every page links one fingerprinted
+stylesheet, `/assets/campfire-DIGEST.css` (see [Assets](#assets)).
 
 The form of a message has the fields `message[body]` and `message[client_message_id]`, the names that Rails
 uses. A post that sends `Accept: text/vnd.turbo-stream.html` is answered `200` with a Turbo Stream that appends
@@ -65,3 +65,36 @@ gap: a double click or a retry after a lost answer posts twice, until the client
 (the app does not).
 
 Who may see a room, and why a non-member gets `404`: [security.md](security.md).
+
+## Sidebar and search
+
+`GET /users/me/sidebar` is the sidebar as a whole document: `<ul id="shared_rooms">` with the open and
+closed rooms of the person that they have not made invisible, then their direct messages. The other
+pages carry the same column.
+
+`GET /searches?q=words` is a whole document with the messages of the rooms the person is in (any
+involvement) whose text matches the words in `message_search_index`: the newest 100, oldest first, in the
+markup of the room page. What is typed is words, as in Rails (`SearchesController`): everything that is not a
+letter, digit or `_` separates words, and each word goes to FTS5 in double quotes, so `AND`, `OR`, `NEAR`,
+`*`, `-`, `col:` and quotes are only text and no query can make the search fail. All the words must match
+(the porter tokenizer matches `coffees` for `coffee`). The query is shown escaped. Posting the form to
+`POST /searches` remembers the words (the 10 last, newest first, as `Search.record` does), shows them on the
+page, and redirects to the results; a get does not remember anything. There is no way to clear them yet.
+
+## Avatars
+
+`GET /users/TOKEN/avatar` answers with the picture of a user; TOKEN is a Rails `signed_id` for the purpose
+`:avatar` (see [security.md](security.md)). The app makes no image. A user whose avatar Rails has
+processed (`active_storage_attachments` named `avatar`, a row of `active_storage_variant_records` for its
+blob, and the image attached to that variant record, a WebP) gets that file as it is on disk,
+`image/webp`, with `Cache-Control: public, max-age=1800, stale-while-revalidate=604800` as Rails sends. A
+user without one gets an SVG with their initials, as Rails does for a person (a bot gets initials too, where
+Rails has a picture for bots). A token that does not verify, a user that does not exist, and a file that
+is missing are all the same `404`. The route needs a sign-in. Nothing in the app uploads an avatar yet.
+
+## Assets
+
+The folder `public/assets/` (`CAMPFIRE_ASSETS_DIR`) is served under `/assets/` without a sign-in. A name
+with a fingerprint (`campfire-DIGEST.css`, DIGEST the first 16 hex digits of the SHA-256 of the file) is
+sent with `Cache-Control: public, max-age=31536000, immutable`. When the CSS changes, rename it to its new
+digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the name is right.

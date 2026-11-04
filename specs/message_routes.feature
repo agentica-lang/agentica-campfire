@@ -104,6 +104,32 @@ Feature: The message routes of the benchmark
     And the query "select count(*) from action_text_rich_texts where (record_type, record_id, name, body) = ('Message', 1, 'body', 'bench write 1f2e3d')" gives 1
     And the query "select count(*) from message_search_index where rowid = 1 and body = 'bench write 1f2e3d'" gives 1
 
+  Scenario: A Turbo Stream post to a closed room appends to the list that is named after its type
+    Given a member "Bea" with the email "bea@example.com" exists
+    And a closed room "Secret" with the members "ana@example.com,bea@example.com"
+    And the request header "accept" is "text/vnd.turbo-stream.html, text/html, application/xhtml+xml"
+    When I post to "/rooms/2/messages" the form:
+      | message[body]              | closed write 7c1d |
+      | message[client_message_id] | 33be90            |
+    Then the status is 200
+    And the header "content-type" contains "text/vnd.turbo-stream.html"
+    And the body contains "action=\"append\""
+    And the body contains "target=\"messages_rooms_closed_2\""
+    And the body contains "<div id=\"presentation_message_1\">closed write 7c1d</div>" 1 times
+    And the query "select count(*) from messages where id = 1 and room_id = 2 and client_message_id = '33be90'" gives 1
+
+  Scenario: A Turbo Stream post to a room that the person is not in is a 404 and stores nothing
+    Given a member "Bea" with the email "bea@example.com" exists
+    And a closed room "Theirs" with the members "bea@example.com"
+    And the request header "accept" is "text/vnd.turbo-stream.html, text/html, application/xhtml+xml"
+    When I post to "/rooms/2/messages" the form:
+      | message[body]              | sneaky write |
+      | message[client_message_id] | 4455aa       |
+    Then the status is 404
+    And the body is "Not Found"
+    And the query "select count(*) from messages" gives 0
+    And the query "select count(*) from message_search_index" gives 0
+
   Scenario: The message that a post answers is written as the room page writes it
     Given the request header "accept" is "text/vnd.turbo-stream.html"
     When I post to "/rooms/1/messages" the form:
@@ -139,12 +165,14 @@ Feature: The message routes of the benchmark
     And a member "Cy" with the email "cy@example.com" exists
     And I run the sql "update rooms set updated_at = '2020-01-01 00:00:00.000000' where id = 1"
     And I run the sql "update memberships set involvement = 'invisible' where room_id = 1 and user_id = 3"
+    And I run the sql "update memberships set updated_at = '2020-01-01 00:00:00.000000'"
     When I post to "/rooms/1/messages" the form:
       | message[body] | Hello |
     Then the query "select count(*) from rooms where id = 1 and updated_at > '2020-01-02'" gives 1
     And the query "select count(*) from memberships where room_id = 1 and user_id = 2 and unread_at is not null" gives 1
     And the query "select count(*) from memberships where room_id = 1 and user_id = 1 and unread_at is null" gives 1
     And the query "select count(*) from memberships where room_id = 1 and user_id = 3 and unread_at is null" gives 1
+    And the query "select count(*) from memberships where updated_at > '2020-01-02'" gives 0
     Given I run the sql "update memberships set connected_at = strftime('%Y-%m-%d %H:%M:%f000', 'now'), unread_at = null where room_id = 1 and user_id = 2"
     When I post to "/rooms/1/messages" the form:
       | message[body] | Hello again |

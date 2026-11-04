@@ -406,6 +406,24 @@ def main() -> Void
       cells = HtmlSanitizer.sanitize("<table><tr>" + List.repeat("<td>x", 100).join("") + "</table>")
       Test.eq(cells.split("</td>").size, 101)
     end,
+    Test.test("cleaning clean markup changes nothing, so a body is the same stored and read") do
+      inputs = [
+        "<p>Hi &amp; <b>there</b> <a href=\"http://x/?a=1&b=2\">link</a></p>",
+        "<script>alert(1)</script><p onclick=\"x()\">text</p>",
+        "a < b & c > d &lt;b&gt; &#x3c;i&#x3e;",
+        "<ul><li>one<li>two</ul><table><tr><td>cell",
+        "<<b>>x</b></i><b><i>y",
+        "&amp;lt; &amp;amp; <!-- c --> <p a=b>q</p>",
+        "<a href=\"javascript:alert(1)\">x</a><a href=\"HTTPS://example.com/a b\">y</a>",
+      ]
+
+      unchanged = inputs.select do |input|
+        once = HtmlSanitizer.sanitize(input)
+        HtmlSanitizer.sanitize(once) != once
+      end
+
+      Test.eq(unchanged, [])
+    end,
     Test.test("the cost grows with the input") do
       try linear?("<p>text <b>bold</b> &amp; <a href=\"http://x/?a=1&b=2\">link</a></p>")
       try linear?("<b>")

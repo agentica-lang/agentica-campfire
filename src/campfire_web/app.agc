@@ -18,7 +18,8 @@ end
 ## session cookie is `Secure`, whether email is off or where it goes (`mail: ...`),
 ## `database: schema version N, migrations applied: M`, then `listening on http://HOST:PORT` (with the real port
 ## when the config asks for 0, and `[HOST]` for an IPv6 host). An `error` is a database that
-## cannot be opened or migrated (it names `CAMPFIRE_DATABASE_URL`), or a failure to listen (it names `CAMPFIRE_HOST`
+## cannot be opened or migrated (it names `CAMPFIRE_DATABASE_URL`), an assets folder that is not there
+## (`CAMPFIRE_ASSETS_DIR`), or a failure to listen (it names `CAMPFIRE_HOST`
 ## and `CAMPFIRE_PORT`). The server, the mailer and the pool belong to the task that calls this, which must live as long
 ## as the app does (the pool opens its connections in it).
 export def start(config: Config) -> Result[Running]
@@ -78,6 +79,12 @@ end
 
 # The mailer, then the server on the pool. The caller closes the pool when this fails.
 def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[Running]
+  # `Bond.static` stops the program for a folder that is not there, so the start says which variable to change.
+  assets = File.stat(config.assets_dir)
+  if not assets.ok? or assets.unwrap!.kind != "directory"
+    return error("the folder of the stylesheet is not there (CAMPFIRE_ASSETS_DIR): #{config.assets_dir}")
+  end
+
   mailer = try Mailer.start(config.smtp, config.mail_queue)
   started = Bond.start(Web.build(config, pool, schema_version, mailer), config.host, config.port)
   if not started.ok?

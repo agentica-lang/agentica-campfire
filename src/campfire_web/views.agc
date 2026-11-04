@@ -5,6 +5,7 @@ import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
 import Accounts from "../campfire/accounts"
 import Rooms from "../campfire/rooms"
+import Searches from "../campfire/searches"
 import Routes from "routes"
 
 # The name of the app, in the title and the heading.
@@ -49,7 +50,7 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
     <nav aria-label="Rooms">
       <p>Signed in as <%= user_name %></p>
       <h2>Rooms</h2>
-      <ul>
+      <ul id="shared_rooms">
     <% for room in shared %>
         <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
     <% end %>
@@ -71,6 +72,11 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
       </form>
     </nav>
   EAG
+end
+
+## The sidebar alone as a document, for `GET /users/me/sidebar`.
+export def sidebar_page(sidebar: String) -> String
+  return layout("Rooms", sidebar)
 end
 
 ## The home page of the person who is signed in, around their `sidebar`.
@@ -256,6 +262,59 @@ export def message_stream(room: Rooms.Room, one: Rooms.Message) -> String
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== message(one) %></template></turbo-stream>
+  EAG
+end
+
+## The search page: the form, the recent searches (`recent`, the words of each) and, for a `query` (the words that
+## `Searches.words` made, "" for none), the messages that match it in the markup of the room page. The query is shown as
+## text, and only the messages carry a `data-message-id`.
+export def search(sidebar: String, query: String, messages: List[Rooms.Message], recent: List[String]) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main>
+      <h1>Search</h1>
+      <form method="post" action="<%= Routes.SEARCHES %>">
+        <p>
+          <label>Words
+            <input name="q" type="search" value="<%= query %>" maxlength="<%= Searches.MAX_QUERY_LENGTH %>"
+              required autofocus></label>
+        </p>
+        <p><button type="submit">Search</button></p>
+      </form>
+    <% if not recent.empty? %>
+      <h2>Recent searches</h2>
+      <ul>
+    <% for words in recent %>
+        <li><a href="<%= Routes.search_path(words) %>"><%= words %></a></li>
+    <% end %>
+      </ul>
+    <% end %>
+    <% if not query.empty? and messages.empty? %>
+      <p>No messages match.</p>
+    <% end %>
+      <div id="search_results">
+    <%== messages_list(messages) %>
+      </div>
+    </main>
+  EAG
+  return layout("Search", body)
+end
+
+## The avatar of a person with no picture: their `initials` in white on a circle of `color` (one of the fixed colours of
+## `Avatars.color`, so it is safe in an attribute). Three letters or more are squeezed to fit, as Rails does.
+export def avatar_initials(initials: String, color: String) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="avatar" aria-hidden="true">
+      <rect width="100%" height="100%" rx="50" fill="<%= color %>"/>
+      <text x="50%" y="50%" fill="#FFFFFF" text-anchor="middle" dy="0.35em"
+    <% if initials.length >= 3 %>
+        textLength="85%" lengthAdjust="spacingAndGlyphs"
+    <% end %>
+        font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+        font-size="230" font-weight="800" letter-spacing="-5"><%= initials %></text>
+    </svg>
   EAG
 end
 

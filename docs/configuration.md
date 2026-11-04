@@ -14,6 +14,9 @@ start-up with a message that names the variable.
 | `CAMPFIRE_DB_POOL_SIZE` | `0` | Database connections that the requests share: `0` takes the size of the database (4 for SQLite), else 3 to 64. At least 3, since up to two sign-ins hash a password at a time while they hold a connection. |
 | `CAMPFIRE_DB_CHECKOUT_MS` | `3000` | How long a request waits for a free connection, 1 to 60000. After that it is answered `503` with `Retry-After: 1`. |
 | `CAMPFIRE_BCRYPT_LIBRARY` | unset | A path or name of a library that exports `crypt_r` with bcrypt (a libxcrypt build), for checking the bcrypt digests of a Rails Campfire. Unset: `libcrypt.so.1` on Linux, and none on macOS and Windows, where this is how to name one. A library that cannot be used does not stop the app, it fails the sign-in of people with a bcrypt digest (see [security.md](security.md)). |
+| `SECRET_KEY_BASE` | unset | The secret of a Rails Campfire. It checks the avatar links (`/users/TOKEN/avatar`, a Rails `signed_id`; see [security.md](security.md)). Unset: every avatar link is `404`. Keep it as secret as the session secret. |
+| `CAMPFIRE_STORAGE_DIR` | `DATA_DIR/files` | The folder of the files of Active Storage, in the `xx/yy/KEY` folders that the Disk service of Rails writes (`/rails/storage/files` in the Rails image). Avatars are read from it; nothing writes to it. |
+| `CAMPFIRE_ASSETS_DIR` | `public/assets` | The folder served under `/assets/` (the stylesheet). It must be a folder, or start-up stops. A relative path is from where the program runs. |
 | `CAMPFIRE_BASE_URL` | unset | Public address: a scheme, a host and maybe a port, no path (`https://campfire.example.com`). Required with `CAMPFIRE_SMTP_URL`. The join link starts with it. |
 | `CAMPFIRE_SMTP_URL` | unset (no email) | How to send email. See [mail.md](mail.md). |
 | `CAMPFIRE_SMTP_FROM` | `Campfire <campfire@HOST>` | The sender, for the host of the base url. |
@@ -63,12 +66,14 @@ for a database it makes, and adds it with `if not exists` to a database that Rai
 
 At the start the app checks that such a database has the columns that it reads (`users.status`,
 `rooms.type`, `messages.client_message_id`, `message_search_index.body`...) and stops, naming the first
-one missing, when one is not there. A database that the app made before its history was rewritten to the Rails schema (it has
-`schema_migrations`, and neither `ar_internal_metadata` nor `agentica_schema_migrations`) also stops the
-start: delete the file and start again, since there has been no release to convert from.
+one missing, when one is not there. A database that the app made before its history was rewritten to
+the Rails schema (it has `schema_migrations`, and neither `ar_internal_metadata` nor
+`agentica_schema_migrations`) also stops the start: delete the file and start again, since there has
+been no release to convert from.
 
-A database that the app made between the people step and the rooms step (before the rooms moved to the Rails
-schema) fails at start with a checksum error and must be deleted, since there has been no release to convert from.
+A database that the app made between the people step and the rooms step (before the rooms moved to
+the Rails schema) fails at start with a checksum error and must be deleted, since there has been no
+release to convert from.
 
 The history of the app is the table `agentica_schema_migrations`, not `schema_migrations`, which
 Rails owns. A database that the app makes never has `ar_internal_metadata` (that table is what tells

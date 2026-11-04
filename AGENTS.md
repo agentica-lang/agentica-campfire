@@ -9,15 +9,18 @@ A port of ONCE Campfire (group chat) in Agentica, on Bond.
 ```text
 campfire.agc    the program (`make run`): config from the environment, the data folder, then the app
 src/campfire/   the domain: it knows nothing about HTTP or Bond
-                config.agc (host, port, data folder, database url, session secret), data_dir.agc (the
+                config.agc (host, port, data folder, database url, session secret, `SECRET_KEY_BASE`, the storage and assets
+                folders), data_dir.agc (the
                 private data folder), slots.agc (a limit on concurrent hashes), rate_limit.agc (attempts per
                 key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
-                closed and direct rooms, memberships and messages over SQL), html_sanitizer.agc (an allowlist
-                sanitizer for stored HTML bodies; pure)
+                closed and direct rooms, memberships and messages over SQL), searches.agc (the words of a query, the
+                FTS5 search of messages, the recent searches), avatars.agc (the Active Storage variant of an avatar
+                and its file; initials and colour), html_sanitizer.agc (an allowlist sanitizer for stored HTML
+                bodies; pure)
 src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request), migrations.agc (the list of the
                 schema) and migrations/ (one file per migration, `m0001_accounts.agc`...), rails.agc (the integer
                 enums and the timestamp form of the Rails schema), rows.agc (reading a column of a row)
@@ -29,7 +32,9 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
-                and forms of rooms)
+                and forms of rooms), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and
+                the avatar link)
+public/assets/  the fingerprinted stylesheet, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
@@ -157,13 +162,27 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   account administrator may change a closed room (`Rooms.editable?`): another member is answered 403, after the
   membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
   transaction and fails, rolling back, when it no longer holds. The form sends plain text, stripped of the space around
-  it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; the view writes a body only as
-  `Rooms.page` gives it, cleaned again.
+  it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; every body that `Rooms`
+  gives out (`Rooms.message_of`, for `Rooms.page` and the search) is cleaned as it is read, since a row that Rails wrote
+  was never cleaned by this app; the cleaner leaves clean markup as it is, so what `Rooms.post` stored passes
+  unchanged, and the view writes the body as it is given.
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an
   attribute or a script. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
   tag or attribute.
-- No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
+- Search: a query is words, never FTS5 syntax. `Searches.words` turns everything that is not a letter, digit or `_` into
+  a separator (as `SearchesController#query` does) and `Searches.match` puts each word in double quotes, so a query
+  cannot make the index fail; never hand the text of a client to `MATCH` in any other way. A search reads the rooms the
+  person has a `memberships` row for, any involvement, newest 100, shown oldest first, with `Rooms.MESSAGE_SELECT`.
+  Only `POST /searches` writes `searches`, as Rails does.
+- Avatars: `/users/TOKEN/avatar` takes a Rails `signed_id` (purpose `user/avatar`) checked by `SignedId.verify` with the
+  key of `SECRET_KEY_BASE`, and answers the WebP file of the variant that Rails stored (`Avatars.find`, `Avatars.path`:
+  a key that is not 4 to 64 of `[0-9a-z]` is never made a path), else initials. The app makes no image. The router wants
+  one name for the segment under `/users/`, so the token is `:id`. The Active Storage rows and files of the specs are
+  made by Rails (`specs/fixtures/rails/make_avatar.sh`).
+- Assets: the CSS of `public/assets/` is named `campfire-DIGEST.css`, DIGEST the first 16 hex digits of its SHA-256;
+  rename it and `Routes.STYLESHEET` when it changes (`specs/assets.feature` checks). `/assets/` is public
+  (`AuthWeb.public?`). There is no asset pipeline yet (`docs/plan.md` phase 2). No Dockerfile yet.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.
