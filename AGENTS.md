@@ -13,7 +13,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 private data folder), slots.agc (a limit on concurrent hashes), passwords.agc (scrypt),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
-                closed and direct rooms, memberships and messages over SQL)
+                closed and direct rooms, memberships and messages over SQL), html_sanitizer.agc (an allowlist
+                sanitizer for stored HTML bodies; pure)
 src/campfire/repo/   database.agc (open and migrate; `with_connection` for a request), migrations.agc
                 (the schema, one numbered migration per table), rows.agc (reading a column of a row)
 src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
@@ -110,6 +111,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   it, stored so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the
   dedupe key with the creator, so it must be unique per person, not per room: a reuse in another room is dropped
   without a word.
+- HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
+  from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
+  with `<%== %>`. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new tag or
+  attribute.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.
