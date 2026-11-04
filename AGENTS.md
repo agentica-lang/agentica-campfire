@@ -120,8 +120,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   without a word.
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
-  with `<%== %>`. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new tag or
-  attribute.
+  with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an
+  attribute or a script. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
+  tag or attribute.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.
