@@ -75,8 +75,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   handler opens one and does all its work on it, the person included: `AuthWeb.current_user_in`; the sign-in filter
   still opens another, since a Bond `Conn` cannot carry the person on); a `sqlite::memory:` database is therefore not
   usable by the app. Never log or store a plain password; a form that is shown again never holds the password.
-  Sign-in is limited per client address (`AuthWeb.limit_sign_in`, a Bond `before` filter on `POST /session`: 10 posts
-  in 3 minutes, then 429 with `Retry-After`, before the form is read); the address is `Conn.remote_addr`, which Bond
+  Sign-in is limited per client address (`RateLimit.hit`, called first in `AuthWeb.create_session` and not by a
+  path-matching filter, since the router also takes `/session/` there: 10 posts in 3 minutes, then 429 with
+  `Retry-After`, before the form is read; an IPv6 client counts by its /64); the address is `Conn.remote_addr`, which Bond
   does not take from `X-Forwarded-For`. A session row keeps it (`ip_address`); `last_active_at` is written at most
   every 5 minutes, in `Auth.user_for`, and starting a session purges the rows past the cookie life and those of a
   deactivated person (`purge_sessions`).

@@ -56,7 +56,8 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
   push). Room destroy and ban cleanup should be a SQLite jobs table so they survive a restart.
 - Bond: use origin/main, not the `handlers` branch (README of main lists cookies, query/forms, static,
   files, streaming, SSE). Missing there then: websocket, multipart, signed cookies/sessions, CSRF/Origin,
-  remote IP, compression, ETag, templates; Bond 0.5.0 and main have all of these but compression and ETag.
+  remote IP, compression, ETag, templates; Bond main has all of these now but compression (`Bond.static` sends
+  an ETag, and `Conn.remote_addr` is on main only, not in 0.5.0).
 
 ## 3. Blocking gaps, in order (before an MVP)
 

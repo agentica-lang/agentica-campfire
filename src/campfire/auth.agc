@@ -106,7 +106,7 @@ export def first_run(
   email: String,
   password: String,
   user_agent: String,
-  ip_address: String = "",
+  ip_address: String,
 ) -> Result[FirstRun]
   # Before the form and the hashing: once the app has its account, any form is a redirect and costs nothing. The
   # transaction below checks again, for the forms that were sent together.
@@ -143,7 +143,7 @@ export def join(
   email: String,
   password: String,
   user_agent: String,
-  ip_address: String = "",
+  ip_address: String,
 ) -> Result[JoinOutcome]
   valid = try Accounts.join_code_valid?(conn, code)
   if not valid
@@ -186,7 +186,7 @@ export def join_hashed(
   email: String,
   digest: String,
   user_agent: String,
-  ip_address: String = "",
+  ip_address: String,
 ) -> Result[JoinOutcome]
   token = SecureRandom.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
@@ -201,7 +201,7 @@ export def sign_in(
   email: String,
   password: String,
   user_agent: String,
-  ip_address: String = "",
+  ip_address: String,
 ) -> Result[Optional[String]]
   # Nothing that long is a real email or password, and hashing one is work that a stranger could ask for.
   if email.length > MAX_EMAIL_LENGTH or password.bytes.size > Passwords.MAX_BYTES
@@ -234,7 +234,7 @@ export def open_session(
   conn: Db.Connection,
   user_id: Int,
   user_agent: String,
-  ip_address: String = "",
+  ip_address: String,
 ) -> Result[Optional[String]]
   try purge_sessions(conn)
   token = SecureRandom.hex(TOKEN_BYTES)
@@ -332,7 +332,7 @@ export def reset_password(
   token: String,
   password: String,
   user_agent: String,
-  ip_address: String = "",
+  ip_address: String,
 ) -> Result[ResetOutcome]
   valid = try reset_token_valid?(conn, token)
   if not valid

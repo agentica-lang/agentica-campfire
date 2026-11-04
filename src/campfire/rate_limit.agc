@@ -1,18 +1,25 @@
-## A limit on how many attempts one key (a client address) may make in a window of time, kept in an `ATS` table that
-## the request tasks share. The window of a key starts at its first attempt, as the cache of upstream Campfire does,
-## and ends `window_ms` later; the next attempt after it starts a new one. Two attempts that race at the turn of a
-## window may count one too few: the limit is a brake on guessing, not an exact meter.
+## A limit on how many attempts one client may make in a window of time, kept in an `ATS` table that the request
+## tasks share. A client is an IP address (an IPv6 one by its /64 prefix, since one person holds a whole /64 and could
+## otherwise choose a new address for every attempt). The first window of a client starts at its first attempt and the
+## next ones follow it back to back, each `window_ms` long; an attempt counts in the window it falls in, and never
+## touches the count of another window, so counting needs no lock.
+##
+## The table is bounded: it holds at most `MAX_ENTRIES` entries (two or three for each client that is in a window), and
+## while it is full an address that is not in it is refused, since hashing is the work this limit protects and a full
+## table means a flood. An unknown address ("") is one client like any other.
 
-# Each key has two entries: when its window started and how many attempts it holds. A key never contains "|", since it
-# is an IP address, so these names cannot clash with the sweep marker either.
-STARTED = "|started"
-COUNT = "|count"
-
-# The time of the last sweep of old windows. Without a sweep a table keeps one pair of entries for every address that
-# ever came.
+# The entries of a client `key`: when its first window started (`key|s`) and the attempts of each window
+# (`key|c|WINDOW`). A key never contains "|", since it is an address. The sweep marker has no "|" either.
+START = "|s"
+COUNT = "|c|"
 SWEEP = "sweep"
 
+## The most entries the table holds before it refuses addresses it has not seen.
+export MAX_ENTRIES = 20_000
+
 MS_PER_SECOND = 1000
+IPV6_GROUPS = 8
+PREFIX_GROUPS = 4
 
 ## A new table of windows, shared by every task that gets the handle.
 export def new() -> ATS[String, Int]
@@ -20,37 +27,95 @@ export def new() -> ATS[String, Int]
   return windows
 end
 
-## Counts an attempt of `key` at `now_ms` (a monotonic clock). It gives 0 when the attempt is one of the first `limit`
-## of the window, and otherwise the whole seconds, at least 1, until the window ends and the key may try again.
-export def hit(windows: ATS[String, Int], key: String, now_ms: Int, limit: Int, window_ms: Int) -> Int
+## Counts an attempt of the client at `address` at `now_ms` (a monotonic clock). It gives 0 when the attempt is one of
+## the first `limit` of its window, and otherwise the whole seconds, at least 1, until the window ends and the next
+## one starts. A sweep that runs at the same moment can make an attempt count once too many or too few, never more than
+## the requests in flight.
+export def hit(windows: ATS[String, Int], address: String, now_ms: Int, limit: Int, window_ms: Int) -> Int
   sweep(windows, now_ms, window_ms)
-  began = window_start(windows, key, now_ms, window_ms)
-  if ATS.add(windows, "#{key}#{COUNT}", 1) <= limit
+  key = key_of(address)
+  start_key = "#{key}#{START}"
+  if not ATS.has_key?(windows, start_key) and ATS.size(windows) >= MAX_ENTRIES
+    return seconds_up(window_ms)
+  end
+
+  ATS.put_new(windows, start_key, now_ms)
+  began = ATS.get(windows, start_key).unwrap_or(now_ms)
+  number = window_of(began, now_ms, window_ms)
+  if ATS.add(windows, "#{key}#{COUNT}#{number}", 1) <= limit
     return 0
   end
 
-  remaining_ms = began + window_ms - now_ms
-  return (remaining_ms + MS_PER_SECOND - 1) / MS_PER_SECOND
+  return seconds_up(began + (number + 1) * window_ms - now_ms)
 end
 
-# When the window of `key` started, after starting a new one if the last has ended or there was none.
-def window_start(windows: ATS[String, Int], key: String, now_ms: Int, window_ms: Int) -> Int
-  started_key = "#{key}#{STARTED}"
-  if ATS.put_new(windows, started_key, now_ms)
-    return now_ms
+## The key of the client at `address`: an IPv4 address (or any text that is not IPv6) as it is, an IPv4-mapped IPv6
+## address as its IPv4 address, and any other IPv6 address as its first 64 bits, `2001:db8:0:1::/64` written out in
+## full. The system writes the address of a peer in lowercase and in one form, so no case or zero folding is done.
+export def key_of(address: String) -> String
+  if not address.include?(":")
+    return address
   end
 
-  began = ATS.get(windows, started_key).unwrap_or(now_ms)
-  if now_ms - began < window_ms
-    return began
+  if address.include?(".")
+    return address.split(":").last
   end
 
-  ATS.put(windows, started_key, now_ms)
-  ATS.put(windows, "#{key}#{COUNT}", 0)
-  return now_ms
+  groups = expand(address)
+  if groups.size != IPV6_GROUPS
+    return address
+  end
+
+  return "#{groups.take(PREFIX_GROUPS).join(":")}::/64"
 end
 
-# Once per window, drops the keys whose window ended. Two tasks that sweep together only do it twice.
+# The eight groups of an IPv6 address, with the `::` filled in with zeros; fewer or more than eight when the text
+# is not
+# an address, which `key_of` keeps as it is.
+def expand(address: String) -> List[String]
+  halves = address.split("::")
+  left: List[String] = []
+  if not halves.empty?
+    left = groups_of(halves[0])
+  end
+
+  if not address.include?("::")
+    return left
+  end
+
+  # "2001:db8::" splits into one half, and "::1" into an empty one and "1".
+  right: List[String] = []
+  if halves.size == 2
+    right = groups_of(halves[1])
+  end
+
+  missing = IPV6_GROUPS - left.size - right.size
+  if missing < 0 or halves.size > 2
+    return left.concat(right)
+  end
+
+  return left.concat(List.repeat("0", missing)).concat(right)
+end
+
+def groups_of(text: String) -> List[String]
+  return text.split(":").select do |group| not group.empty? end
+end
+
+def window_of(began: Int, now_ms: Int, window_ms: Int) -> Int
+  if now_ms <= began
+    return 0
+  end
+
+  return (now_ms - began) / window_ms
+end
+
+def seconds_up(ms: Int) -> Int
+  return (ms + MS_PER_SECOND - 1) / MS_PER_SECOND
+end
+
+# Once per window, drops what no attempt can count in again: the counts of windows that ended (and those of a client
+# whose start is gone), and the start of a client that made no attempt in its current and previous windows. Entries of
+# a window that is still open are never touched.
 def sweep(windows: ATS[String, Int], now_ms: Int, window_ms: Int) -> Void
   if ATS.put_new(windows, SWEEP, now_ms)
     return
@@ -62,9 +127,31 @@ def sweep(windows: ATS[String, Int], now_ms: Int, window_ms: Int) -> Void
 
   ATS.put(windows, SWEEP, now_ms)
   for name in ATS.keys(windows)
-    if name.end_with?(STARTED) and now_ms - ATS.get(windows, name).unwrap_or(now_ms) >= window_ms
-      ATS.delete(windows, name)
-      ATS.delete(windows, "#{name.slice(0, name.length - STARTED.length)}#{COUNT}")
+    parts = name.split("|")
+    if parts.size == 3
+      drop_count(windows, parts[0], parts[2].to_i.unwrap_or(0), now_ms, window_ms)
+    elsif parts.size == 2 and parts[1] == "s"
+      drop_start(windows, parts[0], now_ms, window_ms)
     end
+  end
+end
+
+def drop_count(windows: ATS[String, Int], key: String, number: Int, now_ms: Int, window_ms: Int) -> Void
+  began = ATS.get(windows, "#{key}#{START}")
+  if not began.ok? or number < window_of(began.unwrap!, now_ms, window_ms)
+    ATS.delete(windows, "#{key}#{COUNT}#{number}")
+  end
+end
+
+def drop_start(windows: ATS[String, Int], key: String, now_ms: Int, window_ms: Int) -> Void
+  began = ATS.get(windows, "#{key}#{START}")
+  if not began.ok?
+    return
+  end
+
+  number = window_of(began.unwrap!, now_ms, window_ms)
+  recent = ATS.has_key?(windows, "#{key}#{COUNT}#{number}") or ATS.has_key?(windows, "#{key}#{COUNT}#{number - 1}")
+  if not recent
+    ATS.delete(windows, "#{key}#{START}")
   end
 end

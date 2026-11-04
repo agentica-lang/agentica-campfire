@@ -73,6 +73,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("the status is {int}", &status_is),
     BDD.step("the header {string} is {string}", &header_is),
     BDD.step("the header {string} contains {string}", &header_contains),
+    BDD.step("the header {string} is a whole number from {int} to {int}", &header_is_number_between),
     BDD.step("the header {string} does not contain {string}", &header_lacks),
     BDD.step("each status is one of {string}", &each_status_is_one_of),
     BDD.step("at least one status is {int}", &some_status_is),
@@ -415,6 +416,16 @@ end
 def header_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
   reply = last_reply(ctx)
   return BDD.assert(ctx, reply.headers.get(args[0].downcase, "") == args[1], "the headers are #{reply.headers}")
+end
+
+def header_is_number_between(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  value = last_reply(ctx).headers.get(args[0].downcase, "")
+  number = value.to_i
+  return BDD.assert(
+    ctx,
+    number.ok? and number.unwrap! >= args[1].to_i! and number.unwrap! <= args[2].to_i!,
+    "the header #{args[0]} is #{value.inspect}, not a number from #{args[1]} to #{args[2]}",
+  )
 end
 
 def header_contains(ctx: BDD.Context, args: List[String]) -> BDD.Context

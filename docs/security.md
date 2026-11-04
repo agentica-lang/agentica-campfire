@@ -28,8 +28,11 @@ on first run, join and reset.
 
 Sign-in is limited per client address: the 11th post to `/session` within 3 minutes of the first
 (right or wrong, as in upstream Campfire) is answered `429` with `Retry-After`, before the form is
-read. The count is kept in memory, so a restart clears it, and behind a proxy every visitor shares
-the proxy's address and so one limit.
+read, whatever way the path is written. The count is kept in memory, so a restart clears it. An IPv6
+client counts by its /64 prefix. Behind a proxy every visitor shares the proxy's address and so one
+limit, and a request whose address is unknown shares one limit too. The table holds at most 10,000
+clients; while it is full a client that is not in it is refused with `429` until its windows are
+swept (at most 3 minutes), which keeps a flood of addresses from growing the memory.
 
 At most two passwords are hashed at the same time (each takes about a second and 64 MiB). A
 sign-in, first-run, join or reset form that arrives while both slots are busy is answered `503`

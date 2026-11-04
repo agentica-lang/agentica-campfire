@@ -320,7 +320,7 @@ end
 # `Auth.join_hashed` straight, which is `Auth.join` after its checks and its hashing: the code and the email are
 # looked at again inside its transaction, and only a call that skips the first look reaches that.
 def ask_join_hashed(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  outcome = with_database(ctx) do |conn| Auth.join_hashed(conn, args[1], "Late", args[0], "scrypt$digest", "") end
+  outcome = with_database(ctx) do |conn| Auth.join_hashed(conn, args[1], "Late", args[0], "scrypt$digest", "", "") end
 
   if not outcome.ok?
     return BDD.assert(ctx, false, "Auth.join_hashed failed: #{outcome.message}")
@@ -332,7 +332,7 @@ end
 # `Auth.open_session` straight: `Auth.sign_in` checks `active` first, so only a person who is deactivated between that
 # check and the insert reaches the condition of the insert, and a call that skips the check stands for that.
 def ask_open_session(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  outcome = with_database(ctx) do |conn| Auth.open_session(conn, args[0].to_i!, "") end
+  outcome = with_database(ctx) do |conn| Auth.open_session(conn, args[0].to_i!, "", "") end
   if not outcome.ok?
     return BDD.assert(ctx, false, "Auth.open_session failed: #{outcome.message}")
   end

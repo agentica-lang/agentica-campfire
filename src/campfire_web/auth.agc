@@ -60,21 +60,20 @@ RESET_SUBJECT = "Reset your Campfire password"
 ## any work. A missing `Sec-Fetch-Site` and `Origin` (a tool, not a browser) passes, which is what the specs and `curl`
 ## send.
 export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
-  # `slots` bounds the hashing for everyone together; `attempts` bounds one address, before any form is read or hashed.
+  # `slots` bounds the hashing for everyone together; `attempts` bounds the sign-in posts of one address.
   slots = Slots.new()
   attempts = RateLimit.new()
   return (
     app
     |> Bond.csrf()
     |> Bond.sessions(session_options(config))
-    |> Bond.before() do |conn| limit_sign_in(conn, attempts) end
     |> Bond.before() do |conn| require_sign_in(conn, config) end
     |> Bond.get(Routes.FIRST_RUN) do |conn| show_first_run(conn, config) end
     |> Bond.post(Routes.FIRST_RUN) do |conn| create_first_run(conn, config, slots) end
     |> Bond.get(Routes.JOIN) do |conn| show_join(conn, config) end
     |> Bond.post(Routes.JOIN) do |conn| create_join(conn, config, slots) end
     |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, config, mailer) end
-    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, mailer) end
+    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, slots, attempts, mailer) end
     |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, config) end
     |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
     |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, mailer) end
@@ -116,23 +115,6 @@ def session_options(config: Config) -> Bond.SessionOptions
   end
 
   return Bond.SessionOptions(secret: config.session_secret, name: COOKIE_NAME, max_age: Auth.SESSION_SECONDS)
-end
-
-# A 429 with `Retry-After` for the attempt to sign in that is over the limit of its address. The address is the peer of
-# the connection: behind a proxy it is the proxy's, so every visitor shares one window (docs/security.md).
-def limit_sign_in(conn: Bond.Conn, attempts: ATS[String, Int]) -> Result[Bond.Conn]
-  if conn.method != "POST" or conn.path != Routes.SESSION
-    return ok(conn)
-  end
-
-  wait = RateLimit.hit(attempts, conn.remote_addr, Time.monotonic_ms(), SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS)
-  if wait == 0
-    return ok(conn)
-  end
-
-  # `halted` keeps the filters and the handler after this one from running: the form is never read or hashed.
-  refused = Bond.html(conn, 429, Views.busy(TOO_MANY)).with(halted: true)
-  return ok(Bond.header(refused, "retry-after", wait.to_s))
 end
 
 # A visitor goes to the first run while there is no account, and to the sign-in page after that.
@@ -284,12 +266,23 @@ def show_sign_in(conn: Bond.Conn, config: Config, mailer: Mailer.Mailer) -> Resu
   end
 end
 
+# The attempt is counted here, in the handler of the route, and not by a filter that matches the path: the router also
+# takes `/session/` and `//session` to this handler, and a filter that missed one of those would let a person guess
+# passwords without limit. It is counted first, so a refused attempt reads no form and takes no hashing slot. The
+# address is the peer of the connection: behind a proxy it is the proxy's, so every visitor shares one window
+# (docs/security.md).
 def create_session(
   conn: Bond.Conn,
   config: Config,
   slots: ATS[String, Int],
+  attempts: ATS[String, Int],
   mailer: Mailer.Mailer,
 ) -> Result[Bond.Conn]
+  wait = RateLimit.hit(attempts, conn.remote_addr, Time.monotonic_ms(), SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS)
+  if wait > 0
+    return ok(Bond.header(Bond.html(conn, 429, Views.busy(TOO_MANY)), "retry-after", wait.to_s))
+  end
+
   email = try Bond.form(conn, "email")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")

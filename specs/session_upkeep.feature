@@ -42,6 +42,14 @@ Feature: What a session row records, and what keeps the table small
       | email    | ana@example.com       |
       | password | correct horse battery |
     Then the status is 429
-    And the header "retry-after" contains "1"
+    And the header "retry-after" is a whole number from 1 to 180
     And the body contains "Too many sign-in attempts"
     And the query "select count(*) from sessions" gives 1
+
+  Scenario: Another path to the same route does not escape the limit
+    When I post to "/session/" 12 times at once the form:
+      | email | nobody@example.com |
+    Then exactly 2 statuses are 429
+    When I post to "/session" the form:
+      | email | nobody@example.com |
+    Then the status is 429
