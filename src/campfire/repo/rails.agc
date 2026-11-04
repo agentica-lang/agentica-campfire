@@ -23,16 +23,21 @@ export STAMP = "%Y-%m-%d %H:%M:%f000"
 ## `created_at` and `updated_at` with it.
 export NOW = "strftime('#{STAMP}', 'now')"
 
-## The name of a role as the pages show it: `member`, `administrator` or `bot`. A value that is not one of the three
-## (a row that did not come from this schema) is a member, who may do the least.
+## The names of the roles as the pages and `Auth.User` carry them.
+export MEMBER_NAME = "member"
+export ADMINISTRATOR_NAME = "administrator"
+export BOT_NAME = "bot"
+
+## The name of a role: `member`, `administrator` or `bot`. A value that is not one of the three (a row that did not
+## come from this schema) is a member, who may do the least.
 export def role_name(role: Int) -> String
   if role == ADMINISTRATOR
-    return "administrator"
+    return ADMINISTRATOR_NAME
   end
 
   if role == BOT
-    return "bot"
+    return BOT_NAME
   end
 
-  return "member"
+  return MEMBER_NAME
 end

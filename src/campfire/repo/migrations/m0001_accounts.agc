@@ -1,6 +1,6 @@
 ## The `accounts` table of a Rails Campfire (`db/schema.rb` of basecamp/once-campfire at 90b3300), written as Rails'
-## SQLite adapter writes it. The app has one account: `singleton_guard` is always 0 and its unique index lets in one row.
-## `custom_styles` and `settings` are Rails' own, which the app does not read yet.
+## SQLite adapter writes it. The app has one account: `singleton_guard` is always 0 and its unique index lets in one
+## row. `custom_styles` and `settings` are Rails' own, which the app does not read yet.
 
 import Migrate from "pkg/db/migrate"
 

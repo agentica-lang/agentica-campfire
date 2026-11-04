@@ -20,6 +20,11 @@ Feature: Messages
     And the body contains "Ana"
     And the query "select count(*) from messages where room_id = 1 and creator_id = 1 and body = 'Hello team'" gives 1
 
+  Scenario: The time of a message is an ISO 8601 UTC instant in the page, whatever the form of the column
+    Given I run the sql "insert into messages (room_id, creator_id, body, client_message_id, created_at) values (1, 1, 'Timed', 'c1', '2026-03-01 09:00:00.123456')"
+    When I get "/rooms/1"
+    Then the body contains "<time datetime=\"2026-03-01T09:00:00.123Z\">2026-03-01T09:00:00.123Z</time>"
+
   Scenario: The room page has the form to post, which carries an id for the message
     When I get "/rooms/1"
     Then the body contains "<form method=\"post\" action=\"/rooms/1/messages\">"

@@ -115,7 +115,7 @@ Feature: Password reset
     And the mail server received a message to "ana@example.com" with the subject "Reset your Campfire password"
     And I open the link of the email
     Then the status is 200
-    When I run the sql "update password_resets set expires_at = '2000-01-01T00:00:00.000Z'"
+    When I run the sql "update password_resets set expires_at = '2000-01-01 00:00:00.000000'"
     And I open the link of the email
     Then the status is 410
     When I set the password "a brand new password" with the token of the link
@@ -191,7 +191,7 @@ Feature: Password reset
     And I post to "/password_reset" the form:
       | email | ana@example.com |
     Then the query "select count(*) from password_resets where used_at is null" gives 0
-    When I run the sql "update password_resets set created_at = '2000-01-01T00:00:00.000Z'"
+    When I run the sql "update password_resets set created_at = '2000-01-01 00:00:00.000000'"
     And I post to "/password_reset" the form:
       | email | ana@example.com |
     Then the query "select count(*) from password_resets where used_at is null" gives 1

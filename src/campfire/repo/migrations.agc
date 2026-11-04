@@ -5,9 +5,9 @@
 ## memberships, messages, boosts, the search index, attachments, webhooks) or that Rails has not (password resets).
 ## There has been no release, so the history was rewritten to this; once there is one, a change is a new migration.
 ##
-## Foreign keys are on (the driver's default, and `Database.migrate` refuses a connection that has them off): a user is
-## never deleted, only deactivated, so the keys to `users` refuse a delete, and what hangs from a room or a message goes
-## with it.
+## Foreign keys are on (the driver's default, and `Database.migrate` refuses a connection that has them off): a user
+## is never deleted, only deactivated, so the keys to `users` refuse a delete, and what hangs from a room or a message
+## goes with it.
 
 import Migrate from "pkg/db/migrate"
 import M0001 from "migrations/m0001_accounts"

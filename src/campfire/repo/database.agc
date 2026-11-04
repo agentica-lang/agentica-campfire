@@ -4,7 +4,7 @@ import Db from "pkg/db/db"
 import DbPool from "pkg/db/db_pool"
 import Migrate from "pkg/db/migrate"
 import Migrations from "migrations"
-import {int_of} from "rows"
+import {int_of, text_of} from "rows"
 
 # How long `close_pool` lets the running requests finish.
 CLOSE_MS = 1_000
@@ -78,13 +78,58 @@ def migrate_open(conn: Db.Connection) -> Result[Schema]
 
   from_rails = try rails_made?(conn)
   if from_rails
+    try check_rails_columns(conn)
     try Db.transaction(conn) do |tx| add_extensions(tx) end
     version = try rails_version(conn)
     return ok(Schema(version: version, applied: [], rails: true))
   end
 
+  earlier = try earlier_version?(conn)
+  if earlier
+    return error(
+      "database error: this database was made by an earlier version of the app, whose migration history was " +
+      "rewritten before the first release: delete the database file and start again",
+    )
+  end
+
   applied = try Migrate.up(conn, Migrations.all(), Migrations.HISTORY_TABLE)
   return ok(Schema(version: Migrations.latest(), applied: applied, rails: false))
+end
+
+# The columns of the Rails schema that the app reads or writes. A database that has `ar_internal_metadata` is trusted
+# to be the schema of Campfire at 90b3300 and is not migrated, so a start checks these, and a database of some other
+# Rails app, or an older Campfire, stops it with the name of what is missing, instead of failing in a request.
+def needed_columns() -> Map[String, List[String]]
+  return {
+    "accounts": ["id", "name", "join_code", "singleton_guard", "created_at", "updated_at"],
+    "users": [
+      "id",
+      "name",
+      "email_address",
+      "password_digest",
+      "bot_token",
+      "role",
+      "status",
+      "created_at",
+      "updated_at",
+    ],
+    "sessions": ["id", "user_id", "token", "user_agent", "ip_address", "last_active_at", "created_at", "updated_at"],
+  }
+end
+
+def check_rails_columns(conn: Db.Connection) -> Result[Void]
+  needed = needed_columns()
+  for table in needed.keys
+    rows = try Db.query(conn, "pragma table_info(#{table})", [])
+    present = rows.map do |row| text_of(row, "name") end
+    for column in needed.get(table, [])
+      if not present.include?(column)
+        return error("database error: the database made by Rails has no column #{table}.#{column}")
+      end
+    end
+  end
+
+  return ok()
 end
 
 # The tables that the app has and Rails has not. They are not a migration: there is no history to record, and the
@@ -95,6 +140,20 @@ def add_extensions(tx: Db.Connection) -> Result[Void]
   end
 
   return ok()
+end
+
+# What the app made before its history was rewritten to the Rails schema: it has `schema_migrations` (the default
+# table of `Migrate`), and neither `ar_internal_metadata` nor the table of the history now. Its tables are not the
+# Rails ones and no migration turns them into those.
+def earlier_version?(conn: Db.Connection) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select name from sqlite_master where type = 'table' and name in ('schema_migrations', ?)",
+    [Db.Value.Text(Migrations.HISTORY_TABLE)],
+  )
+
+  names = rows.map do |row| text_of(row, "name") end
+  return ok(names.include?("schema_migrations") and not names.include?(Migrations.HISTORY_TABLE))
 end
 
 # `ar_internal_metadata` is the table that Active Record makes for itself in every database it creates, with the

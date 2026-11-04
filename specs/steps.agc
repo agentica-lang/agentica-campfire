@@ -46,6 +46,7 @@ def main() -> Void
     BDD.step("the database is migrated", &migrate_database),
     BDD.step("the app starts", &start_on_file),
     BDD.step("the app starts with secure cookies", &start_with_secure_cookies),
+    BDD.step("the app is started and stops", &start_that_fails),
     BDD.step("the bcrypt library is {string}", &choose_bcrypt_library),
     BDD.step("bcrypt digests can be checked on this system", &bcrypt_can_be_checked),
     BDD.step("this system is Linux", &system_is_linux),
@@ -113,6 +114,11 @@ end
 # `database:` line, then `listening on http://127.0.0.1:PORT`. Every variable it reads is set here, so the specs do not
 # depend on the environment of whoever runs them. Each start draws its own session secret.
 def start_app(ctx: BDD.Context, url: String, secure_cookies: String, pool: Map[String, String]) -> BDD.Context
+  return read_startup(configured_program(ctx, url, secure_cookies, pool))
+end
+
+# The program of `fixtures/server.agc` with the environment of `start_app`, not yet started.
+def configured_program(ctx: BDD.Context, url: String, secure_cookies: String, pool: Map[String, String]) -> BDD.Context
   settings = {
     "CAMPFIRE_HOST": "127.0.0.1",
     "CAMPFIRE_PORT": "0",
@@ -129,7 +135,13 @@ def start_app(ctx: BDD.Context, url: String, secure_cookies: String, pool: Map[S
   all = mail.keys.reduce(settings) do |acc, name| acc.put(name, mail.get(name, "")) end
   configured = all.keys.reduce(ctx) do |acc, name| BDD.given_env(acc, name, all.get(name, "")) end
 
-  return read_startup(BDD.given_program(configured, "fixtures/server.agc"))
+  return BDD.given_program(configured, "fixtures/server.agc")
+end
+
+# A start that must stop: the program exits with code 1 and its stderr says why (the step after it compares the text).
+def start_that_fails(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  program = configured_program(ctx, text_of(ctx, DB_URL), "false", {})
+  return BDD.then_exit(program, 1, START_MS)
 end
 
 # What a scenario says with `the bcrypt library is`, else the library of whoever runs the specs (a macOS or Windows
@@ -350,7 +362,8 @@ end
 def insert_room(conn: Db.Connection, name: Db.Value, kind: String, emails: List[String]) -> Result[Void]
   rooms = try Db.query(
     conn,
-    "insert into rooms (name, kind, creator_id) values (?, ?, (select id from users where email_address = ?)) returning id",
+    "insert into rooms (name, kind, creator_id) " +
+    "values (?, ?, (select id from users where email_address = ?)) returning id",
     [name, Db.Value.Text(kind), Db.Value.Text(emails[0])],
   )
 
@@ -680,9 +693,8 @@ def shown(row: Db.Row, column: String) -> String
   end
 end
 
-# The tables that a scenario names (`accounts, users, sessions`) have, in a database that the app made, the
-# same columns
-# with the same types, the same indexes and the same keys as in the copy of the database that Rails made.
+# The tables that a scenario names (`accounts, users, sessions`) have, in a database that the app made, the same
+# columns with the same types, the same indexes and the same keys as in the copy of the database that Rails made.
 def tables_as_rails(ctx: BDD.Context, args: List[String]) -> BDD.Context
   tables = args[0].split(",").map do |table| table.strip end
   ours = shape_of(text_of(ctx, DB_URL), tables)
@@ -703,6 +715,7 @@ def lacks_table(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, not names.include?(args[0]), "the database has the table #{args[0]}")
 end
 
+# A connection belongs to the task that opened it, so each step opens its own and closes it.
 def with_database[R](ctx: BDD.Context, body: Fn[Db.Connection, Result[R]]) -> Result[R]
   conn = try Db.open(text_of(ctx, DB_URL))
   outcome = body.call(conn)

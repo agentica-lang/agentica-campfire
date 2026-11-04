@@ -17,7 +17,7 @@ export CLOSED = "closed"
 export DIRECT = "direct"
 
 ## The role of an account administrator, who may edit any closed room (`users.role`).
-export ADMINISTRATOR = "administrator"
+export ADMINISTRATOR = Rails.ADMINISTRATOR_NAME
 
 ## The longest name of a room, in characters, and the longest message.
 export MAX_NAME_LENGTH = 100
@@ -65,7 +65,9 @@ export struct Person
   name: String
 end
 
-## A message with the name of its author. `created_at` is the text of the schema (UTC, ISO 8601).
+## A message with the name of its author. `created_at` is an ISO 8601 UTC instant with milliseconds
+## (`2026-03-01T09:00:00.123Z`), made from the Rails form of the column, so that `<time datetime>` and the scripts that
+## read it take it as UTC.
 export struct Message
   id: Int
   author: String
@@ -241,7 +243,8 @@ end
 export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Page]
   rows = try Db.query(
     conn,
-    "select messages.id, users.name as author, messages.body, messages.created_at " +
+    "select messages.id, users.name as author, messages.body, " +
+    "strftime('%Y-%m-%dT%H:%M:%fZ', messages.created_at) as created_at " +
     "from messages join users on users.id = messages.creator_id " +
     "where messages.room_id = ? and messages.id < ? order by messages.id desc limit ?",
     [Db.Value.Int(room_id), Db.Value.Int(before.unwrap_or(NEWEST)), Db.Value.Int(PAGE_SIZE + 1)],

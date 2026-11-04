@@ -48,3 +48,11 @@ Feature: A database that Rails made
     Then the query "select count(*) from accounts where join_code <> 'CRMu-l8Ge-KB9B' and updated_at > '2026-03-01 09:00:00.123456'" gives 1
     When "david@37signals.com" asks Accounts to "deactivate" the user 2
     Then the query "select count(*) from users where id = 2 and status = 1" gives 1
+
+  Scenario: A row that Rails stored in mixed case signs in with any case
+    Given I run the sql "update users set email_address = 'David@37signals.com' where id = 1"
+    When I post to "/session" the form:
+      | email_address | DAVID@37signals.com |
+      | password      | secret123456        |
+    Then the status is 302
+    And the query "select count(*) from users where email_address = 'David@37signals.com'" gives 1

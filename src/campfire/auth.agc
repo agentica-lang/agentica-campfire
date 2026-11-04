@@ -213,9 +213,9 @@ export def sign_in(
 
   rows = try Db.query(
     conn,
-    "select id, password_digest from users where email_address = ? and status = #{Rails.ACTIVE} and " +
-    "role <> #{Rails.BOT}",
-    [Db.Value.Text(normal(email))],
+    "select id, password_digest from users where lower(email_address) = ? and status = #{Rails.ACTIVE} and " +
+    "role <> #{Rails.BOT} order by email_address = ? desc, id limit 1",
+    [Db.Value.Text(normal(email)), Db.Value.Text(normal(email))],
   )
 
   if rows.empty?
@@ -234,8 +234,8 @@ export def sign_in(
 end
 
 ## The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
-## reads `active` itself, in the one statement, so a deactivation that commits first leaves no row, and one that commits
-## after it deletes the row: no session survives for a later reactivation to revive.
+## reads `status` itself, in the one statement, so a deactivation that commits first leaves no row, and one that
+## commits after it deletes the row: no session survives for a later reactivation to revive.
 export def open_session(
   conn: Db.Connection,
   user_id: Int,
@@ -396,7 +396,10 @@ def valid_email?(email: String) -> Bool
 end
 
 # Emails compare without case and without the spaces around them. The unique index of `email_address` compares bytes
-# (it is Rails' own), so the one way to make two spellings one address is to store and look up this form.
+# (it is Rails' own, and Rails stores an address as it was typed), so the app stores this form and looks an address up
+# with `lower(email_address)`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and
+# is not made twice by a join. The lookup scans `users`, which is small; where two rows differ only in case (the index
+# lets Rails make them), the one that is already lower case is the person.
 def normal(email: String) -> String
   return email.strip.downcase
 end
@@ -406,9 +409,9 @@ end
 def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Optional[PasswordReset]]
   rows = try Db.query(
     tx,
-    "select id, name, email_address from users where email_address = ? and status = #{Rails.ACTIVE} and " +
-    "role <> #{Rails.BOT}",
-    [Db.Value.Text(email)],
+    "select id, name, email_address from users where lower(email_address) = ? and status = #{Rails.ACTIVE} and " +
+    "role <> #{Rails.BOT} order by email_address = ? desc, id limit 1",
+    [Db.Value.Text(email), Db.Value.Text(email)],
   )
 
   if rows.empty?
@@ -563,7 +566,12 @@ def make_member(
 end
 
 def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
-  rows = try Db.query(conn, "select count(*) as total from users where email_address = ?", [Db.Value.Text(email)])
+  rows = try Db.query(
+    conn,
+    "select count(*) as total from users where lower(email_address) = ?",
+    [Db.Value.Text(email)],
+  )
+
   return ok(int_of(rows[0], "total") > 0)
 end
 

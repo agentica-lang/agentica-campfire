@@ -1,5 +1,6 @@
-## The `sessions` table of a Rails Campfire: a row per sign-in, with the random `token` that the cookie carries. The key
-## to `users` has no cascade, as in Rails: whoever deletes a user (the app never does) deletes their sessions first.
+## The `sessions` table of a Rails Campfire: a row per sign-in, with the random `token` that the cookie carries. The
+## key to `users` has no cascade, as in Rails: whoever deletes a user (the app never does) deletes their sessions
+## first.
 
 import Migrate from "pkg/db/migrate"
 

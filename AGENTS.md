@@ -74,7 +74,8 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   and `specs/schema.feature` compares them with a database that Rails made (`specs/fixtures/rails/`). `users.role` and
   `users.status` are integers (`repo/rails.agc` names them: never write a bare number in SQL of `src/`), and
   timestamps are `Rails.NOW` text with no default in the table, so every insert sets `created_at` and `updated_at`.
-  A database with `ar_internal_metadata` was made by Rails and is opened as it is (`Database.migrate`): no migration
+  A database with `ar_internal_metadata` was made by Rails and is opened as it is (`Database.migrate`, after a check
+  of the columns the app reads, `needed_columns`: add a column there when the app starts to read it): no migration
   runs on it, and the one thing added is `Migrations.extensions()` (tables of the app that Rails has not, run as `if
   not exists`). The app never makes `ar_internal_metadata` or `schema_migrations`: its history is
   `agentica_schema_migrations`.

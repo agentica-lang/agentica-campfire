@@ -43,8 +43,10 @@ The people and the account live in the tables of a Rails Campfire, with Rails' c
 
 Every timestamp is UTC text as Rails writes it in SQLite, `2026-03-01 09:00:00.123456`; the app
 writes the last three decimals as zeros. Rails' columns have no defaults, so the app sets
-`created_at` and `updated_at` in every insert. The unique index on `email_address` compares bytes,
-so the app stores an address in lower case and looks it up so. Unlike Rails, deactivating a person
+`created_at` and `updated_at` in every insert. The unique index on `email_address` compares bytes
+and Rails stores an address as it was typed, so the app stores its own in lower case and looks an address up
+with `lower(email_address)`: a row that Rails made as `David@37signals.com` signs in with any case. Of two rows
+that differ only in case, the lower case one is the person. Unlike Rails, deactivating a person
 keeps their address (Rails renames it), so an administrator can bring them back and the address
 stays taken. The banned are not listed: the app does not ban yet.
 
