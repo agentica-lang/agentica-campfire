@@ -55,7 +55,7 @@ RESET_SUBJECT = "Reset your Campfire password"
 ## send.
 export def add(app: Bond.App, config: Config, mailer: Mailer.Mailer) -> Bond.App
   # Per-IP limit: upstream allows 10 sign-ins per 3 minutes per address. It goes here, as a filter on `Routes.SESSION`
-  # with an ATS counter, once `Bond.Conn` has the address of the client (agentica-lang/bond#46). Until then `slots`
+  # with an ATS counter, once the Bond pin has `Conn.remote_addr` (agentica-lang/agentica-campfire#9). Until then `slots`
   # bounds the hashing for everyone together, so a stranger can slow sign-in down but not take the server down.
   slots = Slots.new()
   return (

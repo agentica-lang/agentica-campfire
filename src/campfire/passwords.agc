@@ -2,8 +2,9 @@
 ## the cost that made it and `verify?` still works after the cost is raised for new passwords.
 
 # OWASP's scrypt setting for a cost of 2^16 (64 MiB of memory) with two lanes. The call runs to its end on its
-# scheduler (see `KDF` in the library), so this is the time one sign-in takes of it. Until the builtin can be moved off
-# the scheduler (agentica-lang/agentica#1049), `Slots` in `AuthWeb` bounds how many run at once.
+# scheduler (see `KDF` in the library), so this is the time one sign-in takes of it. On Agentica 0.23.0 the builtin
+# blocks its scheduler (fixed on main by agentica-lang/agentica#1052), and `Slots` in `AuthWeb` bounds how many run at
+# once.
 COST = 65_536
 BLOCK_SIZE = 8
 PARALLELISM = 2

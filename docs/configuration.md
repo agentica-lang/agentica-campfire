@@ -17,8 +17,8 @@ start-up with a message that names the variable.
 | `CAMPFIRE_SMTP_HOSTNAME` | the host of the base url | The name that EHLO says. A base url with an IPv6 address needs this and `CAMPFIRE_SMTP_FROM`. |
 | `CAMPFIRE_MAIL_QUEUE_SIZE` | `32` | Emails that may wait to be sent, 1 to 1024. Ignored when email is off. |
 
-A `CAMPFIRE_BASE_URL` on `http://` for a host that is not this machine is warned about at start,
-and refused when `CAMPFIRE_SECURE_COOKIES` is true.
+Any `http://` `CAMPFIRE_BASE_URL` is refused when `CAMPFIRE_SECURE_COOKIES` is true, even for this
+machine. Without secure cookies, one for a host that is not this machine is warned about at start.
 
 ## Health
 
@@ -30,9 +30,10 @@ Start-up makes the data folder and its missing parents with mode 0700 (the datab
 digests and tokens, and SQLite makes the file with the umask), and leaves a folder that exists as
 it is.
 
-The default database url turns on WAL mode and foreign keys. `fts5=required` stops start-up when
-the system SQLite has no FTS5, which message search needs. A url with `foreign_keys=off` is refused,
-since the schema relies on cascades.
+agentica-db turns on WAL mode and foreign keys for any SQLite url. The default url has
+`fts5=required`, which stops start-up when the system SQLite has no FTS5 (message search needs it);
+add it to a custom url too. A url with `foreign_keys=off` is refused, since the schema relies on
+cascades.
 
 At start-up the app runs the migrations that the database has not seen
 (`src/campfire/repo/migrations.agc`) and prints `database: schema version N, migrations applied:

@@ -18,7 +18,8 @@ token.
 ## Passwords
 
 Passwords are stored as scrypt digests (cost 2^16, block size 8, two lanes, a random salt each, in
-the form `scrypt$N$r$p$salt$key`) and are never logged. A new password is at least 8 characters.
+the form `scrypt$N$r$p$salt$key`) and are never logged. A new password is at least 8 characters,
+on first run, join and reset.
 
 At most two passwords are hashed at the same time (each takes about a second and 64 MiB). A
 sign-in, first-run, join or reset form that arrives while both slots are busy is answered `503`
@@ -57,8 +58,10 @@ deactivated person's too) to sign in instead, and only whoever holds the link ca
 
 ## Known gaps
 
-- There is no per-IP rate limit on sign-in or the join page until Bond has the client address
-  ([bond#46](https://github.com/agentica-lang/bond/issues/46)). The password reset has its own
-  limits (see [mail.md](mail.md)).
-- Hashing a password blocks a scheduler until
-  [agentica#1049](https://github.com/agentica-lang/agentica/issues/1049).
+- There is no per-IP rate limit on sign-in or the join page. It is not built yet: it needs a Bond
+  pin bump (Bond has the client address now) plus the filter
+  ([agentica-campfire#9](https://github.com/agentica-lang/agentica-campfire/issues/9)). The
+  password reset has its own limits (see [mail.md](mail.md)).
+- Hashing a password blocks a scheduler on Agentica 0.23.0. Agentica main fixes it
+  ([agentica#1052](https://github.com/agentica-lang/agentica/pull/1052)), in the next release. The
+  limit of two hashes at a time still applies.

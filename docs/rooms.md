@@ -6,8 +6,8 @@ The sidebar lists the rooms that a person is in. The first run makes the open ro
 
 ## Kinds
 
-- **Open**: `New room` (any member may make one) puts every active person in it. A person who joins
-  or is reactivated later is put in the open rooms made while they were away.
+- **Open**: `New room` (any member may make one) puts every active person in it. A person who joins gets
+  every open room that exists; a reactivated person gets the open rooms made while they were away.
 - **Closed**: `New closed room` has a member picker (checkboxes of the active people). The maker is
   always in it, and only the chosen people get a membership, in one transaction.
 - **Direct**: `New direct message` picks one or more people. The same people (the person included)

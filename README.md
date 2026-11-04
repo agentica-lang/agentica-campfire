@@ -4,7 +4,7 @@ Group chat written in [Agentica](https://github.com/agentica-lang/agentica): a p
 
 Status: a skeleton with sign-in, the join link, the people page, password reset by email, and rooms with plain-text messages, on SQLite. See [docs/plan.md](docs/plan.md) for what is missing and the phases.
 
-This is an independent project. It is not affiliated with or endorsed by 37signals. Campfire is MIT licensed (copyright 37signals, LLC). Any CSS, JavaScript or images reused from it keep that copyright and license notice, and the notice is added to this repository when the first file is copied.
+This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is independent. It is not affiliated with or endorsed by 37signals. Campfire is MIT licensed (copyright 37signals, LLC). Any CSS, JavaScript or images reused from it keep that copyright and license notice, and the notice is added to this repository when the first file is copied.
 
 ## Run
 
@@ -17,7 +17,7 @@ CAMPFIRE_SESSION_SECRET=$(openssl rand -hex 32) make run   # http://127.0.0.1:30
 
 `CAMPFIRE_SESSION_SECRET` is required (at least 32 bytes) and has no default. Behind HTTPS also set `CAMPFIRE_SECURE_COOKIES=true`.
 
-On the first run there is no account, so every page shows a setup form that makes the first user, an administrator. Whoever reaches `/first_run` first gets that role: do the setup before anyone else can reach the app. It listens on `127.0.0.1` by default; keep `CAMPFIRE_HOST` that way until the account exists.
+On the first run there is no account, so every page shows a setup form (a name, an email and a password of at least 8 characters). Finishing it makes the first user, an administrator, and signs you in. Whoever reaches `/first_run` first gets that role: do the setup before anyone else can reach the app. It listens on `127.0.0.1` by default; keep `CAMPFIRE_HOST` that way until the account exists.
 
 ## Develop
 
