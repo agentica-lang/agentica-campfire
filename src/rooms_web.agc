@@ -112,7 +112,7 @@ end
 
 def create_closed_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
   name = (try Bond.form(conn, "name")).strip
-  ids = try member_ids(conn)
+  ids = try ids_of(conn, "member")
   answer = try Database.with_connection(config.database_url) do |db| create_closed_answer(conn, db, name, ids) end
   return ok(respond(conn, answer))
 end
@@ -162,7 +162,7 @@ def new_direct_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
 end
 
 def create_direct_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
-  ids = try member_ids(conn)
+  ids = try ids_of(conn, "member")
   answer = try Database.with_connection(config.database_url) do |db| create_direct_answer(conn, db, ids) end
   return ok(respond(conn, answer))
 end
@@ -185,7 +185,10 @@ def started_direct_room(db: Db.Connection, person: Auth.User, ids: List[Int]) ->
   end
 
   room_id = try Rooms.open_direct(db, person.id, chosen)
-  return ok(Answer.Redirect(Routes.room_path(room_id)))
+  case room_id
+    none -> return ok(Answer.Page(422, try direct_room_form(db, person, [], Rooms.people_problem([]))))
+    some(found) -> return ok(Answer.Redirect(Routes.room_path(found)))
+  end
 end
 
 def direct_room_form(db: Db.Connection, person: Auth.User, chosen: List[Int], message: String) -> Result[String]
@@ -211,7 +214,7 @@ def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> R
   room = try closed_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return ok(Answer.Page(200, try settings_form(db, person, found, found.name, none, "")))
+    some(found) -> return ok(Answer.Page(200, try first_settings(db, person, found)))
   end
 end
 
@@ -241,8 +244,9 @@ end
 
 def form_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
   name = (try Bond.form(conn, "name")).strip
-  ids = try member_ids(conn)
-  return change_settings(db, person, room, name, ids)
+  ids = try ids_of(conn, "member")
+  was = try ids_of(conn, "was")
+  return change_settings(db, person, room, name, ids, was)
 end
 
 def change_settings(
@@ -251,37 +255,39 @@ def change_settings(
   room: Rooms.Room,
   name: String,
   ids: List[Int],
+  was: List[Int],
 ) -> Result[Answer]
   people = try Rooms.people(db, person.id)
   chosen = chosen_of(people, ids)
   problem = Rooms.name_problem(name)
   if problem != ""
-    page = try settings_form(db, person, room, name, some(chosen), problem)
+    page = try settings_form(db, person, room, name, chosen, chosen_of(people, was), problem)
     return ok(Answer.Page(422, page))
   end
 
-  try Rooms.update_closed(db, room.id, name, chosen, people)
+  try Rooms.update_closed(db, room.id, person.id, name, chosen, was)
   return ok(Answer.Redirect(Routes.room_path(room.id)))
 end
 
-# `chosen` is none for the first look, which shows the people who are in the room now; a refused form shows what it
-# had.
+# The form as it is first drawn: the people in the room are checked, and are the ones that it remembers as in it.
+def first_settings(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[String]
+  members = try Rooms.member_ids(db, room.id)
+  return settings_form(db, person, room, room.name, members, members, "")
+end
+
+# A refused form comes back with what was typed and checked, and with the `was` that it had, so that fixing the name
+# still takes out the people that it unchecked.
 def settings_form(
   db: Db.Connection,
   person: Auth.User,
   room: Rooms.Room,
   name: String,
-  chosen: Optional[List[Int]],
+  chosen: List[Int],
+  was: List[Int],
   message: String,
 ) -> Result[String]
   people = try Rooms.people(db, person.id)
-  shown: List[Int] = []
-  case chosen
-    some(ids) -> shown = ids
-    none -> shown = try Rooms.member_ids(db, room.id)
-  end
-
-  return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, shown, message))
+  return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
 end
 
 def show_room(conn: Bond.Conn, config: Config) -> Result[Bond.Conn]
@@ -389,15 +395,15 @@ def closed_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Resu
   end
 end
 
-# The ids that a form posts as `member`, once each field: a value that is not a whole number is a 400, since only a
-# tool posts one.
-def member_ids(conn: Bond.Conn) -> Result[List[Int]]
-  values = try Bond.form_all(conn, "member")
+# The ids that a form posts under `field`, once each: a value that is not a whole number is a 400, since only a tool
+# posts one.
+def ids_of(conn: Bond.Conn, field: String) -> Result[List[Int]]
+  values = try Bond.form_all(conn, field)
   ids: List[Int] = []
   for value in values
     parsed = value.to_i
     if not parsed.ok?
-      return Bond.bad_request("member must be a whole number")
+      return Bond.bad_request("#{field} must be a whole number")
     end
 
     ids = ids.push(parsed.unwrap!)

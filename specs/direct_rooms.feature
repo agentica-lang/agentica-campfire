@@ -28,7 +28,7 @@ Feature: Direct messages
       | member | 2 |
     Then the status is 302
     And the header "location" is "/rooms/2"
-    And the query "select count(*) from rooms where id = 2 and kind = 'direct' and name is null and creator_id = 1" gives 1
+    And the query "select count(*) from rooms where (id, kind, creator_id) = (2, 'direct', 1) and name is null" gives 1
     And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2)" gives 2
     And the query "select count(*) from memberships where room_id = 2" gives 2
     When I get "/"
@@ -98,6 +98,15 @@ Feature: Direct messages
       | member | 3 |
     Then the header "location" is "/rooms/4"
     And the query "select count(*) from rooms where kind = 'direct'" gives 2
+
+  Scenario: Forms for the same people that arrive together make one direct message
+    When I post to "/direct_rooms" 8 times at once the form:
+      | member | 2 |
+      | member | 3 |
+    Then each status is one of "302, 503"
+    And at least one status is 302
+    And the query "select count(*) from rooms where kind = 'direct'" gives 1
+    And the query "select count(*) from memberships where room_id = 2" gives 3
 
   Scenario Outline: A direct message needs at least one other active person
     When I post to "/direct_rooms" the form:

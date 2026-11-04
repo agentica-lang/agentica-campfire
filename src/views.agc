@@ -182,13 +182,16 @@ export def new_direct_room(sidebar: String, people: List[Rooms.Person], chosen: 
 end
 
 ## The settings of a closed room: its name and who is in it (`chosen` of `people`, the others than the person who is
-## looking, who stays). `name` and `message` fill the form again after a refusal.
+## looking, who stays). The form sends the ids of the people who were in the room when it was drawn (`was`), so that
+## saving it takes out only those that it unchecked, not someone who was put in after the page was drawn. `name` and
+## `message` fill the form again after a refusal.
 export def room_settings(
   sidebar: String,
   room: Rooms.Room,
   name: String,
   people: List[Rooms.Person],
   chosen: List[Int],
+  was: List[Int],
   message: String,
 ) -> String
   picker = member_picker(people, chosen)
@@ -207,6 +210,9 @@ export def room_settings(
               required autofocus></label>
         </p>
         <%== picker.strip %>
+    <% for id in was %>
+        <input name="was" type="hidden" value="<%= id %>">
+    <% end %>
         <p><button type="submit">Save</button></p>
       </form>
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>

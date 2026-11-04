@@ -31,7 +31,7 @@ Feature: Closed rooms
       | member | 2      |
     Then the status is 302
     And the header "location" is "/rooms/2"
-    And the query "select count(*) from rooms where id = 2 and kind = 'closed' and name = 'Secret' and creator_id = 1" gives 1
+    And the query "select count(*) from rooms where (id, kind, name, creator_id) = (2, 'closed', 'Secret', 1)" gives 1
     And the query "select count(*) from memberships where room_id = 2" gives 2
     And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2)" gives 2
     When I get "/rooms/2"
@@ -139,12 +139,15 @@ Feature: Closed rooms
     And the body contains "value=\"Secret\""
     And the body contains "<input type=\"checkbox\" name=\"member\" value=\"2\" checked>"
     And the body contains "<input type=\"checkbox\" name=\"member\" value=\"3\">"
+    And the body contains "name=\"was\" type=\"hidden\" value=\"2\""
+    And the body does not contain "name=\"was\" type=\"hidden\" value=\"3\""
 
   Scenario: A member renames the room and adds and removes people
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
     When I post to "/rooms/2/settings" the form:
       | name   | Plans |
       | member | 3     |
+      | was    | 2     |
     Then the status is 302
     And the header "location" is "/rooms/2"
     And the query "select count(*) from rooms where id = 2 and name = 'Plans' and creator_id = 1" gives 1
@@ -159,15 +162,42 @@ Feature: Closed rooms
     And I get "/rooms/2"
     Then the status is 200
 
-  Scenario: A member who did not make the room can edit it, and a form cannot remove the person who sends it
+  Scenario: Any member can take out any other member, the maker included, and a form cannot take out its sender
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
     When I sign in as "bea@example.com"
     And I post to "/rooms/2/settings" the form:
-      | name | Renamed |
+      | name   | Renamed |
+      | member | 3       |
+      | was    | 1       |
+      | was    | 2       |
+    Then the status is 302
+    And the query "select count(*) from rooms where id = 2 and name = 'Renamed' and creator_id = 1" gives 1
+    And the query "select count(*) from memberships where room_id = 2 and user_id = 1" gives 0
+    And the query "select count(*) from memberships where room_id = 2 and user_id = 2" gives 1
+    And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 1
+
+  Scenario: A form that was drawn before someone was added does not take them out
+    Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
+    When I sign in as "bea@example.com"
+    And I get "/rooms/2/settings"
+    Then the body contains "name=\"was\" type=\"hidden\" value=\"1\""
+    When I sign in as "ana@example.com"
+    And I post to "/rooms/2/settings" the form:
+      | name   | Secret |
+      | member | 2      |
+      | member | 3      |
+      | was    | 2      |
+    Then the status is 302
+    And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 1
+    When I sign in as "bea@example.com"
+    And I post to "/rooms/2/settings" the form:
+      | name   | Renamed |
+      | member | 1       |
+      | was    | 1       |
+      | was    | 2       |
     Then the status is 302
     And the query "select count(*) from rooms where id = 2 and name = 'Renamed'" gives 1
-    And the query "select count(*) from memberships where room_id = 2 and user_id = 2" gives 1
-    And the query "select count(*) from memberships where room_id = 2 and user_id = 1" gives 0
+    And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2, 3)" gives 3
 
   Scenario: A person who is not active stays in the room, as the form cannot show them
     Given a closed room "Secret" with the members "ana@example.com, di@example.com"
@@ -181,7 +211,9 @@ Feature: Closed rooms
     When I post to "/rooms/2/settings" the form:
       | name   |   |
       | member | 3 |
+      | was    | 2 |
     Then the status is 422
+    And the body contains "name=\"was\" type=\"hidden\" value=\"2\""
     And the body contains "Give the room a name of 1 to 100 characters"
     And the body contains "<input type=\"checkbox\" name=\"member\" value=\"3\" checked>"
     And the body contains "<input type=\"checkbox\" name=\"member\" value=\"2\">"
@@ -196,6 +228,10 @@ Feature: Closed rooms
     When I post to "/rooms/2/settings" the form:
       | name   | Secret |
       | member | abc    |
+    Then the status is 400
+    When I post to "/rooms/2/settings" the form:
+      | name | Secret |
+      | was  | abc    |
     Then the status is 400
 
   Scenario Outline: The settings of a room that the person cannot change answer 404, as a room that was never made does

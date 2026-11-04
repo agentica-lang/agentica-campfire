@@ -197,24 +197,28 @@ export def create_closed(conn: Db.Connection, creator_id: Int, name: String, mem
   return Db.transaction(conn) do |tx| create_closed_in(tx, creator_id, name, members) end
 end
 
-## Renames the closed room and makes `chosen` the people in it among `others`, the active people that the form offered
-## (never the person who sends it): the ones of `others` that are not in `chosen` leave. Someone who is in the room
-## and is not in `others` (a person who is not active now) stays, and so does the person who sends the form, whom the
-## caller keeps out of `others`: a stale form must not put out someone who has gone, nor bring them back.
+## Renames the closed room and changes who is in it by what the form said: the people in `chosen` are added, and the
+## people that were in the room when the form was drawn (`was`) and are not in `chosen` are taken out. Someone who was
+## put in after the page was drawn is not in `was`, so a stale form keeps them; someone who is not active now stays,
+## and so does `editor_id`, the person who sends the form, who is never offered. The active people are read inside the
+## transaction, so the ids that the form names are checked against the room as it is when it changes.
 export def update_closed(
   conn: Db.Connection,
   room_id: Int,
+  editor_id: Int,
   name: String,
   chosen: List[Int],
-  others: List[Person],
+  was: List[Int],
 ) -> Result[Void]
-  return Db.transaction(conn) do |tx| update_closed_in(tx, room_id, name, chosen, others) end
+  return Db.transaction(conn) do |tx| update_closed_in(tx, room_id, editor_id, name, chosen, was) end
 end
 
 ## The direct room between `creator_id` and `others` (the people they picked, not themselves), which is the one that
-## exists with exactly those people in it, or a new one. The search and the insert are in one write transaction, so two
-## requests that ask for the same people get one room.
-export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Int]
+## exists with exactly those people in it, or a new one; `none` when no active person is left among `others`. The
+## people are checked, the room is searched for and it is made in one write transaction, so a person who is made
+## inactive meanwhile does not make a room with fewer people than the search counted, and two requests for the same
+## people get one room.
+export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]
   return Db.transaction(conn) do |tx| open_direct_in(tx, creator_id, others) end
 end
 
@@ -273,9 +277,10 @@ end
 def update_closed_in(
   tx: Db.Connection,
   room_id: Int,
+  editor_id: Int,
   name: String,
   chosen: List[Int],
-  others: List[Person],
+  was: List[Int],
 ) -> Result[Void]
   try Db.execute(
     tx,
@@ -283,10 +288,10 @@ def update_closed_in(
     [Db.Value.Text(name), Db.Value.Int(room_id)],
   )
 
-  for person in others
+  for person in try people(tx, editor_id)
     if chosen.include?(person.id)
       try add_member(tx, room_id, person.id, "mentions")
-    else
+    elsif was.include?(person.id)
       try Db.execute(
         tx,
         "delete from memberships where room_id = ? and user_id = ?",
@@ -298,13 +303,29 @@ def update_closed_in(
   return ok()
 end
 
-def open_direct_in(tx: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Int]
-  everyone = [creator_id].concat(others.select do |id| id != creator_id end).uniq
+def open_direct_in(tx: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]
+  everyone = try active_among(tx, [creator_id].concat(others).uniq)
+  if everyone.size < 2 or not everyone.include?(creator_id)
+    return ok(none)
+  end
+
   existing = try direct_between(tx, everyone)
   case existing
-    some(room_id) -> return ok(room_id)
-    none -> return make_direct(tx, creator_id, everyone)
+    some(room_id) -> return ok(some(room_id))
+    none -> return ok(some(try make_direct(tx, creator_id, everyone)))
   end
+end
+
+# The ids among `ids` that are active users now, so that what is searched for is what gets inserted.
+def active_among(tx: Db.Connection, ids: List[Int]) -> Result[List[Int]]
+  marks = ids.map do |_| "?" end.join(", ")
+  rows = try Db.query(
+    tx,
+    "select id from users where active = 1 and id in (#{marks}) order by id",
+    ids.map do |id| Db.Value.Int(id) end,
+  )
+
+  return ok(rows.map do |row| int_of(row, "id") end)
 end
 
 # A direct room that has all of `everyone` in it and nobody else: as many members as people, and all of them among

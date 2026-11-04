@@ -1,9 +1,10 @@
 Feature: Rooms
   A room is open (every person on the account is a member), closed (only the people on its member list) or direct
   (between people). A person sees the rooms that they are a member of, and nothing tells them that another one exists:
-  a room that they are not in answers 404, the same as a room that was never made. This feature makes open rooms; closed_rooms.feature and direct_rooms.feature make the
-  other kinds through their pages, and the closed and direct rooms of the scenarios here are made by steps. The first
-  admin is user 1 and "All Talk", which the first run makes, is room 1; the next room is 2.
+  a room that they are not in answers 404, the same as a room that was never made. This feature makes open rooms;
+  closed_rooms.feature and direct_rooms.feature make the other kinds through their pages, and the closed and direct
+  rooms of the scenarios here are made by steps. The first admin is user 1 and "All Talk", which the first run makes,
+  is room 1; the next room is 2.
 
   Background:
     Given a fresh database
@@ -14,7 +15,7 @@ Feature: Rooms
     When I get "/"
     Then the status is 200
     And the body contains "<a href=\"/rooms/1\">All Talk</a>"
-    And the query "select count(*) from rooms where id = 1 and kind = 'open' and name = 'All Talk' and creator_id = 1" gives 1
+    And the query "select count(*) from rooms where (id, kind, name, creator_id) = (1, 'open', 'All Talk', 1)" gives 1
     And the query "select count(*) from memberships where room_id = 1 and user_id = 1" gives 1
 
   Scenario: Any member makes an open room, not only an administrator
