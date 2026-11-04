@@ -254,15 +254,15 @@ def main() -> Void
       try Test.error?(secure)
       Test.ok?(Config.parse(Config.DEFAULT_HOST, "3000", "data", "", SECRET, "true", "", "https://chat.example.com"))
     end,
-    Test.test("the queue of emails is 32 unless the environment says another size from 1 to 1024") do
+    Test.test("the queue of emails has a default size unless the environment says another, up to the most") do
       mail = "smtp://mail.example.com"
-      try Test.eq(mail_queue_of(mail, "").unwrap!.mail_queue, 32)
+      try Test.eq(mail_queue_of(mail, "").unwrap!.mail_queue, Config.DEFAULT_MAIL_QUEUE)
       try Test.eq(mail_queue_of(mail, " 5 ").unwrap!.mail_queue, 5)
       try Test.error?(mail_queue_of(mail, "0"))
-      try Test.error?(mail_queue_of(mail, "1025"))
+      try Test.error?(mail_queue_of(mail, "#{Config.MAX_MAIL_QUEUE + 1}"))
       try Test.error?(mail_queue_of(mail, "many"))
       # With email off nothing uses the queue, so its size is not checked.
-      Test.eq(mail_queue_of("", "many").unwrap!.mail_queue, 32)
+      Test.eq(mail_queue_of("", "many").unwrap!.mail_queue, Config.DEFAULT_MAIL_QUEUE)
     end,
   ])
 end

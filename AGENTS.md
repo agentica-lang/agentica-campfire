@@ -56,11 +56,13 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   deny-by-default). A request opens its own database connection (`Database.with_connection`), since Bond runs a
   request in its own task; a `sqlite::memory:` database is therefore not usable by the app. Never log or store a
   plain password; a form that is shown again never holds the password.
-- Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A link in
-  an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email answers
-  the same for every address (no enumeration). A reset token is stored as a hash only. The write transactions of the
-  reset (`Db.transaction`, which begins with `BEGIN IMMEDIATE`) are what make concurrent requests send one email and change a password once;
-  there is no app-level lock, since agentica-db waits for a busy database by sleeping in the task.
+- Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A
+  link in an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email
+  answers the same for every address (no enumeration). A reset token is stored as a hash only. The write
+  transactions of the reset (`Db.transaction`, which begins with `BEGIN IMMEDIATE`) are what make concurrent requests
+  send one email and change a password once; there is no app-level lock, since agentica-db waits for a busy database
+  by sleeping in the task, for at most its `busy_timeout` (5 s by default). A wait that runs out is a database error,
+  so the request answers 500.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

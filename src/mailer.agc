@@ -5,15 +5,13 @@
 ## password), and dropped; nothing here retries, since the one message of today is a link that a person asks for again.
 ## With no `Smtp.Options` there is no task, and `enqueue` says no.
 
+import Config from "config"
 import Smtp from "smtp"
 
 # How long the task waits for a message before it looks at the queue again, and how long `stop` waits for it to
 # finish what is queued before it gives up on it.
 IDLE_MS = 1_000
 STOP_WAIT_MS = 10_000
-
-## The most messages that the queue may hold; `Config` takes the same number for `CAMPFIRE_MAIL_QUEUE_SIZE`.
-export MAX_CAPACITY = 1_024
 
 ## A mailer. `queue` and `worker` are `none` when email is off.
 export struct Mailer
@@ -28,16 +26,16 @@ struct Job
 end
 
 ## Starts the task for these options, or a mailer that sends nothing for `none` (whatever `capacity` is). `capacity`
-## is how many messages may wait, from 1 to `MAX_CAPACITY`; anything else is an `error`. The messages are the links
-## that people ask for, one at a time for each person and five minutes apart, so a queue that fills up means a mail
-## server that is down, and the next messages are dropped, not held. It belongs to the task that calls it, and the
+## is how many messages may wait, from 1 to `Config.MAX_MAIL_QUEUE`; anything else is an `error`. The messages are the
+## links that people ask for, one at a time for each person and five minutes apart, so a queue that fills up means a
+## mail server that is down, and the next messages are dropped, not held. It belongs to the task that calls it, and the
 ## task that it starts owns its queue: if it ever crashes, the queue closes and `enqueue` finds out.
 export def start(options: Optional[Smtp.Options], capacity: Int) -> Result[Mailer]
   case options
     none -> return ok(Mailer(queue: none, capacity: 0, worker: none))
     some(chosen) ->
-      if capacity < 1 or capacity > MAX_CAPACITY
-        return error("the mail queue must hold from 1 to #{MAX_CAPACITY} messages, not #{capacity}")
+      if capacity < 1 or capacity > Config.MAX_MAIL_QUEUE
+        return error("the mail queue must hold from 1 to #{Config.MAX_MAIL_QUEUE} messages, not #{capacity}")
       end
 
       queue: Channel[Smtp.Message] = Channel.new(capacity)
