@@ -37,6 +37,9 @@ PUBLIC_PATHS = Set.new([
   Routes.PASSWORD_RESET_UPDATE,
 ])
 
+# Everything under `/assets/` is public: the files of the assets folder, which are not secret.
+ASSETS_PREFIX = "#{Routes.ASSETS}/"
+
 # `/join/CODE` (and nothing longer) is the join page: its code is the secret that lets a stranger in, so it cannot be a
 # fixed path of `PUBLIC_PATHS`. A path with more segments, or none, is not public, and a wrong code answers 404 inside
 # the handler without telling anything else.
@@ -144,6 +147,12 @@ end
 
 def public?(path: String) -> Bool
   if PUBLIC_PATHS.include?(path)
+    return true
+  end
+
+  # The stylesheet and whatever else is in the assets folder: the sign-in page needs its style before anybody has
+  # signed in. A path that is not a file there is a 404 (`Bond.static` refuses a way out of the folder), whoever asks.
+  if path.start_with?(ASSETS_PREFIX)
     return true
   end
 

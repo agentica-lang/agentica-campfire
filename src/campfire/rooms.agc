@@ -43,6 +43,20 @@ NOW = Rails.NOW
 # What a message is called when its author's row is gone (a database that Rails seeded can have one).
 UNKNOWN_AUTHOR = "Unknown"
 
+# The form of a timestamp in `<time datetime>`: ISO 8601, UTC, with milliseconds.
+ISO = "%Y-%m-%dT%H:%M:%fZ"
+
+## The select of a message as `message_of` reads it, up to its tables and with no `where`: the author (or
+## `UNKNOWN_AUTHOR`), the body that `action_text_rich_texts` holds and the time in the ISO form. A page of a room and
+## the search read their messages through it, so both show a message the same way.
+export MESSAGE_SELECT = (
+  "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
+  "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at " +
+  "from messages left join users on users.id = messages.creator_id " +
+  "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
+  "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}'"
+)
+
 # A room as a person sees it. A direct room has no name, so it is called after the other people in it (the column is
 # `others`, looked up only for a direct room, so an open room costs no subquery), and `memberships.involvement` is
 # what the sidebar filters on. The names are joined in the order of the inner select, which the database keeps for
@@ -119,12 +133,24 @@ export def body_problem(body: String) -> String
   return ""
 end
 
+## A message from a row of `MESSAGE_SELECT`, with its body cleaned.
+export def message_of(row: Db.Row) -> Message
+  return Message(
+    id: int_of(row, "id"),
+    author: text_of(row, "author"),
+    # Every body is cleaned on its way out, since a row that Rails wrote was never cleaned by this app; a body that
+    # `post` stored clean passes unchanged (`sanitize` is idempotent: test/html_sanitizer_test.agc).
+    body: HtmlSanitizer.sanitize(text_of(row, "body")),
+    created_at: text_of(row, "created_at"),
+  )
+end
+
 ## The rooms that the person shows in their sidebar: every room they are in, except the ones they set to invisible,
 ## by name.
 export def visible(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
   rows = try Db.query(
     conn,
-    "select * from (#{ROOM_COLUMNS} and memberships.involvement <> 'invisible') " +
+    "select * from (#{ROOM_COLUMNS} and memberships.involvement <> '#{Rails.INVISIBLE}') " +
     "order by lower(coalesce(name, others, '')), id",
     [Db.Value.Int(user_id), Db.Value.Int(user_id)],
   )
@@ -259,13 +285,8 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
 
   rows = try Db.query(
     conn,
-    "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
-    "coalesce(rich_texts.body, '') as body, " +
-    "#{iso("messages.created_at")} as created_at " +
-    "from messages left join users on users.id = messages.creator_id " +
-    "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
-    "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}' " +
-    "where messages.room_id = ? #{cursor} order by messages.created_at desc, messages.id desc limit ?",
+    "#{MESSAGE_SELECT} where messages.room_id = ? #{cursor} " +
+    "order by messages.created_at desc, messages.id desc limit ?",
     params.push(Db.Value.Int(PAGE_SIZE + 1)),
   )
 
@@ -346,13 +367,14 @@ end
 
 # What a message does to its room, as `Message` and `Room#receive` of Rails do: the room is touched, and each member
 # who is not the author, has not set the room to invisible and is not connected now (`connected_at` older than
-# `Rails.CONNECTION_TTL_SECONDS`, or none) has the room unread since the time of the message.
+# `Rails.CONNECTION_TTL_SECONDS`, or none) has the room unread since the time of the message. `Room#receive` is an
+# `update_all`, which does not touch `memberships.updated_at`, so neither does this.
 def receive(tx: Db.Connection, room_id: Int, user_id: Int, message_id: Db.Value) -> Result[Void]
   try Db.execute(tx, "update rooms set updated_at = #{NOW} where id = ?", [Db.Value.Int(room_id)])
   try Db.execute(
     tx,
-    "update memberships set unread_at = (select created_at from messages where id = ?), updated_at = #{NOW} " +
-    "where room_id = ? and user_id <> ? and involvement <> 'invisible' and (connected_at is null or " +
+    "update memberships set unread_at = (select created_at from messages where id = ?) " +
+    "where room_id = ? and user_id <> ? and involvement <> '#{Rails.INVISIBLE}' and (connected_at is null or " +
     "connected_at < strftime('#{Rails.STAMP}', 'now', '-#{Rails.CONNECTION_TTL_SECONDS} seconds'))",
     [message_id, Db.Value.Int(room_id), Db.Value.Int(user_id)],
   )
@@ -494,7 +516,7 @@ end
 
 # The SQL for the ISO 8601 UTC form of a timestamp column, which a page writes in `<time datetime>`.
 def iso(column: String) -> String
-  return "strftime('%Y-%m-%dT%H:%M:%fZ', #{column})"
+  return "strftime('#{ISO}', #{column})"
 end
 
 def room_of(row: Db.Row) -> Room
@@ -509,14 +531,4 @@ def room_of(row: Db.Row) -> Room
   end
 
   return Room(id: int_of(row, "id"), name: name, room_type: room_type, creator_id: int_of(row, "creator_id"))
-end
-
-def message_of(row: Db.Row) -> Message
-  return Message(
-    id: int_of(row, "id"),
-    author: text_of(row, "author"),
-    # What Rails wrote was not cleaned by this app, so the body is cleaned again on its way out.
-    body: HtmlSanitizer.sanitize(text_of(row, "body")),
-    created_at: text_of(row, "created_at"),
-  )
 end

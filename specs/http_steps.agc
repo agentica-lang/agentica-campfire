@@ -23,12 +23,22 @@ STATUSES = "statuses"
 ALL_AT_ONCE_MS = 60_000
 BROWSER = "browser"
 FORM_TYPE = "application/x-www-form-urlencoded"
+# A WebP file starts with `RIFF`, four bytes of size and `WEBP`: 12 bytes.
+HEAD_BYTES = 12
+WEBP_MAGIC_START = "52494646"
+WEBP_MAGIC_END = "57454250"
 
+# `body` is the text of the body ("" for one that is not UTF-8), so `size`, `sha256` (hex) and `head` (the first
+# bytes in hex) say what a binary body is. `path` is what was asked for.
 struct Reply
   status: Int
   headers: Map[String, String]
   body: String
   elapsed_ms: Int
+  path: String
+  size: Int
+  sha256: String
+  head: String
 end
 
 # What a parallel request answered: the status, the `Retry-After` header ("" when it has none) and the body.
@@ -86,6 +96,9 @@ export def steps() -> List[BDD.Step]
     BDD.step("the body does not contain {string}", &body_lacks),
     BDD.step("the body contains {string} {int} times", &body_contains_times),
     BDD.step("the body starts with {string}", &body_starts_with),
+    BDD.step("the body is a WebP image", &body_is_webp),
+    BDD.step("I get the stylesheet that the page links", &get_stylesheet),
+    BDD.step("the body has the SHA-256 that starts with the digest in the name of the stylesheet", &body_has_digest),
     BDD.step("the body ends with {string}", &body_ends_with),
     BDD.step("the body shows {string} before {string}", &body_shows_before),
     BDD.step("the browser has no cookies", &forget_cookies),
@@ -119,6 +132,18 @@ export def post_at_once(ctx: BDD.Context, path: String, body: String, count: Int
   attempts = (1..count).to_a
   answers = Task.map(attempts, count, ALL_AT_ONCE_MS) do |_| post_answer(port, state, path, body) end
   return keep_answers(ctx, answers)
+end
+
+## Whether the body of the last answer is, byte for byte, the file at `path`.
+export def body_is_file(ctx: BDD.Context, path: String) -> BDD.Context
+  reply = last_reply(ctx)
+  expected = File.sha256(path)
+  if not expected.ok?
+    return BDD.assert(ctx, false, "cannot read #{path}: #{expected.message}")
+  end
+
+  same = reply.sha256 == Digest.hexencode(expected.unwrap!)
+  return BDD.assert(ctx, same, "the body (#{reply.size} bytes) is not the file #{path}")
 end
 
 ## Posts `args[0]` messages to the room path `args[1]` in parallel, each with a body and a `client_message_id` of its
@@ -301,7 +326,7 @@ def send(ctx: BDD.Context, method: String, path: String, body: String) -> BDD.Co
   end
 
   kept = state.with(cookies: cookies_after(state.cookies, response.unwrap!))
-  reply = reply_of(response.unwrap!, elapsed)
+  reply = reply_of(response.unwrap!, elapsed, path)
   return BDD.set(BDD.set(ctx, REPLY, JSON.from(reply)), BROWSER, JSON.from(kept))
 end
 
@@ -362,11 +387,20 @@ def apply_set_cookie(cookies: Map[String, String], line: String) -> Map[String, 
   return cookies.put(name, value)
 end
 
-def reply_of(response: HttpResponse, elapsed_ms: Int) -> Reply
+def reply_of(response: HttpResponse, elapsed_ms: Int, path: String) -> Reply
   start: Map[String, String] = {}
   headers = response.headers.reduce(start) do |acc, header| acc.put(header.name.downcase, header.value) end
   body = String.from_bytes(response.body).unwrap_or("")
-  return Reply(status: response.status, headers: headers, body: body, elapsed_ms: elapsed_ms)
+  return Reply(
+    status: response.status,
+    headers: headers,
+    body: body,
+    elapsed_ms: elapsed_ms,
+    path: path,
+    size: response.body.size,
+    sha256: Digest.sha256_hexdigest(response.body),
+    head: Digest.hexencode(response.body.take(HEAD_BYTES)),
+  )
 end
 
 def last_reply(ctx: BDD.Context) -> Reply
@@ -493,6 +527,40 @@ end
 def body_ends_with(ctx: BDD.Context, args: List[String]) -> BDD.Context
   body = last_reply(ctx).body
   return BDD.assert(ctx, body.strip.end_with?(args[0]), "the body is #{body}")
+end
+
+def body_is_webp(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  head = last_reply(ctx).head
+  is_webp = head.length == HEAD_BYTES * 2 and head.start_with?(WEBP_MAGIC_START) and head.end_with?(WEBP_MAGIC_END)
+  return BDD.assert(ctx, is_webp, "the body starts with the bytes #{head}, not those of a WebP")
+end
+
+# The link that the page of the last answer has to its stylesheet, as the benchmark reads it: `href="/assets/....css"`.
+def stylesheet_link(ctx: BDD.Context) -> Optional[String]
+  return text_after(last_reply(ctx).body, "<link rel=\"stylesheet\" href=\"", "\"")
+end
+
+def get_stylesheet(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  link = stylesheet_link(ctx)
+  if link.none?
+    return BDD.assert(ctx, false, "the page has no link to a stylesheet: #{last_reply(ctx).body}")
+  end
+
+  return send(ctx, "GET", link.unwrap!, "")
+end
+
+# `campfire-DIGEST.css`: the digest is what is between the last `-` and the `.css`, and has to be the start of the
+# SHA-256 of the file that the name stands for.
+def body_has_digest(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  reply = last_reply(ctx)
+  name = reply.path.split("/").last
+  dash = name.split("-").last
+  digest = dash.slice(0, dash.length - ".css".length)
+  return BDD.assert(
+    ctx,
+    not digest.empty? and name.end_with?(".css") and reply.sha256.start_with?(digest),
+    "the name #{name} does not hold the start of the SHA-256 of its body, #{reply.sha256}",
+  )
 end
 
 def body_shows_before(ctx: BDD.Context, args: List[String]) -> BDD.Context

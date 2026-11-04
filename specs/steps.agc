@@ -11,8 +11,10 @@ import SmtpSteps from "smtp_steps"
 import DataDir from "../src/campfire/data_dir"
 import Accounts from "../src/campfire/accounts"
 import Auth from "../src/campfire/auth"
+import Avatars from "../src/campfire/avatars"
 import Bcrypt from "../src/campfire/bcrypt"
 import Database from "../src/campfire/repo/database"
+import HtmlSanitizer from "../src/campfire/html_sanitizer"
 import Migrations from "../src/campfire/repo/migrations"
 import Passwords from "../src/campfire/passwords"
 import Rails from "../src/campfire/repo/rails"
@@ -22,6 +24,14 @@ DB_DIR = "db_dir"
 DB_URL = "db_url"
 RAILS_URL = "rails_url"
 RAILS_FIXTURE = "specs/fixtures/rails/campfire.sqlite3"
+# What `fixtures/rails/make_avatar.sh` made: the rows of Active Storage for the avatar of user 1, and the files of the
+# Disk service that they name.
+AVATAR_SQL = "specs/fixtures/rails/avatar.sql"
+AVATAR_STORAGE = "specs/fixtures/rails/storage"
+# The secret of the Rails app that made the tokens of `test/signed_id_test.agc`.
+SECRET_KEY_BASE = (
+  "5d1f1c3e0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f"
+)
 STARTED = "started"
 STARTUP = "startup_lines"
 UPDATED = "updated"
@@ -76,6 +86,9 @@ def main() -> Void
     BDD.step("a member {string} with the email {string} and the password digest {string} exists", &member_with_digest),
     BDD.step("a closed room {string} with the members {string}", &closed_room_exists),
     BDD.step("a direct room with the members {string}", &direct_room_exists),
+    BDD.step("the avatar that Rails stored for the user 1", &stored_avatar),
+    BDD.step("the body is the stored variant of the avatar of the user {int}", &body_is_variant),
+    BDD.step("the body is the stored original of the avatar of the user {int}", &body_is_original),
     BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("a message {string} in the room {int} at {string}", &message_at),
     BDD.step("an orphan message {string} in the room {int}", &orphan_message),
@@ -132,6 +145,9 @@ def configured_program(ctx: BDD.Context, url: String, secure_cookies: String, po
     "CAMPFIRE_DB_POOL_SIZE": pool.get("CAMPFIRE_DB_POOL_SIZE", ""),
     "CAMPFIRE_DB_CHECKOUT_MS": pool.get("CAMPFIRE_DB_CHECKOUT_MS", ""),
     "CAMPFIRE_BCRYPT_LIBRARY": bcrypt_library(ctx),
+    "SECRET_KEY_BASE": SECRET_KEY_BASE,
+    "CAMPFIRE_STORAGE_DIR": storage_dir(ctx),
+    "CAMPFIRE_ASSETS_DIR": assets_dir(),
   }
 
   mail = MailSteps.app_environment(ctx)
@@ -427,6 +443,8 @@ def insert_message(conn: Db.Connection, room_id: Int, html: String, at: String, 
     [id, Db.Value.Text(html), Db.Value.Text(at), Db.Value.Text(at)],
   )
 
+  text = HtmlSanitizer.plain_text_of_clean(HtmlSanitizer.sanitize(html))
+  try Db.execute(conn, "insert into message_search_index (rowid, body) values (?, ?)", [id, Db.Value.Text(text)])
   return ok()
 end
 
@@ -680,7 +698,12 @@ def rails_copy(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 def copy_fixture(to: String) -> Result[Void]
-  source = try Path.join([try Path.cwd(), RAILS_FIXTURE])
+  return copy_file(RAILS_FIXTURE, to)
+end
+
+# A file of the repository (`from` is relative to where the specs run) copied to `to`.
+def copy_file(relative: String, to: String) -> Result[Void]
+  source = try Path.join([try Path.cwd(), relative])
   from = try File.open(source, "read", FILE_MS)
   target = try File.open(to, "write", FILE_MS)
   copied = copy_bytes(from, target)
@@ -700,6 +723,88 @@ def copy_bytes(from: FileHandle, target: FileHandle) -> Result[Void]
   end
 
   return ok()
+end
+
+# The folder of the stylesheet of the repository, as a full path: the program of the app does not run in it.
+def assets_dir() -> String
+  return Path.join([Path.cwd().unwrap!, "public/assets"]).unwrap!
+end
+
+# Where the app looks for the files of Active Storage: a folder of the scenario, which goes with its database.
+def storage_dir(ctx: BDD.Context) -> String
+  return Path.join([text_of(ctx, DB_DIR), "files"]).unwrap!
+end
+
+# The rows and the files that Rails 8 wrote for the avatar of user 1, put where the app looks for them.
+def stored_avatar(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  stored = with_database(ctx) do |conn| store_avatar(conn, storage_dir(ctx)) end
+  return BDD.assert(ctx, stored.ok?, "cannot store the avatar: #{stored.message}")
+end
+
+def store_avatar(conn: Db.Connection, folder: String) -> Result[Void]
+  statements = try File.read_text(AVATAR_SQL)
+  for statement in statements.split("\n")
+    if not statement.empty?
+      try Db.execute(conn, statement, [])
+    end
+  end
+
+  keys = try Db.query(conn, "select key from active_storage_blobs", [])
+  for row in keys
+    try store_blob_file(folder, value_text(row.get("key", Db.Value.Null)))
+  end
+
+  return ok()
+end
+
+# The file of one blob in the folders of the Disk service: `xx/yy/KEY`.
+def store_blob_file(folder: String, key: String) -> Result[Void]
+  first = key.slice(0, 2)
+  second = key.slice(2, 2)
+  try Dir.mkdir(try Path.join([folder, first, second]))
+  return copy_file(try Path.join([AVATAR_STORAGE, first, second, key]), try Path.join([folder, first, second, key]))
+end
+
+# The bytes that the app answered are the bytes of the image that was attached, before any variant.
+def body_is_original(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  rows = rows_of(
+    ctx,
+    "select blobs.key from active_storage_attachments avatars join active_storage_blobs blobs " +
+    "on blobs.id = avatars.blob_id where avatars.record_type = 'User' and avatars.name = 'avatar' " +
+    "and avatars.record_id = #{args[0]}",
+  )
+
+  if rows.empty?
+    return BDD.assert(ctx, false, "the user #{args[0]} has no avatar")
+  end
+
+  path = Avatars.path(storage_dir(ctx), value_text(rows[0].values[0]))
+  return HttpSteps.body_is_file(ctx, path.unwrap_or(""))
+end
+
+# The bytes that the app answered are the bytes of the WebP that Rails made for the variant of the avatar.
+def body_is_variant(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  rows = rows_of(
+    ctx,
+    "select variant_blobs.key from active_storage_attachments images " +
+    "join active_storage_blobs variant_blobs on variant_blobs.id = images.blob_id " +
+    "where images.record_type = 'ActiveStorage::VariantRecord' and images.name = 'image' " +
+    "and variant_blobs.content_type = 'image/webp' and images.record_id in " +
+    "(select variants.id from active_storage_variant_records variants join active_storage_attachments avatars " +
+    "on avatars.blob_id = variants.blob_id where avatars.record_type = 'User' and avatars.record_id = #{args[0]})",
+  )
+
+  if rows.empty?
+    return BDD.assert(ctx, false, "the user #{args[0]} has no stored variant")
+  end
+
+  key = value_text(rows[0].values[0])
+  path = Avatars.path(storage_dir(ctx), key)
+  if path.none?
+    return BDD.assert(ctx, false, "the key #{key} is not one of Active Storage")
+  end
+
+  return HttpSteps.body_is_file(ctx, path.unwrap!)
 end
 
 # The columns, the indexes and the foreign keys of each table, as lines, from the database of `url`.

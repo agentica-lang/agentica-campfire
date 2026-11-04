@@ -64,6 +64,12 @@ export def home(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   return ok(respond(conn, answer))
 end
 
+## The column at the side of a page for the person: their rooms that are not hidden and the ways to make one.
+export def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String]
+  rooms = try Rooms.visible(db, person.id)
+  return ok(Views.sidebar(person.name, rooms))
+end
+
 def home_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
@@ -453,11 +459,6 @@ end
 
 def composer(note: String, draft: String) -> Views.Composer
   return Views.Composer(note: note, draft: draft, message_id: SecureRandom.hex(CLIENT_ID_BYTES))
-end
-
-def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String]
-  rooms = try Rooms.visible(db, person.id)
-  return ok(Views.sidebar(person.name, rooms))
 end
 
 def member_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]

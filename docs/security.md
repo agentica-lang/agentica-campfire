@@ -64,8 +64,8 @@ are busy is answered `503` with `Retry-After`.
 
 ## Which pages need a sign-in
 
-Every page does, except the sign-in, first-run and password-reset pages, `/health`, `/up` and
-`/join/CODE`. The list is deny-by-default: a new route is private until
+Every page does, except the sign-in, first-run and password-reset pages, `/health`, `/up`,
+`/join/CODE` and what is under `/assets/` (the stylesheet). The list is deny-by-default: a new route is private until
 `src/campfire_web/auth.agc` names it.
 
 A person only sees a room they are a member of. A closed or direct room of other people and a room
@@ -81,13 +81,16 @@ iterations, the salt `active_record/signed_id`, 64 bytes), an HMAC-SHA256 over t
 `{"_rails":{"data":ID,"pur":"user/avatar"}}`, joined by `--`. `SignedId.verify` checks the signature
 in constant time before it decodes anything, then the purpose and the expiry, and answers an id or
 nothing, never why. The token is readable by anyone (it is signed, not encrypted), so it is only a
-way to name a user, never a proof of who is asking. The module is not routed yet: the avatar route
-is a later step.
+way to name a user, never a proof of who is asking. `GET /users/TOKEN/avatar` uses it, with the key of
+`SECRET_KEY_BASE`: a token that does not verify, for another purpose, expired or for no user is the
+same `404` as a missing page. The picture is sent `Cache-Control: private` (Rails says `public`), since
+the route needs a sign-in and a shared cache must not hand it to anyone else.
 
 ## Message bodies
 
-Message bodies are stored as sanitized HTML (`HtmlSanitizer.sanitize`), cleaned again when they are read (a row
-that Rails wrote was not cleaned by this app), and shown with `<%==` as element content only.
+Message bodies are stored as sanitized HTML (`HtmlSanitizer.sanitize`), cleaned when they are read
+as well (a row that Rails wrote was never cleaned by this app; markup that is clean already comes
+out unchanged), and shown with `<%==` as element content only.
 
 ## The first administrator
 

@@ -1,6 +1,8 @@
 ## The paths of the pages, in one place so that the router, the filter, the redirects and the forms of the views name
 ## the same ones.
 
+import URI from "std/uri"
+
 export HOME = "/"
 export FIRST_RUN = "/first_run"
 export SIGN_IN = "/session/new"
@@ -15,9 +17,19 @@ export UP = "/up"
 ## of, so no 404 tells which of them it is.
 export MISSING = "Not Found"
 
-## The stylesheet that every page links. The benchmark reads the link out of the room page (`/assets/....css`) and
-## expects the file to answer `text/css`; the file itself is not served yet.
-export STYLESHEET = "/assets/campfire.css"
+## The stylesheet that every page links, a fingerprinted file of `public/assets/` (the name has the first 16 hex digits
+## of the SHA-256 of the file: `specs/assets.feature` checks it, so a change to the file renames it and this). The
+## benchmark reads the link out of the room page (`/assets/....css`), and the folder is served under `ASSETS`.
+export ASSETS = "/assets"
+export STYLESHEET = "/assets/campfire-804042c7eb5c2956.css"
+
+## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
+## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and
+## the avatar of a user, whose `:id` is not an id but `user.signed_id(purpose: :avatar)` (the router wants one name for
+## the segment under `/users/`).
+export SIDEBAR = "/users/me/sidebar"
+export SEARCHES = "/searches"
+export AVATAR = "/users/:id/avatar"
 
 ## The password reset: the form for the email, the post that asks for the link, the page of the link (with `?token=`)
 ## and the post that sets the new password.
@@ -52,6 +64,11 @@ export USERS = "/users"
 export USER_DEACTIVATE = "/users/:id/deactivate"
 export USER_REACTIVATE = "/users/:id/reactivate"
 export JOIN_CODE = "/account/join_code"
+
+## The path of the results of a search for `query`, the words that `Searches.words` made.
+export def search_path(query: String) -> String
+  return "/searches?q=#{URI.encode_www_form_component(query)}"
+end
 
 ## The path of the room page.
 export def room_path(room_id: Int) -> String

@@ -12,6 +12,10 @@ export DEFAULT_PORT = "3000"
 ## The folder for the files of the app (the database now, the uploads later), relative to where the program runs.
 export DEFAULT_DATA_DIR = "data"
 
+## The folder of the stylesheet that every page links (`Routes.STYLESHEET` names a file in it), relative to where the
+## program runs, which is the folder of the repository for `make run`.
+export DEFAULT_ASSETS_DIR = "public/assets"
+
 ## The shortest session secret, the size of the SHA-256 digest that signs the cookie (Bond refuses a shorter one).
 MIN_SECRET_BYTES = 32
 
@@ -63,7 +67,10 @@ SMTP_URL_FORM = (
 ## requests share (0: the size the database prefers, else at least `MIN_DB_POOL_SIZE`) and `db_checkout_ms` how long a
 ## request waits for one. `bcrypt_library` is the library that checks bcrypt digests (see `Bcrypt.verify`): "" is the
 ## default of the system. It is never checked at start, since a bad one only fails the sign-ins of people with a bcrypt
-## digest.
+## digest. `secret_key_base` is the secret of a Rails app, from which the avatar links (`signed_id`) are checked: ""
+## (not set) makes every avatar link a 404; it is as secret as the session secret. `storage_dir` is the folder of the
+## files of Active Storage (`xx/yy/KEY` inside it, as Rails' Disk service writes them), `DATA_DIR/files` when it is
+## not set, and `assets_dir` the folder of the stylesheet.
 export struct Config
   host: String
   port: Int
@@ -78,6 +85,9 @@ export struct Config
   db_pool_size: Int
   db_checkout_ms: Int
   bcrypt_library: String = ""
+  secret_key_base: String = ""
+  storage_dir: String = ""
+  assets_dir: String = DEFAULT_ASSETS_DIR
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -98,8 +108,9 @@ end
 
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`,
-## `CAMPFIRE_SMTP_HOSTNAME` and `CAMPFIRE_BCRYPT_LIBRARY`, with the defaults for a variable that is not set (the secret
-## has none, and without the smtp url there is no email). An `error` says which value is wrong.
+## `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`, `CAMPFIRE_STORAGE_DIR` and
+## `CAMPFIRE_ASSETS_DIR`, with the defaults for a variable that is not set (the secret has none, and without the smtp
+## url there is no email). An `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
@@ -115,6 +126,9 @@ export def load() -> Result[Config]
   db_pool_size = System.env("CAMPFIRE_DB_POOL_SIZE").unwrap_or("")
   db_checkout_ms = System.env("CAMPFIRE_DB_CHECKOUT_MS").unwrap_or("")
   bcrypt_library = System.env("CAMPFIRE_BCRYPT_LIBRARY").unwrap_or("")
+  secret_key_base = System.env("SECRET_KEY_BASE").unwrap_or("")
+  storage_dir = System.env("CAMPFIRE_STORAGE_DIR").unwrap_or("")
+  assets_dir = System.env("CAMPFIRE_ASSETS_DIR").unwrap_or(DEFAULT_ASSETS_DIR)
   return parse(
     host,
     port,
@@ -130,6 +144,9 @@ export def load() -> Result[Config]
     db_pool_size,
     db_checkout_ms,
     bcrypt_library,
+    secret_key_base,
+    storage_dir,
+    assets_dir,
   )
 end
 
@@ -151,7 +168,9 @@ end
 ## the database, when left out), and `db_checkout_ms` how long a request waits for one, 1 to `MAX_DB_CHECKOUT_MS`
 ## (`DEFAULT_DB_CHECKOUT_MS`). `bcrypt_library` (`CAMPFIRE_BCRYPT_LIBRARY`) is the path or name of a library that
 ## exports `crypt_r` with bcrypt, for a system without `libcrypt.so.1` (macOS and Windows have none); left out, Linux
-## uses `libcrypt.so.1`.
+## uses `libcrypt.so.1`. `secret_key_base` (`SECRET_KEY_BASE`) is kept as it is; `storage_dir`
+## (`CAMPFIRE_STORAGE_DIR`) is `DATA_DIR/files` when left out, and `assets_dir` (`CAMPFIRE_ASSETS_DIR`) must not be
+## empty.
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -167,6 +186,9 @@ export def parse(
   db_pool_size: String = "",
   db_checkout_ms: String = "",
   bcrypt_library: String = "",
+  secret_key_base: String = "",
+  storage_dir: String = "",
+  assets_dir: String = DEFAULT_ASSETS_DIR,
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -224,7 +246,16 @@ export def parse(
     MAX_DB_CHECKOUT_MS,
   )
 
+  if assets_dir.strip.empty?
+    return error("CAMPFIRE_ASSETS_DIR is empty")
+  end
+
   folder = data_dir.strip
+  files = storage_dir.strip
+  if files.empty?
+    files = "#{folder}/files"
+  end
+
   url = database_url.strip
   if url.empty?
     url = "sqlite:#{folder}/campfire.db?fts5=required"
@@ -245,6 +276,9 @@ export def parse(
       db_pool_size: size,
       db_checkout_ms: checkout,
       bcrypt_library: bcrypt_library.strip,
+      secret_key_base: secret_key_base,
+      storage_dir: files,
+      assets_dir: assets_dir.strip,
     ),
   )
 end

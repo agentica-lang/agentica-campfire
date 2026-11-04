@@ -100,6 +100,7 @@ def main() -> Void
             mail_queue: 32,
             db_pool_size: 0,
             db_checkout_ms: 3_000,
+            storage_dir: "var/campfire/files",
           ),
         ),
       )
@@ -121,8 +122,60 @@ def main() -> Void
             mail_queue: 32,
             db_pool_size: 0,
             db_checkout_ms: 3_000,
+            storage_dir: "data/files",
           ),
         ),
+      )
+    end,
+    Test.test("the Rails secret is kept, and the storage and assets folders have defaults and can be moved") do
+      plain = secret_and_flag(SECRET, "false").unwrap!
+      try Test.eq(plain.secret_key_base, "")
+      try Test.eq(plain.storage_dir, "data/files")
+      try Test.eq(plain.assets_dir, "public/assets")
+      moved = Config.parse(
+        Config.DEFAULT_HOST,
+        Config.DEFAULT_PORT,
+        "var",
+        "",
+        SECRET,
+        "false",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        " rails-secret ",
+        " /rails/storage/files ",
+        " /srv/assets ",
+      ).unwrap!
+
+      try Test.eq(moved.secret_key_base, " rails-secret ")
+      try Test.eq(moved.storage_dir, "/rails/storage/files")
+      try Test.eq(moved.assets_dir, "/srv/assets")
+      Test.eq(
+        Config.parse(
+          Config.DEFAULT_HOST,
+          Config.DEFAULT_PORT,
+          "var",
+          "",
+          SECRET,
+          "false",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          " ",
+        ).ok?,
+        false,
       )
     end,
     Test.test("a database url is kept as it is") do
@@ -142,6 +195,7 @@ def main() -> Void
             mail_queue: 32,
             db_pool_size: 0,
             db_checkout_ms: 3_000,
+            storage_dir: "data/files",
           ),
         ),
       )

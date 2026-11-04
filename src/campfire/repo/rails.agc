@@ -20,9 +20,23 @@ export ROOM_OPEN = "Rooms::Open"
 export ROOM_CLOSED = "Rooms::Closed"
 export ROOM_DIRECT = "Rooms::Direct"
 
+## `memberships.involvement` of a room that the person has hidden from their sidebar (`enum :involvement, %i[ invisible
+## nothing mentions everything ]` of Rails writes the names, as text).
+export INVISIBLE = "invisible"
+
 ## The `record_type` and `name` of the row of `action_text_rich_texts` that holds the body of a message.
 export MESSAGE_RECORD = "Message"
 export BODY_NAME = "body"
+
+## What Active Storage writes for the avatar of a user (`has_one_attached :avatar`): an attachment named `avatar` of the
+## `User`, and, once Rails has made the variant `:square` (a WebP of at most 512 pixels), a row of
+## `active_storage_variant_records` for the blob of the original, whose own image is another attachment, named `image`,
+## of that `ActiveStorage::VariantRecord`.
+export USER_RECORD = "User"
+export AVATAR_NAME = "avatar"
+export VARIANT_RECORD = "ActiveStorage::VariantRecord"
+export VARIANT_IMAGE_NAME = "image"
+export WEBP = "image/webp"
 
 ## Rails keeps a `datetime` in SQLite as UTC text with six decimals, `2026-03-01 09:00:00.123456`. SQLite's `%f` has
 ## three, so the last three are zeros: the text is the same length as Rails' own, which is what makes it sort, and

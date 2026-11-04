@@ -1,0 +1,5 @@
+insert into active_storage_blobs (id, byte_size, checksum, content_type, created_at, filename, key, metadata, service_name) values (1, 11982, 'yQq23IXqLXCC9zbAgekJDA==', 'image/jpeg', '2026-11-04 18:21:29.185070', 'moon.jpg', '0vpm70m8wtfnve0ravm8xe0lzqvn', '{"identified":true,"width":640,"height":480,"analyzed":true}', 'local');
+insert into active_storage_blobs (id, byte_size, checksum, content_type, created_at, filename, key, metadata, service_name) values (2, 2026, 'AYWmvUc1auI3W0Kn1+bptg==', 'image/webp', '2026-11-04 18:21:29.608811', 'moon.webp', 'x1s3j8autb7671fkjsjfwutj3z3z', '{"identified":true}', 'local');
+insert into active_storage_variant_records (id, blob_id, variation_digest) values (1, 1, '6gwfjNKv9eUy9jNUtEZvQFLU0hQ=');
+insert into active_storage_attachments (id, blob_id, created_at, name, record_id, record_type) values (1, 1, '2026-11-04 18:21:29.194952', 'avatar', 1, 'User');
+insert into active_storage_attachments (id, blob_id, created_at, name, record_id, record_type) values (2, 2, '2026-11-04 18:21:29.614026', 'image', 1, 'ActiveStorage::VariantRecord');
