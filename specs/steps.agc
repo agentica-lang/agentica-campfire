@@ -26,7 +26,10 @@ JOINED = "joined"
 SESSION = "session"
 SQL_ERROR = "sql_error"
 LISTENING = "listening on "
-SOCKET_MS = 5_000
+# How long a start may take before its `listening on` line: the first start after a source change compiles the whole
+# app (about 6 s on a CI runner). The wait ends at the line, so a warm start does not wait; only an app that never
+# listens costs the full time. The waits of the other steps stay short.
+START_MS = 30_000
 FOLDER_PREFIX = "campfire-spec-"
 PRIVATE_FOLDER_MODE = 448
 
@@ -108,7 +111,7 @@ def read_startup(ctx: BDD.Context) -> BDD.Context
   database = ""
   said: List[String] = []
   for _ in 0..5
-    line = BDD.read_line(ctx, SOCKET_MS)
+    line = BDD.read_line(ctx, START_MS)
     if not line.ok?
       # The check of stderr shows what the program wrote there (a failure to start says why), when it did write.
       return BDD.assert(BDD.then_stderr(ctx, ""), false, "the app did not start: #{line.message}")

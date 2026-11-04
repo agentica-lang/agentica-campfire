@@ -101,6 +101,7 @@ Feature: Sending email from the app
     And the first admin exists
     When I post to "/password_reset" the form:
       | email | ana@example.com |
+    And the mail server heard "EHLO"
     And I close stdin
     Then the program exits with code 0 within 20000 milliseconds
     And stderr is:
