@@ -17,8 +17,9 @@
 ## the peer waits SMTP_PEER_LINE_DELAY_MS. `~N:M` is the same with M letters x after `250-` on each line. `^N` is one
 ## line `550 ` and N letters x. In a line, `<ESC>` is the escape character, `<CSI>` U+009B (a C1 control), `<RLO>`
 ## U+202E (a bidi override), `<LS>` U+2028 (a line separator), `<ZWJ>` U+200D (zero width) and `<ISS>` U+206A (a
-## deprecated format control). SMTP_PEER_DATA_DELAY_MS is how long it waits after the message before it answers 250. SMTP_PEER_CONNECTIONS (1 by default) is
-## how many connections it serves one after the other, each ending with `closed`.
+## deprecated format control). SMTP_PEER_DATA_DELAY_MS is how long it waits after the message before it answers
+## 250. SMTP_PEER_CONNECTIONS (1 by default) is how many connections it serves one after the other, each ending with
+## `closed`.
 
 HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000

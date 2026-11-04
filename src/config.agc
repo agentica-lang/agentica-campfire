@@ -18,9 +18,11 @@ MIN_SECRET_BYTES = 32
 ## Cookies are `Secure` only when the environment says so, since a browser drops them on plain HTTP (a laptop).
 export DEFAULT_SECURE_COOKIES = "false"
 
-## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set, and the most that it may be.
+## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set.
 export DEFAULT_MAIL_QUEUE = 32
-MAX_MAIL_QUEUE = 1024
+
+## The most emails that may wait for the mail server (`CAMPFIRE_MAIL_QUEUE_SIZE` and `Mailer.start` both refuse more).
+export MAX_MAIL_QUEUE = 1024
 
 ## The plain port that a `smtp+plain://` url uses when it names none (a mail catcher on this machine).
 PLAIN_SMTP_PORT = 25
@@ -112,8 +114,8 @@ end
 ## and maybe a port, no path) is required, since a link in an email cannot be made from the request that asked for it
 ## (its `Host` is the visitor's to choose). EHLO says `smtp_hostname`, the host of `base_url` when that is left out,
 ## and the sender is `smtp_from`, `Campfire <campfire@HOST>` for that host when left out; a host that is an IPv6
-## address needs both. `mail_queue` is the number of emails that may wait for the mail server (32 when left out, 1 to
-## 1024): a link that finds the queue full is dropped.
+## address needs both. `mail_queue` is the number of emails that may wait for the mail server (`DEFAULT_MAIL_QUEUE`
+## when left out, at most `MAX_MAIL_QUEUE`): a link that finds the queue full is dropped.
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -160,7 +162,13 @@ export def parse(
   end
 
   mail = try parse_mail(smtp_url, base, smtp_hostname, smtp_from)
-  queue = try parse_mail_queue(mail_queue)
+  # The size of a queue that nothing uses is not checked, so a variable left over from a setup with email does not
+  # stop the start of one without.
+  queue = DEFAULT_MAIL_QUEUE
+  if mail.smtp.some?
+    queue = try parse_mail_queue(mail_queue)
+  end
+
   folder = data_dir.strip
   url = database_url.strip
   if url.empty?
@@ -189,7 +197,7 @@ export def plain_link?(config: Config) -> Bool
   return config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
 end
 
-# The size of the queue of emails, 32 when it is not set.
+# The size of the queue of emails, `DEFAULT_MAIL_QUEUE` when it is not set. Only read when email is on.
 def parse_mail_queue(text: String) -> Result[Int]
   if text.strip.empty?
     return ok(DEFAULT_MAIL_QUEUE)

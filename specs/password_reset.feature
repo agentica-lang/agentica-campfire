@@ -199,7 +199,8 @@ Feature: Password reset
   Scenario: Parallel requests for one email make one link and send one email
     When I post to "/password_reset" 8 times at once the form:
       | email | ana@example.com |
-    Then the query "select count(*) from password_resets" gives 1
+    Then each status is one of "200"
+    And the query "select count(*) from password_resets" gives 1
     And the mail server got 1 messages in all
     When I close stdin
     Then the program exits with code 0 within 10000 milliseconds

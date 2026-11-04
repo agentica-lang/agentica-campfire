@@ -5,6 +5,7 @@
 ## password), and dropped; nothing here retries, since the one message of today is a link that a person asks for again.
 ## With no `Smtp.Options` there is no task, and `enqueue` says no.
 
+import Config from "config"
 import Smtp from "smtp"
 
 # How long the task waits for a message before it looks at the queue again, and how long `stop` waits for it to
@@ -24,17 +25,22 @@ struct Job
   options: Smtp.Options
 end
 
-## Starts the task for these options, or a mailer that sends nothing for `none`. `capacity` is how many messages may
-## wait: they are the links that people ask for, one at a time for each person and five minutes apart, so a queue that
-## fills up means a mail server that is down, and the next messages are dropped, not held. It belongs to the task that
-## calls it, and the task that it starts owns its queue: if it ever crashes, the queue closes and `enqueue` finds out.
-export def start(options: Optional[Smtp.Options], capacity: Int) -> Mailer
+## Starts the task for these options, or a mailer that sends nothing for `none` (whatever `capacity` is). `capacity`
+## is how many messages may wait, from 1 to `Config.MAX_MAIL_QUEUE`; anything else is an `error`. The messages are the
+## links that people ask for, one at a time for each person and five minutes apart, so a queue that fills up means a
+## mail server that is down, and the next messages are dropped, not held. It belongs to the task that calls it, and the
+## task that it starts owns its queue: if it ever crashes, the queue closes and `enqueue` finds out.
+export def start(options: Optional[Smtp.Options], capacity: Int) -> Result[Mailer]
   case options
-    none -> return Mailer(queue: none, capacity: 0, worker: none)
+    none -> return ok(Mailer(queue: none, capacity: 0, worker: none))
     some(chosen) ->
+      if capacity < 1 or capacity > Config.MAX_MAIL_QUEUE
+        return error("the mail queue must hold from 1 to #{Config.MAX_MAIL_QUEUE} messages, not #{capacity}")
+      end
+
       queue: Channel[Smtp.Message] = Channel.new(capacity)
       worker = Task.spawn_owning(&work, Job(queue: queue, options: chosen))
-      return Mailer(queue: some(queue), capacity: capacity, worker: some(worker))
+      return ok(Mailer(queue: some(queue), capacity: capacity, worker: some(worker)))
   end
 end
 
@@ -98,14 +104,13 @@ export def stop(mailer: Mailer) -> Void
   end
 end
 
-# The task did not finish in time: it is cut off, and the messages that still wait are counted and dropped (the
-# one that
-# it was sending is lost too). Nothing can be said of the recipients, which may be more than one a message.
+# The task did not finish in time: it is cut off, and the messages that still wait are counted and dropped (the one
+# that it was sending is lost too). Nothing can be said of the recipients, which may be more than one a message.
 def give_up(worker: Task[Result[Void]], queue: Optional[Channel[Smtp.Message]]) -> Void
   Task.cancel(worker)
   waiting = 0
   case queue
-    none -> waiting = 0
+    none -> return
     some(open) ->
       while Channel.recv(open, 0).ok?
         waiting += 1
