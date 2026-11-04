@@ -89,6 +89,28 @@ Feature: Rooms
     When I get "/rooms/1"
     Then the status is 200
 
+  Scenario: A member of a closed room and of a direct room reads and posts there
+    Given a member "Bea" with the email "bea@example.com" exists
+    And a closed room "Secret" with the members "bea@example.com"
+    And a direct room with the members "bea@example.com, ana@example.com"
+    And I sign in as "bea@example.com"
+    When I get "/rooms/2"
+    Then the status is 200
+    And the body contains "<h1>Secret</h1>"
+    When I post to "/rooms/2/messages" the form:
+      | body | Hi Secret |
+    Then the status is 302
+    When I get "/rooms/2"
+    Then the body contains "Hi Secret"
+    When I get "/rooms/3"
+    Then the status is 200
+    And the body contains "<h1>Ana</h1>"
+    When I post to "/rooms/3/messages" the form:
+      | body | Hi Ana |
+    Then the status is 302
+    When I get "/rooms/3"
+    Then the body contains "Hi Ana"
+
   Scenario Outline: A room that the person is not in answers 404, as a room that was never made does
     Given a member "Bea" with the email "bea@example.com" exists
     And a member "Cy" with the email "cy@example.com" exists

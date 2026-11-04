@@ -69,9 +69,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
 - Rooms: a person is in a room only by a `memberships` row, for every kind; every lookup for a person goes through it
   (`Rooms.find`), so a room of other people and a room that does not exist answer the same `404 Not Found`, and the
   membership check comes before anything about the room or the posted form is looked at (a 422 would tell that the room
-  exists). Whatever makes a user after the open rooms exist (the invitation) calls `Rooms.grant_open_rooms`, and
-  whatever makes an open room puts every active person in it (`Rooms.create_open`). A message is stored as typed and
-  escaped by the view; keep it plain text until the rich text phase.
+  exists). Whatever makes a user after the open rooms exist (the invitation), and whatever reactivates one (`active`
+  0 to 1, who has missed the rooms made meanwhile), calls `Rooms.grant_open_rooms`; whatever makes an open room puts
+  every active person in it (`Rooms.create_open`). A message is plain text: stripped of the space around it, stored
+  so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the dedupe key with
+  the creator, so it must be unique per person, not per room: a reuse in another room is dropped without a word.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

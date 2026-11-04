@@ -112,6 +112,33 @@ Feature: Messages
     When I get "/rooms/1?before=abc"
     Then the status is 400
 
+  Scenario: A message belongs to its room, and a cursor from another room shows nothing of that room
+    Given I post to "/rooms" the form:
+      | name | Lunch |
+    When I post to "/rooms/1/messages" the form:
+      | body | In talk |
+    And I post to "/rooms/2/messages" the form:
+      | body | In lunch |
+    And I get "/rooms/1"
+    Then the body contains "In talk"
+    And the body does not contain "In lunch"
+    When I get "/rooms/2"
+    Then the body contains "In lunch"
+    And the body does not contain "In talk"
+    When I get "/rooms/1?before=2"
+    Then the body contains "In talk"
+    And the body does not contain "In lunch"
+    When I get "/rooms/2?before=2"
+    Then the status is 200
+    And the body does not contain "In talk"
+    And the body does not contain "In lunch"
+
+  Scenario: A refused message comes back as a draft that is text, not markup
+    When I post to "/rooms/1/messages" a message that starts with "</textarea><script>x</script>" and has 10001 characters
+    Then the status is 422
+    And the body contains "&lt;/textarea&gt;&lt;script&gt;x&lt;/script&gt;"
+    And the body does not contain "<script>x</script>"
+
   Scenario: A page of another site cannot post a message
     Given the request header "sec-fetch-site" is "cross-site"
     When I post to "/rooms/1/messages" the form:

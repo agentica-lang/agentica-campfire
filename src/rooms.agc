@@ -29,13 +29,15 @@ NO_NAME = "Direct message"
 NEWEST = 9_223_372_036_854_775_807
 
 # A room as a person sees it. A direct room has no name, so it is called after the other people in it (the column is
-# `others`), and `memberships.involvement` is what the sidebar filters on. The names are joined in the order of the
-# inner select, which the database keeps for `group_concat` in practice.
+# `others`, looked up only for a direct room, so an open room costs no subquery), and `memberships.involvement` is
+# what the sidebar filters on. The names are joined in the order of the inner select, which the database keeps for
+# `group_concat` in practice.
 ROOM_COLUMNS = (
   "select rooms.id, rooms.kind, rooms.name, " +
+  "case when rooms.kind = 'direct' then " +
   "(select group_concat(name, ', ') from (select users.name as name from memberships others " +
   "join users on users.id = others.user_id where others.room_id = rooms.id and others.user_id <> ? " +
-  "order by users.name)) as others " +
+  "order by users.name)) end as others " +
   "from memberships join rooms on rooms.id = memberships.room_id where memberships.user_id = ?"
 )
 
@@ -173,7 +175,8 @@ end
 
 ## Stores a message of the person in the room, which the caller has checked they are in. `client_message_id` is made by
 ## the page of the form: a second post with the same one (a double click, a retry after a lost answer) stores
-## nothing, so one send is one message.
+## nothing, so one send is one message. It must be unique per person, not per room: the key is the person and the id,
+## so a reuse in another room is dropped without a word.
 export def post(
   conn: Db.Connection,
   room_id: Int,

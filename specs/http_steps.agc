@@ -55,6 +55,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post to {string} the form:", &post_form),
     BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
     BDD.step("I post to {string} a message of {int} characters", &post_message_of_length),
+    BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
     BDD.step("I post to {string} twice the form of the page with the body {string}", &post_page_form_twice),
     BDD.step("I post nothing to {string}", &post_nothing),
     BDD.step("I sign in as {string}", &sign_in_as),
@@ -123,6 +124,12 @@ end
 def post_message_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
   text = List.repeat("x", args[1].to_i!).join("")
   return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "body", value: text)]))
+end
+
+# A `body` that starts with `args[1]` and is padded with letters to `args[2]` characters.
+def post_long_message(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  padding = List.repeat("x", args[2].to_i! - args[1].length).join("")
+  return send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "body", value: args[1] + padding)]))
 end
 
 # The form of the page that was just got, as its own fields say: the hidden `client_message_id` goes back as it came,

@@ -73,8 +73,9 @@ export def first_run?(conn: Db.Connection) -> Result[Bool]
 end
 
 ## Makes the account, its administrator and the open room "All Talk", and signs them in, in one transaction that
-## checks again that there is no account, so two forms sent together make one. `password` is hashed before the transaction starts, since hashing
-## is slow and the transaction holds the write lock. An `error` is a database or hashing failure, not a bad form.
+## checks again that there is no account, so two forms sent together make one. `password` is hashed before the
+## transaction starts, since hashing is slow and the transaction holds the write lock. An `error` is a database or
+## hashing failure, not a bad form.
 export def first_run(
   conn: Db.Connection,
   name: String,
