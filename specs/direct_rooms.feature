@@ -103,8 +103,7 @@ Feature: Direct messages
     When I post to "/direct_rooms" 8 times at once the form:
       | member | 2 |
       | member | 3 |
-    Then each status is one of "302, 503"
-    And at least one status is 302
+    Then each status is one of "302"
     And the query "select count(*) from rooms where kind = 'direct'" gives 1
     And the query "select count(*) from memberships where room_id = 2" gives 3
 

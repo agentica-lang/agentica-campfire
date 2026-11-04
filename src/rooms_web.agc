@@ -1,12 +1,12 @@
 ## The web side of rooms and messages: the forms of a new room (open, closed or direct), a room page, the settings of
-## a closed room and the post of a message. Each handler
-## opens one connection and does everything on it, the person included (`AuthWeb.current_user_in`). The sign-in
-## filter of `AuthWeb` has let in only a person with a session, but the session may have ended since, so a handler
-## that finds nobody sends the visitor to sign in.
+## a closed room and the post of a message. Each handler opens one connection and does everything on it, the person
+## included (`AuthWeb.current_user_in`). The sign-in filter of `AuthWeb` has let in only a person with a session, but
+## the session may have ended since, so a handler that finds nobody sends the visitor to sign in.
 ##
 ## A room that the person is not in is answered 404 with the same body as a room that was never made, before anything
 ## about the room (or the form posted to it) is looked at, so no answer tells that a room exists. The settings are
-## only for a closed room: for a room of another kind the person is in, they are the same 404.
+## only for a closed room: for a room of another kind the person is in, they are the same 404. In a closed room only its
+## maker and an account administrator may change it, and another member is answered 403.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
@@ -26,6 +26,7 @@ enum Answer
   Page(Int, String)
   Redirect(String)
   NotFound
+  Forbidden
   SignedOut
 end
 
@@ -214,6 +215,7 @@ def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> R
   room = try closed_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
+    some(found) if not Rooms.editable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
     some(found) -> return ok(Answer.Page(200, try first_settings(db, person, found)))
   end
 end
@@ -233,11 +235,14 @@ def save_settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) 
 end
 
 # The form is read only after the membership check, so that a 400 for a missing field does not tell a person who is not
-# in a room that it exists.
+# in a room that it exists. A member who may not change the room (not its maker, not an administrator) is told
+# 403: they
+# are in the room, so that tells them nothing new.
 def saved_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
   room = try closed_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
+    some(found) if not Rooms.editable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
     some(found) -> return form_settings(conn, db, person, found)
   end
 end
@@ -366,7 +371,7 @@ def room_page(
   form: Views.Composer,
 ) -> Result[String]
   page = try Rooms.page(db, room.id, before)
-  return ok(Views.room(try sidebar_of(db, person), room, page, form))
+  return ok(Views.room(try sidebar_of(db, person), room, page, form, Rooms.editable?(room, person.id, person.role)))
 end
 
 def composer(note: String, draft: String) -> Views.Composer
@@ -395,7 +400,8 @@ def closed_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Resu
   end
 end
 
-# The ids that a form posts under `field`, once each: a value that is not a whole number is a 400, since only a tool
+# The ids that a form posts under `field`, in the order sent: a value that is not a whole number is a 400, since only
+# a tool
 # posts one.
 def ids_of(conn: Bond.Conn, field: String) -> Result[List[Int]]
   values = try Bond.form_all(conn, field)
@@ -464,6 +470,7 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.Page(status, html) -> return Bond.html(conn, status, html)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.NotFound -> return Bond.text(conn, 404, "Not Found")
+    Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
   end
 end

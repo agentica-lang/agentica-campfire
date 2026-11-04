@@ -162,8 +162,9 @@ Feature: Closed rooms
     And I get "/rooms/2"
     Then the status is 200
 
-  Scenario: Any member can take out any other member, the maker included, and a form cannot take out its sender
+  Scenario: An administrator who is not the maker can change the room, and a form cannot take out its sender
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
+    And I run the sql "update users set role = 'administrator' where id = 2"
     When I sign in as "bea@example.com"
     And I post to "/rooms/2/settings" the form:
       | name   | Renamed |
@@ -176,28 +177,97 @@ Feature: Closed rooms
     And the query "select count(*) from memberships where room_id = 2 and user_id = 2" gives 1
     And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 1
 
-  Scenario: A form that was drawn before someone was added does not take them out
-    Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
+  Scenario: The maker of a room changes it without being an administrator, and the other members cannot
+    Given a closed room "Secret" with the members "bea@example.com, cy@example.com, ana@example.com"
     When I sign in as "bea@example.com"
-    And I get "/rooms/2/settings"
-    Then the body contains "name=\"was\" type=\"hidden\" value=\"1\""
+    And I get "/rooms/2"
+    Then the body contains "<a href=\"/rooms/2/settings\">Settings</a>"
+    When I post to "/rooms/2/settings" the form:
+      | name | Bea room |
+    Then the status is 302
+    When I sign in as "cy@example.com"
+    And I get "/rooms/2"
+    Then the status is 200
+    And the body contains "<h1>Bea room</h1>"
+    And the body does not contain "/rooms/2/settings"
+    When I get "/rooms/2/settings"
+    Then the status is 403
+    And the body is "Forbidden"
+    When I post to "/rooms/2/settings" the form:
+      | name   | Cy room |
+      | member | 3    |
+      | was    | 1    |
+    Then the status is 403
+    When I post nothing to "/rooms/2/settings"
+    Then the status is 403
+    And the query "select count(*) from rooms where name = 'Bea room'" gives 1
+    And the query "select count(*) from memberships where room_id = 2" gives 3
     When I sign in as "ana@example.com"
+    And I get "/rooms/2"
+    Then the body contains "<a href=\"/rooms/2/settings\">Settings</a>"
+    When I get "/rooms/2/settings"
+    Then the status is 200
+
+  Scenario: A form that was drawn before someone was added keeps them
+    Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
+    And I run the sql "update users set role = 'administrator' where id = 2"
+    When I get "/rooms/2/settings"
+    Then the body contains "name=\"was\" type=\"hidden\" value=\"2\""
+    When I sign in as "bea@example.com"
     And I post to "/rooms/2/settings" the form:
       | name   | Secret |
-      | member | 2      |
+      | member | 1      |
       | member | 3      |
-      | was    | 2      |
+      | was    | 1      |
     Then the status is 302
     And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 1
-    When I sign in as "bea@example.com"
+    When I sign in as "ana@example.com"
     And I post to "/rooms/2/settings" the form:
       | name   | Renamed |
-      | member | 1       |
-      | was    | 1       |
+      | member | 2       |
       | was    | 2       |
     Then the status is 302
     And the query "select count(*) from rooms where id = 2 and name = 'Renamed'" gives 1
     And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2, 3)" gives 3
+
+  Scenario: A form that was drawn before someone was taken out does not bring them back
+    Given a closed room "Secret" with the members "ana@example.com, bea@example.com, cy@example.com"
+    And I run the sql "update users set role = 'administrator' where id = 2"
+    When I get "/rooms/2/settings"
+    Then the body contains "name=\"was\" type=\"hidden\" value=\"3\""
+    When I sign in as "bea@example.com"
+    And I post to "/rooms/2/settings" the form:
+      | name   | Secret |
+      | member | 1      |
+      | was    | 1      |
+      | was    | 3      |
+    Then the status is 302
+    And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 0
+    When I sign in as "ana@example.com"
+    And I post to "/rooms/2/settings" the form:
+      | name   | Renamed |
+      | member | 2       |
+      | member | 3       |
+      | was    | 2       |
+      | was    | 3       |
+    Then the status is 302
+    And the query "select count(*) from rooms where id = 2 and name = 'Renamed'" gives 1
+    And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 0
+    And the query "select count(*) from memberships where room_id = 2" gives 2
+
+  Scenario: A was that names an inactive person, a stranger to the room or the sender takes out nobody
+    Given a closed room "Secret" with the members "ana@example.com, bea@example.com, di@example.com"
+    When I post to "/rooms/2/settings" the form:
+      | name   | Secret |
+      | member | 2      |
+      | was    | 1      |
+      | was    | 2      |
+      | was    | 3      |
+      | was    | 4      |
+      | was    | 99     |
+    Then the status is 302
+    And the query "select count(*) from memberships where room_id = 2" gives 3
+    And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2, 4)" gives 3
 
   Scenario: A person who is not active stays in the room, as the form cannot show them
     Given a closed room "Secret" with the members "ana@example.com, di@example.com"

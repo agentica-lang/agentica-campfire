@@ -75,12 +75,16 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by commit, agentic
   every active person in it (`Rooms.create_open`); a closed room has only the chosen active people and its maker
   (`Rooms.create_closed`), and a direct room is found by its exact set of people before one is made
   (`Rooms.open_direct`), in one transaction (the people are checked as active inside it, so the search counts who
-  is inserted). The settings form carries `was`, the people in the room when it was drawn: an update takes out only
-  `was` minus the chosen and adds the chosen, so a stale form keeps whoever was added since, and the sender is never
-  offered. The settings of a room exist for a closed room only, and for any other room the person is in they are the
-  same 404. A message is plain text: stripped of the space around it, stored
-  so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the dedupe key with
-  the creator, so it must be unique per person, not per room: a reuse in another room is dropped without a word.
+  is inserted). The settings form carries `was`, the people in the room when it was drawn, and an update applies only
+  its diff (the chosen that are not in `was` are added, `was` minus the chosen is taken out), so a stale form neither
+  takes out someone added since nor brings back someone taken out; the sender is never offered. The settings of a room
+  exist for a closed room only, and for any other room the person is in they are the same 404. Only the maker and an
+  account administrator may change a closed room (`Rooms.editable?`): another member is answered 403, after the
+  membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
+  transaction and fails, rolling back, when it no longer holds. A message is plain text: stripped of the space around
+  it, stored so, and escaped by the view; keep it plain text until the rich text phase. `client_message_id` is the
+  dedupe key with the creator, so it must be unique per person, not per room: a reuse in another room is dropped
+  without a word.
 - No Dockerfile or assets yet: each is a later PR of `docs/plan.md` phase 2.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

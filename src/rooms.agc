@@ -15,6 +15,9 @@ export PAGE_SIZE = 40
 export CLOSED = "closed"
 export DIRECT = "direct"
 
+## The role of an account administrator, who may edit any closed room (`users.role`).
+export ADMINISTRATOR = "administrator"
+
 ## The longest name of a room, in characters, and the longest message.
 export MAX_NAME_LENGTH = 100
 export MAX_BODY_LENGTH = 10_000
@@ -39,7 +42,7 @@ NEWEST = 9_223_372_036_854_775_807
 # what the sidebar filters on. The names are joined in the order of the inner select, which the database keeps for
 # `group_concat` in practice.
 ROOM_COLUMNS = (
-  "select rooms.id, rooms.kind, rooms.name, " +
+  "select rooms.id, rooms.kind, rooms.name, rooms.creator_id, " +
   "case when rooms.kind = 'direct' then " +
   "(select group_concat(name, ', ') from (select users.name as name from memberships others " +
   "join users on users.id = others.user_id where others.room_id = rooms.id and others.user_id <> ? " +
@@ -52,6 +55,7 @@ export struct Room
   id: Int
   name: String
   kind: String
+  creator_id: Int
 end
 
 ## A person that a room form offers, an active user.
@@ -173,6 +177,12 @@ export def grant_open_rooms(conn: Db.Connection, user_id: Int) -> Result[Void]
   return ok()
 end
 
+## True when the person may change the room: it is a closed room and they made it or are an account administrator, as
+## upstream lets only the creator and an administrator administer a room. Being in the room is not enough.
+export def editable?(room: Room, user_id: Int, role: String) -> Bool
+  return room.kind == CLOSED and (room.creator_id == user_id or role == ADMINISTRATOR)
+end
+
 ## The active people that a person can put in a room, other than themselves (they are always in what they make), by
 ## name.
 export def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
@@ -197,11 +207,13 @@ export def create_closed(conn: Db.Connection, creator_id: Int, name: String, mem
   return Db.transaction(conn) do |tx| create_closed_in(tx, creator_id, name, members) end
 end
 
-## Renames the closed room and changes who is in it by what the form said: the people in `chosen` are added, and the
-## people that were in the room when the form was drawn (`was`) and are not in `chosen` are taken out. Someone who was
-## put in after the page was drawn is not in `was`, so a stale form keeps them; someone who is not active now stays,
-## and so does `editor_id`, the person who sends the form, who is never offered. The active people are read inside the
-## transaction, so the ids that the form names are checked against the room as it is when it changes.
+## Renames the closed room and applies the diff of the form, and nothing else: the people in `chosen` and not in `was`
+## (who were in the room when the form was drawn) are added, and the ones in `was` and not in `chosen` are taken out.
+## What the form did not change is left as it is, so a stale form neither takes out someone who was put in after it
+## was drawn nor brings back someone who was taken out. Someone who is not active now stays, and so does `editor_id`,
+## the person who sends the form, who is never offered. It is an error, which rolls everything back, when the room is
+## not closed any more or `editor_id` may not edit it or is not in it (they were taken out, or lost the role, since
+## the caller looked); the active people are read inside the transaction for the same reason.
 export def update_closed(
   conn: Db.Connection,
   room_id: Int,
@@ -282,16 +294,28 @@ def update_closed_in(
   chosen: List[Int],
   was: List[Int],
 ) -> Result[Void]
-  try Db.execute(
+  changed = try Db.execute(
     tx,
-    "update rooms set name = ?, updated_at = #{NOW} where id = ? and kind = 'closed'",
-    [Db.Value.Text(name), Db.Value.Int(room_id)],
+    "update rooms set name = ?, updated_at = #{NOW} where id = ? and kind = 'closed' " +
+    "and (creator_id = ? or exists (select 1 from users where id = ? and role = '#{ADMINISTRATOR}' and active = 1)) " +
+    "and exists (select 1 from memberships where room_id = rooms.id and user_id = ?)",
+    [
+      Db.Value.Text(name),
+      Db.Value.Int(room_id),
+      Db.Value.Int(editor_id),
+      Db.Value.Int(editor_id),
+      Db.Value.Int(editor_id),
+    ],
   )
 
+  if changed != 1
+    return error("person #{editor_id} cannot change the closed room #{room_id}")
+  end
+
   for person in try people(tx, editor_id)
-    if chosen.include?(person.id)
+    if chosen.include?(person.id) and not was.include?(person.id)
       try add_member(tx, room_id, person.id, "mentions")
-    elsif was.include?(person.id)
+    elsif was.include?(person.id) and not chosen.include?(person.id)
       try Db.execute(
         tx,
         "delete from memberships where room_id = ? and user_id = ?",
@@ -392,7 +416,7 @@ def room_of(row: Db.Row) -> Room
     name = NO_NAME
   end
 
-  return Room(id: int_of(row, "id"), name: name, kind: kind)
+  return Room(id: int_of(row, "id"), name: name, kind: kind, creator_id: int_of(row, "creator_id"))
 end
 
 def message_of(row: Db.Row) -> Message

@@ -210,8 +210,10 @@ export def room_settings(
               required autofocus></label>
         </p>
         <%== picker.strip %>
-    <% for id in was %>
-        <input name="was" type="hidden" value="<%= id %>">
+    <% for person in people %>
+    <% if was.include?(person.id) %>
+        <input name="was" type="hidden" value="<%= person.id %>">
+    <% end %>
     <% end %>
         <p><button type="submit">Save</button></p>
       </form>
@@ -222,14 +224,14 @@ export def room_settings(
 end
 
 ## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
-## the form that posts a message.
-export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer) -> String
+## the form that posts a message. `can_edit` adds the link to the settings, for the people who may change the room.
+export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer, can_edit: Bool) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
     <main>
       <h1><%= room.name %></h1>
-    <% if room.kind == Rooms.CLOSED %>
+    <% if can_edit %>
       <p><a href="<%= Routes.room_settings_path(room.id) %>">Settings</a></p>
     <% end %>
     <% if page.older.some? %>
