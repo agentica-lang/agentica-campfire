@@ -46,8 +46,8 @@ end
 
 ## The newest `MAX_MESSAGES` messages of the rooms that the person is in (any involvement) that match `query`, oldest
 ## first, which is how the page shows them. `query` is `words` of what was typed: with no word there is nothing to
-## search for, and no message is read. The order is the index's `rowid`, which is the message id, so SQLite reads the
-## index from its newest end and stops at the limit.
+## search for, and no message is read. The order is the index's `rowid`, which is the message id, so SQLite can read the
+## index from its newest end, but matches in rooms the person is not in are read and skipped.
 export def messages(conn: Db.Connection, user_id: Int, query: String) -> Result[List[Rooms.Message]]
   if query.empty?
     return ok([])

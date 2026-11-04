@@ -84,8 +84,9 @@ Feature: The sidebar and the search of the benchmark
       | body%3Amessage  | 0     |
       | %21%21          | 0     |
       | +               | 0     |
-    | %E2%80%94       | 0     |
-    | message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+zzz | 3 |
+      | %E2%80%94       | 0     |
+      | message+%E2%80%94+message | 3 |
+      | message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+message+zzz | 3 |
 
   Scenario: A query that is shown is shown as text
     When I get "/searches?q=%3Cscript%3Ealert%281%29%3C%2Fscript%3E"

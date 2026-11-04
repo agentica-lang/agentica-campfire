@@ -88,7 +88,8 @@ page, and redirects to the results; a get does not remember anything. There is n
 processed (`active_storage_attachments` named `avatar`, a row of `active_storage_variant_records` for its
 blob, and the image attached to that variant record, a WebP) gets that file as it is on disk,
 `image/webp`, with `Cache-Control: private, max-age=1800, stale-while-revalidate=604800`. If Rails has not
-made the variant yet, the original image is sent with its own type (a plain `image/...`, never SVG). A
+made the variant yet, the original image is sent with its own type (a plain `image/...`, never SVG):
+unlike the variant, it is not resized and keeps its metadata (such as EXIF). A
 user with no avatar at all gets an SVG with their initials, as Rails does for a person (a bot gets initials too, where
 Rails has a picture for bots). A token that does not verify, a user that does not exist, and a file that
 is missing are all the same `404`. The route needs a sign-in. Nothing in the app uploads an avatar yet.

@@ -21,8 +21,7 @@ INITIALS = /\b\w/
 KEY = /\A[0-9a-z]{4,64}\z/
 
 # The shape of the type of an original that is sent as it is: `image/...` from a database, with nothing that
-# could carry
-# a line break into a header (`sendable?` also leaves out SVG).
+# could carry a line break into a header (`sendable?` also leaves out SVG).
 SENDABLE_TYPE = /\Aimage\/(?:[a-z0-9.+-]+)\z/
 
 ## A user as the avatar link needs them: the name for the initials, and the file to send, `none` for a person with no
