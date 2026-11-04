@@ -47,8 +47,7 @@ random 256-bit token of which the table `password_resets` keeps only the SHA-256
 - While a person has a link that works, asking again sends nothing, so a stranger cannot replace
   the link that the person is about to open.
 - After a link was used or made, a new one comes only five minutes later, so the form cannot be used
-  to flood an inbox. There is no other limit until the per-IP limit exists
-  ([agentica-campfire#9](https://github.com/agentica-lang/agentica-campfire/issues/9)).
+  to flood an inbox. The per-IP limit is on sign-in only, not on this form.
 - A message dropped as it is queued (the queue is full or the mailer has stopped) deletes its link,
   so the person can ask again. A message that fails to send, or that a stop gives up on, leaves its
   link alive until it expires.
@@ -56,11 +55,10 @@ random 256-bit token of which the table `password_resets` keeps only the SHA-256
 Opening the link only shows the form, so a mail scanner that opens it uses nothing up (the page is
 `no-store` with `Referrer-Policy: no-referrer`). Posting the form sets the new password under the
 rules and the hashing limit of the first run (a post that finds the slots busy gets `503` with the
-form again), deletes every session of that person, uses the link
-up and signs the browser in.
+form again), deletes every session of that person, uses the link up and signs the browser in.
 
 Requests that come together are decided inside one write transaction (`BEGIN IMMEDIATE`), so they
-send one email and two forms for one link change the password once (the second may hash for
-nothing, which the limit on hashes bounds). A request that finds the database busy waits for it
-in its task, so a burst does not fail with "database is locked", for at most the `busy_timeout` of agentica-db (5 seconds); a longer wait is a
-database error, answered `500`.
+send one email and two forms for one link change the password once (the second may hash for nothing,
+which the limit on hashes bounds). A request that finds the database busy waits for it in its task,
+so a burst does not fail with "database is locked", for at most the `busy_timeout` of agentica-db (5
+seconds); a longer wait is a database error, answered `500`.

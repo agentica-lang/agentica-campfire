@@ -12,6 +12,11 @@ prefix (see [configuration.md](configuration.md)).
 Signing out deletes the row, so a copy of the cookie stops working. So do deactivating a person
 and resetting their password, which delete every session of that person.
 
+A session row keeps the address of the client that made it and `last_active_at`, which is written
+at most every five minutes. Starting a session deletes the rows older than the cookie life (30
+days) and the rows of a deactivated person. The address is the peer of the connection: behind a
+proxy it is the proxy's, because the app does not trust `X-Forwarded-For`.
+
 Forms are protected against other sites with Bond's `Sec-Fetch-Site` and `Origin` check, with no
 token.
 
@@ -20,6 +25,11 @@ token.
 Passwords are stored as scrypt digests (cost 2^16, block size 8, two lanes, a random salt each, in
 the form `scrypt$N$r$p$salt$key`) and are never logged. A new password is at least 8 characters,
 on first run, join and reset.
+
+Sign-in is limited per client address: the 11th post to `/session` within 3 minutes of the first
+(right or wrong, as in upstream Campfire) is answered `429` with `Retry-After`, before the form is
+read. The count is kept in memory, so a restart clears it, and behind a proxy every visitor shares
+the proxy's address and so one limit.
 
 At most two passwords are hashed at the same time (each takes about a second and 64 MiB). A
 sign-in, first-run, join or reset form that arrives while both slots are busy is answered `503`
@@ -58,10 +68,9 @@ deactivated person's too) to sign in instead, and only whoever holds the link ca
 
 ## Known gaps
 
-- There is no per-IP rate limit on sign-in or the join page. It is not built yet: it needs a Bond
-  pin bump (Bond has the client address now) plus the filter
-  ([agentica-campfire#9](https://github.com/agentica-lang/agentica-campfire/issues/9)). The
-  password reset has its own limits (see [mail.md](mail.md)).
+- The per-IP limit covers sign-in only (the post to `/session`). The join page, the first run and the
+  password reset form have none: the join code is 48 random bits, and the password reset has its own
+  limits (see [mail.md](mail.md)).
 - Hashing a password blocks a scheduler on Agentica 0.23.0. Agentica main fixes it
   ([agentica#1052](https://github.com/agentica-lang/agentica/pull/1052)), in the next release. The
   limit of two hashes at a time still applies.

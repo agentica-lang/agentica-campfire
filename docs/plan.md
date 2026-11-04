@@ -28,8 +28,8 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 | Rich text editor (Lexxy / Action Text, `lib/rails_ext/action_text_allowed_tags.rb`, `helpers/content_filters/*`) | `HTML.escape` only | missing: HTML sanitizer (allowlist), autolink | STD, APP | M |
 | Boosts (`models/boost.rb`, `messages/boosts_controller.rb`) | SQL | exists | APP | S |
 | Bots API + webhooks (`user/bot.rb` key `id-token`, `messages/by_bots_controller.rb`, `webhook.rb` 7 s timeout, `jobs/bot/webhook_job.rb`) | HTTP.post with timeout, Bond routes, SecureRandom | exists | APP | S |
-| Auth: sessions, bcrypt, rate limit 10/3 min, signed cookie, CSRF header-only (`sessions_controller.rb`, `concerns/authentication.rb`, `session.rb`, `user.rb`) | scrypt/PBKDF2, HMAC + `secure_compare`, std/cookie, Bond cookies | partial: no signed-cookie/session helper, no client IP, no Sec-Fetch-Site check | BOND, STD | M |
-| Invite link, first-run wizard, roles, bans by IP (`account/joinable.rb`, `first_runs_controller.rb`, `user/role.rb`, `user/bannable.rb`, `block_banned_requests.rb`) | SecureRandom | exists, but IP bans need `remote_addr` | APP, STD | S |
+| Auth: sessions, bcrypt, rate limit 10/3 min, signed cookie, CSRF header-only (`sessions_controller.rb`, `concerns/authentication.rb`, `session.rb`, `user.rb`) | scrypt/PBKDF2, HMAC + `secure_compare`, std/cookie, Bond cookies | exists: Bond cookie sessions, `Bond.csrf` (Sec-Fetch-Site and Origin) and `Conn.remote_addr`; the rate limit is built per IP, 10 sign-in posts in 3 minutes (`src/campfire/rate_limit.agc`) | BOND, STD | M |
+| Invite link, first-run wizard, roles, bans by IP (`account/joinable.rb`, `first_runs_controller.rb`, `user/role.rb`, `user/bannable.rb`, `block_banned_requests.rb`) | SecureRandom | exists; bans by IP are not built, and can use `Conn.remote_addr` | APP, STD | S |
 | Session transfer by QR (`sessions/transfers_controller.rb`, `user/transferable.rb`, `qr_code_controller.rb`, rqrcode) | HMAC tokens | missing: QR encoder (or draw it client-side in JS) | APP | S |
 | DB: SQLite, WAL, 13 tables, FTS5 (`db/schema.rb`, `config/database.yml`, `initializers/sqlite_wal_checkpoint.rb`) | agentica-db `Db`/`Orm`, sqlite adapter (busy timeout 5 s, BEGIN IMMEDIATE) | partial: connection is owned by one task, no pool, no migrations runner | DB | M |
 | Background jobs (resque + Redis, 6 jobs in `app/jobs/`) | Task, Channel, Task.map | exists in-process (not durable) | APP | S |
@@ -55,8 +55,8 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 - Jobs: a worker pool of Tasks; push and webhooks may be lost on a crash (same as Resque best effort for
   push). Room destroy and ban cleanup should be a SQLite jobs table so they survive a restart.
 - Bond: use origin/main, not the `handlers` branch (README of main lists cookies, query/forms, static,
-  files, streaming, SSE). Missing there: websocket, multipart, signed cookies/sessions, CSRF/Origin,
-  remote IP, compression, ETag, templates.
+  files, streaming, SSE). Missing there then: websocket, multipart, signed cookies/sessions, CSRF/Origin,
+  remote IP, compression, ETag, templates; Bond 0.5.0 and main have all of these but compression and ETag.
 
 ## 3. Blocking gaps, in order (before an MVP)
 
@@ -66,8 +66,9 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
    `Reply` with a whole `HttpResponse`, so `Bond.send_file` cannot share a server with a WebSocket.
    Fix: one handler type that returns an enum (Response | Stream | Upgrade) and optionally takes the upload
    channel. Workaround for a prototype: a second port behind a path-routing proxy.
-2. **`HttpRequest` has no peer address** (std/http, S). Needed for rate limits, session IP, IP bans.
-   Add a field with a default so old handlers keep compiling, or a `remote_addr` on the request wrapper.
+2. **`HttpRequest` had no peer address** (std/http, S). Done: `HttpRequest.remote_addr` (Agentica 0.22.0) and
+   `Conn.remote_addr` (Bond main, which this repo pins until Bond 0.6.0). The session IP and the per-IP sign-in
+   limit use it; bans by IP are not built.
 3. **EAG lands, with an escape policy** (LANG, in progress). Output is raw (`stdlib/eag.agc`: write
    `EAG.html_escape(x)` everywhere). For a chat app one missed escape is stored XSS. Decide before the
    views are written: an auto-escaping `<%= %>` plus a `SafeHtml`-like marker for partials, or a lint/check.
@@ -187,7 +188,7 @@ plus a CSR/DER builder; it can reuse the same libcrypto FFI (L). Naming: "Campfi
 
 ## 6. Phased plan
 
-Phase 0, prerequisites (agentica repo, 5-7 PRs): unified handler kind (gap 1); `remote_addr` (gap 2);
+Phase 0, prerequisites (agentica repo, 5-7 PRs): unified handler kind (gap 1); `remote_addr` (gap 2, done);
 EAG lands with the escape policy (gap 3); `std/time` helper (gap 6).
 
 Phase 1, framework (Bond 4-6 PRs, agentica-db 3 PRs): Bond websocket route, multipart, signed cookies and

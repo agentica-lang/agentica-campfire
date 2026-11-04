@@ -18,7 +18,8 @@ start-up with a message that names the variable.
 | `CAMPFIRE_MAIL_QUEUE_SIZE` | `32` | Emails that may wait to be sent, 1 to 1024. Ignored when email is off. |
 
 Any `http://` `CAMPFIRE_BASE_URL` is refused when `CAMPFIRE_SECURE_COOKIES` is true, even for this
-machine. Without secure cookies, one for a host that is not this machine is warned about at start.
+machine. Without secure cookies, one for a host that is not this machine is warned about at start
+when email is on.
 
 ## Health
 
