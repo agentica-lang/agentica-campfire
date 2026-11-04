@@ -236,7 +236,7 @@ end
 
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
 ## first. It reads one more than a page, to know whether there is an older page without a count. Paged by `id`, never
-## by `created_at`, which can tie (see `migrations.agc`).
+## by `created_at`, which can tie (see `repo/migrations.agc`).
 export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Page]
   rows = try Db.query(
     conn,

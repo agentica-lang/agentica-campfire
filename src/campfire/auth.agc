@@ -28,7 +28,7 @@ RESEND_SECONDS = 300
 # A reset token is TOKEN_BYTES of hex, which is 64 characters: nothing longer is looked up.
 MAX_TOKEN_LENGTH = 128
 
-# The time as the schema writes it (see `migrations.agc`), and the time that a reset link lasts to.
+# The time as the schema writes it (see `repo/migrations.agc`), and the time that a reset link lasts to.
 NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 RESET_EXPIRY = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+#{RESET_MINUTES} minutes')"
 RESEND_LIMIT = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-#{RESEND_SECONDS} seconds')"
@@ -502,7 +502,8 @@ def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
   return ok(int_of(rows[0], "total") > 0)
 end
 
-# The address of the client is not here yet: Bond does not give it to a handler (its `Conn` has no `remote_addr`).
+# The address of the client is not here yet: the Bond pin has no `Conn.remote_addr`
+# (agentica-lang/agentica-campfire#9).
 def insert_session(conn: Db.Connection, user_id: Int, token: String, user_agent: String) -> Result[Int]
   return Db.execute(
     conn,
