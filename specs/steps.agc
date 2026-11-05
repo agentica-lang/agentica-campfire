@@ -62,6 +62,7 @@ def main() -> Void
     BDD.step("this system is Linux", &system_is_linux),
     BDD.step("the app starts with {int} database connections that wait {int} milliseconds", &start_with_pool),
     BDD.step("the app restarts", &restart_app),
+    BDD.step("the app restarts with the message cache off", &restart_app_without_cache),
     BDD.step("the start applied every migration", &applied_every_migration),
     BDD.step("the start applied no migration", &applied_no_migration),
     BDD.step("the health check reports the latest schema version", &health_has_latest_version),
@@ -204,6 +205,11 @@ end
 # Another app on the same database: the program stops its server and starts a new one.
 def restart_app(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return read_startup(BDD.when_line(ctx, "restart"))
+end
+
+# The same database again, with no cache of rendered messages: what the pages show must not depend on it.
+def restart_app_without_cache(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return read_startup(BDD.when_line(ctx, "restart without cache"))
 end
 
 # Reads the lines up to `listening on`, and keeps the port and the `database:` line.

@@ -10,10 +10,12 @@
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
+import Cache from "std/cache"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
+import MessageCache from "message_cache"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
@@ -40,15 +42,16 @@ enum Answer
   SignedOut
 end
 
-## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in.
-export def add(app: Bond.App, pool: Database.Pool) -> Bond.App
+## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cache` keeps
+## the markup of the messages that a room page and the older messages write (`MessageCache`), `none` for no cache.
+export def add(app: Bond.App, pool: Database.Pool, cache: Optional[Cache.Store]) -> Bond.App
   return (
     app
     |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
     |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool) end
-    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool) end
-    |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool) end
-    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool) end
+    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cache) end
+    |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache) end
+    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cache) end
     |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
     |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool) end
     |> Bond.get(Routes.DIRECT_ROOM_NEW) do |conn| show_new_direct_room(conn, pool) end
@@ -317,70 +320,94 @@ def settings_form(
   return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
 end
 
-def show_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def show_room(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
   before = try cursor(conn)
   id = room_id(conn)
-  answer = try Database.with_connection(pool) do |db| room_answer(conn, db, id, before) end
+  answer = try Database.with_connection(pool) do |db| room_answer(conn, db, cache, id, before) end
   return ok(respond(conn, answer))
 end
 
-def room_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], before: Optional[Int]) -> Result[Answer]
+def room_answer(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  cache: Optional[Cache.Store],
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return shown_room(db, person, id, before)
+    some(person) -> return shown_room(db, cache, person, id, before)
   end
 end
 
-def shown_room(db: Db.Connection, person: Auth.User, id: Optional[Int], before: Optional[Int]) -> Result[Answer]
+def shown_room(
+  db: Db.Connection,
+  cache: Optional[Cache.Store],
+  person: Auth.User,
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return ok(Answer.Page(200, try room_page(db, person, found, before, composer("", ""))))
+    some(found) -> return ok(Answer.Page(200, try room_page(db, cache, person, found, before, composer("", ""))))
   end
 end
 
 # The messages that come before `?before=ID` (the newest 40 without it), as the fragment that the script of the page
 # puts in the list: no layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
-def older_messages(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def older_messages(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
   before = try cursor(conn)
   id = room_id(conn)
-  answer = try Database.with_connection(pool) do |db| older_answer(conn, db, id, before) end
+  answer = try Database.with_connection(pool) do |db| older_answer(conn, db, cache, id, before) end
   return ok(respond(conn, answer))
 end
 
-def older_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], before: Optional[Int]) -> Result[Answer]
+def older_answer(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  cache: Optional[Cache.Store],
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return older_fragment(db, person, id, before)
+    some(person) -> return older_fragment(db, cache, person, id, before)
   end
 end
 
-def older_fragment(db: Db.Connection, person: Auth.User, id: Optional[Int], before: Optional[Int]) -> Result[Answer]
+def older_fragment(
+  db: Db.Connection,
+  cache: Optional[Cache.Store],
+  person: Auth.User,
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return ok(fragment_of(try Rooms.page(db, found.id, before)))
+    some(found) -> return ok(fragment_of(cache, try Rooms.page(db, found.id, before)))
   end
 end
 
-def fragment_of(page: Rooms.Page) -> Answer
+def fragment_of(cache: Optional[Cache.Store], page: Rooms.Page) -> Answer
   if page.messages.empty?
     return Answer.NoContent
   end
 
-  return Answer.Fragment(Views.messages_list(page.messages))
+  return Answer.Fragment(MessageCache.list(cache, page.messages))
 end
 
-def create_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def create_message(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
   # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
   # whatever the room: nothing here depends on the room.
   body = (try Bond.form(conn, MESSAGE_BODY)).strip
   sent_id = try client_id(conn)
   id = room_id(conn)
   stream = wants_stream?(conn)
-  answer = try Database.with_connection(pool) do |db| message_answer(conn, db, id, body, sent_id, stream) end
+  answer = try Database.with_connection(pool) do |db| message_answer(conn, db, cache, id, body, sent_id, stream) end
   return ok(respond(conn, answer))
 end
 
@@ -394,6 +421,7 @@ end
 def message_answer(
   conn: Bond.Conn,
   db: Db.Connection,
+  cache: Optional[Cache.Store],
   id: Optional[Int],
   body: String,
   sent_id: String,
@@ -402,13 +430,14 @@ def message_answer(
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return posted(db, person, id, body, sent_id, stream)
+    some(person) -> return posted(db, cache, person, id, body, sent_id, stream)
   end
 end
 
 # Membership first: a refusal of the text must not tell a person who is not in a room that it exists.
 def posted(
   db: Db.Connection,
+  cache: Optional[Cache.Store],
   person: Auth.User,
   id: Optional[Int],
   body: String,
@@ -418,12 +447,13 @@ def posted(
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return post_to(db, person, found, body, sent_id, stream)
+    some(found) -> return post_to(db, cache, person, found, body, sent_id, stream)
   end
 end
 
 def post_to(
   db: Db.Connection,
+  cache: Optional[Cache.Store],
   person: Auth.User,
   room: Rooms.Room,
   body: String,
@@ -432,7 +462,7 @@ def post_to(
 ) -> Result[Answer]
   problem = Rooms.body_problem(body)
   if problem != ""
-    page = try room_page(db, person, room, none, composer(problem, body))
+    page = try room_page(db, cache, person, room, none, composer(problem, body))
     return ok(Answer.Page(422, page))
   end
 
@@ -448,13 +478,17 @@ end
 # A page of the room with a form that has a new id, so that sending it again after a refusal is a new message.
 def room_page(
   db: Db.Connection,
+  cache: Optional[Cache.Store],
   person: Auth.User,
   room: Rooms.Room,
   before: Optional[Int],
   form: Views.Composer,
 ) -> Result[String]
   page = try Rooms.page(db, room.id, before)
-  return ok(Views.room(try sidebar_of(db, person), room, page, form, Rooms.editable?(room, person.id, person.role)))
+  thread = MessageCache.list(cache, page.messages)
+  return ok(
+    Views.room(try sidebar_of(db, person), room, page, thread, form, Rooms.editable?(room, person.id, person.role)),
+  )
 end
 
 def composer(note: String, draft: String) -> Views.Composer

@@ -18,6 +18,11 @@ export MEMBER_PASSWORD = "another long password"
 
 REPLY = "reply"
 REMEMBERED = "remembered_reply"
+THREAD = "remembered_thread"
+# The messages of a room page: from the start of the thread to the form that posts (which holds an id that every page
+# draws anew, so the whole page differs from one answer to the next).
+THREAD_START = "<div class=\"thread\">"
+THREAD_END = "<form method=\"post\" action=\"/rooms/"
 JOIN_LINK = "join_link"
 STATUSES = "statuses"
 ALL_AT_ONCE_MS = 60_000
@@ -79,6 +84,8 @@ export def steps() -> List[BDD.Step]
     BDD.step("the first admin exists", &first_admin),
     BDD.step("I remember the answer", &remember_answer),
     BDD.step("the answer is the one that I remembered", &answer_is_remembered),
+    BDD.step("I remember the messages of the page", &remember_thread),
+    BDD.step("the messages of the page are the ones that I remembered", &thread_is_remembered),
     BDD.step("the body contains the message of the answer that I remembered", &body_has_remembered_message),
     BDD.step("the answer came within {int} milliseconds", &answer_was_quick),
     BDD.step("the status is {int}", &status_is),
@@ -464,6 +471,21 @@ def body_has_remembered_message(ctx: BDD.Context, args: List[String]) -> BDD.Con
 
   body = last_reply(ctx).body
   return BDD.assert(ctx, body.include?(message.unwrap!), "the message #{message.unwrap!} is not in #{body}")
+end
+
+def remember_thread(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  thread = text_after(last_reply(ctx).body, THREAD_START, THREAD_END)
+  if thread.none?
+    return BDD.assert(ctx, false, "the page has no thread of messages: #{last_reply(ctx).body}")
+  end
+
+  return BDD.set(ctx, THREAD, JSON.from(thread.unwrap!))
+end
+
+def thread_is_remembered(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  before = JSON.string(BDD.get(ctx, THREAD).unwrap!).unwrap!
+  now = text_after(last_reply(ctx).body, THREAD_START, THREAD_END)
+  return BDD.assert(ctx, now == some(before), "the messages differ: #{now.unwrap_or("none")} and #{before}")
 end
 
 def answer_was_quick(ctx: BDD.Context, args: List[String]) -> BDD.Context
