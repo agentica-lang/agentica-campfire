@@ -142,6 +142,27 @@ def well_formed_cases() -> List[Case]
   ]
 end
 
+# The text is read between its `<`: the text after a tag, whichever way the tag was read, is escaped like any other,
+# and a tag that goes on past a `<` (in a quoted value) ends where it ends.
+def between_tags_cases() -> List[Case]
+  return [
+    Case(input: "<P>Up</P><B>b</B>", want: "<p>Up</p><b>b</b>"),
+    Case(input: "<p>a &amp; b > c &bogus; &</p>&", want: "<p>a &amp; b &gt; c &bogus; &amp;</p>&amp;"),
+    Case(
+      input: "<a href=\"/x\">a & b > c &lt;</a> &gt;",
+      want: "<a href=\"/x\" #{LINK_REL}>a &amp; b &gt; c &lt;</a> &gt;",
+    ),
+    Case(input: "<p>a</p><span title=\"x<b>y\">t</span>u", want: "<p>a</p><span>t</span>u"),
+    Case(input: "<img alt=\"<\" src=x>&amp;&lt", want: "&amp;&amp;lt"),
+    Case(input: "<p>a <!-- x > <b> --> b</p> <?x?>c<![CDATA[d]]>e", want: "<p>a  b</p> ce"),
+    Case(input: "<script>a</script><b>x</b><style>y</style>z", want: "<b>x</b>z"),
+    Case(
+      input: "é☕<a href=\"http://x\">ñ</a> <!-- ☕ --> é<b>☕</b><i title=\"é<\">ü</i>",
+      want: "é☕<a href=\"http://x\" #{LINK_REL}>ñ</a>  é<b>☕</b><i>ü</i>",
+    ),
+  ]
+end
+
 # What is dropped with what is in it, and what is dropped and leaves its text.
 def dropped_cases() -> List[Case]
   return [
@@ -350,6 +371,9 @@ def main() -> Void
       run_cases(action_text_cases())
     end,
     Test.test("text is escaped and tags are closed in order") do run_cases(well_formed_cases()) end,
+    Test.test("the text between the tags is escaped, also after a tag that has attributes or ends in a comment") do
+      run_cases(between_tags_cases())
+    end,
     Test.test("what is not allowed is dropped, scripts and comments with their content") do
       run_cases(dropped_cases())
     end,
@@ -362,7 +386,7 @@ def main() -> Void
     end,
     Test.test("every output is made of allowed tags only and is a fixed point") do
       cases = action_text_cases().concat(well_formed_cases()).concat(dropped_cases()).concat(xss_cases())
-      cases = cases.concat(editor_tag_cases())
+      cases = cases.concat(editor_tag_cases()).concat(between_tags_cases())
       try run_invariants(cases.concat(scheme_cases()))
       run_invariants([
         Case(input: "<a href=\"x\" <a href=\"y\">", want: ""),
@@ -429,6 +453,8 @@ def main() -> Void
       try linear?("<b>")
       try linear?("<ul><li>x <b>y<p>z")
       try linear?("</i>")
+      try linear?("<i title=\"<\">")
+      try linear?("&a")
       linear?("&#x")
     end,
     Test.test("the cost grows with the input, also for what is made to slow a parser down") do
