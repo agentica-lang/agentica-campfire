@@ -66,7 +66,7 @@ docker build --quiet --file "$here/runner.Dockerfile" --tag "$image" "$here" >/d
 # The harness hands host paths to `docker run -v`, so everything it reads lives at the same absolute path
 # in the container as on the host; the socket gives it the host's Docker, and --network host puts 127.0.0.1
 # of the container on the host, where the apps listen. The user is the caller's, so no file is root's.
-# LANG: without a UTF-8 locale Ruby reads response bodies as US-ASCII and fails on the Rails pages.
+# LANG: without a UTF-8 locale Ruby tags gunzipped response bodies as US-ASCII and fails on the Rails pages.
 extra_env=()
 if [ -n "${CARGO_BUILD_JOBS:-}" ]; then extra_env+=(--env "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"); fi
 
