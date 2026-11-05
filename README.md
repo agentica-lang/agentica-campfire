@@ -23,11 +23,11 @@ On the first run there is no account, so every page shows a setup form (a name, 
 
 ```sh
 docker build -t once-campfire-agentica:app .
-docker run --rm -p 3000:3000 -e CAMPFIRE_HOST=0.0.0.0 -e CAMPFIRE_PORT=3000 \
+docker run --rm --init -p 3000:3000 -e CAMPFIRE_HOST=0.0.0.0 -e CAMPFIRE_PORT=3000 \
   -e SECRET_KEY_BASE=$(openssl rand -hex 64) -v "$PWD/storage:/rails/storage" once-campfire-agentica:app
 ```
 
-The image has the pinned Agentica release, the app and its packages (no network at run time) on Debian 13 slim. `docker/entrypoint.sh` maps the environment of the [Rails benchmark harness](https://github.com/basecamp/once-campfire-verification) to `CAMPFIRE_*` (the database is `/rails/storage/db/production.sqlite3`, the Active Storage files `/rails/storage/files`; `HTTP_PORT` is the port; the session secret comes from `SECRET_KEY_BASE`); a `CAMPFIRE_*` variable that you set wins. It listens on `127.0.0.1` unless `CAMPFIRE_HOST` says otherwise.
+The image has the pinned Agentica release, the app and its packages (no network at run time) on Debian 13 slim. `docker/entrypoint.sh` maps the environment of the [Rails benchmark harness](https://github.com/basecamp/once-campfire-verification) to `CAMPFIRE_*` (the database is `/rails/storage/db/production.sqlite3`, the Active Storage files `/rails/storage/files`; `HTTP_PORT` is the port; the session secret comes from `SECRET_KEY_BASE`); a `CAMPFIRE_*` variable that you set wins. It listens on `127.0.0.1` unless `CAMPFIRE_HOST` says otherwise. The image is x86_64 only. In the benchmark harness, `bin/seed` writes `SECRET_KEY_BASE`.
 
 ## Develop
 

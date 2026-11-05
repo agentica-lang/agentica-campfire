@@ -5,6 +5,8 @@
 # Stage 1 holds the tools that must not reach the image: curl and git (`agentica install` fetches with git).
 FROM debian:13-slim AS build
 
+# Change the version and the sha256 together, and the same pair in .github/workflows/ci.yml. The image is x86_64
+# only (the release archive of linux-x86_64).
 ARG AGENTICA_VERSION=0.24.1
 # From the SHA256SUMS of the release.
 ARG AGENTICA_SHA256=ae9c361bfade6fa47d0485ad1b04bce56a461392a043d9791025e386805039a8
@@ -45,9 +47,11 @@ COPY --from=build /app /app
 COPY docker/entrypoint.sh /usr/local/bin/campfire-entrypoint
 
 WORKDIR /app
+ENV HOME=/home/campfire
 EXPOSE 3000
 
 # The entrypoint starts as root only to hand /rails/storage/db to the user (a bind mount keeps the owner of the
-# host), then runs the app as `campfire`. With `--user` it runs as that user as it is.
+# host), then runs the app as `campfire`. With `--user` it runs as that user as it is. The app is PID 1: run with
+# `--init` for a clean stop on SIGTERM.
 ENTRYPOINT ["campfire-entrypoint"]
 CMD ["agentica", "campfire.agc"]
