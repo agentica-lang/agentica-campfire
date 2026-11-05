@@ -67,7 +67,7 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
     <% end %>
         </ul>
     <% end %>
-        <ul class="actions" aria-label="More">
+        <ul class="actions" aria-label="Actions">
           <li><a href="<%= Routes.ROOM_NEW %>">New room</a></li>
           <li><a href="<%= Routes.CLOSED_ROOM_NEW %>">New closed room</a></li>
           <li><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></li>

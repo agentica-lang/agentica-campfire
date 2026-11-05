@@ -134,6 +134,10 @@ code {
 }
 
 .skip {
+  position: absolute;
+  z-index: 1;
+  top: var(--s-2);
+  inset-inline-start: var(--s-2);
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-sm);
   color: var(--accent-fg);

@@ -70,7 +70,7 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - **Message** (`[data-message-id]`): author in bold with the time beside it (small, muted, tabular numbers); the body below,
   wrapping anywhere, `pre` and tables scroll inside the message. Hover tints the row.
 - **Buttons**: primary (accent fill) is the default; `.quiet` (outline, text colour) for secondary actions; `.danger`
-  (outline in the accent) for Deactivate. 2.5rem high, 2.75rem on a phone; in a dense list 2rem.
+  (outline in the accent) for Deactivate. 2.5rem high, 2.75rem on a phone; 2rem in a dense list, the room header and the Sign out button of the phone bar.
 - **Forms**: a block label (600, sm) above a full-width field, 1px `--line-strong` border, `--r-sm`. People and members are
   a `fieldset` of checkbox rows, 2.25rem high, with the accent for the box. Hints are muted and small.
 - **Flash** (`[role="alert"]`): `--flash-bg` with a 4px accent bar on the start side. The text keeps `--text`.
@@ -93,7 +93,8 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - Landmarks: `nav` has a label, `main` has `id="main"`, and a "Skip to the page" link is the first thing in the sidebar and
   shows on focus. Fields have a real `label` (hidden by `.sr-only` for the composer and the search box, which have a
   placeholder too). Alerts use `role="alert"`.
-- Targets: 2.5rem or more for controls (2.75rem on a phone), 2rem only in dense rows and the room header.
+- Targets: 2.5rem or more for controls (2.75rem on a phone); 2rem only in dense rows (People), the room header (Settings)
+  and Sign out in the phone bar. Those are below 44px: a known gap.
 - Motion: the only transition is a 0.12s background change, and only with `prefers-reduced-motion: no-preference`.
 - Zoom: sizes are in `rem`; nothing is fixed in pixels but borders. The layout holds at 320px with no sideways page scroll
   (only the chip row scrolls).
@@ -106,3 +107,9 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 2. Keep to the tokens; add a token before adding a literal.
 3. Rename the stylesheet to its new digest and `Routes.STYLESHEET` (see AGENTS.md, "Assets").
 4. Keep markup changes small and check `specs/` for what they match.
+
+## Known gaps
+
+- Tab reaches "Older messages" and scrolls the thread to its top, since the link is the first thing in the scroller.
+- The skip link is a dead anchor on `/users/me/sidebar`, which has a `nav` and no `main`.
+- The message time is the raw ISO instant, which the specs pin; there is no avatar, author grouping or active-room mark.
