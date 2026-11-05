@@ -247,8 +247,8 @@ export def messages_id(room: Rooms.Room) -> String
 end
 
 ## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the presentation
-## `<div>` inside the frame that Turbo edits it in. The body is HTML that `Rooms.page` or `Rooms.post` has cleaned, the
-## one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
+## `<div>` inside the frame that Turbo edits it in. The body is HTML that `Rooms.clean` (`MessageCache`, for a page) or
+## `Rooms.post` has cleaned, the one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
 ## where a message ends (see specs/message_routes.feature).
 export def message(message: Rooms.Message) -> String
   return <<~EAG.strip

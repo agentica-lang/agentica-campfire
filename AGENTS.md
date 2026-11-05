@@ -31,8 +31,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
-                and forms of rooms), message_cache.agc (the cache of rendered messages), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and
-                the avatar link)
+                and forms of rooms), message_cache.agc (the cache of rendered messages), sidebars.agc, searches.agc
+                and avatars.agc (the sidebar page, the search and the avatar link)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it

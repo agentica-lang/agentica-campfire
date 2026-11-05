@@ -97,8 +97,8 @@ export struct Message
 end
 
 ## A message as the database holds it: the body is not cleaned yet, so `clean` must run before a view writes it. A page
-## of a room hands these out, so that a view that has rendered the message before (`MessageCache`) can skip the cleaning.
-## `updated_at` is the column as it is.
+## of a room hands these out, so that a view that has rendered the message before (`MessageCache`) can skip the
+## cleaning. `updated_at` is the column as it is.
 export struct Stored
   id: Int
   author: String

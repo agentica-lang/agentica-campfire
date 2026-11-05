@@ -52,6 +52,15 @@ Feature: The cache of rendered messages
     Then the body contains "<p>Second words</p>"
     And the body does not contain "First words"
 
+  Scenario: A change of the time of a message alone shows at once
+    Given a message "Timed" in the room 1 at "2026-03-01 09:00:00.123456"
+    When I get "/rooms/1"
+    Then the body contains "<time datetime=\"2026-03-01T09:00:00.123Z\">"
+    When I run the sql "update messages set created_at = '2026-04-05 06:07:08.000000' where id = 1"
+    And I get "/rooms/1"
+    Then the body contains "<time datetime=\"2026-04-05T06:07:08.000Z\">"
+    And the body does not contain "2026-03-01T09:00:00.123Z"
+
   Scenario: An edit that moves updated_at and a delete show at once
     Given a message "Keep" in the room 1 at "2026-03-01 09:00:00.000000"
     And a message "Drop" in the room 1 at "2026-03-01 09:01:00.000000"
