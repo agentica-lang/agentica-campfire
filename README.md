@@ -8,7 +8,7 @@ This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is indepe
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.1 or later on `PATH` to run the app and its tests.
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.1 or later on `PATH` to run the app and its tests, and a C compiler (`cc`) for the library of `packages/html_escape`, which `make run`, `make check` and `make test` build when it is missing (`make native`).
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by commit in agentica.toml) into deps/

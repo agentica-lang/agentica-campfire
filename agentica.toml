@@ -7,3 +7,10 @@ blank_line_after_end = true
 [dependencies]
 bond = { git = "https://github.com/agentica-lang/bond", tag = "0.6.1" }
 db = { git = "https://github.com/agentica-lang/agentica-db", ref = "8ee0ba07464da48048954091c1cffac21591dffb", subdir = "src/db" }
+html_escape = { git = "https://github.com/agentica-lang/agentica-campfire", tag = "html_escape-0.1.0", subdir = "packages/html_escape" }
+
+# The packages of this repository. A dependency on a member is read from its folder (no fetch, no deps/ copy, no
+# hash); its `tag` is what a project outside the repository would fetch.
+[workspace]
+repository = "https://github.com/agentica-lang/agentica-campfire"
+members = ["packages/html_escape"]

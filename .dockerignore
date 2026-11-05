@@ -7,6 +7,7 @@ specs
 test
 Dockerfile
 .dockerignore
-Makefile
 *.md
 deps
+# The C library is built in the image (`make native`), never copied from the host.
+packages/*/native

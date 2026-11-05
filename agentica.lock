@@ -16,6 +16,13 @@ commit = "8ee0ba07464da48048954091c1cffac21591dffb"
 hash = "sha256:43d39baf6d744cd83aea75a491a27e1d6ec49ba6035ac86c78dd137aee405c3c"
 
 [[package]]
+name = "html_escape"
+git = "https://github.com/agentica-lang/agentica-campfire"
+subdir = "packages/html_escape"
+tag = "html_escape-0.1.0"
+workspace = true
+
+[[package]]
 name = "pool"
 git = "https://github.com/agentica-lang/agentica-db"
 subdir = "src/pool"

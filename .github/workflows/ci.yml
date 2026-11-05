@@ -34,6 +34,10 @@ jobs:
           agentica --version
           make install
 
+      # The C library of packages/html_escape (the views escape with it); git does not hold it.
+      - name: Build the native library
+        run: make native
+
       - name: Check
         run: make check
 

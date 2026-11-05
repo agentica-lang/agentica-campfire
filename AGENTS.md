@@ -46,13 +46,18 @@ test/           unit tests (*_test.agc)
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`pool` comes with it), agentica.lock has their hashes
+packages/html_escape/   a package, the one member of the workspace of agentica.toml: `HtmlEscape.escape` (the escape of the
+                views) in C, c/html_escape.c called through an `extern` block; `make native` builds native/libhtml_escape.so
+                (git ignores it)
+agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`pool` comes with it), agentica.lock has their hashes;
+                `[workspace]` makes `html_escape` read from packages/ (no fetch, no hash)
 ```
 
 ## Commands
 
 - `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make fmt-check`, `make test`,
-  `make run`.
+  `make run`. `make native` builds the C library of `packages/html_escape` with `cc`; `check`, `test` and `run` build
+  it when it is missing or older than its source, CI builds it, and the Dockerfile builds it in its first stage.
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
 - Agentica 0.24.1 or later (`make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
@@ -71,7 +76,8 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   Unit tests (`test/`) only for pure helpers. A scenario gives the app its settings with `the environment variable`
   steps (`CAMPFIRE_*`), never through stdin, and a step that makes something on disk registers its removal with
   `BDD.after`, so a failed scenario leaves nothing behind.
-- Views are EAG templates with `<%@ escape &Bond.escape %>` as the first line, so every `<%= %>` is escaped. The one
+- Views are EAG templates with `<%@ escape &HtmlEscape.escape %>` as the first line, so every `<%= %>` is escaped
+  (`HtmlEscape.escape` gives exactly what `Bond.escape` gives; `test/html_escape_test.agc` compares them). The one
   exception is a plain-text email (`Views.reset_mail`): nothing in it is HTML, so it has no escape directive.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
 - `agentica.toml` has `blank_line_after_end = true`: every bare `end` is followed by an empty line.

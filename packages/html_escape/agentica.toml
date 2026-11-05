@@ -1,0 +1,12 @@
+name = "html_escape"
+
+# The library is built from c/html_escape.c by `make native` at the root of the repository (git ignores it). Inside the
+# repository the package is a member of the workspace and is read from this folder with no hash, so the file need not
+# be committed.
+[native.html_escape]
+linux = { file = "native/libhtml_escape.so" }
+macos = { file = "native/libhtml_escape.dylib" }
+
+# Every bare `end` is followed by an empty line (AGENTS.md of the repository).
+[style]
+blank_line_after_end = true

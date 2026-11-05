@@ -1,2 +1,4 @@
 deps/
 data/
+# Built by `make native`.
+packages/*/native/

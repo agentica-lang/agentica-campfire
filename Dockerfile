@@ -2,7 +2,8 @@
 # environment and the /rails/storage volumes mapped by docker/entrypoint.sh. Build: docker build -t
 # once-campfire-agentica:app .
 
-# Stage 1 holds the tools that must not reach the image: curl and git (`agentica install` fetches with git).
+# Stage 1 holds the tools that must not reach the image: curl and git (`agentica install` fetches with git), and the C
+# compiler that builds the library of packages/html_escape.
 FROM debian:13-slim AS build
 
 # Change the version and the sha256 together, and the same pair in .github/workflows/ci.yml. The image is x86_64
@@ -12,7 +13,7 @@ ARG AGENTICA_VERSION=0.24.1
 ARG AGENTICA_SHA256=ae9c361bfade6fa47d0485ad1b04bce56a461392a043d9791025e386805039a8
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git \
+ && apt-get install -y --no-install-recommends ca-certificates curl gcc git libc6-dev make \
  && rm -rf /var/lib/apt/lists/*
 
 RUN archive="agentica-${AGENTICA_VERSION}-linux-x86_64.tar.gz" \
@@ -23,9 +24,13 @@ RUN archive="agentica-${AGENTICA_VERSION}-linux-x86_64.tar.gz" \
  && tar -xzf "/tmp/$archive" -C /opt/agentica --strip-components=1
 
 WORKDIR /app
-COPY agentica.toml agentica.lock ./
-# The packages of the lock go to deps/, checked against the hashes of the lock; nothing is fetched at run time.
-RUN /opt/agentica/bin/agentica install
+# packages/ holds the members of the workspace, which the lock names and `agentica install` reads from their folders.
+COPY agentica.toml agentica.lock Makefile ./
+COPY packages ./packages
+# The packages of the lock go to deps/, checked against the hashes of the lock; nothing is fetched at run time. The C
+# library lands in packages/html_escape/native/, which the final stage gets with the rest of /app.
+RUN /opt/agentica/bin/agentica install \
+ && make native
 
 COPY campfire.agc ./
 COPY src ./src

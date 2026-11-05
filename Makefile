@@ -3,11 +3,25 @@
 AGENTICA ?= agentica
 # How many test files run at once (`make test JOBS=1` runs them one by one).
 JOBS ?= 4
+CC ?= cc
+CFLAGS ?= -O2
 
-.PHONY: help install run check fmt-check test
+# The C library of packages/html_escape, which its agentica.toml names for the running system. It is built here, not
+# committed: every target that compiles the app needs it, so they depend on the file.
+HTML_ESCAPE = packages/html_escape
+ifeq ($(shell uname -s),Darwin)
+HTML_ESCAPE_LIB = $(HTML_ESCAPE)/native/libhtml_escape.dylib
+HTML_ESCAPE_LDFLAGS = -dynamiclib
+else
+HTML_ESCAPE_LIB = $(HTML_ESCAPE)/native/libhtml_escape.so
+HTML_ESCAPE_LDFLAGS = -shared -pthread
+endif
+
+.PHONY: help install native run check fmt-check test
 
 help:
 	@echo "install    fetch the packages of agentica.lock into deps/"
+	@echo "native     build the C library of packages/html_escape (run, check and test build it when it is missing)"
 	@echo "run        start the app; CAMPFIRE_SESSION_SECRET is required (32 bytes or more, openssl rand -hex 32),"
 	@echo "           CAMPFIRE_SECURE_COOKIES=true behind HTTPS (CAMPFIRE_HOST, CAMPFIRE_PORT: 127.0.0.1 and"
 	@echo "           3000 by default;"
@@ -27,14 +41,20 @@ help:
 install:
 	$(AGENTICA) install
 
-run:
+native: $(HTML_ESCAPE_LIB)
+
+$(HTML_ESCAPE_LIB): $(HTML_ESCAPE)/c/html_escape.c
+	mkdir -p $(dir $@)
+	$(CC) -std=c11 $(CFLAGS) -Wall -Wextra -Werror -pedantic -fPIC $(HTML_ESCAPE_LDFLAGS) -o $@ $<
+
+run: $(HTML_ESCAPE_LIB)
 	$(AGENTICA) campfire.agc
 
-check:
+check: $(HTML_ESCAPE_LIB)
 	$(AGENTICA) check
 
 fmt-check:
-	$(AGENTICA) fmt --check campfire.agc src specs test
+	$(AGENTICA) fmt --check campfire.agc src specs test $(HTML_ESCAPE)
 
-test:
+test: $(HTML_ESCAPE_LIB)
 	$(AGENTICA) test --jobs $(JOBS)

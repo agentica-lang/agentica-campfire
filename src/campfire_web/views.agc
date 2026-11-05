@@ -1,8 +1,8 @@
-## The pages, as EAG templates. A template with `<%@ escape &Bond.escape %>` escapes every `<%= %>`, so a value goes
-## into the page as text; `<%== %>` is the way out, only for markup that this program wrote itself.
+## The pages, as EAG templates. A template with `<%@ escape &HtmlEscape.escape %>` escapes every `<%= %>`, so a value
+## goes into the page as text; `<%== %>` is the way out, only for markup that this program wrote itself.
 
 import EAG from "std/eag"
-import Bond from "pkg/bond/bond"
+import HtmlEscape from "pkg/html_escape/html_escape"
 import Accounts from "../campfire/accounts"
 import Rooms from "../campfire/rooms"
 import Searches from "../campfire/searches"
@@ -23,7 +23,7 @@ end
 ## client): only the templates of this file call it. `title` is text, and is escaped.
 export def layout(title: String, content: String) -> String
   return <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -46,7 +46,7 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
   shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
   direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
   return <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <nav aria-label="Rooms">
       <p>Signed in as <%= user_name %></p>
       <h2>Rooms</h2>
@@ -82,7 +82,7 @@ end
 ## The home page of the person who is signed in, around their `sidebar`.
 export def home(sidebar: String) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1><%= NAME %></h1>
@@ -96,7 +96,7 @@ end
 ## none).
 export def new_room(sidebar: String, name: String, message: String) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1>New room</h1>
@@ -121,7 +121,7 @@ end
 ## checked. It is raw HTML that this file made, for the forms below to put in.
 export def member_picker(people: List[Rooms.Person], chosen: List[Int]) -> String
   return <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <fieldset>
       <legend>People</legend>
     <% for person in people %>
@@ -146,7 +146,7 @@ export def new_closed_room(
 ) -> String
   picker = member_picker(people, chosen)
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1>New closed room</h1>
@@ -173,7 +173,7 @@ end
 export def new_direct_room(sidebar: String, people: List[Rooms.Person], chosen: List[Int], message: String) -> String
   picker = member_picker(people, chosen)
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1>New direct message</h1>
@@ -205,7 +205,7 @@ export def room_settings(
 ) -> String
   picker = member_picker(people, chosen)
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1>Settings of <%= room.name %></h1>
@@ -244,7 +244,7 @@ end
 ## where a message ends (see specs/message_routes.feature).
 export def message(message: Rooms.Message) -> String
   return <<~EAG.strip
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <div id="message_<%= message.id %>" data-message-id="<%= message.id %>">
       <h3><strong><%= message.author %></strong>
         <time datetime="<%= message.created_at %>"><%= message.created_at %></time></h3>
@@ -260,7 +260,7 @@ end
 ## The Turbo Stream that appends the message to the list of the room, which a post answers to a browser.
 export def message_stream(room: Rooms.Room, one: Rooms.Message) -> String
   return <<~EAG.strip
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== message(one) %></template></turbo-stream>
   EAG
 end
@@ -270,7 +270,7 @@ end
 ## text, and only the messages carry a `data-message-id`.
 export def search(sidebar: String, query: String, messages: List[Rooms.Message], recent: List[String]) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1>Search</h1>
@@ -305,7 +305,7 @@ end
 ## `Avatars.color`, so it is safe in an attribute). Three letters or more are squeezed to fit, as Rails does.
 export def avatar_initials(initials: String, color: String) -> String
   return <<~EAG.strip
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="avatar" aria-hidden="true">
       <rect width="100%" height="100%" rx="50" fill="<%= color %>"/>
       <text x="50%" y="50%" fill="#FFFFFF" text-anchor="middle" dy="0.35em"
@@ -324,7 +324,7 @@ end
 ## room.
 export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer, can_edit: Bool) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1><%= room.name %></h1>
@@ -363,7 +363,7 @@ end
 ## `message` says why ("" shows none). The password is never put back in the page.
 export def first_run(name: String, email: String, message: String) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1>Welcome to <%= NAME %></h1>
       <p>Make the first account. It will be the administrator.</p>
@@ -394,7 +394,7 @@ end
 ## `can_reset` adds the link to the password reset, which only an app that can send email has.
 export def sign_in(email: String, message: String, can_reset: Bool) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1>Sign in to <%= NAME %></h1>
     <% if not message.empty? %>
@@ -423,7 +423,7 @@ end
 ## The form that asks for the email of the account whose password is to be reset. It never shows an email again.
 export def forgot_password() -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1>Reset your password</h1>
       <p>Enter the email of your account and we will send you a link to choose a new password.</p>
@@ -444,7 +444,7 @@ end
 ## account.
 export def reset_requested() -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1>Check your email</h1>
       <p>If an account has that email, we sent a link to reset its password.</p>
@@ -458,7 +458,7 @@ end
 ## none). The password is never put back in the page.
 export def reset_password(token: String, message: String) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1>Choose a new password</h1>
     <% if not message.empty? %>
@@ -480,7 +480,7 @@ end
 ## The page of a link that does not work: it was used, it expired, or it was never one.
 export def reset_link_gone() -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1>This link does not work</h1>
       <p>It may have been used already, or it may have expired.</p>
@@ -509,7 +509,7 @@ end
 ## fill the fields again after a refusal, and `message` says why ("" shows none). The password is never put back.
 export def join(code: String, name: String, email: String, message: String) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1>Join <%= NAME %></h1>
       <p>Make your account.</p>
@@ -541,7 +541,7 @@ end
 ## `link` with the button that makes a new one; `link` is "" for anybody else.
 export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin: Bool, link: String) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <%== sidebar %>
     <main>
       <h1>People</h1>
@@ -580,7 +580,7 @@ end
 ## The page of a 503: `message` says that the server is busy.
 export def busy(message: String) -> String
   body = <<~EAG
-    <%@ escape &Bond.escape %>
+    <%@ escape &HtmlEscape.escape %>
     <main>
       <h1><%= NAME %></h1>
       <p role="alert"><%= message %></p>
