@@ -1,0 +1,12 @@
+.git
+.github
+_build
+data
+docs
+specs
+test
+Dockerfile
+.dockerignore
+Makefile
+*.md
+deps

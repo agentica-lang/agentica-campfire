@@ -33,6 +33,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
                 and forms of rooms), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and
                 the avatar link)
+Dockerfile, docker/entrypoint.sh   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
@@ -182,6 +183,6 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   made by Rails (`specs/fixtures/rails/make_avatar.sh`).
 - Assets: the CSS of `public/assets/` is named `campfire-DIGEST.css`, DIGEST the first 16 hex digits of its SHA-256;
   rename it and `Routes.STYLESHEET` when it changes (`specs/assets.feature` checks). `/assets/` is public
-  (`AuthWeb.public?`). There is no asset pipeline yet (`docs/plan.md` phase 2). No Dockerfile yet.
+  (`AuthWeb.public?`). There is no asset pipeline yet (`docs/plan.md` phase 2).
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.
