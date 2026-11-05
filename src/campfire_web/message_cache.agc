@@ -11,8 +11,8 @@
 ## body that another program changed gives a new key, and the old entry is never read again (the cache drops it when it
 ## needs room). A delete needs nothing: the page does not list the message. The markup has no avatar, boost or room name
 ## today, so none is in the key; whoever adds one to `Views.message` adds it to `key`. The cache is in memory, so a new
-## build of the app starts with it empty and the key needs no version. When the working set outgrows the cache, the
-## request whose write starts a rotation waits while the oldest generation is dropped (about 5 µs an entry, `std/cache`).
+## build of the app starts with it empty and the key needs no version. When the working set outgrows the cache,
+## the request whose write starts a rotation waits while the oldest generation is dropped (about 5 µs an entry).
 
 import Cache from "std/cache"
 import Rooms from "../campfire/rooms"
