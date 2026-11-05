@@ -42,6 +42,8 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
                 `make.sh` makes it again in a ruby container)
 test/           unit tests (*_test.agc)
+bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
+                harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
 agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`pool` comes with it), agentica.lock has their hashes
 ```
