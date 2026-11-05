@@ -84,9 +84,10 @@
           note("Not sent. Check the connection and try again.");
         },
       )
-      // The answer came but could not be read: the message is stored, so the page is loaded again to show it.
+      // The answer came but could not be read: the message is stored, so the room page is loaded (a GET: the page may be
+      // the answer of a refused post, which a reload would send again) to show it.
       .catch(function () {
-        location.reload();
+        location.assign(form.action.replace(/\/messages$/, ""));
       })
       .then(function () {
         busy = false;

@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation; change this file and
-the stylesheet together. One stylesheet, one script of about 5 KB (2.1 KB gzipped) that only the room page loads, no web fonts, no
+the stylesheet together. One stylesheet, one script of about 5 KB (2.2 KB gzipped) that only the room page loads, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
