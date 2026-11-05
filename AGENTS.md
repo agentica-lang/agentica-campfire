@@ -35,6 +35,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 the avatar link)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
@@ -186,5 +187,7 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
 - Assets: the CSS of `public/assets/` is named `campfire-DIGEST.css`, DIGEST the first 16 hex digits of its SHA-256;
   rename it and `Routes.STYLESHEET` when it changes (`specs/assets.feature` checks). `/assets/` is public
   (`AuthWeb.public?`). There is no asset pipeline yet (`docs/plan.md` phase 2).
+- A UI change follows `DESIGN.md` and updates it with the stylesheet. Markup that specs match byte for byte (links, headings,
+  forms, the message `<div>`) takes no class: style it by element.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).
 - Code comments say why. Follow `agentica-programming` and `agentica-code-guidelines` for the style.

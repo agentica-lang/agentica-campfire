@@ -29,6 +29,8 @@ export def layout(title: String, content: String) -> String
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="color-scheme" content="light dark">
+      <link rel="icon" href="data:,">
       <title><%= title %></title>
       <link rel="stylesheet" href="<%= Routes.STYLESHEET %>">
     </head>
@@ -48,27 +50,33 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
   return <<~EAG
     <%@ escape &Bond.escape %>
     <nav aria-label="Rooms">
-      <p>Signed in as <%= user_name %></p>
-      <h2>Rooms</h2>
-      <ul id="shared_rooms">
+      <a class="skip" href="#main">Skip to the page</a>
+      <p class="who">Signed in as <%= user_name %></p>
+      <div class="lists">
+        <h2>Rooms</h2>
+        <ul id="shared_rooms">
     <% for room in shared %>
-        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+          <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
     <% end %>
-      </ul>
-      <p><a href="<%= Routes.ROOM_NEW %>">New room</a></p>
-      <p><a href="<%= Routes.CLOSED_ROOM_NEW %>">New closed room</a></p>
-      <p><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></p>
-      <p><a href="<%= Routes.USERS %>">People</a></p>
+        </ul>
     <% if not direct.empty? %>
-      <h2>Direct messages</h2>
-      <ul>
+        <h2>Direct messages</h2>
+        <ul>
     <% for room in direct %>
-        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+          <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
     <% end %>
-      </ul>
+        </ul>
     <% end %>
+        <ul class="actions" aria-label="Actions">
+          <li><a href="<%= Routes.ROOM_NEW %>">New room</a></li>
+          <li><a href="<%= Routes.CLOSED_ROOM_NEW %>">New closed room</a></li>
+          <li><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></li>
+          <li><a href="<%= Routes.SEARCHES %>">Search</a></li>
+          <li><a href="<%= Routes.USERS %>">People</a></li>
+        </ul>
+      </div>
       <form method="post" action="<%= Routes.SIGN_OUT %>">
-        <button type="submit">Sign out</button>
+        <button type="submit" class="quiet">Sign out</button>
       </form>
     </nav>
   EAG
@@ -84,9 +92,9 @@ export def home(sidebar: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
+    <main id="main">
       <h1><%= NAME %></h1>
-      <p>Group chat, written in Agentica.</p>
+      <p class="lead">Group chat, written in Agentica.</p>
     </main>
   EAG
   return layout(NAME, body)
@@ -98,7 +106,7 @@ export def new_room(sidebar: String, name: String, message: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
+    <main id="main">
       <h1>New room</h1>
       <p>Everyone on the account will be in it.</p>
     <% if not message.empty? %>
@@ -148,7 +156,7 @@ export def new_closed_room(
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
+    <main id="main">
       <h1>New closed room</h1>
       <p>Only you and the people you pick will be in it.</p>
     <% if not message.empty? %>
@@ -175,7 +183,7 @@ export def new_direct_room(sidebar: String, people: List[Rooms.Person], chosen: 
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
+    <main id="main">
       <h1>New direct message</h1>
       <p>Pick the people to write to. If you wrote to exactly them before, that conversation opens.</p>
     <% if not message.empty? %>
@@ -207,7 +215,7 @@ export def room_settings(
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
+    <main id="main">
       <h1>Settings of <%= room.name %></h1>
     <% if not message.empty? %>
       <p role="alert"><%= message %></p>
@@ -272,26 +280,26 @@ export def search(sidebar: String, query: String, messages: List[Rooms.Message],
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
+    <main id="main">
       <h1>Search</h1>
       <form method="post" action="<%= Routes.SEARCHES %>">
         <p>
-          <label>Words
+          <label><span class="sr-only">Words</span>
             <input name="q" type="search" value="<%= query %>" maxlength="<%= Searches.MAX_QUERY_LENGTH %>"
-              required autofocus></label>
+              placeholder="Search messages" required autofocus></label>
         </p>
         <p><button type="submit">Search</button></p>
       </form>
     <% if not recent.empty? %>
       <h2>Recent searches</h2>
-      <ul>
+      <ul class="recent">
     <% for words in recent %>
         <li><a href="<%= Routes.search_path(words) %>"><%= words %></a></li>
     <% end %>
       </ul>
     <% end %>
     <% if not query.empty? and messages.empty? %>
-      <p>No messages match.</p>
+      <p class="empty">No messages match.</p>
     <% end %>
       <div id="search_results">
     <%== messages_list(messages) %>
@@ -326,31 +334,37 @@ export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: C
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
-      <h1><%= room.name %></h1>
+    <main id="main" class="room">
+      <header>
+        <h1><%= room.name %></h1>
     <% if can_edit %>
-      <p><a href="<%= Routes.room_settings_path(room.id) %>">Settings</a></p>
+        <a href="<%= Routes.room_settings_path(room.id) %>">Settings</a>
     <% end %>
+      </header>
+      <div class="scroller">
+        <div class="thread">
     <% if page.older.some? %>
-      <p><a href="<%= Routes.room_before_path(room.id, page.older.unwrap!) %>">Older messages</a></p>
+          <p class="more"><a href="<%= Routes.room_before_path(room.id, page.older.unwrap!) %>">Older messages</a></p>
     <% end %>
     <% if page.messages.empty? %>
-      <p>No messages here yet.</p>
+          <p class="empty">No messages here yet.</p>
     <% end %>
     <div id="<%= messages_id(room) %>">
     <%== messages_list(page.messages) %>
     </div>
     <% if not page.at_latest %>
-      <p><a href="<%= Routes.room_path(room.id) %>">Latest messages</a></p>
+          <p class="more"><a href="<%= Routes.room_path(room.id) %>">Latest messages</a></p>
     <% end %>
+        </div>
+      </div>
     <% if not composer.note.empty? %>
       <p role="alert"><%= composer.note %></p>
     <% end %>
       <form method="post" action="<%= Routes.room_messages_path(room.id) %>">
         <input name="message[client_message_id]" type="hidden" value="<%= composer.message_id %>">
         <p>
-          <label>Message
-            <textarea name="message[body]" required autofocus><%= composer.draft %></textarea></label>
+          <label><span class="sr-only">Message</span>
+            <textarea name="message[body]" rows="1" placeholder="Message" required autofocus><%= composer.draft %></textarea></label>
         </p>
         <p><button type="submit">Send</button></p>
       </form>
@@ -364,7 +378,7 @@ end
 export def first_run(name: String, email: String, message: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1>Welcome to <%= NAME %></h1>
       <p>Make the first account. It will be the administrator.</p>
     <% if not message.empty? %>
@@ -395,7 +409,7 @@ end
 export def sign_in(email: String, message: String, can_reset: Bool) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1>Sign in to <%= NAME %></h1>
     <% if not message.empty? %>
       <p role="alert"><%= message %></p>
@@ -424,7 +438,7 @@ end
 export def forgot_password() -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1>Reset your password</h1>
       <p>Enter the email of your account and we will send you a link to choose a new password.</p>
       <form method="post" action="<%= Routes.PASSWORD_RESET %>">
@@ -445,7 +459,7 @@ end
 export def reset_requested() -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1>Check your email</h1>
       <p>If an account has that email, we sent a link to reset its password.</p>
       <p><a href="<%= Routes.SIGN_IN %>">Back to sign in</a></p>
@@ -459,7 +473,7 @@ end
 export def reset_password(token: String, message: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1>Choose a new password</h1>
     <% if not message.empty? %>
       <p role="alert"><%= message %></p>
@@ -481,7 +495,7 @@ end
 export def reset_link_gone() -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1>This link does not work</h1>
       <p>It may have been used already, or it may have expired.</p>
       <p><a href="<%= Routes.PASSWORD_RESET_NEW %>">Ask for a new link</a></p>
@@ -510,7 +524,7 @@ end
 export def join(code: String, name: String, email: String, message: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1>Join <%= NAME %></h1>
       <p>Make your account.</p>
     <% if not message.empty? %>
@@ -543,30 +557,38 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
-    <main>
+    <main id="main">
       <h1>People</h1>
     <% if admin %>
       <h2>Invite people</h2>
-      <p>Anybody with this link can join: <code id="join-link"><%= link %></code></p>
+      <p>Anybody with this link can join:</p>
+      <p><code id="join-link"><%= link %></code></p>
       <form method="post" action="<%= Routes.JOIN_CODE %>">
-        <p><button type="submit">Make a new link</button> The old link stops working.</p>
+        <p><button type="submit" class="quiet">Make a new link</button> <span class="hint">The old link stops working.</span></p>
       </form>
+      <h2>Everybody</h2>
     <% end %>
-      <ul>
+      <ul class="people">
     <% for person in people %>
         <li>
-          <%= person.name %>
+          <span class="name"><%= person.name %></span>
     <% if admin %>
-          (<%= person.email %><% if person.role == Rooms.ADMINISTRATOR_ROLE_NAME %>, administrator<% end %><% if not person.active %>, deactivated<% end %>)
+          <span class="meta"><%= person.email %></span>
+    <% if person.role == Rooms.ADMINISTRATOR_ROLE_NAME %>
+          <span class="badge">administrator</span>
+    <% end %>
+    <% if not person.active %>
+          <span class="badge">deactivated</span>
+    <% end %>
     <% end %>
     <% if admin and person.id != me and person.active %>
           <form method="post" action="<%= Routes.user_deactivate_path(person.id) %>">
-            <button type="submit">Deactivate</button>
+            <button type="submit" class="danger">Deactivate</button>
           </form>
     <% end %>
     <% if admin and not person.active %>
           <form method="post" action="<%= Routes.user_reactivate_path(person.id) %>">
-            <button type="submit">Reactivate</button>
+            <button type="submit" class="quiet">Reactivate</button>
           </form>
     <% end %>
         </li>
@@ -581,7 +603,7 @@ end
 export def busy(message: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
-    <main>
+    <main id="main">
       <h1><%= NAME %></h1>
       <p role="alert"><%= message %></p>
     </main>

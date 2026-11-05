@@ -55,4 +55,5 @@ The tests are BDD first and take under a minute. CI (`.github/workflows/ci.yml`)
 - [docs/rooms.md](docs/rooms.md): open, closed and direct rooms, settings, messages.
 - [docs/people.md](docs/people.md): the join link and the people page.
 - [docs/mail.md](docs/mail.md): password reset, SMTP and the mailer.
+- [DESIGN.md](DESIGN.md): the visual design system (colours, type, components, accessibility).
 - [docs/plan.md](docs/plan.md): what Agentica, Bond and agentica-db still need, the MVP and the phases.
