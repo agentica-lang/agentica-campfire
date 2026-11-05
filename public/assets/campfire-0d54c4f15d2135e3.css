@@ -80,8 +80,11 @@ body {
   font: var(--fs-md) / 1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* A room fills the window, and only its message list scrolls. Without :has the page scrolls as a plain page. */
+/* A room fills the window, and only its message list scrolls. Without :has the page scrolls as a plain page. dvh is the
+   window without the browser bars; with `interactive-widget=resizes-content` (the viewport meta) it is also the window
+   without the keyboard, so the bar stays on screen while the composer has the focus. */
 body:has(main.room) {
+  height: 100vh;
   height: 100dvh;
   overflow: hidden;
   grid-template-rows: minmax(0, 1fr);
@@ -392,7 +395,8 @@ input[type="checkbox"] {
 }
 
 /* Flash */
-[role="alert"] {
+[role="alert"],
+main.room > p[aria-live]:not(:empty) {
   margin: 0 0 var(--s-4);
   padding: var(--s-2) var(--s-3);
   border-inline-start: 4px solid var(--accent);
@@ -455,8 +459,14 @@ main.room > header a {
   color: var(--muted);
 }
 
-main.room > [role="alert"] {
+main.room > [role="alert"],
+main.room > p[aria-live]:not(:empty) {
   margin: var(--s-3) var(--s-5) 0;
+}
+
+/* The line that the script fills ("Not sent"): it is in the page empty, so that a screen reader announces the text. */
+main.room > p[aria-live]:empty {
+  margin: 0;
 }
 
 main.room > form {
@@ -494,8 +504,11 @@ main.room > form textarea {
   border-radius: var(--r-sm);
 }
 
-[data-message-id]:hover {
-  background: var(--hover);
+/* Only where there is hover: on a touch screen the tint would stay on the message that was tapped last. */
+@media (hover: hover) {
+  [data-message-id]:hover {
+    background: var(--hover);
+  }
 }
 
 [data-message-id] h3 {
@@ -638,8 +651,9 @@ form[action="/searches"] input {
   }
 }
 
-/* Phone: the sidebar becomes a bar on top; its lists scroll sideways as one row of chips. */
-@media (max-width: 40rem) {
+/* Phone: the sidebar becomes a bar on top; its lists scroll sideways as one row of chips. A touch screen turned sideways
+   is as short as a phone with its keyboard open, so it gets the bar too. */
+@media (max-width: 40rem), ((max-height: 30rem) and (pointer: coarse)) {
   body,
   body:has(main.room) {
     grid-template-columns: minmax(0, 1fr);
@@ -676,7 +690,6 @@ form[action="/searches"] input {
   }
 
   nav form button {
-    min-height: 2rem;
     padding: var(--s-1) var(--s-3);
     font-size: var(--fs-sm);
   }
@@ -712,10 +725,13 @@ form[action="/searches"] input {
     border-inline-start: 1px solid var(--line);
   }
 
-  nav li a {
+  nav li a,
+  nav .actions a {
     display: block;
     max-width: 14rem;
-    padding: var(--s-2) var(--s-3);
+    /* 44px with the line and the border: a chip is a tap target (the small text of the actions has the same line). */
+    padding: 0.625rem var(--s-3);
+    line-height: 1.5rem;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--bg);
@@ -737,7 +753,8 @@ form[action="/searches"] input {
     padding-inline: var(--s-4);
   }
 
-  main.room > [role="alert"] {
+  main.room > [role="alert"],
+  main.room > p[aria-live]:not(:empty) {
     margin-inline: var(--s-4);
   }
 
@@ -746,7 +763,40 @@ form[action="/searches"] input {
     padding: var(--s-5) var(--s-4);
   }
 
-  button {
+  button,
+  main.room > header a,
+  .people button {
+    min-height: 2.75rem;
+  }
+
+  /* A short window (a phone with its keyboard open, or turned sideways): the bar is one row, the chips and Sign out at
+     their end, and "Signed in as" goes, so the messages have room. It depends on the height only, never on the focus:
+     a layout that moves when the field loses the focus moves the chip that is being tapped. */
+  @media (max-height: 34rem) {
+    nav .who {
+      display: none;
+    }
+
+    nav .lists {
+      grid-row: 1;
+      grid-column: 1;
+      margin: 0 var(--s-2) 0 0;
+      padding-bottom: 0;
+    }
+  }
+
+  /* Shorter still: a thinner room header and composer. */
+  @media (max-height: 24rem) {
+    main.room > header {
+      padding-block: var(--s-1);
+    }
+
+    main.room > form {
+      padding-block: var(--s-2);
+    }
+  }
+
+  label:has(> input[type="checkbox"]) {
     min-height: 2.75rem;
   }
 }

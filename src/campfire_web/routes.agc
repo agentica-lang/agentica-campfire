@@ -21,7 +21,11 @@ export MISSING = "Not Found"
 ## of the SHA-256 of the file: `specs/assets.feature` checks it, so a change to the file renames it and this). The
 ## benchmark reads the link out of the room page (`/assets/....css`), and the folder is served under `ASSETS`.
 export ASSETS = "/assets"
-export STYLESHEET = "/assets/campfire-d123fece2f5cd7ed.css"
+export STYLESHEET = "/assets/campfire-0d54c4f15d2135e3.css"
+
+## The script of the room page (the composer sends with `fetch`), fingerprinted like the stylesheet. Only the room page
+## links it; the page works without it.
+export COMPOSER_SCRIPT = "/assets/campfire-e3dc16d0562d5461.js"
 
 ## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
 ## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and
