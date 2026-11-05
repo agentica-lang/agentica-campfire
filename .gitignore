@@ -1,2 +1,4 @@
 deps/
 data/
+.env
+docker-compose.override.yml

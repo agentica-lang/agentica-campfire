@@ -33,7 +33,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
                 and forms of rooms), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and
                 the avatar link)
-Dockerfile, docker/entrypoint.sh   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
+Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
