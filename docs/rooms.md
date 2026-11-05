@@ -99,4 +99,7 @@ is missing are all the same `404`. The route needs a sign-in. Nothing in the app
 The folder `public/assets/` (`CAMPFIRE_ASSETS_DIR`) is served under `/assets/` without a sign-in. A name
 with a fingerprint (`campfire-DIGEST.css`, DIGEST the first 16 hex digits of the SHA-256 of the file) is
 sent with `Cache-Control: public, max-age=31536000, immutable`. When the CSS changes, rename it to its new
-digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the name is right.
+digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the name is right. The same goes for the
+script of the composer, `campfire-DIGEST.js` (`Routes.COMPOSER_SCRIPT`), which only the room page links: with it a
+message is sent with `fetch` (the Turbo Stream answer above) and the page does not reload; without it the form posts
+and redirects as before.

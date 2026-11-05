@@ -34,7 +34,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 and forms of rooms), message_cache.agc (the cache of rendered messages), sidebars.agc, searches.agc
                 and avatars.agc (the sidebar page, the search and the avatar link)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
-public/assets/  the fingerprinted stylesheet, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
@@ -190,9 +190,12 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   a key that is not 4 to 64 of `[0-9a-z]` is never made a path), else initials. The app makes no image. The router wants
   one name for the segment under `/users/`, so the token is `:id`. The Active Storage rows and files of the specs are
   made by Rails (`specs/fixtures/rails/make_avatar.sh`).
-- Assets: the CSS of `public/assets/` is named `campfire-DIGEST.css`, DIGEST the first 16 hex digits of its SHA-256;
-  rename it and `Routes.STYLESHEET` when it changes (`specs/assets.feature` checks). `/assets/` is public
-  (`AuthWeb.public?`). There is no asset pipeline yet (`docs/plan.md` phase 2).
+- Assets: the CSS and the JS of `public/assets/` are named `campfire-DIGEST.css` and `campfire-DIGEST.js`, DIGEST the
+  first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.COMPOSER_SCRIPT`
+  when it changes (`specs/assets.feature` checks). `/assets/` is public (`AuthWeb.public?`). There is no asset pipeline
+  yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page links it, every form works
+  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script"). The composer textarea has no
+  `autofocus` (a phone would open its keyboard on each load).
 - A UI change follows `DESIGN.md` and updates it with the stylesheet. Markup that specs match byte for byte (links, headings,
   forms, the message `<div>`) takes no class: style it by element.
 - Campfire's CSS, JS and images are MIT (37signals): keep their notice when a file is copied (see README).

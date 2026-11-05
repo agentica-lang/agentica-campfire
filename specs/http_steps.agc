@@ -105,7 +105,8 @@ export def steps() -> List[BDD.Step]
     BDD.step("the body starts with {string}", &body_starts_with),
     BDD.step("the body is a WebP image", &body_is_webp),
     BDD.step("I get the stylesheet that the page links", &get_stylesheet),
-    BDD.step("the body has the SHA-256 that starts with the digest in the name of the stylesheet", &body_has_digest),
+    BDD.step("I get the script that the page links", &get_script),
+    BDD.step("the body has the SHA-256 that starts with the digest in the name of the file", &body_has_digest),
     BDD.step("the body ends with {string}", &body_ends_with),
     BDD.step("the body shows {string} before {string}", &body_shows_before),
     BDD.step("the browser has no cookies", &forget_cookies),
@@ -571,16 +572,27 @@ def get_stylesheet(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "GET", link.unwrap!, "")
 end
 
-# `campfire-DIGEST.css`: the digest is what is between the last `-` and the `.css`, and has to be the start of the
-# SHA-256 of the file that the name stands for.
+# The script that the room page links, a fingerprinted file of the assets folder like the stylesheet.
+def get_script(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  link = text_after(last_reply(ctx).body, "<script src=\"", "\"")
+  if link.none?
+    return BDD.assert(ctx, false, "the page has no script: #{last_reply(ctx).body}")
+  end
+
+  return send(ctx, "GET", link.unwrap!, "")
+end
+
+# `campfire-DIGEST.css` or `.js`: the digest is what is between the last `-` and the extension, and has to be the start
+# of the SHA-256 of the file that the name stands for.
 def body_has_digest(ctx: BDD.Context, args: List[String]) -> BDD.Context
   reply = last_reply(ctx)
   name = reply.path.split("/").last
   dash = name.split("-").last
-  digest = dash.slice(0, dash.length - ".css".length)
+  extension = ".#{dash.split(".").last}"
+  digest = dash.slice(0, dash.length - extension.length)
   return BDD.assert(
     ctx,
-    not digest.empty? and name.end_with?(".css") and reply.sha256.start_with?(digest),
+    not digest.empty? and name.start_with?("campfire-") and reply.sha256.start_with?(digest),
     "the name #{name} does not hold the start of the SHA-256 of its body, #{reply.sha256}",
   )
 end

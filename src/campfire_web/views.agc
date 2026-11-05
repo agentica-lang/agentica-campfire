@@ -28,7 +28,7 @@ export def layout(title: String, content: String) -> String
     <html lang="en">
     <head>
       <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
       <meta name="color-scheme" content="light dark">
       <link rel="icon" href="data:,">
       <title><%= title %></title>
@@ -371,10 +371,11 @@ export def room(
         <input name="message[client_message_id]" type="hidden" value="<%= composer.message_id %>">
         <p>
           <label><span class="sr-only">Message</span>
-            <textarea name="message[body]" rows="1" placeholder="Message" required autofocus><%= composer.draft %></textarea></label>
+            <textarea name="message[body]" rows="1" placeholder="Message" required><%= composer.draft %></textarea></label>
         </p>
         <p><button type="submit">Send</button></p>
       </form>
+      <script src="<%= Routes.COMPOSER_SCRIPT %>" defer></script>
     </main>
   EAG
   return layout(room.name, body)

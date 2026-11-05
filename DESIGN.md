@@ -1,8 +1,8 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation; change this file and
-the stylesheet together. One stylesheet, no script, no web fonts, no images: the page stays small, because the benchmark
-compares page throughput with a Rails Campfire.
+the stylesheet together. One stylesheet, one script of 4.5 KB (1.9 KB gzipped) that only the room page loads, no web fonts, no
+images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
 
@@ -56,9 +56,13 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - Wide: a sidebar of `clamp(14rem, 22vw, 18rem)`, sticky and full height, then the main column. Pages with no sidebar
   (first run, sign in, join, reset) are one 26rem card, centred.
 - A room fills the window: header, the message list (the only part that scrolls), the composer. The list is a
-  `column-reverse` flex box with one child, so the scroll starts at the newest message with no script.
+  `column-reverse` flex box with one child, so the scroll starts at the newest message with no script. The window is
+  `100vh` with `100dvh` after it, and every page says `interactive-widget=resizes-content` in its viewport meta: an
+  Android browser then shrinks the layout when the keyboard opens, so the header and the phone bar stay on screen and
+  nothing scrolls the page. (iOS Safari ignores the key and moves the page: a known gap.)
 - Phone (up to 40rem): the sidebar becomes a bar. Row one is who you are and Sign out, row two is one horizontally
   scrolling row of chips (rooms, direct messages, then the actions); the group headings stay for screen readers only.
+  Hover tints apply only where there is hover, so a tap leaves no stuck tint.
 
 ## Components
 
@@ -67,10 +71,13 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - **Room** (`main.room`): `header` with the `h1` (two lines at most) and, for those who may, the Settings link drawn as a
   quiet button; `.scroller` > `.thread` with the "Older messages" and "Latest messages" links centred and muted; the composer form
   with a one-line textarea that grows to 40vh (`field-sizing`) and the Send button, with the safe-area inset below.
+  The textarea has no `autofocus`: a phone would open its keyboard on every load. The script focuses it only on a
+  device with a fine pointer (a mouse or a trackpad).
 - **Message** (`[data-message-id]`): author in bold with the time beside it (small, muted, tabular numbers); the body below,
   wrapping anywhere, `pre` and tables scroll inside the message. Hover tints the row.
 - **Buttons**: primary (accent fill) is the default; `.quiet` (outline, text colour) for secondary actions; `.danger`
-  (outline in the accent) for Deactivate. 2.5rem high, 2.75rem on a phone; 2rem in a dense list, the room header and the Sign out button of the phone bar.
+  (outline in the accent) for Deactivate. 2.5rem high; 2.75rem (44px) on a phone, for every button and the chips; 2rem
+  in a dense list and the room header on a wide screen.
 - **Forms**: a block label (600, sm) above a full-width field, 1px `--line-strong` border, `--r-sm`. People and members are
   a `fieldset` of checkbox rows, 2.25rem high, with the accent for the box. Hints are muted and small.
 - **Flash** (`[role="alert"]`): `--flash-bg` with a 4px accent bar on the start side. The text keeps `--text`.
@@ -85,6 +92,16 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - Disabled: 50% opacity and `not-allowed`. (No page has a disabled control yet.)
 - Empty: `.empty` centred and muted ("No messages here yet.", "No messages match.").
 
+## Script
+
+`public/assets/campfire-DIGEST.js` is the only script, linked by the room page alone (`Views.room`), and the composer
+works without it (a plain post and a redirect). It sends the message with `fetch`, asking for the Turbo Stream that
+`POST /rooms/ID/messages` already answers, appends the message to the list, clears the box, gives the form a new
+`client_message_id`, scrolls to the newest message and keeps the focus in the box, so a phone keeps its keyboard open
+(Send takes no focus on `pointerdown`). A refusal (any non-2xx answer) is sent again as a plain post, so the page of
+the refusal shows its reason; a lost connection leaves the text and shows a line. A page of older messages (`?before=`)
+uses the plain post, since the latest message does not belong at the end of that page. No framework, no CDN.
+
 ## Accessibility
 
 - Contrast: text 4.5:1 or more on its background, in both themes (body about 15:1, muted 5.9:1 or more, accent buttons with
@@ -93,8 +110,8 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - Landmarks: `nav` has a label, `main` has `id="main"`, and a "Skip to the page" link is the first thing in the sidebar and
   shows on focus. Fields have a real `label` (hidden by `.sr-only` for the composer and the search box, which have a
   placeholder too). Alerts use `role="alert"`.
-- Targets: 2.5rem or more for controls (2.75rem on a phone); 2rem only in dense rows (People), the room header (Settings)
-  and Sign out in the phone bar. Those are below 44px: a known gap.
+- Targets: 2.5rem or more for controls on a wide screen (2rem only in dense rows (People) and the room header
+  (Settings)); on a phone every button, chip and checkbox row is 2.75rem (44px) or more.
 - Motion: the only transition is a 0.12s background change, and only with `prefers-reduced-motion: no-preference`.
 - Zoom: sizes are in `rem`; nothing is fixed in pixels but borders. The layout holds at 320px with no sideways page scroll
   (only the chip row scrolls).
@@ -103,7 +120,8 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 
 ## Changing the design
 
-1. Look at it in a browser (sign in, a room with long messages, People) at 1280px and 390px, light and dark.
+1. Look at it in a browser (sign in, a room with long messages, People) at 1280px and 390px, light and dark, and
+   in a room at 390x450 (a phone with its keyboard open).
 2. Keep to the tokens; add a token before adding a literal.
 3. Rename the stylesheet to its new digest and `Routes.STYLESHEET` (see AGENTS.md, "Assets").
 4. Keep markup changes small and check `specs/` for what they match.
