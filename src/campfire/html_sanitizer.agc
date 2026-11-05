@@ -183,8 +183,6 @@ NAME_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/", ">"])
 ATTRIBUTE_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/", ">", "="])
 BETWEEN_ATTRIBUTES = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/"])
 UNQUOTED_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, ">"])
-DOUBLE_QUOTE = Set.new(["\""])
-SINGLE_QUOTE = Set.new(["'"])
 
 # What may follow `</script` for it to be that end tag (and "" is the end of the text).
 AFTER_END_NAME = Set.new(["", " ", "\t", "\n", "\r", FORM_FEED, "/", ">"])
@@ -210,11 +208,13 @@ struct Closed
 end
 
 # The text that `markup` reads: the characters, which are the places that it counts in, and the text itself, which a
-# run is cut from in one `slice`.
+# run is cut from in one `slice` when `ascii` (a slice of other text costs the length up to where it starts, so
+# many of them would be quadratic).
 struct Text
   source: String
   chars: List[String]
   size: Int
+  ascii: Bool
 end
 
 # What one `<` makes: the HTML to write, the open tags after it, and where the input goes on.
@@ -241,7 +241,7 @@ export def sanitize(html: String) -> String
   out: List[String] = [escape_text(parts[0])]
   open: List[String] = []
   # The characters of the whole text, only built when `markup` needs them.
-  text = Text(source: source, chars: [], size: 0)
+  text = Text(source: source, chars: [], size: 0, ascii: true)
   # Part `mark` starts at the place `mark_start` of the text; they only move forward, so finding a place costs one
   # pass over all the parts, not one for each.
   mark = 0
@@ -279,9 +279,9 @@ export def sanitize(html: String) -> String
       out = out.push(escape_text(part))
       k += 1
     else
+      # `size` is 0 only until the characters are read: a text with a `<` is never empty.
       if text.size == 0
-        chars = source.split("")
-        text = Text(source: source, chars: chars, size: chars.size)
+        text = read_text(source)
       end
 
       while mark < k
@@ -329,8 +329,9 @@ end
 ## `plain_text` of a body that `sanitize` has cleaned already, for the caller that has the clean text and so does not
 ## sanitize it a second time.
 export def plain_text_of_clean(clean: String) -> String
-  cs = clean.split("")
-  n = cs.size
+  text = read_text(clean)
+  cs = text.chars
+  n = text.size
   out: List[String] = []
   i = 0
   while i < n
@@ -343,7 +344,7 @@ export def plain_text_of_clean(clean: String) -> String
         close += 1
       end
 
-      name = take_until(Text(source: clean, chars: cs, size: n), close, Set.new([">", " "]))
+      name = take_until(text, close, Set.new([">", " "]))
       if BREAKING_TAGS.include?(name.text)
         out = out.push("\n")
       end
@@ -629,7 +630,7 @@ def read_value(text: Text, start: Int) -> Result[Run]
       return error("value not closed")
     end
 
-    return ok(Run(text: text.source.slice(start + 1, stop - start - 1), next: stop + 1))
+    return ok(Run(text: run_of(text, start + 1, stop), next: stop + 1))
   end
 
   return ok(take_until(text, start, UNQUOTED_END))
@@ -654,9 +655,10 @@ end
 # An address with no scheme is relative; with one (a colon before any `/`, `?` or `#`) it must be on the list. A
 # colon-prefix that is not a real scheme is refused too, which is stricter than a browser and costs nothing.
 def scheme_allowed?(url: String) -> Bool
-  cs = url.split("")
-  n = cs.size
-  head = take_until(Text(source: url, chars: cs, size: n), 0, URL_DELIMITERS)
+  text = read_text(url)
+  cs = text.chars
+  n = text.size
+  head = take_until(text, 0, URL_DELIMITERS)
   if at(cs, n, head.next) != ":"
     return true
   end
@@ -776,14 +778,24 @@ def take_until(text: Text, start: Int, stops: Set[String]) -> Run
     i += 1
   end
 
-  return Run(text: text.source.slice(start, i - start), next: i)
+  return Run(text: run_of(text, start, i), next: i)
 end
 
-# The place of the first `needle` from `start` on, or the end of the text. It looks at a window of characters at a time
-# with `index_of`, which cannot start in the middle of a text, so a long run is a few builtin calls.
+# The place of the first `needle` from `start` on, or the end of the text. In ASCII text it looks at a window of
+# characters at a time with `index_of`, which cannot start in the middle of a text, so a long run is a few builtin
+# calls.
 def find_from(text: Text, start: Int, needle: String) -> Int
   n = text.size
   i = start
+  if not text.ascii
+    cs = text.chars
+    while i < n and cs[i] != needle
+      i += 1
+    end
+
+    return i
+  end
+
   while i < n
     width = (n - i).clamp(1, SEARCH_WINDOW)
     found = text.source.slice(i, width).index_of(needle)
@@ -795,6 +807,29 @@ def find_from(text: Text, start: Int, needle: String) -> Int
   end
 
   return n
+end
+
+# The text from the place `from` up to the place `to`.
+def run_of(text: Text, from: Int, to: Int) -> String
+  if text.ascii
+    return text.source.slice(from, to - from)
+  end
+
+  cs = text.chars
+  pieces: List[String] = []
+  i = from
+  while i < to
+    pieces = pieces.push(cs[i])
+    i += 1
+  end
+
+  return pieces.join("")
+end
+
+# The characters of `source`, once, so that the places of a reader count in them.
+def read_text(source: String) -> Text
+  chars = source.split("")
+  return Text(source: source, chars: chars, size: chars.size, ascii: source.bytesize == chars.size)
 end
 
 def skip(cs: List[String], n: Int, start: Int, skipped: Set[String]) -> Int

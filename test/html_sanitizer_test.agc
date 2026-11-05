@@ -365,6 +365,24 @@ def linear?(piece: String) -> Result[Void]
   return Test.assert(large < small * 5, "#{piece.inspect}: #{small} steps for 200 and #{large} for 800")
 end
 
+# The milliseconds of one sanitize of `piece` repeated `times` times.
+def milliseconds_of(piece: String, times: Int) -> Int
+  input = List.repeat(piece, times).join("")
+  start = Time.monotonic_ms()
+  HtmlSanitizer.sanitize(input)
+  return Time.monotonic_ms() - start
+end
+
+# Steps do not count what a builtin costs: cutting a slice out of text that is not ASCII takes longer the further it
+# starts, so this looks at the time. The same input with `é` for `e` must not cost many times more than with `e`
+# (the bound is loose, as a time is, and the best of two runs is taken).
+def not_slower_than_ascii?(piece: String) -> Result[Void]
+  ascii = piece.replace("é", "e")
+  plain = [milliseconds_of(ascii, 800), milliseconds_of(ascii, 800)].min.unwrap!
+  other = [milliseconds_of(piece, 800), milliseconds_of(piece, 800)].min.unwrap!
+  return Test.assert(other < plain * 4 + 20, "#{plain} ms for ASCII text and #{other} ms for the same text with é")
+end
+
 def main() -> Void
   Test.run([
     Test.test("the bodies of Action Text keep their markup and lose their attributes") do
@@ -462,6 +480,9 @@ def main() -> Void
       try linear?("<!--")
       try linear?("<a href=\"")
       linear?("<p a=b ")
+    end,
+    Test.test("the time grows with the input, also for text that is not ASCII between tags with attributes") do
+      not_slower_than_ascii?("é" * 400 + "<i a=x>")
     end,
     Test.test("the cost grows with the input, also for a script that never ends") do
       try linear?("<a href=\"javascript:x\" ")
