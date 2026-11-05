@@ -1,6 +1,6 @@
 # The tools of basecamp/once-campfire-verification that a dev box may lack: Ruby, the sqlite3 CLI,
-# FFmpeg (ffprobe), the docker CLI and the Rust toolchain that the harness pins (loadgen).
-# The container talks to the host's Docker through its socket (see run.sh), so it holds no daemon.
+# FFmpeg (ffprobe), the Rust toolchain that the harness pins (loadgen) and the docker CLI with buildx
+# (the Rails image of bin/seed needs BuildKit).
 FROM debian:trixie-slim
 
 ARG RUST_VERSION=1.98.1
@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      build-essential ca-certificates curl docker-cli ffmpeg git ruby ruby-minitest sqlite3 util-linux \
+      build-essential ca-certificates curl docker-buildx docker-cli ffmpeg git ruby ruby-minitest sqlite3 util-linux \
  && rm -rf /var/lib/apt/lists/*
 
 # A profile without docs: the harness only builds loadgen. CARGO_HOME is chosen at run time (it must be
