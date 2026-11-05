@@ -1,7 +1,7 @@
 # Runs Campfire from this checkout: `docker compose up -d --build`, then open http://127.0.0.1:3000.
 # Put the session secret in .env (not in git): SECRET_KEY_BASE=$(openssl rand -hex 64).
-# Local changes (a network, an address, a public url) go in docker-compose.override.yml, which compose
-# reads on its own; keep it out of git.
+# Local changes (a network, a public url) go in docker-compose.override.yml, which compose reads on its own
+# and git ignores. Use `ports: !override [...]` there to change the published address.
 services:
   campfire:
     build: .

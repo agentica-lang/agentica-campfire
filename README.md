@@ -30,11 +30,11 @@ docker run --rm --init -p 3000:3000 -e CAMPFIRE_HOST=0.0.0.0 -e CAMPFIRE_PORT=30
 Or with Compose, which keeps the data in the `campfire-storage` volume and publishes the port on `127.0.0.1` only:
 
 ```sh
-echo "SECRET_KEY_BASE=$(openssl rand -hex 64)" > .env
+[ -f .env ] || echo "SECRET_KEY_BASE=$(openssl rand -hex 64)" > .env
 docker compose up -d --build
 ```
 
-Local settings, such as a network, an address or `CAMPFIRE_BASE_URL`, go in `docker-compose.override.yml`. Compose reads that file on its own; keep it and `.env` out of git.
+Local settings, such as a network or `CAMPFIRE_BASE_URL`, go in `docker-compose.override.yml`, which Compose reads on its own. Compose adds an override's `ports` to the base list, so use `ports: !override [...]` there to change the published address. Git ignores that file and `.env`.
 
 The image has the pinned Agentica release, the app and its packages (no network at run time) on Debian 13 slim. `docker/entrypoint.sh` maps the environment of the [Rails benchmark harness](https://github.com/basecamp/once-campfire-verification) to `CAMPFIRE_*` (the database is `/rails/storage/db/production.sqlite3`, the Active Storage files `/rails/storage/files`; `HTTP_PORT` is the port; the session secret comes from `SECRET_KEY_BASE`); a `CAMPFIRE_*` variable that you set wins. It listens on `127.0.0.1` unless `CAMPFIRE_HOST` says otherwise. The image is x86_64 only. In the benchmark harness, `bin/seed` writes `SECRET_KEY_BASE`.
 
