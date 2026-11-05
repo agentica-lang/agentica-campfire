@@ -1,4 +1,5 @@
-# Needs Agentica 0.24.1 or later on PATH (or AGENTICA=/path/to/agentica): `agentica test --jobs` is new in 0.24.1.
+# Needs Agentica 0.24.1 or later on PATH (`agentica test --jobs` is new in 0.24.1). AGENTICA=/path/to/agentica works
+# for the targets, but the mail specs start their SMTP peer with the `agentica` on PATH.
 AGENTICA ?= agentica
 # How many test files run at once (`make test JOBS=1` runs them one by one).
 JOBS ?= 4

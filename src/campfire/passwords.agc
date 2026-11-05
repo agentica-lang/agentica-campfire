@@ -5,9 +5,8 @@
 import Bcrypt from "bcrypt"
 
 # OWASP's scrypt setting for a cost of 2^16 (64 MiB of memory) with two lanes. The call runs to its end on its
-# scheduler (see `KDF` in the library), so this is the time one sign-in takes of it. On Agentica 0.23.0 the builtin
-# blocks its scheduler (fixed on main by agentica-lang/agentica#1052), and `Slots` in `AuthWeb` bounds how many run at
-# once.
+# scheduler (see `KDF` in the library), so this is the time one sign-in takes of it. Since Agentica 0.24.0 it runs on
+# the compute pool; `Slots` in `AuthWeb` still bounds how many run at once, for their memory.
 COST = 65_536
 BLOCK_SIZE = 8
 PARALLELISM = 2

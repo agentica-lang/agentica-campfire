@@ -128,6 +128,5 @@ request that was already past the filter finishes.
 - The per-IP limit covers sign-in only (the post to `/session`). The join page, the first run and the
   password reset form have none: the join code is 48 random bits, and the password reset has its own
   limits (see [mail.md](mail.md)).
-- Hashing a password with scrypt blocks a scheduler on Agentica 0.23.0. Agentica main fixes it
-  ([agentica#1052](https://github.com/agentica-lang/agentica/pull/1052)), in the next release. The
-  limit of two hashes at a time still applies.
+- Since Agentica 0.24.0 scrypt runs on the compute pool, so a hash does not block a scheduler. The
+  limit of two hashes at a time still applies, since each one takes 64 MiB.
