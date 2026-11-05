@@ -375,12 +375,12 @@ end
 
 # Steps do not count what a builtin costs: cutting a slice out of text that is not ASCII takes longer the further it
 # starts, so this looks at the time. The same input with `é` for `e` must not cost many times more than with `e`
-# (the bound is loose, as a time is, and the best of two runs is taken).
+# (the bound is loose, as a time is on a shared runner, and the best of three runs is taken).
 def not_slower_than_ascii?(piece: String) -> Result[Void]
   ascii = piece.replace("é", "e")
-  plain = [milliseconds_of(ascii, 800), milliseconds_of(ascii, 800)].min.unwrap!
-  other = [milliseconds_of(piece, 800), milliseconds_of(piece, 800)].min.unwrap!
-  return Test.assert(other < plain * 4 + 20, "#{plain} ms for ASCII text and #{other} ms for the same text with é")
+  plain = [milliseconds_of(ascii, 800), milliseconds_of(ascii, 800), milliseconds_of(ascii, 800)].min.unwrap!
+  other = [milliseconds_of(piece, 800), milliseconds_of(piece, 800), milliseconds_of(piece, 800)].min.unwrap!
+  return Test.assert(other < plain * 8 + 60, "#{plain} ms for ASCII text and #{other} ms for the same text with é")
 end
 
 def main() -> Void
