@@ -10,7 +10,7 @@ bench/run.sh --apps agentica --preflight     # one round, no load
 bench/run.sh --apps agentica                 # the measured run: nothing else may run on the machine
 ```
 
-`run.sh` does this, and every step is skipped when done:
+`run.sh` does this, and is safe to run again: the clones, the patch and the seed are skipped when done, the runner image and loadgen are cached builds:
 
 1. Under `BENCH_DIR` (`~/apps/bench`): clones the harness at `ec02deb` and clones this repo as
    `once-campfire-agentica`, the checkout that the harness expects next to its own (it runs git there to
@@ -30,4 +30,4 @@ temporary folder at the same paths as the host, since the harness gives host pat
 Settings: `BENCH_DIR`, `BENCH_CACHE` (cargo registry; `~/.cache/campfire-bench`), `BENCH_TMPDIR` (the harness
 lock file and temporary files; keep it off a small `/tmp`), `CARGO_BUILD_JOBS`.
 
-The app image is not built here: it comes from the Dockerfile of the app (step F of the plan).
+The app image is not built here, and the harness only runs an existing one: build it in the app checkout with `docker build -t once-campfire-agentica:app .` (`AGENTICA_IMAGE` names another tag).

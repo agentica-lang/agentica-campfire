@@ -31,6 +31,10 @@ for arg in "$@"; do
 done
 
 mkdir -p "$bench_dir" "$cache/cargo" "$cache/home" "$tmp"
+# Absolute paths: the container mounts each one at the same path, and a relative one would be a named volume.
+bench_dir=$(cd "$bench_dir" && pwd); cache=$(cd "$cache" && pwd); tmp=$(cd "$tmp" && pwd)
+harness=$bench_dir/once-campfire-verification
+app=$bench_dir/once-campfire-agentica
 
 if [ ! -d "$harness/.git" ]; then
   git clone --quiet "$harness_url" "$harness"
@@ -77,13 +81,18 @@ in_container() {
 
 in_container cargo build --release --locked --manifest-path loadgen/Cargo.toml
 
-# bin/seed refuses an existing output and moves the finished one into place at the end, so the folder
-# exists only after a complete seed. It builds the Rails reference image: several GB and minutes, once.
-if [ ! -f "$harness/fixtures/default/db/production.sqlite3" ]; then
+# bin/seed refuses an existing output and copies the finished one into place at the end; a copy cut short
+# leaves a partial folder that needs `rm -rf fixtures/default`. It builds the Rails reference image: several
+# GB and minutes, once.
+if [ ! -e "$harness/fixtures/default" ]; then
   in_container bin/seed
 fi
 
 if $setup_only; then exit 0; fi
+
+# What a run measured: the harness revision is recorded by bin/benchmark, the patch and the app are not.
+echo "harness.patch sha256 $(sha256sum "$here/harness.patch" | cut -d' ' -f1)"
+echo "app $(git -C "$app" rev-parse HEAD)"
 
 # This box has 8 cores: the harness defaults (8-11 and 12-15) are for 16.
 defaults=()
