@@ -31,8 +31,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
-                and forms of rooms), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and
-                the avatar link)
+                and forms of rooms), message_cache.agc (the cache of rendered messages), sidebars.agc, searches.agc
+                and avatars.agc (the sidebar page, the search and the avatar link)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
@@ -56,7 +56,7 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   `make run`.
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
-- Agentica 0.24.1 or later (`make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
+- Agentica 0.24.3 or later (`std/cache`; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in `.github/workflows/ci.yml`).
 - To move Bond or agentica-db: `agentica add bond https://github.com/agentica-lang/bond --ref COMMIT` (or `db`
   and `https://github.com/agentica-lang/agentica-db`), commit the lock.
@@ -166,9 +166,15 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
   transaction and fails, rolling back, when it no longer holds. The form sends plain text, stripped of the space around
   it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; every body that `Rooms`
-  gives out (`Rooms.message_of`, for `Rooms.page` and the search) is cleaned as it is read, since a row that Rails wrote
+  gives out is cleaned as it is read (`Rooms.clean`, called by `Rooms.message_of` for the search and by
+  `MessageCache` for a page of a room, which hands `Rooms.page`'s `Stored` messages), since a row that Rails wrote
   was never cleaned by this app; the cleaner leaves clean markup as it is, so what `Rooms.post` stored passes
   unchanged, and the view writes the body as it is given.
+- Message cache: the markup of each message of a room page and of the older messages (`Views.message`) is cached by
+  `MessageCache` in one process-wide `std/cache` store (`CAMPFIRE_CACHE_MB`, 64 by default, 0 for none), under a key of
+  the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial
+  does. Whatever `Views.message` starts to show must go in `MessageCache.key`. The pages must be the same bytes with the
+  cache on and off (`specs/message_cache.feature`).
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an

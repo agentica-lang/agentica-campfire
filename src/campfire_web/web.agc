@@ -1,6 +1,7 @@
 ## The routes of the app, on Bond.
 
 import Bond from "pkg/bond/bond"
+import Cache from "std/cache"
 import AccountsWeb from "accounts"
 import AuthWeb from "auth"
 import AvatarsWeb from "avatars"
@@ -27,12 +28,19 @@ end
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
 ## `AccountsWeb`, the sidebar, the search, the avatars (checked with the key of `SECRET_KEY_BASE`) and the folder of the
-## stylesheet. `config.assets_dir` must be a folder, which `App.start` checks.
-export def build(config: Config, pool: Database.Pool, schema_version: Int, mailer: Mailer.Mailer) -> Bond.App
+## stylesheet. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered
+## messages for the room pages (`MessageCache.start`); without it every message is rendered each time.
+export def build(
+  config: Config,
+  pool: Database.Pool,
+  schema_version: Int,
+  mailer: Mailer.Mailer,
+  messages: Optional[Cache.Store] = none,
+) -> Bond.App
   return (
     Bond.app()
     |> AuthWeb.add(config, pool, mailer)
-    |> RoomsWeb.add(pool)
+    |> RoomsWeb.add(pool, messages)
     |> AccountsWeb.add(config, pool)
     |> SidebarsWeb.add(pool)
     |> SearchesWeb.add(pool)

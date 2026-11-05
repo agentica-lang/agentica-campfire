@@ -247,8 +247,8 @@ export def messages_id(room: Rooms.Room) -> String
 end
 
 ## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the presentation
-## `<div>` inside the frame that Turbo edits it in. The body is HTML that `Rooms.page` or `Rooms.post` has cleaned, the
-## one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
+## `<div>` inside the frame that Turbo edits it in. The body is HTML that `Rooms.clean` (`MessageCache`, for a page) or
+## `Rooms.post` has cleaned, the one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
 ## where a message ends (see specs/message_routes.feature).
 export def message(message: Rooms.Message) -> String
   return <<~EAG.strip
@@ -327,10 +327,17 @@ export def avatar_initials(initials: String, color: String) -> String
 end
 
 ## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
-## the form that posts a message. The body of a message is HTML that `Rooms.page` has cleaned, so it is the one value
-## here that is written with `<%== %>`. `can_edit` adds the link to the settings, for the people who may change the
-## room.
-export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: Composer, can_edit: Bool) -> String
+## the form that posts a message. `thread` is the markup of the messages of `page` (`MessageCache.list`, which is
+## `messages_list` of them with their bodies cleaned), written with `<%== %>`. `can_edit` adds the link to the
+## settings, for the people who may change the room.
+export def room(
+  sidebar: String,
+  room: Rooms.Room,
+  page: Rooms.Page,
+  thread: String,
+  composer: Composer,
+  can_edit: Bool,
+) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
@@ -350,7 +357,7 @@ export def room(sidebar: String, room: Rooms.Room, page: Rooms.Page, composer: C
           <p class="empty">No messages here yet.</p>
     <% end %>
     <div id="<%= messages_id(room) %>">
-    <%== messages_list(page.messages) %>
+    <%== thread %>
     </div>
     <% if not page.at_latest %>
           <p class="more"><a href="<%= Routes.room_path(room.id) %>">Latest messages</a></p>

@@ -3,6 +3,7 @@
 import Bond from "pkg/bond/bond"
 import Database from "../campfire/repo/database"
 import Mailer from "../campfire/mail/mailer"
+import MessageCache from "message_cache"
 import Web from "web"
 import {Config, plain_link?} from "../campfire/config"
 
@@ -86,7 +87,8 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   end
 
   mailer = try Mailer.start(config.smtp, config.mail_queue)
-  started = Bond.start(Web.build(config, pool, schema_version, mailer), config.host, config.port)
+  messages = MessageCache.start(config.cache_mb)
+  started = Bond.start(Web.build(config, pool, schema_version, mailer, messages), config.host, config.port)
   if not started.ok?
     Mailer.stop(mailer)
     # The system's message names the host and the port, not the variables that a person has to change.

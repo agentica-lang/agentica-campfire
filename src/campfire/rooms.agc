@@ -46,12 +46,14 @@ UNKNOWN_AUTHOR = "Unknown"
 # The form of a timestamp in `<time datetime>`: ISO 8601, UTC, with milliseconds.
 ISO = "%Y-%m-%dT%H:%M:%fZ"
 
-## The select of a message as `message_of` reads it, up to its tables and with no `where`: the author (or
-## `UNKNOWN_AUTHOR`), the body that `action_text_rich_texts` holds and the time in the ISO form. A page of a room and
-## the search read their messages through it, so both show a message the same way.
+## The select of a message as `stored_of` reads it, up to its tables and with no `where`: the author (or
+## `UNKNOWN_AUTHOR`), the body that `action_text_rich_texts` holds, the time in the ISO form and `updated_at` as the
+## column holds it. A page of a room and the search read their messages through it, so both show a message the same
+## way.
 export MESSAGE_SELECT = (
   "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
-  "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at " +
+  "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +
+  "messages.updated_at as updated_at " +
   "from messages left join users on users.id = messages.creator_id " +
   "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
   "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}'"
@@ -94,10 +96,21 @@ export struct Message
   created_at: String
 end
 
+## A message as the database holds it: the body is not cleaned yet, so `clean` must run before a view writes it. A page
+## of a room hands these out, so that a view that has rendered the message before (`MessageCache`) can skip the
+## cleaning. `updated_at` is the column as it is.
+export struct Stored
+  id: Int
+  author: String
+  body: String
+  created_at: String
+  updated_at: String
+end
+
 ## A page of a room, oldest message first. `older` is the cursor of the page before it (`before=` of `page`), `none`
 ## when this one reaches the first message. `at_latest` is false for a page that was asked for with a cursor.
 export struct Page
-  messages: List[Message]
+  messages: List[Stored]
   older: Optional[Int]
   at_latest: Bool
 end
@@ -133,16 +146,32 @@ export def body_problem(body: String) -> String
   return ""
 end
 
-## A message from a row of `MESSAGE_SELECT`, with its body cleaned.
-export def message_of(row: Db.Row) -> Message
-  return Message(
+## A message from a row of `MESSAGE_SELECT`, as it is stored.
+export def stored_of(row: Db.Row) -> Stored
+  return Stored(
     id: int_of(row, "id"),
     author: text_of(row, "author"),
-    # Every body is cleaned on its way out, since a row that Rails wrote was never cleaned by this app; a body that
-    # `post` stored clean passes unchanged (`sanitize` is idempotent: test/html_sanitizer_test.agc).
-    body: HtmlSanitizer.sanitize(text_of(row, "body")),
+    body: text_of(row, "body"),
     created_at: text_of(row, "created_at"),
+    updated_at: text_of(row, "updated_at"),
   )
+end
+
+## The message with its body cleaned. Every body is cleaned on its way out, since a row that Rails wrote was never
+## cleaned by this app; a body that `post` stored clean passes unchanged (`sanitize` is idempotent:
+## test/html_sanitizer_test.agc).
+export def clean(stored: Stored) -> Message
+  return Message(
+    id: stored.id,
+    author: stored.author,
+    body: HtmlSanitizer.sanitize(stored.body),
+    created_at: stored.created_at,
+  )
+end
+
+## A message from a row of `MESSAGE_SELECT`, with its body cleaned.
+export def message_of(row: Db.Row) -> Message
+  return clean(stored_of(row))
 end
 
 ## The rooms that the person shows in their sidebar: every room they are in, except the ones they set to invisible,
@@ -290,7 +319,7 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
     params.push(Db.Value.Int(PAGE_SIZE + 1)),
   )
 
-  shown = rows.take(PAGE_SIZE).map do |row| message_of(row) end
+  shown = rows.take(PAGE_SIZE).map do |row| stored_of(row) end
   older: Optional[Int] = none
   if rows.size > PAGE_SIZE
     older = some(shown.last.id)

@@ -81,6 +81,30 @@ def pool_of(size: String, checkout: String) -> Result[Config.Config]
   )
 end
 
+# `parse` with this size of the cache of messages.
+def cache_of(megabytes: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    Config.DEFAULT_ASSETS_DIR,
+    megabytes,
+  )
+end
+
 def main() -> Void
   Test.run([
     Test.test("a host and a port make a config, and the database is a file of the data folder by default") do
@@ -360,6 +384,17 @@ def main() -> Void
       try Test.error?(pool_of("", "0"))
       try Test.error?(pool_of("", "#{Config.MAX_DB_CHECKOUT_MS + 1}"))
       Test.error?(pool_of("many", ""))
+    end,
+    Test.test(
+      "the cache of messages has a default size, 0 turns it off, and the environment may name up to the most",
+    ) do
+      try Test.eq(parse("127.0.0.1", "3000", "data").unwrap!.cache_mb, Config.DEFAULT_CACHE_MB)
+      try Test.eq(cache_of("").unwrap!.cache_mb, Config.DEFAULT_CACHE_MB)
+      try Test.eq(cache_of(" 8 ").unwrap!.cache_mb, 8)
+      try Test.eq(cache_of("0").unwrap!.cache_mb, 0)
+      try Test.error?(cache_of("-1"))
+      try Test.error?(cache_of("#{Config.MAX_CACHE_MB + 1}"))
+      Test.error?(cache_of("a lot"))
     end,
     Test.test(
       "the bcrypt library is empty (the default of the system) unless the environment names one, and is never checked",
