@@ -44,6 +44,8 @@ fi
 # Move it to another revision with `git -C $app fetch origin && git -C $app checkout --detach REV`.
 if [ ! -d "$app/.git" ]; then
   git clone --quiet "$repo" "$app"
+  # A later fetch should see the published repo, not this checkout (often a worktree that goes away).
+  git -C "$app" remote set-url origin "$(git -C "$repo" remote get-url origin)"
   git -C "$app" checkout --quiet --detach "$(git -C "$repo" rev-parse HEAD)"
 fi
 
