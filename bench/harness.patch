@@ -1,0 +1,49 @@
+diff --git a/README.md b/README.md
+index 9a284e3..ce3af68 100644
+--- a/README.md
++++ b/README.md
+@@ -19,7 +19,7 @@ cargo build --release --locked --manifest-path loadgen/Cargo.toml
+ bin/benchmark --apps rails,elixir,go,rust
+ ```
+ 
+-Build the implementations' production images first. Override their image names with `RAILS_IMAGE`, `DJANGO_IMAGE`, `LARAVEL_IMAGE`, `EXPRESS_IMAGE`, `ELIXIR_IMAGE`, `GO_IMAGE`, `RUST_IMAGE`, `C_IMAGE` and `CPP_IMAGE`. The C++ implementation is not in the default `--apps` list; select it with `--apps rust,cpp`. `--help` lists the benchmark options, including CPU affinity, seed path, route selection and output directory. The default is three alternating rounds with 16 concurrent clients. A process lock prevents overlapping benchmark runs. The fixture builder pins public Rails revision `90b3300` and generates real attachments and variants; it generates disposable signing, push and login credentials locally and refuses to overwrite an existing seed.
++Build the implementations' production images first. Override their image names with `RAILS_IMAGE`, `DJANGO_IMAGE`, `LARAVEL_IMAGE`, `EXPRESS_IMAGE`, `ELIXIR_IMAGE`, `GO_IMAGE`, `RUST_IMAGE`, `C_IMAGE`, `CPP_IMAGE` and `AGENTICA_IMAGE`. The C++ and Agentica implementations are not in the default `--apps` list; select them with `--apps rust,cpp` or `--apps rust,agentica`. The Agentica image is `once-campfire-agentica:app` and its source checkout is `../once-campfire-agentica`; `AGENTICA_BENCH_ENV` takes extra environment as JSON. `--help` lists the benchmark options, including CPU affinity, seed path, route selection and output directory. The default is three alternating rounds with 16 concurrent clients. A process lock prevents overlapping benchmark runs. The fixture builder pins public Rails revision `90b3300` and generates real attachments and variants; it generates disposable signing, push and login credentials locally and refuses to overwrite an existing seed.
+ 
+ An optional cache-churn profile runs the same validated reads alongside one paced writer:
+ 
+diff --git a/bench/compare.rb b/bench/compare.rb
+index 9e1f15f..5d66ba4 100644
+--- a/bench/compare.rb
++++ b/bench/compare.rb
+@@ -29,7 +29,7 @@ OptionParser.new do |parser|
+ end.parse!
+ raise "use at least two rounds" unless options[:rounds] >= 2
+ apps = options[:apps].split(",")
+-allowed = %w[rails django laravel express express-bun elixir go rust c cpp]
++allowed = %w[rails django laravel express express-bun elixir go rust c cpp agentica]
+ raise "apps must be nonempty, unique and supported" unless !apps.empty? && apps.uniq == apps && apps.all? { |app| allowed.include?(app) }
+ selected_routes = options[:routes].split(",")
+ raise "unknown or empty route selection" unless !selected_routes.empty? && (selected_routes - %w[room_show messages_page sidebar search avatar static_css up post_message]).empty?
+@@ -89,7 +89,8 @@ begin
+     order = iteration.even? ? apps : apps.reverse
+     order.each do |app|
+       kind = runtimes.fetch(app)
+-      images = { "rails" => "once-campfire:app", "rust" => "campfire-rust:app", "elixir" => "campfire-elixir:app", "express-bun" => "once-campfire-express:bun" }
++      images = { "rails" => "once-campfire:app", "rust" => "campfire-rust:app", "elixir" => "campfire-elixir:app", "express-bun" => "once-campfire-express:bun",
++        "agentica" => "once-campfire-agentica:app" }
+       image = ENV.fetch("#{env_name.(app)}_IMAGE", images.fetch(app, "once-campfire-#{app}:app"))
+       source = File.join(options[:workspace], kind == "rails" ? "once-campfire" : "once-campfire-#{kind}")
+       image_id = run("docker", "image", "inspect", "-f", "{{.Id}}", image).strip
+@@ -125,10 +126,11 @@ begin
+       when "express" then {http_workers: config.fetch("WEB_WORKERS", "auto (cpuset)"), cable: "native ws with cluster IPC", jobs: "leased auxiliary SQLite"}
+       when "laravel" then {http: "FrankenPHP/Octane", jobs: "leased auxiliary SQLite", cable: "native ReactPHP"}
+       when "c" then {processes: 1, http_loops: config.fetch("CF_LOOPS", "affinity, capped at 4"), cache_bytes: config.fetch("CF_CACHE_BYTES", "67108864"), jobs: "in-process"}
++      when "agentica" then {processes: 1, runtime: "Agentica VM", cable: "none", jobs: "in-process"}
+       when "cpp" then {processes: 1, page_cache_mb: config.fetch("CAMPFIRE_PAGE_CACHE_MB", "32"), cable: "native", jobs: "in-process"}
+       when "django" then {http_workers: config.fetch("WEB_WORKERS", config["REDIS_URL"].to_s.empty? ? "1" : "affinity, capped at 4"), runtime: "ASGI/Uvicorn", cable: "native", jobs: "leased auxiliary SQLite"}
+       end
+-      unless %w[c cpp].include?(kind)
++      unless %w[c cpp agentica].include?(kind)
+         metadata[:topology][app][:response_cache_mb] = config.fetch("CAMPFIRE_RESPONSE_CACHE_MB", "64")
+       end
+       command = ["docker", "run", "-d", "--name", container, "--network", "host", "--cpuset-cpus", options[:cpus]]
