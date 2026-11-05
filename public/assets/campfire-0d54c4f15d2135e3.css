@@ -395,7 +395,8 @@ input[type="checkbox"] {
 }
 
 /* Flash */
-[role="alert"] {
+[role="alert"],
+main.room > p[aria-live]:not(:empty) {
   margin: 0 0 var(--s-4);
   padding: var(--s-2) var(--s-3);
   border-inline-start: 4px solid var(--accent);
@@ -458,8 +459,14 @@ main.room > header a {
   color: var(--muted);
 }
 
-main.room > [role="alert"] {
+main.room > [role="alert"],
+main.room > p[aria-live]:not(:empty) {
   margin: var(--s-3) var(--s-5) 0;
+}
+
+/* The line that the script fills ("Not sent"): it is in the page empty, so that a screen reader announces the text. */
+main.room > p[aria-live]:empty {
+  margin: 0;
 }
 
 main.room > form {
@@ -746,7 +753,8 @@ form[action="/searches"] input {
     padding-inline: var(--s-4);
   }
 
-  main.room > [role="alert"] {
+  main.room > [role="alert"],
+  main.room > p[aria-live]:not(:empty) {
     margin-inline: var(--s-4);
   }
 
@@ -761,23 +769,30 @@ form[action="/searches"] input {
     min-height: 2.75rem;
   }
 
-  /* A short window (a phone with its keyboard open, or turned sideways) with the composer in use: the bar keeps only
-     the chips, so the messages have room. Sign out is back as soon as the field loses the focus. */
+  /* A short window (a phone with its keyboard open, or turned sideways): the bar is one row, the chips and Sign out at
+     their end, and "Signed in as" goes, so the messages have room. It depends on the height only, never on the focus:
+     a layout that moves when the field loses the focus moves the chip that is being tapped. */
   @media (max-height: 34rem) {
-    body:has(main.room textarea:focus) nav .who,
-    body:has(main.room textarea:focus) nav form {
+    nav .who {
       display: none;
     }
 
-    body:has(main.room textarea:focus) nav .lists {
-      margin-top: 0;
+    nav .lists {
+      grid-row: 1;
+      grid-column: 1;
+      margin: 0 var(--s-2) 0 0;
+      padding-bottom: 0;
     }
   }
 
-  /* Shorter still (sideways with the keyboard): the room title goes too, the chips say where you are. */
+  /* Shorter still: a thinner room header and composer. */
   @media (max-height: 24rem) {
-    body:has(main.room textarea:focus) main.room > header {
-      display: none;
+    main.room > header {
+      padding-block: var(--s-1);
+    }
+
+    main.room > form {
+      padding-block: var(--s-2);
     }
   }
 

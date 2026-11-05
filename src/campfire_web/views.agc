@@ -367,6 +367,7 @@ export def room(
     <% if not composer.note.empty? %>
       <p role="alert"><%= composer.note %></p>
     <% end %>
+      <p aria-live="polite"></p>
       <form method="post" action="<%= Routes.room_messages_path(room.id) %>">
         <input name="message[client_message_id]" type="hidden" value="<%= composer.message_id %>">
         <p>

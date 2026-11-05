@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation; change this file and
-the stylesheet together. One stylesheet, one script of 4.5 KB (1.9 KB gzipped) that only the room page loads, no web fonts, no
+the stylesheet together. One stylesheet, one script of about 5 KB (2.1 KB gzipped) that only the room page loads, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -62,7 +62,11 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
   nothing scrolls the page. (iOS Safari ignores the key and moves the page: a known gap.)
 - Phone (up to 40rem): the sidebar becomes a bar. Row one is who you are and Sign out, row two is one horizontally
   scrolling row of chips (rooms, direct messages, then the actions); the group headings stay for screen readers only.
-  Hover tints apply only where there is hover, so a tap leaves no stuck tint.
+  Hover tints apply only where there is hover, so a tap leaves no stuck tint. The bar also applies to a touch screen
+  turned sideways (`max-height: 30rem` and `pointer: coarse`). In a window shorter than 34rem (a phone with its
+  keyboard open) the bar is one row, the chips with Sign out at their end, and "Signed in as" goes; under 24rem the
+  room header and the composer are thinner. This depends on the height alone and never on the focus: a layout that
+  moves when the field loses the focus moves the chip being tapped, and the tap is lost.
 
 ## Components
 
@@ -100,7 +104,11 @@ works without it (a plain post and a redirect). It sends the message with `fetch
 `client_message_id`, scrolls to the newest message and keeps the focus in the box, so a phone keeps its keyboard open
 (Send takes no focus on `pointerdown`). A refusal (any non-2xx answer) is sent again as a plain post, so the page of
 the refusal shows its reason; a lost connection leaves the text and shows a line. A page of older messages (`?before=`)
-uses the plain post, since the latest message does not belong at the end of that page. No framework, no CDN.
+uses the plain post, since the latest message does not belong at the end of that page. What was typed while the post
+was in flight stays in the box; only the text that was sent is cleared. The "Not sent" line is an empty
+`<p aria-live="polite">` in the page that the script fills, so a screen reader announces it. The `client_message_id`
+is new after each send, but the server does not use it to drop a repeat (as in Rails: `docs/rooms.md`), so a retry
+after an answer that was lost can store the message twice. No framework, no CDN.
 
 ## Accessibility
 
@@ -111,7 +119,8 @@ uses the plain post, since the latest message does not belong at the end of that
   shows on focus. Fields have a real `label` (hidden by `.sr-only` for the composer and the search box, which have a
   placeholder too). Alerts use `role="alert"`.
 - Targets: 2.5rem or more for controls on a wide screen (2rem only in dense rows (People) and the room header
-  (Settings)); on a phone every button, chip and checkbox row is 2.75rem (44px) or more.
+  (Settings)); on a phone every button, chip and checkbox row is 2.75rem (44px) or more. Text links in the page body
+  ("Older messages", "Latest messages", the join link and the like) are out of scope: they keep the size of their text.
 - Motion: the only transition is a 0.12s background change, and only with `prefers-reduced-motion: no-preference`.
 - Zoom: sizes are in `rem`; nothing is fixed in pixels but borders. The layout holds at 320px with no sideways page scroll
   (only the chip row scrolls).

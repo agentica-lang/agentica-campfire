@@ -6,7 +6,10 @@
 
   var STREAM = "text/vnd.turbo-stream.html";
   var form = document.querySelector("main.room > form");
-  if (!form || !window.fetch || !window.URLSearchParams || !window.FormData) {
+  // The empty line above the form that is made to be filled: a screen reader announces text put into a live region
+  // that was already in the page, and may skip one that arrives with its text.
+  var line = document.querySelector("main.room > p[aria-live]");
+  if (!form || !line || !window.fetch || !window.URLSearchParams || !window.FormData) {
     return;
   }
 
@@ -22,9 +25,13 @@
     field.focus();
   }
 
-  // Tapping Send would move the focus to the button and close the keyboard.
-  button.addEventListener("pointerdown", function (event) {
-    event.preventDefault();
+  // Tapping Send would move the focus to the button and close the keyboard. pointerdown and mousedown both, since a
+  // browser sends one or the other first; touchstart is left alone, because cancelling it also cancels the click.
+  // The keyboard (Enter, Space) does not send either, so it still activates the button.
+  ["pointerdown", "mousedown"].forEach(function (name) {
+    button.addEventListener(name, function (event) {
+      event.preventDefault();
+    });
   });
 
   form.addEventListener("submit", function (event) {
@@ -47,6 +54,7 @@
   });
 
   function send() {
+    var text = field.value;
     busy = true;
     button.disabled = true;
     fetch(form.action, {
@@ -64,9 +72,9 @@
           if (!response.ok) {
             return form.submit();
           }
-          return response.text().then(function (text) {
-            if (append(text)) {
-              sent();
+          return response.text().then(function (answer) {
+            if (append(answer)) {
+              sent(text);
             } else {
               form.submit();
             }
@@ -76,6 +84,10 @@
           note("Not sent. Check the connection and try again.");
         },
       )
+      // The answer came but could not be read: the message is stored, so the page is loaded again to show it.
+      .catch(function () {
+        location.reload();
+      })
       .then(function () {
         busy = false;
         button.disabled = false;
@@ -107,13 +119,16 @@
     return true;
   }
 
-  function sent() {
+  // `text` is what was sent: what the person typed since stays in the box.
+  function sent(text) {
     var empty = document.querySelector(".thread .empty");
     if (empty) {
       empty.remove();
     }
     note("");
-    field.value = "";
+    if (field.value === text) {
+      field.value = "";
+    }
     ident.value = freshId();
     // The list is a column-reverse box: 0 is its end, where the new message is.
     scroller.scrollTop = 0;
@@ -132,22 +147,12 @@
       .join("");
   }
 
-  // The line above the form that says why a message was not sent; "" takes it away.
+  // The line above the form that says why a message was not sent; "" empties it.
   function note(text) {
-    var alert = form.previousElementSibling;
-    if (!alert || alert.getAttribute("role") !== "alert") {
-      if (!text) {
-        return;
-      }
-      alert = document.createElement("p");
-      alert.setAttribute("role", "alert");
-      form.parentNode.insertBefore(alert, form);
+    var server = document.querySelector('main.room > [role="alert"]');
+    if (server) {
+      server.remove();
     }
-
-    if (text) {
-      alert.textContent = text;
-    } else {
-      alert.remove();
-    }
+    line.textContent = text;
   }
 })();
