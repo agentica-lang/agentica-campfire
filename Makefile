@@ -1,5 +1,7 @@
-# Needs Agentica 0.23.0 or later on PATH (or AGENTICA=/path/to/agentica).
+# Needs Agentica 0.24.1 or later on PATH (or AGENTICA=/path/to/agentica): `agentica test --jobs` is new in 0.24.1.
 AGENTICA ?= agentica
+# How many test files run at once (`make test JOBS=1` runs them one by one).
+JOBS ?= 4
 
 .PHONY: help install run check fmt-check test
 
@@ -19,7 +21,7 @@ help:
 	@echo "           CAMPFIRE_SMTP_HOSTNAME, CAMPFIRE_MAIL_QUEUE_SIZE)"
 	@echo "check      type-check every .agc file"
 	@echo "fmt-check  fail when a file is not formatted (agentica fmt)"
-	@echo "test       run the features of specs/ and the tests of test/"
+	@echo "test       run the features of specs/ and the tests of test/ (JOBS=4 files at once)"
 
 install:
 	$(AGENTICA) install
@@ -34,4 +36,4 @@ fmt-check:
 	$(AGENTICA) fmt --check campfire.agc src specs test
 
 test:
-	$(AGENTICA) test
+	$(AGENTICA) test --jobs $(JOBS)

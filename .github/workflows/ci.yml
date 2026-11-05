@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  AGENTICA_VERSION: 0.23.0
-  AGENTICA_SHA256: b81de3919408ffd95e4466a48f729fb1eb33521cc1a8ea3909b038c9daedb0ed
+  AGENTICA_VERSION: 0.24.1
+  AGENTICA_SHA256: ae9c361bfade6fa47d0485ad1b04bce56a461392a043d9791025e386805039a8
 
 jobs:
   test:
