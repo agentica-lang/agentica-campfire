@@ -9,23 +9,28 @@
 ## Rails app on the same file) gives the next request a new key, so the old pages are never read again and the cache
 ## drops them when it needs room. The version is read before the page is made, so a page is never older than the
 ## version in its key. The person (the id, and a digest of the name and the role, which the sign-in filter looked up
-## after the version) and the room are in the key, so a page is only sent to the person it was made for, and only a 200 is
-## kept: a room that is not the person's is a 404 that is looked up each time. A room page with `?before=` is not kept,
-## since one person could fill the cache with a page for every number. The membership check that comes with making a
-## page needs no repeat on a hit, since a change of members is a commit and so a new version. When the version cannot
-## be read the page is made and not kept.
+## after the version) and the room are in the key, so a page is only sent to the person it was made for, and only a
+## 200 is kept: a room that is not the person's is a 404 that is looked up each time. A room page with `?before=` is
+## not kept, since one person could fill the cache with a page for every number. The membership check that comes with
+## making a page needs no repeat on a hit, since a change of members is a commit and so a new version. When the
+## version cannot be read the page is made and not kept.
 ##
 ## The sidebar page and the search page are kept the same way (kinds `SIDEBAR` and `SEARCH`, for the person, and for
 ## the words of the search): they are a function of the database and the person too, and nothing in them depends on the
-## request (the signed stream names are the same for every load). Their key has no room, and a search is kept only for
-## words of a length that the form of the search allows, so one person cannot fill the cache with long queries.
+## request (the signed stream names are the same for every load). The key of the sidebar has no room. A search has no
+## cursor to bound it, and the words are the client's, so one person could fill the shared store with a page for every
+## query and push out the room pages and the sessions of everybody: a person has `SEARCH_SLOTS` places for search pages,
+## chosen by the words, and a page is kept in its place with the version, the person and the words it was made for, so
+## a page that is another query's, or an old version's, is a miss and is written over. That bounds the search pages of
+## a person at `SEARCH_SLOTS` for good (the cost is that two queries of one place take turns), and the words longer than
+## the form of the search allows are not kept at all.
 ##
-## The sign-in filter reads the version of a read request (`watch`) before it looks the person up, and keeps it for the
-## handler (`seen`), so a hit costs one lease of the observer and none of the pool: the person of a session is kept
-## for one version of the database too (`known_user`, `remember_user`), and a sign-out, a deactivation, a ban, a
-## rename or a change of role is a commit, so the next read has a new version and looks the session up again. The
-## person is looked up after the version was read, so what is kept under a version is that of the database at that
-## version or later.
+## The sign-in filter reads the version of a read of a page that is kept (`cached?`, `watch`) before it looks the person
+## up, and keeps it for the handler (`seen`), so a hit costs one lease of the observer and none of the pool: the person
+## of a session is kept for one version of the database too (`known_user`, `remember_user`), in a store of its own so
+## that the churn of pages cannot push a session out. A sign-out, a deactivation, a ban, a rename or a change of role is
+## a commit, so the next read has a new version and looks the session up again. The person is looked up after the
+## version was read, so what is kept under a version is that of the database at that version or later.
 ##
 ## Every page has a weak `ETag` (a digest of its bytes, as `Rack::ETag` writes it) and `Cache-Control: max-age=0,
 ## private, must-revalidate`, as Rails sends, and a request whose `If-None-Match` has the tag is a 304. The form of a
@@ -36,6 +41,7 @@ import Bond from "pkg/bond/bond"
 import Cache from "std/cache"
 import Auth from "../campfire/auth"
 import Database from "../campfire/repo/database"
+import Routes from "routes"
 
 # What a megabyte of `CAMPFIRE_RESPONSE_CACHE_MB` is.
 BYTES_PER_MB = 1024 * 1024
@@ -55,8 +61,14 @@ export SEARCH = "search"
 # Where the sign-in filter keeps the version of the database for the handler (`Bond.assign`).
 VERSION_KEY = "database_version"
 
-# How much of the digest of the words of a search goes in the key.
+# How much of the digest of the words of a search goes in the stamp of its page.
 QUERY_DIGITS = 32
+
+# How many search pages one person keeps (see the top of this file).
+export SEARCH_SLOTS = 8
+
+# The store of the people of the sessions: a person is about a hundred bytes, for every version of the database.
+PEOPLE_BYTES = 4 * 1024 * 1024
 
 # How much of the digest of the name and the role of the person goes in the key.
 SEEN_DIGITS = 16
@@ -71,6 +83,7 @@ end
 ## The cache and the connection that watches the database for it.
 export struct Pages
   store: Cache.Store
+  people: Cache.Store
   observer: Database.Observer
 end
 
@@ -80,10 +93,13 @@ export struct Page
   body: String
 end
 
-## Where a page of a request is kept: the cache and the key (with the version of the database in it).
+## Where a page of a request is kept: the cache and the key (with the version of the database in it). A `stamp` that
+## is not empty is what a page at a key that does not name its version is kept with (a search page), and it must be the
+## stamp of the page that is looked up.
 export struct Spot
   pages: Pages
   key: String
+  stamp: String
 end
 
 ## The cache for `megabytes` of pages and its observer of the database at `url`, or `none` for 0, which turns it off.
@@ -94,7 +110,8 @@ export def start(megabytes: Int, url: String, checkout_ms: Int) -> Result[Option
   end
 
   observer = try Database.open_observer(url, checkout_ms)
-  return ok(some(Pages(store: Cache.memory(megabytes * BYTES_PER_MB), observer: observer)))
+  pages = Pages(store: Cache.memory(megabytes * BYTES_PER_MB), people: Cache.memory(PEOPLE_BYTES), observer: observer)
+  return ok(some(pages))
 end
 
 ## Closes the observer of `pages`, if there are any.
@@ -132,14 +149,48 @@ export def sidebar_spot(pages: Optional[Pages], seen: Optional[String], person: 
   return located(pages, seen, SIDEBAR, person, "")
 end
 
-## Where the search page of `person` for the words `query` goes (see `spot`).
+## Where the search page of `person` for the words `query` goes (see `spot`): one of the `SEARCH_SLOTS` places of the
+## person, which the words choose, kept with the version, the state of the person and the words.
 export def search_spot(
   pages: Optional[Pages],
   seen: Optional[String],
   person: Auth.User,
   query: String,
 ) -> Optional[Spot]
-  return located(pages, seen, SEARCH, person, Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS))
+  case pages
+    none -> return none
+    some(found) ->
+      version = version_of(found, seen)
+      if not version.ok?
+        return none
+      end
+
+      words = Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS)
+      place = Digest.sha256(query.bytes)[0] % SEARCH_SLOTS
+      return some(
+        Spot(
+          pages: found,
+          key: "page:#{SEARCH}:#{person.id}:#{place}",
+          stamp: "#{version.unwrap!}:#{state_of(person)}:#{words}",
+        ),
+      )
+  end
+end
+
+## Whether the page at `path` is one that the cache keeps (a room page, the older messages, the sidebar, the search), so
+## that the sign-in filter reads the version for it and for no other.
+export def cached?(path: String) -> Bool
+  if path == Routes.SIDEBAR or path == Routes.SEARCHES
+    return true
+  end
+
+  parts = path.split("/")
+  if parts.size < 3 or parts.size > 4 or not parts[0].empty? or parts[1] != "rooms"
+    return false
+  end
+
+  id = parts[2].to_i
+  return id.ok? and id.unwrap!.to_s == parts[2] and (parts.size == 3 or parts[3] == "messages")
 end
 
 ## Reads the version of the database for a request and keeps it for the handler, which finds it with `seen`; `conn`
@@ -189,7 +240,7 @@ export def remember_user(pages: Optional[Pages], seen: Optional[String], token: 
     some(found) ->
       case seen
         none -> return
-        some(version) -> Cache.put(found.store, user_key(version, token), Auth.User.codec.encode(person))
+        some(version) -> Cache.put(found.people, user_key(version, token), Auth.User.codec.encode(person))
       end
   end
 end
@@ -198,7 +249,7 @@ end
 export def lookup(spot: Optional[Spot]) -> Optional[Page]
   case spot
     none -> return none
-    some(found) -> return unpack(Cache.get(found.pages.store, found.key))
+    some(found) -> return unpack(without_stamp(found, Cache.get(found.pages.store, found.key)))
   end
 end
 
@@ -208,7 +259,7 @@ export def keep(spot: Optional[Spot], html: String) -> Page
   etag = "W/\"#{digest}\""
   case spot
     none -> return Page(etag: etag, body: html)
-    some(found) -> Cache.put(found.pages.store, found.key, etag + html)
+    some(found) -> Cache.put(found.pages.store, found.key, stamped(found) + etag + html)
   end
 
   return Page(etag: etag, body: html)
@@ -238,10 +289,37 @@ def located(
         return none
       end
 
-      digest = Digest.sha256_hexdigest("#{person.role}\n#{person.name}".bytes).slice(0, SEEN_DIGITS)
-      key = "page:#{version.unwrap!}:#{kind}:#{person.id}:#{digest}:#{scope}"
-      return some(Spot(pages: found, key: key))
+      key = "page:#{version.unwrap!}:#{kind}:#{person.id}:#{state_of(person)}:#{scope}"
+      return some(Spot(pages: found, key: key, stamp: ""))
   end
+end
+
+# A digest of the name and the role of the person: two states of one person do not share a page.
+def state_of(person: Auth.User) -> String
+  return Digest.sha256_hexdigest("#{person.role}\n#{person.name}".bytes).slice(0, SEEN_DIGITS)
+end
+
+# What goes before the tag in the cached text: the stamp and a line break, or nothing.
+def stamped(spot: Spot) -> String
+  if spot.stamp.empty?
+    return ""
+  end
+
+  return spot.stamp + "\n"
+end
+
+# The cached text without its stamp, or `none` when it was kept with another stamp.
+def without_stamp(spot: Spot, kept: Optional[String]) -> Optional[String]
+  if kept.none? or spot.stamp.empty?
+    return kept
+  end
+
+  prefix = stamped(spot)
+  if not kept.unwrap!.start_with?(prefix)
+    return none
+  end
+
+  return some(kept.unwrap!.slice(prefix.length, kept.unwrap!.length - prefix.length))
 end
 
 def version_of(pages: Pages, seen: Optional[String]) -> Result[String]
@@ -255,7 +333,7 @@ def recalled(pages: Pages, seen: Optional[String], token: String) -> Optional[Au
   case seen
     none -> return none
     some(version) ->
-      kept = Cache.get(pages.store, user_key(version, token))
+      kept = Cache.get(pages.people, user_key(version, token))
       if kept.none?
         return none
       end

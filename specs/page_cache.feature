@@ -1,8 +1,8 @@
 Feature: The cache of whole pages
-  The room page, the page of older messages, the sidebar and the search are kept whole (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none),
-  as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept for one person, one room and
-  one `?before=` (the sidebar for one person, the search for one query), and for one version of the database: any commit, by anybody, makes the next request build the page
-  again. The form of a room page carries a `client_message_id` that is drawn when the page is made, so two answers
+  The room page, the page of older messages, the sidebar and the search are kept whole (`CAMPFIRE_RESPONSE_CACHE_MB`,
+  64 by default, 0 for none), as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept
+  for one person, one room and one `?before=` (the sidebar for one person, the search for one query), and for one
+  version of the database: any commit, by anybody, makes the next request build the page again. The form of a room page carries a `client_message_id` that is drawn when the page is made, so two answers
   with the same body are one page that was kept, and a page that is made again differs. The room is room 1, "All Talk",
   and the person is the first admin, user 1, "Ana"; Bea is user 2 and Cy is user 3.
 
@@ -170,6 +170,26 @@ Feature: The cache of whole pages
     And I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "Fireside"
+    When I get "/searches?q=first"
+    Then the status is 200
+    And the header "etag" contains "W/\""
+    When the request header "if-none-match" is the header "etag" of the answer
+    And I get "/searches?q=first"
+    Then the status is 304
+    And the body is ""
+    When I post to "/rooms/1/messages" the form:
+      | message[body] | First of many |
+    And I get "/searches?q=first"
+    Then the status is 200
+    And the body contains "First of many"
+
+  Scenario: A query longer than the form allows is answered with its results and is not kept
+    When I get "/searches?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    Then the status is 200
+    And the body contains "id=\"search_results\"" 1 times
+    When a message "<p>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</p>" in the room 1 at "2026-03-01 09:05:00.000000"
+    And I get "/searches?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    Then the body contains "<p>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</p>"
 
   Scenario: A person whose session was ended, who was deactivated or who was banned is turned away at once, with their pages kept
     When I sign in as "bea@example.com"

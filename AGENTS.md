@@ -212,21 +212,25 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none; Rails' name and default), as Rails' `CachedResponses`
   does. The key holds the version of the database (`Database.version`: `PRAGMA data_version` of a connection of its
   own, the observer, plus a random epoch of that connection), the kind of page, the person (id, and a digest of name
-  and role, which the sign-in filter looked up after the version), the room and `before` (the sidebar has no room,
-  the search has the digest of its words, and only for words up to `Searches.MAX_QUERY_LENGTH`), so any commit by
-  anybody means a new key and nothing has to be dropped by hand; the version is read before the page is made, so a kept page is never
-  older than its key. Only a 200 is kept (a 404 looks the membership up each time), a room page with `?before=` is not
-  kept (one person could fill the cache with a page for every number), and a hit skips the room lookup because a
-  change of members is a commit. If the observer fails, the page is made and not kept.
-  The sign-in filter reads the version first for a `GET` or `HEAD` (`PageCache.watch`, kept for the handler with
-  `PageCache.seen`) and looks the person up after it: the person of a session is kept under the version too
-  (`known_user`, `remember_user`), so a hit costs one lease of the observer and none of the pool, and a sign-out, a
-  deactivation, a ban or a rename is a commit and so a miss. Never keep a person under a key that has no version. A page that starts to depend on
-  something that no commit changes (the time, a request header, a file) must not use this cache or must put that in
-  the key. Pages carry a weak `ETag` and answer `If-None-Match` with a 304; the `client_message_id` of the form is
-  drawn when the page is made, so nothing may drop a message because its id was seen. The `I run the sql` steps write
-  on another connection, so a spec that changes the database between two gets checks the invalidation:
-  `specs/page_cache.feature`.
+  and role, which the sign-in filter looked up after the version), the room and `before` (the sidebar has no room), so
+  any commit by anybody means a new key and nothing has to be dropped by hand; the version is read before the page is
+  made, so a kept page is never older than its key. Only a 200 is kept (a 404 looks the membership up each time), a
+  room page with `?before=` is not kept (one person could fill the cache with a page for every number), and a hit
+  skips the room lookup because a change of members is a commit. If the observer fails, the page is made and not kept.
+  The search is the one page whose key the client chooses without a bound, so it relaxes "a key per version": a person
+  has `PageCache.SEARCH_SLOTS` places for search pages, chosen by the words, each kept with the version, the person's
+  state and the words (a page of another stamp is a miss and is written over), so a person holds at most that many
+  search pages whatever they type, and words longer than `Searches.MAX_QUERY_LENGTH` are not kept. The people of the
+  sessions live in a store of their own, so that the churn of pages cannot push a session out.
+  The sign-in filter reads the version first for a `GET` or `HEAD` of a page that is kept (`PageCache.cached?`,
+  `PageCache.watch`, kept for the handler with `PageCache.seen`) and looks the person up after it: the person of a
+  session is kept under the version too (`known_user`, `remember_user`), so a hit costs one lease of the observer and
+  none of the pool, and a sign-out, a deactivation, a ban or a rename is a commit and so a miss. Never keep a person
+  under a key that has no version. A page that starts to depend on something that no commit changes (the time, a
+  request header, a file) must not use this cache or must put that in the key. Pages carry a weak `ETag` and answer
+  `If-None-Match` with a 304; the `client_message_id` of the form is drawn when the page is made, so nothing may drop a
+  message because its id was seen. The `I run the sql` steps write on another connection, so a spec that changes the
+  database between two gets checks the invalidation: `specs/page_cache.feature`.
 - Live (`/cable`, `docs/cable.md`): the room page and `GET /users/me/sidebar` name their streams with
   `<turbo-cable-stream-source channel="X" signed-stream-name="Y">`, that exact markup (the benchmark scrapes it).
   `/cable` is in `PUBLIC_PATHS` (a 302 on the handshake makes the Rails client retry in a loop) and `CableWeb.connect`
@@ -234,7 +238,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   and nothing that waits. Authorization is done when a subscription is made (`RoomMessagesChannel` checks the
   membership of the room in the verified stream name, and `Turbo::StreamsChannel` refuses those names). A route
   broadcasts after its database connection is back in the pool (`announced` in `web/rooms.agc`), and the fan-out of a
-  notice to each member runs in a task of its own, and only while the hub has a connection (`CableWeb.message_created`). Who is connected lives in memory (`Presence`), never in
+  notice to each member runs in a task of its own, and only while the hub has a connection
+  (`CableWeb.message_created`). Who is connected lives in memory (`Presence`), never in
   `memberships.connected_at`. `CAMPFIRE_MAX_CONNECTIONS` must stay above the clients and the posters.
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then

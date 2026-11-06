@@ -45,7 +45,7 @@ end
 def spots_follow_the_person(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
   _ = writer
   _ = url
-  pages = some(PageCache.Pages(store: Cache.memory(1_000_000), observer: observer))
+  pages = some(PageCache.Pages(store: Cache.memory(1_000_000), people: Cache.memory(100_000), observer: observer))
   here = PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), none)
   try Test.assert(here.some?, "no spot for a room page")
   again = PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), none)
@@ -70,7 +70,7 @@ end
 # The sidebar and the search are kept for their person (and the words), and the person of a session for one version.
 def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
   _ = url
-  pages = some(PageCache.Pages(store: Cache.memory(1_000_000), observer: observer))
+  pages = some(PageCache.Pages(store: Cache.memory(1_000_000), people: Cache.memory(100_000), observer: observer))
   seen = some(try Database.version(observer))
   sidebar = PageCache.sidebar_spot(pages, seen, ana())
   try Test.assert(PageCache.lookup(sidebar).none?, "a sidebar before it is kept")
@@ -94,12 +94,64 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   return Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, later, ana())).none?, "a sidebar across a commit")
 end
 
+# A person has `SEARCH_SLOTS` places for search pages whatever they type: the pages of more queries write over each
+# other, the page of another person stays, and a page is only found for the words, the version and the person it was
+# made for.
+def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
+  _ = writer
+  _ = url
+  pages = some(PageCache.Pages(store: Cache.memory(1_000_000), people: Cache.memory(100_000), observer: observer))
+  seen = some(try Database.version(observer))
+  bea = ana().with(id: 2, name: "Bea")
+  PageCache.keep(PageCache.search_spot(pages, seen, bea, "coffee"), "<p>Bea</p>")
+  queries: List[String] = []
+  for n in 0...60
+    queries = queries.push("words#{n}")
+  end
+
+  for query in queries
+    PageCache.keep(PageCache.search_spot(pages, seen, ana(), query), "<p>#{query}</p>")
+  end
+
+  held = queries.select do |query| PageCache.lookup(PageCache.search_spot(pages, seen, ana(), query)).some? end
+  try Test.assert(held.size <= PageCache.SEARCH_SLOTS, "a person holds more search pages than they have places")
+  try Test.assert(held.size > 0, "no search page is kept")
+  other = PageCache.lookup(PageCache.search_spot(pages, seen, bea, "coffee"))
+  try Test.eq(other.unwrap!.body, "<p>Bea</p>")
+  last = queries.last
+  try Test.eq(PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last)).unwrap!.body, "<p>#{last}</p>")
+  try Test.assert(
+    PageCache.lookup(PageCache.search_spot(pages, seen, ana().with(name: "Anna"), last)).none?,
+    "a search page of another state of the person",
+  )
+
+  return Test.assert(
+    PageCache.lookup(PageCache.search_spot(pages, some("0:other"), ana(), last)).none?,
+    "a search page of another version",
+  )
+end
+
+# Only the pages that the cache keeps make the sign-in filter read the version.
+def cached_paths() -> Result[Void]
+  for path in ["/users/me/sidebar", "/searches", "/rooms/12", "/rooms/12/messages"]
+    try Test.assert(PageCache.cached?(path), "#{path} is kept")
+  end
+
+  for path in [
+    "/rooms/new", "/rooms/12/edit", "/rooms/12/@5", "/rooms/12/messages/3", "/users/1/avatar", "/cable", "/",
+  ]
+    try Test.assert(not PageCache.cached?(path), "#{path} is not kept")
+  end
+
+  return ok()
+end
+
 # A version that cannot be read (the observer is closed or lost) makes no spot: the page is made and nothing is kept.
 def failing_observer_keeps_nothing(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
   _ = writer
   _ = url
   store = Cache.memory(1_000_000)
-  pages = some(PageCache.Pages(store: store, observer: observer))
+  pages = some(PageCache.Pages(store: store, people: Cache.memory(100_000), observer: observer))
   Database.close_observer(observer)
   spot = PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), none)
   try Test.assert(spot.none?, "a spot from an observer that is closed")
@@ -129,6 +181,12 @@ def main() -> Void
     ) do run_in_dir(&spots_follow_the_person) end,
     Test.test("the sidebar, the search and the person of a session are kept for their version") do
       run_in_dir(&sidebar_search_and_person_are_kept)
+    end,
+    Test.test("a person keeps a bounded number of search pages, each for its words, version and person") do
+      run_in_dir(&searches_are_bounded_per_person)
+    end,
+    Test.test("only a room page, the older messages, the sidebar and the search are read at their version") do
+      cached_paths()
     end,
     Test.test("an observer that fails gives no spot, so the page is made and nothing is kept") do
       run_in_dir(&failing_observer_keeps_nothing)

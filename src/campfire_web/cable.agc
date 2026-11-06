@@ -149,7 +149,9 @@ end
 export def message_created(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
   _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_stream(room, message, false))
   # With no socket open nobody can hear a notice or be looking at the room (`Presence` is made of open sockets), and
-  # the unread flag was stored by the post itself, so the task would only read the members to do nothing.
+  # the unread flag was stored by the post itself, so the task would only read the members to do nothing. A presence
+  # entry that outlives a socket which died without a close handler (until its TTL) is not marked read either; the
+  # person's next visit to the room marks it.
   if Channels.stats(cable.hub).connections > 0
     _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
   end
