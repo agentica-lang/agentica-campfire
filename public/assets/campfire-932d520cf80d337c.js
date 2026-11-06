@@ -283,6 +283,14 @@
   var lastPing = 0;
   var presence = null;
   var heartbeat = null;
+  var roomSub = null;
+  var unreadSub = null;
+  // After a reconnect, what the page lacks is fetched once the subscription that would have brought it is confirmed:
+  // what comes after the confirmation arrives live, and what came before is in the fetch (a message in both is added
+  // once).
+  var catchRoom = false;
+  var catchSidebar = false;
+  var sidebarTries = 0;
 
   function visible() {
     return document.visibilityState !== "hidden";
@@ -331,8 +339,13 @@
     };
   }
 
-  // Tries again after a pause that doubles up to 30 s, with jitter so that the tabs of a restarted server do not come
-  // back in one burst. A `disconnect` that says not to come back (`stopped`) ends it.
+  // The pause before try number `n`: it doubles up to 30 s, with jitter so that the tabs of a restarted server do not
+  // come back in one burst.
+  function pause(n) {
+    return Math.min(30000, 1000 * Math.pow(2, n - 1)) * (0.5 + Math.random() / 2);
+  }
+
+  // Tries again after a pause. A `disconnect` that says not to come back (`stopped`) ends it.
   function lost() {
     welcomed = false;
     socket = null;
@@ -341,8 +354,7 @@
     }
 
     attempts += 1;
-    var wait = Math.min(30000, 1000 * Math.pow(2, attempts - 1));
-    setTimeout(connect, wait * (0.5 + Math.random() / 2));
+    setTimeout(connect, pause(attempts));
   }
 
   function receive(text) {
@@ -362,9 +374,8 @@
           one.rejected = false;
           send({ command: "subscribe", identifier: one.id });
         });
-        if (everWelcomed) {
-          catchUp();
-        }
+        catchRoom = everWelcomed && roomSub !== null && latest;
+        catchSidebar = everWelcomed;
         everWelcomed = true;
         return;
       case "ping":
@@ -378,6 +389,14 @@
       case "confirm_subscription":
         if (frame.identifier === presence && !visible()) {
           perform(presence, "absent");
+        }
+        if (frame.identifier === roomSub && catchRoom) {
+          catchRoom = false;
+          catchUp();
+        }
+        if (frame.identifier === unreadSub && catchSidebar) {
+          catchSidebar = false;
+          loadSidebar(true);
         }
         return;
       case "reject_subscription":
@@ -450,7 +469,9 @@
       case "append":
       case "prepend":
         fresh(content);
-        if (action === "append") {
+        if (target.id === "shared_rooms" || target.id === "direct_rooms") {
+          insertRooms(target, content);
+        } else if (action === "append") {
           target.append(content);
         } else {
           target.prepend(content);
@@ -478,6 +499,38 @@
         target.after(content);
         break;
     }
+  }
+
+  // A room goes where the server's order puts it: by name without the case of ASCII letters (SQLite's `lower`), then
+  // by id.
+  function sortKey(item) {
+    var link = item.querySelector("a");
+    var name = link && link.firstChild ? link.firstChild.textContent : "";
+    return {
+      name: name.replace(/[A-Z]/g, function (c) {
+        return c.toLowerCase();
+      }),
+      id: parseInt(item.id.replace("room_", ""), 10) || 0,
+    };
+  }
+
+  function before(one, other) {
+    return one.name < other.name || (one.name === other.name && one.id < other.id);
+  }
+
+  function insertRooms(target, content) {
+    Array.prototype.slice.call(content.children).forEach(function (item) {
+      var key = sortKey(item);
+      var next = null;
+      Array.prototype.some.call(target.children, function (other) {
+        if (before(key, sortKey(other))) {
+          next = other;
+          return true;
+        }
+        return false;
+      });
+      target.insertBefore(item, next);
+    });
   }
 
   // Drops from `content` what the page has by id.
@@ -561,8 +614,11 @@
     }
   }
 
-  // After a reconnect the messages that came while the socket was away are fetched with the page and added; what the
-  // page has already is left alone.
+  // After a reconnect the room page is fetched and its list of messages is made the list of the page: a message that was
+  // deleted while the socket was away goes, an edited one is replaced, and the ones that came are added, in the
+  // server's order. A message newer than the fetched ones (the answer of a post that is still going, or one that came
+  // live after the fetch was made) and one older than they are (the page shows the newest 40) are left alone. The
+  // composer is not touched.
   function catchUp() {
     if (!list || !latest || !roomId) {
       return;
@@ -574,19 +630,59 @@
       })
       .then(function (text) {
         var theirs = text ? new DOMParser().parseFromString(text, "text/html").getElementById(list.id) : null;
-        if (!theirs || !document.getElementById(list.id)) {
-          return;
+        if (theirs && document.getElementById(list.id) === list) {
+          reconcile(theirs);
         }
-
-        Array.prototype.forEach.call(theirs.children, function (item) {
-          if (item.id && !document.getElementById(item.id)) {
-            list.append(document.importNode(item, true));
-          }
-        });
       })
       .catch(function () {
         // the next reconnect tries again
       });
+  }
+
+  function numberOf(item) {
+    return parseInt(item.getAttribute("data-message-id"), 10) || 0;
+  }
+
+  function reconcile(theirs) {
+    var wanted = {};
+    var low = Infinity;
+    var high = 0;
+    Array.prototype.forEach.call(theirs.children, function (item) {
+      wanted[item.id] = true;
+      low = Math.min(low, numberOf(item));
+      high = Math.max(high, numberOf(item));
+    });
+
+    Array.prototype.slice.call(list.children).forEach(function (item) {
+      var n = numberOf(item);
+      if (item.id && !wanted[item.id] && n >= low && n <= high) {
+        item.remove();
+      }
+    });
+
+    var previous = null;
+    Array.prototype.forEach.call(theirs.children, function (item) {
+      var copy = document.importNode(item, true);
+      var mine = document.getElementById(item.id);
+      if (mine && mine.parentNode === list) {
+        if (mine.outerHTML !== copy.outerHTML) {
+          mine.replaceWith(copy);
+          mine = copy;
+        }
+      } else if (previous) {
+        previous.after(copy);
+        mine = copy;
+      } else {
+        list.prepend(copy);
+        mine = copy;
+      }
+      previous = mine;
+    });
+
+    var empty = document.querySelector(".thread .empty");
+    if (empty && list.children.length) {
+      empty.remove();
+    }
   }
 
   function room(html) {
@@ -602,14 +698,22 @@
     }
   }
 
-  function sidebarSources() {
+  // The sidebar page gives the signed names of the sidebar streams (the first time) and, after a reconnect, the rooms and
+  // the unread marks as they are now. A failed try is repeated after a longer pause each time, up to 8 tries.
+  function loadSidebar(again) {
     fetch(SIDEBAR, { credentials: "same-origin" })
       .then(function (response) {
         return response.ok ? response.text() : Promise.reject(new Error("no sidebar"));
       })
       .then(function (text) {
-        var sources = new DOMParser().parseFromString(text, "text/html").querySelectorAll("turbo-cable-stream-source");
-        Array.prototype.forEach.call(sources, function (source) {
+        sidebarTries = 0;
+        var doc = new DOMParser().parseFromString(text, "text/html");
+        if (again) {
+          reconcileSidebar(doc);
+          return;
+        }
+
+        Array.prototype.forEach.call(doc.querySelectorAll("turbo-cable-stream-source"), function (source) {
           subscribe(
             { channel: source.getAttribute("channel"), signed_stream_name: source.getAttribute("signed-stream-name") },
             function (html) {
@@ -621,15 +725,34 @@
         });
       })
       .catch(function () {
-        setTimeout(sidebarSources, 5000);
+        sidebarTries += 1;
+        if (!stopped && sidebarTries < 8) {
+          setTimeout(function () {
+            loadSidebar(again);
+          }, pause(sidebarTries));
+        }
       });
   }
 
+  function reconcileSidebar(doc) {
+    var theirs = doc.querySelector(".lists");
+    var mine = nav.querySelector(".lists");
+    if (!theirs || !mine) {
+      return;
+    }
+
+    mine.innerHTML = theirs.innerHTML;
+    // The room that a visible tab shows is read, whatever the page of the sidebar said before the presence came.
+    if (roomId && visible()) {
+      unmark(roomId);
+    }
+  }
+
   heartbeat = subscribe({ channel: "HeartbeatChannel" }, null);
-  subscribe({ channel: "UnreadRoomsChannel" }, unread);
+  unreadSub = subscribe({ channel: "UnreadRoomsChannel" }, unread);
   if (main) {
     Array.prototype.forEach.call(main.querySelectorAll("turbo-cable-stream-source"), function (source) {
-      subscribe(
+      roomSub = subscribe(
         { channel: source.getAttribute("channel"), signed_stream_name: source.getAttribute("signed-stream-name") },
         room,
       );
@@ -649,6 +772,6 @@
       }
     });
   }
-  sidebarSources();
+  loadSidebar(false);
   connect();
 })();

@@ -41,9 +41,16 @@ hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`
   stream.
 - **New messages** are appended to the room page when it shows the latest messages (not `?before=`); a message that is
   there already (the sender's tab has the answer of its post) is not added twice, and the answer of the post wins over
-  the broadcast, which has no Edit link. After a reconnect the script fetches the room page and adds the messages it
-  lacks.
-- **The sidebar** gets the rooms that are made, renamed and deleted. A room that is read shows no mark; an unread one
+  the broadcast, which has no Edit link.
+- **After a reconnect**, once the room's subscription is confirmed (what comes later arrives live), the script fetches
+  the room page and makes its list of messages the page's: a message deleted or edited while the socket was away is
+  removed or replaced, and the ones that came are added in order. A message newer than the fetch, or older than its 40
+  (the page shows the newest 40), is left alone, and so is the composer. It then fetches `GET /users/me/sidebar` again
+  and takes the rooms and the unread marks from it.
+- **The sidebar** (its signed names cost one extra `GET /users/me/sidebar` per page load, a read of the rooms and
+  unreads of the person, and another after each reconnect; a failed fetch is tried again up to 8 times with the pause of
+  the socket, which doubles up to 30 s) gets the rooms that are made, renamed and deleted, a new one in the order of the
+  server (by name, then id). A room that is read shows no mark; an unread one
   is `<li class="unread">` with a hidden "(unread)", set by the server for the rooms with `unread_at` and by the notice
   of `UnreadRoomsChannel` live. The room that a visible tab shows is not marked. The first direct message makes its
   list.
@@ -53,8 +60,9 @@ hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`
   leaves the sidebars of the people who were in it.
 - **Every page** sends `HeartbeatChannel` `check` every 50 s, so a socket does not outlive its session.
 - A socket that hears no ping for 12 s is closed and opened again; the pause before each try doubles up to 30 s.
-- **An edited or deleted message** is replaced (without the Edit link, as a new message from someone else is) or
-  removed on the pages that look at the room.
+- **An edited or deleted message** is replaced or removed on the pages that look at the room. Known limit: the copy
+  that replaces it is the one for everyone, without Edit or Delete, so the author's other tabs lose them until the
+  page is loaded again.
 - Not live yet: the members of a closed room (a person added or taken out) and a room that turns from open to closed
   show in the sidebars at the next load.
 
