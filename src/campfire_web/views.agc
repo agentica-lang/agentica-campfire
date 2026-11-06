@@ -234,10 +234,25 @@ export def room_settings(
     <% end %>
         <p><button type="submit">Save</button></p>
       </form>
+      <%== delete_form(room).strip %>
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
     </main>
   EAG
   return layout("Settings of #{room.name}", body)
+end
+
+## The form that deletes a room (the button of the settings page, as `button_to_delete_room` is in Rails). It is a plain
+## form post with the `_method` field that Rails' forms send, so it works without a script; the `onsubmit` asks first
+## and a script-less browser skips the question, as the form of Rails does without Turbo.
+export def delete_form(room: Rooms.Room) -> String
+  return <<~EAG
+    <%@ escape &Bond.escape %>
+    <form method="post" action="<%= Routes.room_path(room.id) %>"
+      onsubmit="return confirm('Are you sure you want to delete this room and all messages in it? This can’t be undone.')">
+      <input name="_method" type="hidden" value="<%= Routes.ROOM_DELETE_METHOD %>">
+      <p><button type="submit" class="danger">Delete room</button></p>
+    </form>
+  EAG
 end
 
 ## The id of the element that holds the messages of a room (`dom_id(room, :messages)` of Rails, which names the type of

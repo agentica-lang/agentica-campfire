@@ -1,8 +1,8 @@
 # agentica-campfire
 
 A port of ONCE Campfire (group chat) in Agentica, on Bond.
-`README.md` has what it is and how to run it; `docs/` has the behavior
-(configuration, security, rooms, people, mail) and `docs/plan.md` the plan and the phases.
+`README.md` has what it is and the quick start; `docs/` has the behavior
+(configuration, security, rooms, people, mail, docker, benchmarks) and `docs/plan.md` the plan and the phases.
 
 ## Map
 
@@ -31,10 +31,10 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
-                and forms of rooms), message_cache.agc (the cache of rendered messages), page_cache.agc (the cache of
-                whole room pages), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and the
-                avatar link)
-Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
+                and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages), message_cache.agc
+                (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
+                searches.agc and avatars.agc (the sidebar page, the search and the avatar link)
+Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
@@ -171,6 +171,12 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   `MessageCache` for a page of a room, which hands `Rooms.page`'s `Stored` messages), since a row that Rails wrote
   was never cleaned by this app; the cleaner leaves clean markup as it is, so what `Rooms.post` stored passes
   unchanged, and the view writes the body as it is given.
+  Deleting a room is for its maker and an account administrator, of any kind (`Rooms.administrable?`; another member is
+  answered 403, after the membership check): `Rooms.destroy_later` closes an open room and deletes its memberships in one
+  transaction (it checks the right again inside), then `RoomDeletion` (a task that the request starts, one connection of
+  the pool per message) calls `Rooms.delete_next_message` until none is left and then `Rooms.delete_room`, trying a
+  step again when the database is busy (`RoomDeletion.retry`) and logging, not sweeping, what a failure leaves. Never
+  delete the messages of a room in one transaction: it holds the write lock until the last.
 - Last room: `GET /` opens `Rooms.last_visited`: the room of the `last_room` cookie when the person has a membership in
   it, else the oldest of their rooms, else the welcome page. `RoomsWeb.respond_visit` sets the cookie on a served room page
   only (never from a handler that answers a 404), after the page cache, so a cached page sets it too. Specs that need the

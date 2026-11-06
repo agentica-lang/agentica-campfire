@@ -256,10 +256,16 @@ export def grant_open_rooms(conn: Db.Connection, user_id: Int) -> Result[Void]
   return ok()
 end
 
-## True when the person may change the room: it is a closed room and they made it or are an account administrator, as
-## upstream lets only the creator and an administrator administer a room. Being in the room is not enough.
+## True when the person may administer the room, whatever its kind: they made it or are an account administrator
+## (`User#can_administer?` of upstream). Being in the room is not enough.
+export def administrable?(room: Room, user_id: Int, role: String) -> Bool
+  return room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
+end
+
+## True when the person may change the settings of the room: it is a closed room (the only kind with settings here) and
+## they may administer it.
 export def editable?(room: Room, user_id: Int, role: String) -> Bool
-  return room.room_type == CLOSED and (room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME)
+  return room.room_type == CLOSED and administrable?(room, user_id, role)
 end
 
 ## The active people that a person can put in a room, other than themselves (they are always in what they make), by
@@ -313,6 +319,29 @@ export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) 
   return Db.transaction(conn) do |tx| open_direct_in(tx, creator_id, others) end
 end
 
+## Takes the room away from its people at once, and leaves its messages to `delete_next_message` and `delete_room`
+## (`Room#destroy_later` of Rails): in one short transaction an open room is closed, so that nobody who joins the account
+## meanwhile is let in (`grant_open_rooms` skips what is not open), and every membership is deleted, so the room leaves
+## every sidebar and is a 404 for everybody. A direct room keeps its type, which Rails does not let change. It gives
+## false, and changes nothing, when `actor_id` is not in the room or may not administer it (they were taken out, or lost
+## the role, since the caller looked), as `update_closed` does. An error is a failure of the database.
+export def destroy_later(conn: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]
+  return Db.transaction(conn) do |tx| destroy_later_in(tx, room_id, actor_id) end
+end
+
+## Deletes one message of the room with its body, its search row and its boosts, in a transaction of its own, so that the
+## other writers get through between two messages (a room of many messages deleted in one transaction held the write
+## lock until the last one). It gives false when the room has no message left.
+export def delete_next_message(conn: Db.Connection, room_id: Int) -> Result[Bool]
+  return Db.transaction(conn) do |tx| delete_first_message(tx, room_id) end
+end
+
+## Deletes the room, in one transaction, with whatever messages and memberships it still has: a message that was posted
+## after `destroy_later` goes with the room, as `dependent: :destroy` does in Rails.
+export def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
+  return Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
+end
+
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
 ## first, by `created_at` as Rails does: the rows of a database that Rails seeded are not in the order of their time,
 ## so the id says nothing about it. Messages that share an instant go by `id`, so a page and the one before it neither
@@ -356,7 +385,8 @@ end
 
 ## Stores a message of the person in the room, which the caller has checked they are in, and gives it as it is stored
 ## (`some`), or `none` when the person is not active any more: the insert itself needs an active person, so a
-## deactivation that came after the sign-in check (the request may have waited for a connection) stores nothing.
+## deactivation that came after the sign-in check (the request may have waited for a connection) stores nothing, and
+## neither does a room that was deleted after the caller looked it up (`none` for both).
 ## `html` is the body as the editor sent it. It is cleaned here by `HtmlSanitizer.sanitize` before the transaction
 ## begins, so the work of the sanitizer does not hold the write lock of the database that the other writers wait for,
 ## and goes in `action_text_rich_texts`; the plain text of it goes in `message_search_index` with the id of the message
@@ -389,9 +419,16 @@ def post_in(
     tx,
     "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) " +
     "select ?, ?, ?, #{NOW}, #{NOW} where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
+    "and exists (select 1 from rooms where id = ?) " +
     "returning id, #{iso("created_at")} as created_at, " +
     "coalesce((select name from users where id = messages.creator_id), '#{UNKNOWN_AUTHOR}') as author",
-    [Db.Value.Int(room_id), Db.Value.Int(user_id), Db.Value.Text(client_message_id), Db.Value.Int(user_id)],
+    [
+      Db.Value.Int(room_id),
+      Db.Value.Int(user_id),
+      Db.Value.Text(client_message_id),
+      Db.Value.Int(user_id),
+      Db.Value.Int(room_id),
+    ],
   )
 
   if rows.empty?
@@ -449,6 +486,63 @@ def oldest(conn: Db.Connection, user_id: Int) -> Result[Optional[Room]]
   end
 
   return ok(some(room_of(rows[0])))
+end
+
+def destroy_later_in(tx: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]
+  allowed = try Db.query(
+    tx,
+    "select 1 from rooms where id = ? " +
+    "and (creator_id = ? or exists (select 1 from users where id = ? and role = #{Rails.ADMINISTRATOR} and " +
+    "status = #{Rails.ACTIVE})) " +
+    "and exists (select 1 from memberships where room_id = rooms.id and user_id = ?)",
+    [Db.Value.Int(room_id), Db.Value.Int(actor_id), Db.Value.Int(actor_id), Db.Value.Int(actor_id)],
+  )
+
+  if allowed.empty?
+    return ok(false)
+  end
+
+  try Db.execute(
+    tx,
+    "update rooms set type = '#{CLOSED}', updated_at = #{NOW} where id = ? and type = '#{OPEN}'",
+    [Db.Value.Int(room_id)],
+  )
+
+  try Db.execute(tx, "delete from memberships where room_id = ?", [Db.Value.Int(room_id)])
+  return ok(true)
+end
+
+# The first message of the room, by id, and the rows that hang from it: the three rows of `post` and the boosts that
+# Rails writes. Active Storage attachments of a message are left alone (nothing here writes one yet).
+def delete_first_message(tx: Db.Connection, room_id: Int) -> Result[Bool]
+  rows = try Db.query(tx, "select id from messages where room_id = ? order by id limit 1", [Db.Value.Int(room_id)])
+
+  if rows.empty?
+    return ok(false)
+  end
+
+  message_id = Db.Value.Int(int_of(rows[0], "id"))
+  try Db.execute(tx, "delete from boosts where message_id = ?", [message_id])
+  try Db.execute(
+    tx,
+    "delete from action_text_rich_texts where record_type = '#{Rails.MESSAGE_RECORD}' and record_id = ?",
+    [message_id],
+  )
+
+  try Db.execute(tx, "delete from message_search_index where rowid = ?", [message_id])
+  try Db.execute(tx, "delete from messages where id = ?", [message_id])
+  return ok(true)
+end
+
+def delete_room_in(tx: Db.Connection, room_id: Int) -> Result[Void]
+  more = true
+  while more
+    more = try delete_first_message(tx, room_id)
+  end
+
+  try Db.execute(tx, "delete from memberships where room_id = ?", [Db.Value.Int(room_id)])
+  try Db.execute(tx, "delete from rooms where id = ?", [Db.Value.Int(room_id)])
+  return ok()
 end
 
 def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]

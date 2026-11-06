@@ -109,6 +109,9 @@ def main() -> Void
     BDD.step("the sql fails with {string}", &sql_fails_with),
     BDD.step("the query {string} gives {int}", &query_gives),
     BDD.step("the query {string} gives at most {int}", &query_gives_at_most),
+    BDD.step("the query {string} gives {int} within {int} milliseconds", &query_gives_within),
+    BDD.step("{string} asks Rooms to delete the room {int} while a message is posted in between", &ask_delete_between),
+    BDD.step("{string} takes the room {int} away and deletes {int} of its messages", &ask_delete_some),
   ]
 
   BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()).concat(MailSteps.steps()))
@@ -689,6 +692,69 @@ def query_gives_at_most(ctx: BDD.Context, args: List[String]) -> BDD.Context
   rows = rows_of(ctx, args[0])
   count = value_int(rows[0].values[0])
   return BDD.assert(ctx, count <= args[1].to_i!, "the query gave #{count}")
+end
+
+# The room is deleted by a task after the answer, so a scenario waits for the rows to go: the query is asked
+# again every
+# 50 milliseconds until it gives the count or the time is over.
+def query_gives_within(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  wanted = args[1].to_i!
+  waited = 0
+  count = value_int(rows_of(ctx, args[0])[0].values[0])
+  while count != wanted and waited < args[2].to_i!
+    Task.sleep(50)
+    waited += 50
+    count = value_int(rows_of(ctx, args[0])[0].values[0])
+  end
+
+  return BDD.assert(ctx, count == wanted, "the query still gave #{count} after #{waited} milliseconds")
+end
+
+# The three calls of the deletion by hand, with a message posted by the maker of the room between the first and the
+# last: a request that was already running when the room was taken away can do that, and the message must go with the
+# room.
+def ask_delete_between(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| delete_between(conn, args[0], args[1].to_i!) end
+  return BDD.assert(ctx, outcome.ok? and outcome.unwrap!, "the deletion failed: #{outcome.message}")
+end
+
+def delete_between(conn: Db.Connection, email: String, room_id: Int) -> Result[Bool]
+  rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
+  user_id = value_int(rows[0].get("id", Db.Value.Null))
+  if not try Rooms.destroy_later(conn, room_id, user_id)
+    return ok(false)
+  end
+
+  try Rooms.post(conn, room_id, user_id, "late", "posted in between")
+  while try Rooms.delete_next_message(conn, room_id)
+    Task.sleep(0)
+  end
+
+  try Rooms.post(conn, room_id, user_id, "later", "posted after the loop")
+  try Rooms.delete_room(conn, room_id)
+  return ok(true)
+end
+
+# The first calls of the deletion by hand, which the task of the app makes one after the other: the room is taken away
+# from its people and `count` messages go, each in a transaction of its own. The room and the rest of its messages are
+# left, so that the scenario can do something else, in the app, before the deletion goes on.
+def ask_delete_some(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| delete_some(conn, args[0], args[1].to_i!, args[2].to_i!) end
+  return BDD.assert(ctx, outcome.ok? and outcome.unwrap!, "the deletion failed: #{outcome.message}")
+end
+
+def delete_some(conn: Db.Connection, email: String, room_id: Int, count: Int) -> Result[Bool]
+  rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
+  user_id = value_int(rows[0].get("id", Db.Value.Null))
+  if not try Rooms.destroy_later(conn, room_id, user_id)
+    return ok(false)
+  end
+
+  for _ in (1..count).to_a
+    try Rooms.delete_next_message(conn, room_id)
+  end
+
+  return ok(true)
 end
 
 # The database file of a Rails Campfire, as Rails made it (`fixtures/rails/make.sh`), copied to where the app looks for
