@@ -39,7 +39,7 @@ enum Answer
   Page(Int, String)
   Cached(PageCache.Page)
   Fragment(String)
-  Made(Int, Int, Bool)
+  Made(Int, Int, Bool, List[Int])
   Posted(Rooms.Room, Rooms.Message, Bool)
   NoContent
   Redirect(String)
@@ -133,7 +133,7 @@ def made_room(db: Db.Connection, person: Auth.User, name: String) -> Result[Answ
   end
 
   room_id = try Rooms.create_open(db, person.id, name)
-  return ok(Answer.Made(room_id, person.id, false))
+  return ok(Answer.Made(room_id, person.id, false, []))
 end
 
 def show_new_closed_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
@@ -173,7 +173,7 @@ def made_closed_room(db: Db.Connection, person: Auth.User, name: String, ids: Li
   end
 
   room_id = try Rooms.create_closed(db, person.id, name, chosen)
-  return ok(Answer.Made(room_id, person.id, false))
+  return ok(Answer.Made(room_id, person.id, false, []))
 end
 
 def closed_room_form(
@@ -226,7 +226,7 @@ def started_direct_room(db: Db.Connection, person: Auth.User, ids: List[Int]) ->
   room_id = try Rooms.open_direct(db, person.id, chosen)
   case room_id
     none -> return ok(Answer.Page(422, try direct_room_form(db, person, [], Rooms.people_problem([]))))
-    some(found) -> return ok(Answer.Made(found, person.id, false))
+    some(found) -> return ok(Answer.Made(found, person.id, false, []))
   end
 end
 
@@ -314,7 +314,9 @@ def change_settings(
     return ok(Answer.NotFound)
   end
 
-  return ok(Answer.Made(room.id, person.id, true))
+  # The people the form took out lose the stream of the room's messages, which was checked when they subscribed.
+  removed = was.select do |id| id != person.id and not chosen.include?(id) end
+  return ok(Answer.Made(room.id, person.id, true, removed))
 end
 
 # The form as it is first drawn: the people in the room are checked, and are the ones that it remembers as in it.
@@ -745,7 +747,9 @@ end
 # the hub), and then the answer itself.
 def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Conn
   case answer
-    Answer.Made(room_id, actor_id, renamed) -> CableWeb.room_changed(cable, room_id, actor_id, renamed)
+    Answer.Made(room_id, actor_id, renamed, removed) ->
+      CableWeb.members_removed(cable, removed)
+      CableWeb.room_changed(cable, room_id, actor_id, renamed)
     Answer.Posted(room, message, _) -> CableWeb.message_created(cable, room, message)
     _ -> return respond(conn, answer)
   end
@@ -758,7 +762,7 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.Page(status, html) -> return Bond.html(conn, status, html)
     Answer.Cached(page) -> return PageCache.respond(conn, page)
     Answer.Fragment(html) -> return Bond.html(conn, 200, html)
-    Answer.Made(room_id, _, _) -> return Bond.redirect(conn, Routes.room_path(room_id))
+    Answer.Made(room_id, _, _, _) -> return Bond.redirect(conn, Routes.room_path(room_id))
     Answer.Posted(room, message, stream) if stream ->
       return Bond.header(
         Bond.html(conn, 200, Views.message_stream(room, message)),

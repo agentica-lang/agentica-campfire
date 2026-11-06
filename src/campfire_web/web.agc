@@ -45,10 +45,10 @@ export def build(
 ) -> Bond.App
   return (
     Bond.app()
-    |> AuthWeb.add(config, pool, mailer)
+    |> AuthWeb.add(config, pool, mailer, cable.hub)
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages)
-    |> AccountsWeb.add(config, pool)
+    |> AccountsWeb.add(config, pool, cable.hub)
     |> SidebarsWeb.add(pool, cable)
     |> SearchesWeb.add(pool)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)

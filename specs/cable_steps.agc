@@ -55,6 +55,14 @@ export def steps() -> List[BDD.Step]
     BDD.step("client {string} receives nothing for {int} milliseconds", &receives_nothing),
     BDD.step("client {string} is closed by the server with the code {int}", &closed_with),
     BDD.step("client {string} closes", &closes),
+    BDD.step("client {string} drops the connection", &drops),
+    BDD.step("{int} milliseconds pass", &waits),
+    BDD.step("client {string} connects from the origin {string}", &connects_from),
+    BDD.step("client {string} performs {string} in the channel {string}", &performs_alone),
+    BDD.step(
+      "client {string} subscribes to the streams of the last page with a tampered signature",
+      &subscribes_tampered,
+    ),
   ]
 end
 
@@ -103,6 +111,19 @@ def connects(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.set(ctx, "status #{args[0]}", JSON.get(answer, "status").unwrap!)
 end
 
+# A page of another site: the same cookies, and the Origin that its script would send.
+def connects_from(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  headers = {"Origin": args[1]}
+  cookies = HttpSteps.cookie_header(ctx)
+  if not cookies.empty?
+    headers = headers.put("Cookie", cookies)
+  end
+
+  order = Order(op: "connect", id: args[0], path: "/cable", headers: headers, protocols: SUBPROTOCOL)
+  answer = peer(ctx, order)
+  return BDD.set(ctx, "status #{args[0]}", JSON.get(answer, "status").unwrap!)
+end
+
 def handshake_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
   status = JSON.int(BDD.get(ctx, "status #{args[0]}").unwrap!).unwrap!
   return BDD.assert(ctx, status == args[1].to_i!, "the handshake of #{args[0]} was answered #{status}")
@@ -137,6 +158,16 @@ def performs(ctx: BDD.Context, args: List[String]) -> BDD.Context
   command = JSON.encode({
     "command": JSON.from("message"),
     "identifier": JSON.from(room_identifier(args[2], args[3].to_i!)),
+    "data": JSON.from(JSON.encode({"action": args[1]})),
+  })
+
+  return send_text(ctx, args[0], command)
+end
+
+def performs_alone(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  command = JSON.encode({
+    "command": JSON.from("message"),
+    "identifier": JSON.from(JSON.encode({"channel": args[2]})),
     "data": JSON.from(JSON.encode({"action": args[1]})),
   })
 
@@ -189,6 +220,27 @@ def subscribes_to_remembered(ctx: BDD.Context, args: List[String]) -> BDD.Contex
   return subscribe_sources(ctx, args[0], HttpSteps.remembered_body(ctx), "")
 end
 
+# The signature is the part after `--`: its last digit is changed, so the name is one that nobody signed.
+def tampered(signed: String) -> String
+  last = signed.slice(signed.length - 1, 1)
+  other = "0"
+  if last == "0"
+    other = "1"
+  end
+
+  return signed.slice(0, signed.length - 1) + other
+end
+
+def subscribes_tampered(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  result = ctx
+  for source in sources_of(HttpSteps.last_body(ctx))
+    identifier = JSON.encode({"channel": source.channel, "signed_stream_name": tampered(source.signed)})
+    result = send_text(result, args[0], subscribe_command(identifier))
+  end
+
+  return result
+end
+
 def subscribes_to_page_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return subscribe_sources(ctx, args[0], HttpSteps.last_body(ctx), args[1])
 end
@@ -238,5 +290,16 @@ end
 
 def closes(ctx: BDD.Context, args: List[String]) -> BDD.Context
   _ = peer(ctx, Order(op: "close", id: args[0]))
+  return ctx
+end
+
+def waits(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  Task.sleep(args[0].to_i!)
+  return ctx
+end
+
+# No close frame: what a laptop that is shut or a network that is lost does.
+def drops(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  _ = peer(ctx, Order(op: "drop", id: args[0]))
   return ctx
 end

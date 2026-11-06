@@ -66,11 +66,12 @@ export def start(config: Config) -> Result[Running]
   return running
 end
 
-## Stops the server, then the hub (its connections are told to reconnect), then the mailer, which sends what is queued
-## first, then closes the pool.
+## Stops the hub (its connections are told to reconnect and are closed), then the server, then the mailer, which sends
+## what is queued first, then closes the pool. The hub goes first because a WebSocket holds a connection of the server
+## for as long as its tab is open, and a server that waits for the open ones waits for the tabs.
 export def stop(running: Running) -> Void
-  Bond.stop(running.server)
   CableWeb.stop(running.cable)
+  Bond.stop(running.server)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
   Database.close_pool(running.pool)

@@ -4,11 +4,13 @@
 ## remembering to ask for it.
 
 import Bond from "pkg/bond/bond"
+import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import Database from "../campfire/repo/database"
 import Failure from "failure"
+import Hangup from "hangup"
 import Mailer from "../campfire/mail/mailer"
 import RateLimit from "../campfire/rate_limit"
 import Routes from "routes"
@@ -66,7 +68,13 @@ RESET_SUBJECT = "Reset your Campfire password"
 ## send email). The filters run in this order, and `Bond.csrf` goes first so that a forged request is refused before
 ## any work. A missing `Sec-Fetch-Site` and `Origin` (a tool, not a browser) passes, which is what the specs and `curl`
 ## send.
-export def add(app: Bond.App, config: Config, pool: Database.Pool, mailer: Mailer.Mailer) -> Bond.App
+export def add(
+  app: Bond.App,
+  config: Config,
+  pool: Database.Pool,
+  mailer: Mailer.Mailer,
+  hub: Channels.Hub,
+) -> Bond.App
   # `slots` bounds the hashing for everyone together; `attempts` bounds the sign-in posts of one address.
   slots = Slots.new()
   attempts = RateLimit.new()
@@ -81,12 +89,17 @@ export def add(app: Bond.App, config: Config, pool: Database.Pool, mailer: Maile
     |> Bond.post(Routes.JOIN) do |conn| create_join(conn, pool, slots) end
     |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, pool, mailer) end
     |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, pool, slots, attempts, mailer) end
-    |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, pool) end
+    |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, pool, hub) end
     |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
     |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, pool, mailer) end
     |> Bond.get(Routes.PASSWORD_RESET_EDIT) do |conn| show_reset_password(conn, pool) end
     |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, pool, slots) end
   )
+end
+
+## The token of the session cookie, "" when the request has none.
+export def session_token(conn: Bond.Conn) -> String
+  return Bond.get_session(conn, TOKEN_KEY).unwrap_or("")
 end
 
 ## The person of the request, or `none` for a visitor with no session, a session that was ended, or a user that was
@@ -323,7 +336,10 @@ def create_session(
   end
 end
 
-def destroy_session(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+# The sockets of the person are told to reconnect: the ones of their other sessions are welcomed again at once, and
+# the ones of this browser are refused, since its cookie is gone (`Hangup`).
+def destroy_session(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub) -> Result[Bond.Conn]
+  person = try assigned_user(conn)
   token = Bond.get_session(conn, TOKEN_KEY)
   cleared = Bond.clear_session(conn)
   if not token.ok?
@@ -337,6 +353,10 @@ def destroy_session(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
     # makes it for any failure (a 503 when the database was busy, else a 500).
     IO.warn("campfire: sign-out failed: #{deleted.message}")
     return ok(Failure.answer(cleared, deleted.message))
+  end
+
+  if person.some?
+    Hangup.user(hub, person.unwrap!.id, true)
   end
 
   return ok(Bond.redirect(cleared, Routes.SIGN_IN))

@@ -279,6 +279,29 @@ export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]
   )
 end
 
+## How many seconds the session with this token has before it is as old as a cookie lives (`SESSION_SECONDS`): the
+## time after which `purge_sessions` removes it. 0 for a session that is not there or is older. A socket that holds the
+## session is closed at that time.
+export def seconds_left(conn: Db.Connection, token: String) -> Result[Int]
+  rows = try Db.query(
+    conn,
+    "select cast(strftime('%s', created_at) as integer) + #{SESSION_SECONDS} - cast(strftime('%s', 'now') as integer) " +
+    "as remaining from sessions where token = ?",
+    [Db.Value.Text(token)],
+  )
+
+  if rows.empty?
+    return ok(0)
+  end
+
+  remaining = int_of(rows[0], "remaining")
+  if remaining < 0
+    return ok(0)
+  end
+
+  return ok(remaining)
+end
+
 ## Ends the session with this token. A token that is not there is not an error.
 export def sign_out(conn: Db.Connection, token: String) -> Result[Void]
   try Db.execute(conn, "delete from sessions where token = ?", [Db.Value.Text(token)])

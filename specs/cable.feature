@@ -135,6 +135,113 @@ Feature: Live updates over /cable
       | was    | 2      |
     Then client "bea" eventually receives a frame containing "action=\\\"replace\\\" target=\\\"room_2\\\""
 
+  Scenario: A page of another site cannot open the socket, even with the cookies of the person
+    When client "evil" connects from the origin "http://evil.example"
+    Then the handshake of "evil" is answered 403
+
+  Scenario: A stream name that nobody signed is rejected
+    When I get "/rooms/1"
+    And client "ana" connects with the cookies of the browser
+    And client "ana" subscribes to the streams of the last page with a tampered signature
+    Then client "ana" eventually receives a frame containing "reject_subscription"
+    And client "ana" receives nothing for 300 milliseconds
+
+  Scenario: A person who is not in a room hears no notice of its messages
+    When I post to "/closed_rooms" the form:
+      | name | Secret |
+    And I sign in as "bea@example.com"
+    And client "bea" connects with the cookies of the browser
+    And client "bea" subscribes to the channel "UnreadRoomsChannel"
+    Then client "bea" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "ana@example.com"
+    And I post to "/rooms/2/messages" the form:
+      | message[body] | Not for Bea |
+    Then client "bea" receives nothing for 500 milliseconds
+
+  Scenario: A person who is looking at a room has it read when a message comes, until the last tab closes or drops
+    When I sign in as "bea@example.com"
+    And client "bea1" connects with the cookies of the browser
+    And client "bea2" connects with the cookies of the browser
+    And client "bea1" subscribes to the channel "PresenceChannel" of the room 1
+    And client "bea2" subscribes to the channel "PresenceChannel" of the room 1
+    Then client "bea1" eventually receives a frame containing "confirm_subscription"
+    And client "bea2" eventually receives a frame containing "confirm_subscription"
+    When client "bea1" closes
+    And I sign in as "ana@example.com"
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | One tab is left |
+    Then the query "select count(*) from memberships where room_id = 1 and user_id = 2 and unread_at is not null" gives 0 within 2000 milliseconds
+    When client "bea2" drops the connection
+    And 500 milliseconds pass
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | Nobody is looking |
+    And 500 milliseconds pass
+    Then the query "select count(*) from memberships where room_id = 1 and user_id = 2 and unread_at is not null" gives 1
+
+  Scenario: A person who is deactivated is disconnected and told not to come back
+    When I sign in as "bea@example.com"
+    And client "bea" connects with the cookies of the browser
+    And client "bea" subscribes to the channel "UnreadRoomsChannel"
+    Then client "bea" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "ana@example.com"
+    And I get "/users"
+    And I submit the form of the page that posts to "/users/2/deactivate"
+    Then client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"
+    And client "bea" is closed by the server with the code 1000
+
+  Scenario: A sign-out ends the sockets of the person, who may come back where they still have a session
+    When client "ana" connects with the cookies of the browser
+    And client "ana" subscribes to the channel "UnreadRoomsChannel"
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When I post to "/sign_out" the form:
+      | x | y |
+    Then client "ana" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
+    And client "ana" is closed by the server with the code 1000
+    When client "again" connects with the cookies of the browser
+    Then client "again" receives:
+      """
+      {"type":"disconnect","reason":"unauthorized","reconnect":false}
+      """
+
+  Scenario: A person who is taken out of a closed room stops hearing it, and is refused when the client comes back
+    When I post to "/closed_rooms" the form:
+      | name   | Council |
+      | member | 2       |
+    And I sign in as "bea@example.com"
+    And I get "/rooms/2"
+    And I remember the answer
+    And client "bea" connects with the cookies of the browser
+    And client "bea" subscribes to the streams of the remembered page
+    Then client "bea" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "ana@example.com"
+    And I post to "/rooms/2/settings" the form:
+      | name | Council |
+      | was  | 2       |
+    Then client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
+    When I sign in as "bea@example.com"
+    And client "back" connects with the cookies of the browser
+    And client "back" subscribes to the streams of the remembered page
+    Then client "back" eventually receives a frame containing "reject_subscription"
+
+  Scenario: A socket whose session ended or ran out is closed at the next check
+    When I sign in as "bea@example.com"
+    And client "bea" connects with the cookies of the browser
+    And client "bea" subscribes to the channel "HeartbeatChannel"
+    Then client "bea" eventually receives a frame containing "confirm_subscription"
+    When client "bea" performs "check" in the channel "HeartbeatChannel"
+    Then client "bea" receives nothing for 300 milliseconds
+    When I run the sql "update sessions set created_at = strftime('%Y-%m-%d %H:%M:%f', 'now', '-31 days') where user_id = 2"
+    And client "bea" performs "check" in the channel "HeartbeatChannel"
+    Then client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
+    And client "bea" is closed by the server with the code 1000
+
+  Scenario: Stopping the app with a socket open tells the socket to reconnect
+    When client "ana" connects with the cookies of the browser
+    And client "ana" subscribes to the channel "HeartbeatChannel"
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When the app restarts
+    Then client "ana" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":null,\"reconnect\":true}"
+
   Scenario: The counts of the hub are for an administrator, and anybody else gets the 404 of any missing path
     When client "ana" connects with the cookies of the browser
     And client "ana" subscribes to the channel "HeartbeatChannel"

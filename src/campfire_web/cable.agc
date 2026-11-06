@@ -21,6 +21,7 @@ import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
+import Hangup from "hangup"
 import Presence from "../campfire/presence"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
@@ -33,6 +34,15 @@ ROOMS_STREAM = "rooms"
 MESSAGES_SUFFIX = ":messages"
 ROOM_PREFIX = "room:"
 
+# How many times the membership of a room is looked up when the database is busy, and the pause after the first
+# failure (it grows with each try).
+MEMBER_TRIES = 3
+MEMBER_PAUSE_MS = 50
+
+# How long `stop` waits for the connections to say goodbye, and how often it looks.
+GOODBYE_MS = 3_000
+GOODBYE_POLL_MS = 50
+
 # The room that a presence subscription or a stream name names, as a number.
 NO_ROOM = -1
 
@@ -43,6 +53,12 @@ export struct Cable
   key: Bytes
   pool: Database.Pool
   presence: Presence.Presence
+end
+
+# Who a connection is: the person and the token of the session that opened it, which `check_session` looks up again.
+struct Seat
+  user: Auth.User
+  token: String
 end
 
 # What the fan-out of a message needs, in a task of its own: the room and the time of the message.
@@ -80,10 +96,17 @@ export def start(config: Config, pool: Database.Pool) -> Result[Cable]
   return ok(Cable(hub: hub, key: key, pool: pool, presence: Presence.new()))
 end
 
-## Ends the hub: its connections are told to reconnect and are closed. It waits until the hub task is over.
+## Ends the hub: its connections are told to reconnect and are closed. It waits until the hub task is over, and then
+## until the connections have said goodbye, for at most `GOODBYE_MS`: a connection finds out that the hub is gone at
+## its next look (every 2 s), and a server that stopped before that would cut the sockets with no frame.
 export def stop(cable: Cable) -> Void
   _ = Channels.stop_hub(cable.hub)
   _ = Task.await(cable.hub.task)
+  waited = 0
+  while Channels.stats(cable.hub).connections > 0 and waited < GOODBYE_MS
+    Task.sleep(GOODBYE_POLL_MS)
+    waited += GOODBYE_POLL_MS
+  end
 end
 
 ## Adds the WebSocket at `Routes.CABLE` to `app`. The sign-in filter lets the path through (`AuthWeb.PUBLIC_PATHS`),
@@ -125,6 +148,12 @@ end
 ## `actor_id` is the person who did it, who always sees the room.
 export def room_changed(cable: Cable, room_id: Int, actor_id: Int, renamed: Bool) -> Void
   _ = Task.spawn(&room_news, RoomEvent(cable: cable, room_id: room_id, actor_id: actor_id, renamed: renamed))
+end
+
+## Ends the sockets of the people who were taken out of a closed room, so that they reconnect and subscribe again only
+## where they are still allowed (`Hangup.users`).
+export def members_removed(cable: Cable, user_ids: List[Int]) -> Void
+  Hangup.users(cable.hub, user_ids, true)
 end
 
 # What the hub counted, for an administrator: the connections and subscriptions now, and the connections it dropped for
@@ -169,8 +198,13 @@ def room_of_stream(name: String) -> Int
   return digits.to_i.unwrap_or(NO_ROOM)
 end
 
+def seat_of(session: Channels.Session) -> Result[Seat]
+  return JSON.decode(session.identity.data, Seat)
+end
+
 def user_of(session: Channels.Session) -> Result[Auth.User]
-  return JSON.decode(session.identity.data, Auth.User)
+  seat = try seat_of(session)
+  return ok(seat.user)
 end
 
 # True when the person has a membership of the room, whatever their involvement.
@@ -180,16 +214,36 @@ def member?(cable: Cable, session: Channels.Session, room_id: Int) -> Result[Boo
   return ok(found.some?)
 end
 
+# The membership of a room, looked up again when the database fails (a reconnect burst can leave the pool without a
+# connection for a moment). A failure that stays is not "not a member": the person's sockets are told to reconnect, so
+# they ask again, and the failure is the answer (a subscription that fails is rejected, and the client keeps no stream
+# that it was not given).
+def checked_member(cable: Cable, session: Channels.Session, room_id: Int) -> Result[Bool]
+  tries = 1
+  found = member?(cable, session, room_id)
+  while not found.ok? and tries < MEMBER_TRIES
+    Task.sleep(MEMBER_PAUSE_MS * tries)
+    tries += 1
+    found = member?(cable, session, room_id)
+  end
+
+  if not found.ok?
+    IO.warn("campfire: the membership of room #{room_id} could not be read: #{found.message}")
+    _ = Channels.disconnect(cable.hub, session.identity.id, true)
+  end
+
+  return found
+end
+
 # The ones that `Channels.turbo_streams` asks. The room of a message stream comes from its verified name, so there
-# is no
-# parameter that a client could point somewhere else.
+# is no parameter that a client could point somewhere else.
 def message_stream_allowed?(cable: Cable, session: Channels.Session, name: String) -> Bool
   room_id = room_of_stream(name)
   if room_id == NO_ROOM
     return false
   end
 
-  return member?(cable, session, room_id).unwrap_or(false)
+  return checked_member(cable, session, room_id).unwrap_or(false)
 end
 
 def not_a_message_stream?(session: Channels.Session, name: String) -> Bool
@@ -250,7 +304,9 @@ def identify(cable: Cable, conn: Bond.Conn) -> Result[Channels.Identity]
   user = try AuthWeb.current_user(conn, cable.pool)
   case user
     none -> return error("no signed-in person")
-    some(person) -> return ok(Channels.Identity(id: "#{person.id}", data: JSON.from(person)))
+    some(person) ->
+      seat = Seat(user: person, token: AuthWeb.session_token(conn))
+      return ok(Channels.Identity(id: Hangup.identity_of(person.id), data: JSON.from(seat)))
   end
 end
 
@@ -260,12 +316,13 @@ def handlers(cable: Cable) -> Map[String, Channels.Handler]
   absent = leaving() do |session, params| absent_from_room(cable, session, params) end
   refreshed = acting() do |session, params, action, _data| presence_action(cable, session, params, action) end
   unreads = subscribing() do |session, _params| unread_subscribed(session) end
+  checked = acting() do |session, _params, _action, _data| check_session(cable, session) end
   return {
     ROOM_MESSAGES_CHANNEL: Channels.turbo_streams(cable.key, in_room),
     TURBO_CHANNEL: Channels.turbo_streams(cable.key, &not_a_message_stream?),
     "UnreadRoomsChannel": Channels.handler(unreads),
     "PresenceChannel": Channels.handler(present).with(unsubscribed: absent, perform: refreshed),
-    "HeartbeatChannel": Channels.handler(&heartbeat_subscribed),
+    "HeartbeatChannel": Channels.handler(&heartbeat_subscribed).with(perform: checked),
   }
 end
 
@@ -283,47 +340,91 @@ end
 def present_in_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Channels.Subscription]
   room_id = room_id_of(params)
   person = try user_of(session)
-  if room_id == NO_ROOM or not try member?(cable, session, room_id)
+  if room_id == NO_ROOM or not try checked_member(cable, session, room_id)
     return ok(Channels.Subscription(rejected: true))
   end
 
-  Presence.present(cable.presence, room_id, person.id, Time.now_ms())
-  try Database.with_connection(cable.pool) do |db| Rooms.mark_read(db, room_id, person.id) end
+  Presence.present(cable.presence, room_id, person.id, session.connection, Time.now_ms())
+  read = Database.with_connection(cable.pool) do |db| Rooms.mark_read(db, room_id, person.id) end
+  if not read.ok?
+    IO.warn("campfire: room #{room_id} could not be marked read: #{read.message}")
+  end
+
   return ok(Channels.Subscription())
 end
 
 def absent_from_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Void]
   person = try user_of(session)
-  Presence.absent(cable.presence, room_id_of(params), person.id, Time.now_ms())
+  Presence.absent(cable.presence, room_id_of(params), person.id, session.connection, Time.now_ms())
   return ok()
 end
 
-# `refresh` is what the page sends every 50 s while it is visible; `present` and `absent` are the same as the
-# subscription and its end, for a page that comes back to the tab or leaves it. Any other action is ignored.
+# The session of the connection is looked up again, so a socket that outlives its session (a sign-out in another
+# browser, a password reset, a purge, the end of the cookie's life) does not keep listening. A session that is gone
+# gets its person's sockets told to reconnect: the ones that still have a session are welcomed again at once, and this
+# one is refused. A failure of the database leaves the socket as it is; the next check tries again.
+def check_session(cable: Cable, session: Channels.Session) -> Result[List[Json]]
+  seat = try seat_of(session)
+  left = try Database.with_connection(cable.pool) do |db| Auth.seconds_left(db, seat.token) end
+  if left == 0
+    _ = Channels.disconnect(cable.hub, session.identity.id, true)
+  end
+
+  return ok([])
+end
+
+# `refresh` is what the page sends every 50 s while it is visible, and checks the session; `present` and `absent` are
+# the same as the subscription and its end, for a page that comes back to the tab or leaves it. Any other action is
+# ignored.
 def presence_action(cable: Cable, session: Channels.Session, params: Json, action: String) -> Result[List[Json]]
   person = try user_of(session)
   room_id = room_id_of(params)
   now = Time.now_ms()
   case action
-    "refresh" -> Presence.refresh(cable.presence, room_id, person.id, now)
-    "present" -> Presence.present(cable.presence, room_id, person.id, now)
-    "absent" -> Presence.absent(cable.presence, room_id, person.id, now)
+    "refresh" ->
+      try check_session(cable, session)
+      Presence.refresh(cable.presence, room_id, person.id, session.connection, now)
+    "present" -> Presence.present(cable.presence, room_id, person.id, session.connection, now)
+    "absent" -> Presence.absent(cable.presence, room_id, person.id, session.connection, now)
     _ -> return ok([])
   end
 
   return ok([])
 end
 
-# The members who have the room unread or are connected to it get `{"roomId":ID,"at":TIME}`.
+# The members who have the room unread or are connected to it get `{"roomId":ID,"at":TIME}`. A message sets
+# `unread_at` for everyone in the room but its author (the SQL of `Room#receive` looks at `memberships.connected_at`,
+# which this app does not write), so the people who are looking at the room are marked read again here, in the same
+# task: a room that someone watches is not left unread. A failure to read the members (no connection of the pool in
+# time) ends the task and loses these notices without a trace: nothing counts them in `lost`, which is for broadcasts
+# that could not be queued.
 def unread_notices(job: Unread) -> Result[Void]
   cable = job.cable
   watchers = try Database.with_connection(cable.pool) do |db| Rooms.watchers(db, job.room_id) end
   now = Time.now_ms()
   notice = JSON.from({"roomId": JSON.from(job.room_id), "at": JSON.from(job.at)})
+  watching: List[Int] = []
   for watcher in watchers
-    if watcher.unread or Presence.connected?(cable.presence, job.room_id, watcher.user_id, now)
+    connected = Presence.connected?(cable.presence, job.room_id, watcher.user_id, now)
+    if connected
+      watching = watching.push(watcher.user_id)
+    end
+
+    if watcher.unread or connected
       _ = Channels.broadcast_json(cable.hub, unreads_stream(watcher.user_id), notice)
     end
+  end
+
+  if watching.empty?
+    return ok()
+  end
+
+  return Database.with_connection(cable.pool) do |db| mark_watchers_read(db, job.room_id, watching) end
+end
+
+def mark_watchers_read(db: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
+  for user_id in user_ids
+    try Rooms.mark_read(db, room_id, user_id)
   end
 
   return ok()
