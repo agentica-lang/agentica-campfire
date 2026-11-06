@@ -53,6 +53,7 @@ The tests are BDD first and take under a minute. CI (`.github/workflows/ci.yml`)
 - [docs/configuration.md](docs/configuration.md): every `CAMPFIRE_*` variable, the data folder and the database.
 - [docs/security.md](docs/security.md): sessions, passwords, CSRF, public pages, known gaps.
 - [docs/rooms.md](docs/rooms.md): open, closed and direct rooms, settings, messages.
+- [docs/cable.md](docs/cable.md): the `/cable` WebSocket (Action Cable): streams, channels and what is broadcast.
 - [docs/people.md](docs/people.md): the join link and the people page.
 - [docs/mail.md](docs/mail.md): password reset, SMTP and the mailer.
 - [DESIGN.md](DESIGN.md): the visual design system (colours, type, components, accessibility).

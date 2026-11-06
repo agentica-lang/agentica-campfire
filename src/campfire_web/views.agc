@@ -11,6 +11,11 @@ import Routes from "routes"
 # The name of the app, in the title and the heading.
 NAME = "Campfire"
 
+# The ids of the lists of the sidebar that a live change appends to (`shared_rooms` is the one that the page has always
+# had).
+SHARED_ROOMS_ID = "shared_rooms"
+DIRECT_ROOMS_ID = "direct_rooms"
+
 ## What the form of a room page needs: a `note` that says why the last message was refused ("" shows none), the text
 ## to put back in the field (`draft`), and the id that this form sends with its message (`message_id`).
 export struct Composer
@@ -54,16 +59,16 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
       <p class="who">Signed in as <%= user_name %></p>
       <div class="lists">
         <h2>Rooms</h2>
-        <ul id="shared_rooms">
+        <ul id="<%= SHARED_ROOMS_ID %>">
     <% for room in shared %>
-          <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+          <%== room_item(room) %>
     <% end %>
         </ul>
     <% if not direct.empty? %>
         <h2>Direct messages</h2>
-        <ul>
+        <ul id="<%= DIRECT_ROOMS_ID %>">
     <% for room in direct %>
-          <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+          <%== room_item(room) %>
     <% end %>
         </ul>
     <% end %>
@@ -82,9 +87,34 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
   EAG
 end
 
-## The sidebar alone as a document, for `GET /users/me/sidebar`.
-export def sidebar_page(sidebar: String) -> String
-  return layout("Rooms", sidebar)
+## The sidebar alone as a document, for `GET /users/me/sidebar`. `sources` is the markup of the live streams that the
+## sidebar listens to (`CableWeb.sidebar_sources`), written before it as Rails writes its `turbo_stream_from`.
+export def sidebar_page(sidebar: String, sources: String) -> String
+  return layout("Rooms", sources + "\n" + sidebar)
+end
+
+## The entry of a room in the sidebar. A live change finds it by its id.
+export def room_item(room: Rooms.Room) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <li id="<%= room_item_id(room) %>"><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+  EAG
+end
+
+## The Turbo Stream that adds a room to the list of its kind in the sidebar: the direct messages, or the rooms.
+export def room_added_stream(room: Rooms.Room) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="append" target="<%= list_id(room) %>"><template><%== room_item(room) %></template></turbo-stream>
+  EAG
+end
+
+## The Turbo Stream that shows the new name of a room in the sidebar.
+export def room_renamed_stream(room: Rooms.Room) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="replace" target="<%= room_item_id(room) %>"><template><%== room_item(room) %></template></turbo-stream>
+  EAG
 end
 
 ## The home page of the person who is signed in, around their `sidebar`.
@@ -329,7 +359,8 @@ end
 ## The page of a room: its messages, oldest first, with the links to the page before and back to the latest one, and
 ## the form that posts a message. `thread` is the markup of the messages of `page` (`MessageCache.list`, which is
 ## `messages_list` of them with their bodies cleaned), written with `<%== %>`. `can_edit` adds the link to the
-## settings, for the people who may change the room.
+## settings, for the people who may change the room. `sources` is the markup of the live stream of the room
+## (`CableWeb.room_sources`).
 export def room(
   sidebar: String,
   room: Rooms.Room,
@@ -337,11 +368,13 @@ export def room(
   thread: String,
   composer: Composer,
   can_edit: Bool,
+  sources: String,
 ) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
     <main id="main" class="room">
+    <%== sources %>
       <header>
         <h1><%= room.name %></h1>
     <% if can_edit %>
@@ -618,4 +651,17 @@ export def busy(message: String) -> String
     </main>
   EAG
   return layout(NAME, body)
+end
+
+# The list of the sidebar that the room belongs to.
+def list_id(room: Rooms.Room) -> String
+  if room.room_type == Rooms.DIRECT
+    return DIRECT_ROOMS_ID
+  end
+
+  return SHARED_ROOMS_ID
+end
+
+def room_item_id(room: Rooms.Room) -> String
+  return "room_#{room.id}"
 end

@@ -13,6 +13,7 @@ import Db from "pkg/db/db"
 import Cache from "std/cache"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
+import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
 import MessageCache from "message_cache"
@@ -36,7 +37,8 @@ enum Answer
   Page(Int, String)
   Cached(PageCache.Page)
   Fragment(String)
-  TurboStream(String)
+  Made(Int, Int, Bool)
+  Posted(Rooms.Room, Rooms.Message, Bool)
   NoContent
   Redirect(String)
   NotFound
@@ -44,28 +46,30 @@ enum Answer
   SignedOut
 end
 
-## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cache` keeps
-## the markup of the messages that a room page and the older messages write (`MessageCache`), `none` for no cache, and
-## `pages` keeps those two pages whole (`PageCache`), `none` for no cache.
+## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
+## where a new message and a room that is made or renamed are broadcast, and whose stream of a room the room page
+## names. `cache` keeps the markup of the messages that a room page and the older messages write (`MessageCache`),
+## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache.
 export def add(
   app: Bond.App,
   pool: Database.Pool,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
 ) -> Bond.App
   return (
     app
     |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
-    |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool) end
-    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cache, pages) end
+    |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool, cable) end
+    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cable, cache, pages) end
     |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache, pages) end
-    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cache) end
+    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cable, cache) end
     |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
-    |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool) end
+    |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool, cable) end
     |> Bond.get(Routes.DIRECT_ROOM_NEW) do |conn| show_new_direct_room(conn, pool) end
-    |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, pool) end
+    |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, pool, cable) end
     |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, pool) end
-    |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool) end
+    |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool, cable) end
   )
 end
 
@@ -102,10 +106,10 @@ def new_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   end
 end
 
-def create_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def create_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   name = (try Bond.form(conn, "name")).strip
   answer = try Database.with_connection(pool) do |db| create_room_answer(conn, db, name) end
-  return ok(respond(conn, answer))
+  return ok(announced(conn, cable, answer))
 end
 
 def create_room_answer(conn: Bond.Conn, db: Db.Connection, name: String) -> Result[Answer]
@@ -123,7 +127,7 @@ def made_room(db: Db.Connection, person: Auth.User, name: String) -> Result[Answ
   end
 
   room_id = try Rooms.create_open(db, person.id, name)
-  return ok(Answer.Redirect(Routes.room_path(room_id)))
+  return ok(Answer.Made(room_id, person.id, false))
 end
 
 def show_new_closed_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
@@ -139,11 +143,11 @@ def new_closed_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   end
 end
 
-def create_closed_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def create_closed_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   name = (try Bond.form(conn, "name")).strip
   ids = try ids_of(conn, "member")
   answer = try Database.with_connection(pool) do |db| create_closed_answer(conn, db, name, ids) end
-  return ok(respond(conn, answer))
+  return ok(announced(conn, cable, answer))
 end
 
 def create_closed_answer(conn: Bond.Conn, db: Db.Connection, name: String, ids: List[Int]) -> Result[Answer]
@@ -163,7 +167,7 @@ def made_closed_room(db: Db.Connection, person: Auth.User, name: String, ids: Li
   end
 
   room_id = try Rooms.create_closed(db, person.id, name, chosen)
-  return ok(Answer.Redirect(Routes.room_path(room_id)))
+  return ok(Answer.Made(room_id, person.id, false))
 end
 
 def closed_room_form(
@@ -190,10 +194,10 @@ def new_direct_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   end
 end
 
-def create_direct_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def create_direct_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   ids = try ids_of(conn, "member")
   answer = try Database.with_connection(pool) do |db| create_direct_answer(conn, db, ids) end
-  return ok(respond(conn, answer))
+  return ok(announced(conn, cable, answer))
 end
 
 def create_direct_answer(conn: Bond.Conn, db: Db.Connection, ids: List[Int]) -> Result[Answer]
@@ -216,7 +220,7 @@ def started_direct_room(db: Db.Connection, person: Auth.User, ids: List[Int]) ->
   room_id = try Rooms.open_direct(db, person.id, chosen)
   case room_id
     none -> return ok(Answer.Page(422, try direct_room_form(db, person, [], Rooms.people_problem([]))))
-    some(found) -> return ok(Answer.Redirect(Routes.room_path(found)))
+    some(found) -> return ok(Answer.Made(found, person.id, false))
   end
 end
 
@@ -248,10 +252,10 @@ def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> R
   end
 end
 
-def save_settings(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def save_settings(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   id = room_id(conn)
   answer = try Database.with_connection(pool) do |db| save_settings_answer(conn, db, id) end
-  return ok(respond(conn, answer))
+  return ok(announced(conn, cable, answer))
 end
 
 def save_settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
@@ -304,7 +308,7 @@ def change_settings(
     return ok(Answer.NotFound)
   end
 
-  return ok(Answer.Redirect(Routes.room_path(room.id)))
+  return ok(Answer.Made(room.id, person.id, true))
 end
 
 # The form as it is first drawn: the people in the room are checked, and are the ones that it remembers as in it.
@@ -331,6 +335,7 @@ end
 def show_room(
   conn: Bond.Conn,
   pool: Database.Pool,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
 ) -> Result[Bond.Conn]
@@ -339,7 +344,7 @@ def show_room(
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(respond(conn, Answer.SignedOut))
-    some(person) -> return shown_room(conn, pool, cache, pages, person, id, before)
+    some(person) -> return shown_room(conn, pool, cable, cache, pages, person, id, before)
   end
 end
 
@@ -348,6 +353,7 @@ end
 def shown_room(
   conn: Bond.Conn,
   pool: Database.Pool,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
   person: Auth.User,
@@ -358,25 +364,27 @@ def shown_room(
   kept = PageCache.lookup(spot)
   case kept
     some(page) -> return ok(respond(conn, Answer.Cached(page)))
-    none -> return made_room_page(conn, pool, cache, spot, person, id, before)
+    none -> return made_room_page(conn, pool, cable, cache, spot, person, id, before)
   end
 end
 
 def made_room_page(
   conn: Bond.Conn,
   pool: Database.Pool,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   spot: Optional[PageCache.Spot],
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
 ) -> Result[Bond.Conn]
-  answer = try Database.with_connection(pool) do |db| room_answer(db, cache, person, id, before) end
+  answer = try Database.with_connection(pool) do |db| room_answer(db, cable, cache, person, id, before) end
   return ok(respond(conn, kept(spot, answer)))
 end
 
 def room_answer(
   db: Db.Connection,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   person: Auth.User,
   id: Optional[Int],
@@ -385,7 +393,9 @@ def room_answer(
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return ok(Answer.Page(200, try room_page(db, cache, person, found, before, composer("", ""))))
+    some(found) ->
+      page = try room_page(db, cable, cache, person, found, before, composer("", ""))
+      return ok(Answer.Page(200, page))
   end
 end
 
@@ -467,15 +477,23 @@ def fragment_of(cache: Optional[Cache.Store], page: Rooms.Page) -> Answer
   return Answer.Fragment(MessageCache.list(cache, page.messages))
 end
 
-def create_message(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
+def create_message(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  cache: Optional[Cache.Store],
+) -> Result[Bond.Conn]
   # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
   # whatever the room: nothing here depends on the room.
   body = (try Bond.form(conn, MESSAGE_BODY)).strip
   sent_id = try client_id(conn)
   id = room_id(conn)
   stream = wants_stream?(conn)
-  answer = try Database.with_connection(pool) do |db| message_answer(conn, db, cache, id, body, sent_id, stream) end
-  return ok(respond(conn, answer))
+  answer = try Database.with_connection(pool) do |db|
+    message_answer(conn, db, cable, cache, id, body, sent_id, stream)
+  end
+
+  return ok(announced(conn, cable, answer))
 end
 
 # A browser that runs the scripts of the page asks for a Turbo Stream, and gets the message to append; a form that
@@ -488,6 +506,7 @@ end
 def message_answer(
   conn: Bond.Conn,
   db: Db.Connection,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   id: Optional[Int],
   body: String,
@@ -497,13 +516,14 @@ def message_answer(
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return posted(db, cache, person, id, body, sent_id, stream)
+    some(person) -> return posted(db, cable, cache, person, id, body, sent_id, stream)
   end
 end
 
 # Membership first: a refusal of the text must not tell a person who is not in a room that it exists.
 def posted(
   db: Db.Connection,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   person: Auth.User,
   id: Optional[Int],
@@ -514,12 +534,13 @@ def posted(
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return post_to(db, cache, person, found, body, sent_id, stream)
+    some(found) -> return post_to(db, cable, cache, person, found, body, sent_id, stream)
   end
 end
 
 def post_to(
   db: Db.Connection,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   person: Auth.User,
   room: Rooms.Room,
@@ -529,7 +550,7 @@ def post_to(
 ) -> Result[Answer]
   problem = Rooms.body_problem(body)
   if problem != ""
-    page = try room_page(db, cache, person, room, none, composer(problem, body))
+    page = try room_page(db, cable, cache, person, room, none, composer(problem, body))
     return ok(Answer.Page(422, page))
   end
 
@@ -537,14 +558,14 @@ def post_to(
   stored = try Rooms.post(db, room.id, person.id, sent_id, HtmlSanitizer.from_text(body))
   case stored
     none -> return ok(Answer.SignedOut)
-    some(message) if stream -> return ok(Answer.TurboStream(Views.message_stream(room, message)))
-    some(_) -> return ok(Answer.Redirect(Routes.room_path(room.id)))
+    some(message) -> return ok(Answer.Posted(room, message, stream))
   end
 end
 
 # A page of the room with a form that has a new id, so that sending it again after a refusal is a new message.
 def room_page(
   db: Db.Connection,
+  cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   person: Auth.User,
   room: Rooms.Room,
@@ -554,7 +575,15 @@ def room_page(
   page = try Rooms.page(db, room.id, before)
   thread = MessageCache.list(cache, page.messages)
   return ok(
-    Views.room(try sidebar_of(db, person), room, page, thread, form, Rooms.editable?(room, person.id, person.role)),
+    Views.room(
+      try sidebar_of(db, person),
+      room,
+      page,
+      thread,
+      form,
+      Rooms.editable?(room, person.id, person.role),
+      CableWeb.room_sources(cable, room.id),
+    ),
   )
 end
 
@@ -646,13 +675,32 @@ def client_id(conn: Bond.Conn) -> Result[String]
   return ok(values[0])
 end
 
+# What the live clients hear of an answer, after its connection is back in the pool (a broadcast may wait for room
+# in the
+# hub), and then the answer itself.
+def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Conn
+  case answer
+    Answer.Made(room_id, actor_id, renamed) -> CableWeb.room_changed(cable, room_id, actor_id, renamed)
+    Answer.Posted(room, message, _) -> CableWeb.message_created(cable, room, message)
+    _ -> return respond(conn, answer)
+  end
+
+  return respond(conn, answer)
+end
+
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Page(status, html) -> return Bond.html(conn, status, html)
     Answer.Cached(page) -> return PageCache.respond(conn, page)
     Answer.Fragment(html) -> return Bond.html(conn, 200, html)
-    Answer.TurboStream(html) ->
-      return Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
+    Answer.Made(room_id, _, _) -> return Bond.redirect(conn, Routes.room_path(room_id))
+    Answer.Posted(room, message, stream) if stream ->
+      return Bond.header(
+        Bond.html(conn, 200, Views.message_stream(room, message)),
+        "content-type",
+        TURBO_STREAM_TYPE + "; charset=utf-8",
+      )
+    Answer.Posted(room, _, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
     Answer.NoContent -> return Bond.status(conn, 204)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)

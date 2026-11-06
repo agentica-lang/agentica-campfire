@@ -45,7 +45,7 @@ Feature: The cache of whole pages
     When I run the sql "update rooms set name = 'Fireside' where id = 1"
     And I get "/rooms/1"
     Then the body contains "<h1>Fireside</h1>"
-    And the body contains "<li><a href=\"/rooms/1\">Fireside</a></li>"
+    And the body contains "<li id=\"room_1\"><a href=\"/rooms/1\">Fireside</a></li>"
     When I run the sql "update users set name = 'Anna' where id = 1"
     And I get "/rooms/1"
     Then the body contains "Signed in as Anna"

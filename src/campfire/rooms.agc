@@ -121,6 +121,12 @@ export struct Page
   at_latest: Bool
 end
 
+## One person of a room, and whether the room is unread for them (`unread_at` is set).
+export struct Watcher
+  user_id: Int
+  unread: Bool
+end
+
 ## What is wrong with a room name, or "". The caller strips it first.
 export def name_problem(name: String) -> String
   if name.empty? or name.length > MAX_NAME_LENGTH
@@ -209,6 +215,22 @@ export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optio
   return ok(some(room_of(rows[0])))
 end
 
+## The room as the person's sidebar lists it (`visible`), `none` when they are not in it or have hidden it: what a live
+## change to the sidebar shows them.
+export def visible_room(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
+  rows = try Db.query(
+    conn,
+    "#{ROOM_COLUMNS} and rooms.id = ? and memberships.involvement <> '#{Rails.INVISIBLE}'",
+    [Db.Value.Int(user_id), Db.Value.Int(user_id), Db.Value.Int(room_id)],
+  )
+
+  if rows.empty?
+    return ok(none)
+  end
+
+  return ok(some(room_of(rows[0])))
+end
+
 ## Makes an open room that `creator_id` made and puts every active person in it, in one transaction. It gives the id.
 export def create_open(conn: Db.Connection, creator_id: Int, name: String) -> Result[Int]
   return Db.transaction(conn) do |tx| create_open_in(tx, creator_id, name) end
@@ -263,6 +285,29 @@ end
 export def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
   rows = try Db.query(conn, "select user_id from memberships where room_id = ?", [Db.Value.Int(room_id)])
   return ok(rows.map do |row| int_of(row, "user_id") end)
+end
+
+## Everyone in the room, with whether it is unread for them: who a live notice about the room may concern.
+export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
+  rows = try Db.query(
+    conn,
+    "select user_id, unread_at is not null as unread from memberships where room_id = ?",
+    [Db.Value.Int(room_id)],
+  )
+
+  return ok(rows.map do |row| Watcher(user_id: int_of(row, "user_id"), unread: int_of(row, "unread") == 1) end)
+end
+
+## The room is read for the person: it is no longer unread. It does not touch `updated_at`, as `Membership#read` of
+## Rails does not (`update_all`).
+export def mark_read(conn: Db.Connection, room_id: Int, user_id: Int) -> Result[Void]
+  try Db.execute(
+    conn,
+    "update memberships set unread_at = null where room_id = ? and user_id = ? and unread_at is not null",
+    [Db.Value.Int(room_id), Db.Value.Int(user_id)],
+  )
+
+  return ok()
 end
 
 ## Makes a closed room of `creator_id` with them and `members` in it, in one transaction, and gives its id. A member

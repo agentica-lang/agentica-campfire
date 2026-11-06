@@ -27,6 +27,7 @@ USER_KEY = "user"
 
 PUBLIC_PATHS = Set.new([
   Routes.HEALTH,
+  Routes.CABLE,
   Routes.UP,
   Routes.FIRST_RUN,
   Routes.SIGN_IN,

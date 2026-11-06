@@ -5,6 +5,7 @@
 
 import BDD from "std/bdd"
 import Db from "pkg/db/db"
+import CableSteps from "cable_steps"
 import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
 import SmtpSteps from "smtp_steps"
@@ -111,7 +112,7 @@ def main() -> Void
     BDD.step("the query {string} gives at most {int}", &query_gives_at_most),
   ]
 
-  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()).concat(MailSteps.steps()))
+  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()).concat(MailSteps.steps()).concat(CableSteps.steps()))
 end
 
 def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context

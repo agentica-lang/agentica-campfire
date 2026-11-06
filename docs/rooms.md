@@ -1,6 +1,7 @@
 # Rooms and messages
 
-There are no live updates yet: a page shows what the database holds when it is asked for.
+A page shows what the database holds when it is asked for. The server also pushes what changes over `/cable`
+([cable.md](cable.md)); the page does not listen yet.
 
 The sidebar lists the rooms that a person is in. The first run makes the open room "All Talk".
 

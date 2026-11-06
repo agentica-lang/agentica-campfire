@@ -130,6 +130,31 @@ def pages_of(megabytes: String) -> Result[Config.Config]
   )
 end
 
+def connections_of(text: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    Config.DEFAULT_ASSETS_DIR,
+    "",
+    "",
+    text,
+  )
+end
+
 def main() -> Void
   Test.run([
     Test.test("a host and a port make a config, and the database is a file of the data folder by default") do
@@ -428,6 +453,14 @@ def main() -> Void
       try Test.error?(pages_of("-1"))
       try Test.error?(pages_of("#{Config.MAX_RESPONSE_CACHE_MB + 1}"))
       Test.error?(pages_of("a lot"))
+    end,
+    Test.test("the connections have a default, and the environment may name from the fewest to the most") do
+      try Test.eq(connections_of("").unwrap!.max_connections, Config.DEFAULT_MAX_CONNECTIONS)
+      try Test.eq(connections_of(" 4000 ").unwrap!.max_connections, 4000)
+      try Test.ok?(connections_of("#{Config.MIN_MAX_CONNECTIONS}"))
+      try Test.error?(connections_of("#{Config.MIN_MAX_CONNECTIONS - 1}"))
+      try Test.error?(connections_of("#{Config.MAX_MAX_CONNECTIONS + 1}"))
+      Test.error?(connections_of("many"))
     end,
     Test.test(
       "the bcrypt library is empty (the default of the system) unless the environment names one, and is never checked",

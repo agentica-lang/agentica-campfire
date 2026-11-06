@@ -6,6 +6,7 @@ import Config from "../src/campfire/config"
 import Database from "../src/campfire/repo/database"
 import Mailer from "../src/campfire/mail/mailer"
 import RateLimit from "../src/campfire/rate_limit"
+import CableWeb from "../src/campfire_web/cable"
 import Web from "../src/campfire_web/web"
 
 SECRET = "0123456789abcdef0123456789abcdef"
@@ -44,7 +45,15 @@ def serve(dir: String, body: Fn[Site, Result[Void]]) -> Result[Void]
     return error(mailer.message)
   end
 
-  outcome = body.call(Site(dir: dir, app: Web.build(config, pool, schema.version, mailer.unwrap!)))
+  cable = CableWeb.start(config, pool)
+  if not cable.ok?
+    Database.close_pool(pool)
+    return error(cable.message)
+  end
+
+  built = Web.build(config, pool, schema.version, mailer.unwrap!, cable.unwrap!)
+  outcome = body.call(Site(dir: dir, app: built))
+  CableWeb.stop(cable.unwrap!)
   Database.close_pool(pool)
   return outcome
 end
