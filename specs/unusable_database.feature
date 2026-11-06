@@ -2,7 +2,7 @@ Feature: A database that the app cannot use
   A start on a database that is not the schema of the app stops with a message, instead of failing in a request later.
 
   Scenario: A database made by Rails that lacks a column that the app reads
-    Given a fresh database
+    Given an empty database
     And a database made by Rails
     And I run the sql "alter table users drop column status"
     When the app is started and stops
@@ -13,7 +13,7 @@ Feature: A database that the app cannot use
       """
 
   Scenario: A database of the app from before its history was rewritten to the Rails schema
-    Given a fresh database
+    Given an empty database
     And I run the sql "create table schema_migrations (version integer primary key, name text, checksum text)"
     When the app is started and stops
     Then stderr is:

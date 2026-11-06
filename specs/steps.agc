@@ -5,6 +5,7 @@
 
 import BDD from "std/bdd"
 import Db from "pkg/db/db"
+import Migrate from "pkg/db/migrate"
 import CableSteps from "cable_steps"
 import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
@@ -51,6 +52,9 @@ LISTENING = "listening on "
 # listens costs the full time. The steps that expect a failing start to exit use the same bound.
 START_MS = 30_000
 FOLDER_PREFIX = "campfire-spec-"
+# Where the migrated database that "a fresh database" copies is kept, under the folder where the specs run (`_build/`
+# is the build folder of the project, which CI keeps between runs). The file name is the digest of the migrations.
+TEMPLATE_DIR = "_build/spec-template"
 PRIVATE_FOLDER_MODE = 448
 FILE_MS = 5_000
 COPY_CHUNK = 65_536
@@ -58,6 +62,7 @@ COPY_CHUNK = 65_536
 def main() -> Void
   own = [
     BDD.step("a fresh database", &fresh_database),
+    BDD.step("an empty database", &empty_database),
     BDD.step("the database is migrated", &migrate_database),
     BDD.step("the app starts", &start_on_file),
     BDD.step("the app starts with secure cookies", &start_with_secure_cookies),
@@ -255,8 +260,18 @@ def text_of(ctx: BDD.Context, name: String) -> String
   return JSON.string(BDD.get(ctx, name).unwrap!).unwrap!
 end
 
-# The folder goes away when the scenario ends, passed or failed, so no step has to remove it.
+# A folder with a database that has every migration of the app, as a first start leaves it: a copy of the template. The
+# folder goes away when the scenario ends, passed or failed, so no step has to remove it.
 def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return new_database(ctx, true)
+end
+
+# A folder with no database file: the one for the scenarios that look at the migrations themselves.
+def empty_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return new_database(ctx, false)
+end
+
+def new_database(ctx: BDD.Context, migrated: Bool) -> BDD.Context
   root = System.env("TMPDIR").unwrap_or("/tmp")
   dir = Path.join([root, "#{FOLDER_PREFIX}#{SecureRandom.hex(8)}"]).unwrap!
   made = Dir.mkdir_private(dir)
@@ -267,7 +282,68 @@ def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
   url = "sqlite:#{dir}/campfire.db?fts5=required"
   stored = BDD.set(BDD.set(ctx, DB_DIR, JSON.from(dir)), DB_URL, JSON.from(url))
   # The hook's result is the removal's: a folder that cannot be removed fails the scenario.
-  return BDD.after(stored) do |_| Path.remove(dir) end
+  hooked = BDD.after(stored) do |_| Path.remove(dir) end
+  if not migrated
+    return hooked
+  end
+
+  copied = copy_template("#{dir}/campfire.db")
+  return BDD.assert(hooked, copied.ok?, "cannot copy the migrated database: #{copied.message}")
+end
+
+def copy_template(to: String) -> Result[Void]
+  template = try schema_template()
+  return copy_path(template, to)
+end
+
+# The migrated database that "a fresh database" copies, made by the first scenario that needs it and kept for the
+# next ones, in this run and in the runs that follow while the migrations stay the same. The file name is the digest of
+# the migrations (versions, names and statements), so a changed migration makes another file. The files run in
+# parallel: each one that finds no template migrates a database of its own and moves it into place, which is atomic and
+# gives the same bytes whoever wins.
+def schema_template() -> Result[String]
+  try Dir.mkdir(TEMPLATE_DIR)
+  path = try Path.join([TEMPLATE_DIR, "#{schema_digest()}.db"])
+  if File.stat(path).ok?
+    return ok(path)
+  end
+
+  scratch = try Path.join([TEMPLATE_DIR, "making-#{SecureRandom.hex(8)}.db"])
+  migrated = Database.migrate("sqlite:#{scratch}?fts5=required")
+  if not migrated.ok?
+    _ = Path.remove(scratch)
+    return error(migrated.message)
+  end
+
+  try Path.rename(scratch, path)
+  remove_old_templates(path)
+  return ok(path)
+end
+
+# The templates of earlier migrations are of no use to this checkout any more.
+def remove_old_templates(keep: String) -> Void
+  nothing: List[String] = []
+  names = Dir.list(TEMPLATE_DIR).unwrap_or(nothing)
+  for name in names
+    old = Path.join([TEMPLATE_DIR, name]).unwrap!
+    if old != keep and not name.start_with?("making-")
+      _ = Path.remove(old)
+    end
+  end
+end
+
+def schema_digest() -> String
+  parts = Migrations.all().map do |migration| "#{migration.version} #{migration.name}\n#{statements_of(migration)}" end
+
+  return Digest.sha256_hexdigest(parts.join("\n").bytes)
+end
+
+# The statements of a migration. A migration that is a function has none to show; the app has none.
+def statements_of(migration: Migrate.Migration) -> String
+  case migration.action
+    Migrate.Action.Statements(statements) -> return statements.join(";\n")
+    Migrate.Action.Code(_) -> return ""
+  end
 end
 
 def migrate_database(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -781,7 +857,11 @@ end
 
 # A file of the repository (`from` is relative to where the specs run) copied to `to`.
 def copy_file(relative: String, to: String) -> Result[Void]
-  source = try Path.join([try Path.cwd(), relative])
+  return copy_path(try Path.join([try Path.cwd(), relative]), to)
+end
+
+# The file at `source` copied to `to`.
+def copy_path(source: String, to: String) -> Result[Void]
   from = try File.open(source, "read", FILE_MS)
   target = try File.open(to, "write", FILE_MS)
   copied = copy_bytes(from, target)

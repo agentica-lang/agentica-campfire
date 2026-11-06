@@ -6,7 +6,7 @@ Feature: The schema
   they refuse a row without its parent and a delete of a parent that still has rows, and there is no cascade.
 
   Background:
-    Given a fresh database
+    Given an empty database
     And the database is migrated
     And I run the sql "insert into users (name, email_address, password_digest, role, created_at, updated_at) values ('Ana', 'ana@example.com', 'x', 1, '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
     And I run the sql "insert into rooms (name, type, creator_id, created_at, updated_at) values ('Lobby', 'Rooms::Open', 1, '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
