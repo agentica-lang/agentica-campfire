@@ -13,6 +13,7 @@ import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
 import Hangup from "hangup"
 import Rooms from "../campfire/rooms"
+import RoomsWeb from "rooms"
 import Routes from "routes"
 import Views from "views"
 import {Config} from "../campfire/config"
@@ -58,8 +59,7 @@ def users_page(db: Db.Connection, config: Config, person: Auth.User) -> Result[S
     link = try join_link(db, config)
   end
 
-  rooms = try Rooms.visible(db, person.id)
-  return ok(Views.users(Views.sidebar(person.name, rooms), people, person.id, admin, link))
+  return ok(Views.users(try RoomsWeb.sidebar_of(db, person), people, person.id, admin, link))
 end
 
 # The address of the app, when it is configured (it is needed for email), and else only the path, which the

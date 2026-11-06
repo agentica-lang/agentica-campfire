@@ -55,7 +55,7 @@ enum Answer
   NotFound
   NotAllowed(String)
   Forbidden
-  Deleted(Int)
+  Deleted(Rooms.Room, List[Int])
   SignedOut
 end
 
@@ -92,8 +92,8 @@ export def add(
     |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, pool, cable) end
     |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, pool) end
     |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool, cable) end
-    |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool) end
-    |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool) end
+    |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool, cable) end
+    |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool, cable) end
     |> Bond.get(Routes.ROOM_MESSAGE_EDIT) do |conn| edit_message(conn, pool) end
     |> Bond.post(Routes.ROOM_MESSAGE) do |conn| post_message(conn, pool) end
     |> Bond.patch(Routes.ROOM_MESSAGE) do |conn| update_message(conn, pool) end
@@ -111,8 +111,15 @@ end
 
 ## The column at the side of a page for the person: their rooms that are not hidden and the ways to make one.
 export def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String]
+  return sidebar_without(db, person, -1)
+end
+
+## The sidebar with the room that the page shows left unmarked: it is read by being looked at, and the page cannot wait
+## for the script to say so.
+export def sidebar_without(db: Db.Connection, person: Auth.User, open_room: Int) -> Result[String]
   rooms = try Rooms.visible(db, person.id)
-  return ok(Views.sidebar(person.name, rooms))
+  unread = try Rooms.unread_ids(db, person.id)
+  return ok(Views.sidebar(person.name, rooms, unread.select do |id| id != open_room end))
 end
 
 def home_answer(conn: Bond.Conn, db: Db.Connection, wanted: Optional[Int]) -> Result[Answer]
@@ -431,25 +438,26 @@ end
 # The form of Rails posts to the room with `_method=delete` (in any case, as Rails reads it); any other post is what a
 # `POST` to the path was before the form existed (the router's own answer), a 405 that says which methods the path
 # takes, whatever the room.
-def post_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def post_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   method = try override_method(conn)
   if method != Routes.METHOD_DELETE
     return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW)))
   end
 
-  return delete_room(conn, pool)
+  return delete_room(conn, pool, cable)
 end
 
-# The task that deletes the messages starts after the connection is given back, from the task of the request.
-def delete_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+# The task that deletes the messages starts after the connection is given back, from the task of the request, and so
+# does the news of the deletion to the people who were in the room.
+def delete_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   id = room_id(conn)
   answer = try Database.with_connection(pool) do |db| delete_answer(conn, db, id) end
   case answer
-    Answer.Deleted(deleted) ->
-      RoomDeletion.start(pool, deleted)
-      return ok(respond(conn, answer))
+    Answer.Deleted(deleted, _) -> RoomDeletion.start(pool, deleted.id)
     _ -> return ok(respond(conn, answer))
   end
+
+  return ok(announced(conn, cable, answer))
 end
 
 def delete_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
@@ -472,12 +480,14 @@ def deleted_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Res
 end
 
 def taken_away(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
+  # Read before `destroy_later` takes every membership away: they are the people who are told.
+  members = try Rooms.member_ids(db, room.id)
   done = try Rooms.destroy_later(db, room.id, person.id)
   if not done
     return ok(Answer.NotFound)
   end
 
-  return ok(Answer.Deleted(room.id))
+  return ok(Answer.Deleted(room, members))
 end
 
 def edit_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
@@ -937,7 +947,7 @@ def room_page(
   thread = MessageCache.list(cache, page.messages, person.id, person.role)
   return ok(
     Views.room(
-      try sidebar_of(db, person),
+      try sidebar_without(db, person, room.id),
       room,
       page,
       thread,
@@ -1055,6 +1065,7 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
       CableWeb.members_removed(cable, removed)
       CableWeb.room_changed(cable, room_id, actor_id, renamed)
     Answer.Posted(room, message, _) -> CableWeb.message_created(cable, room, message)
+    Answer.Deleted(room, members) -> CableWeb.room_deleted(cable, room, members)
     _ -> return respond(conn, answer)
   end
 
@@ -1081,7 +1092,7 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
     Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
     Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
-    Answer.Deleted(_) -> return Bond.redirect(conn, Routes.HOME)
+    Answer.Deleted(_, _) -> return Bond.redirect(conn, Routes.HOME)
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
   end
 end
