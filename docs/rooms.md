@@ -204,9 +204,9 @@ is missing are all the same `404`. The route needs a sign-in. Nothing in the app
 
 The folder `public/assets/` (`CAMPFIRE_ASSETS_DIR`) is served under `/assets/` without a sign-in. A name
 with a fingerprint (`campfire-DIGEST.css`, DIGEST the first 16 hex digits of the SHA-256 of the file) is
-sent with `Cache-Control: public, max-age=31536000, immutable`. When the CSS changes, rename it to its new
-digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the name is right. The same goes for the
-script of the composer, `campfire-DIGEST.js` (`Routes.SCRIPT`), which the room page, the page that edits a message and the
+sent with `Cache-Control: public, max-age=31536000, immutable`. `make assets` builds the files from `app/` (Dart Sass and
+esbuild) and writes the names to `src/campfire_web/asset_names.agc`, which `Routes.STYLESHEET` and `Routes.SCRIPT` read;
+`specs/assets.feature` checks that each name has the digest of its file. The script of the composer, `campfire-DIGEST.js`, which the room page, the page that edits a message and the
 pages with the sidebar link: with it a message is sent with `fetch` (the Turbo Stream answer above) and the page does not
 reload, and the keys work (Enter, Shift+Enter, Ctrl or Cmd+Enter, Esc); without it the form posts and redirects as before.
 

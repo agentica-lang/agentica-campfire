@@ -1,0 +1,25 @@
+// The search form and its results.
+
+form[action="/searches"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--s-2);
+
+  p,
+  p:has(> button) {
+    margin: 0;
+  }
+
+  input {
+    margin: 0;
+  }
+}
+
+.recent {
+  padding-inline-start: var(--s-5);
+}
+
+#search_results {
+  margin-top: var(--s-4);
+}

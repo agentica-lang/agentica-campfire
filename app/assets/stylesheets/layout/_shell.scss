@@ -1,0 +1,91 @@
+// The shell of every page: the sidebar and the main column, as a grid of two columns (one on a phone, where the sidebar
+// is a bar on top). The pages with no sidebar are one centred card.
+
+@use "../settings/mixins";
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
+}
+
+// A room fills the window, and only its message list scrolls. Without :has the page scrolls as a plain page. dvh is the
+// window without the browser bars; with `interactive-widget=resizes-content` (the viewport meta) it is also the window
+// without the keyboard, so the bar stays on screen while the composer has the focus.
+body:has(main.room) {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+// Pages with no sidebar (first run, sign in, join, reset): one centred card.
+body:has(> main:only-child) {
+  background: var(--bg-canvas);
+}
+
+body > main:only-child {
+  grid-column: 1 / -1;
+  align-self: start;
+  width: min(100% - 2 * var(--s-4), 26rem);
+  margin: 10vh auto var(--s-6);
+  padding: var(--s-6);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+}
+
+// Main column
+main {
+  min-width: 0;
+  padding: var(--s-5) var(--s-6);
+}
+
+nav + main:not(.room) > * {
+  max-width: 44rem;
+}
+
+main > .lead {
+  color: var(--muted);
+}
+
+main .hint {
+  margin-inline-start: var(--s-2);
+}
+
+main .hint,
+main .meta {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+@include mixins.phone {
+  body,
+  body:has(main.room) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body {
+    align-content: start;
+  }
+
+  body:has(main.room) {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  main {
+    padding: var(--s-4);
+  }
+
+  main.room {
+    padding: 0;
+  }
+
+  body > main:only-child {
+    margin-top: var(--s-5);
+    padding: var(--s-5) var(--s-4);
+  }
+}

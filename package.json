@@ -1,0 +1,9 @@
+{
+  "name": "campfire-assets",
+  "private": true,
+  "description": "Build tools of the stylesheet and the script (make assets). Nothing here runs in the app or in the specs.",
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "sass": "1.108.0"
+  }
+}
