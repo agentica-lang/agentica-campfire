@@ -50,12 +50,26 @@ Feature: The profile and the page of a user
       | user[bio]           | Reads a lot         | select count(*) from users where id = 2 and bio = 'Reads a lot' and name = 'Bea'     |
       | user[bio]           |                     | select count(*) from users where id = 2 and bio = '' and name = 'Bea'                |
 
-  Scenario: A new password is hashed, works for the next sign-in and replaces the old one
+  Scenario: A new password needs the current one, ends the other sessions and the push subscriptions, and keeps this one
+    Given I run the sql "insert into push_subscriptions (endpoint, user_id, created_at, updated_at) values ('https://push.example/a', 2, '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000'), ('https://push.example/b', 3, '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
+    And the browser saves a copy of its cookies
+    And I sign in as "bea@example.com"
     When I post to "/users/me/profile" the form:
-      | _method        | patch                |
-      | user[password] | a brand new password |
+      | _method                  | patch                 |
+      | user[password]           | a brand new password  |
+      | user[password_challenge] | another long password |
     Then the status is 302
+    And the header "location" is "/users/me/profile"
     And the query "select count(*) from users where id = 2 and password_digest not like 'a brand%'" gives 1
+    And the query "select count(*) from sessions where user_id = 2" gives 1
+    And the query "select count(*) from push_subscriptions where user_id = 2" gives 0
+    And the query "select count(*) from push_subscriptions where user_id = 3" gives 1
+    When I get "/users/me/profile"
+    Then the status is 200
+    When the browser restores its saved cookies
+    And I get "/users/me/profile"
+    Then the status is 302
+    And the header "location" is "/session/new"
     When the browser has no cookies
     And I post to "/session" the form:
       | email_address | bea@example.com      |
@@ -67,6 +81,32 @@ Feature: The profile and the page of a user
       | email_address | bea@example.com       |
       | password      | another long password |
     Then the status is 422
+
+  Scenario Outline: A new password with a wrong or missing current password is refused and saves nothing
+    When I post to "/users/me/profile" the form:
+      | _method                  | patch                |
+      | user[name]               | Bea Changed          |
+      | user[password]           | a brand new password |
+      | user[password_challenge] | <challenge>          |
+    Then the status is 422
+    And the body contains "Enter your current password to set a new one"
+    And the body contains "Bea Changed"
+    And the body does not contain "a brand new password"
+    And the query "select count(*) from users where id = 2 and name = 'Bea'" gives 1
+    And the query "select count(*) from sessions where user_id = 2" gives 1
+
+    Examples:
+      | challenge   |
+      | not the one |
+      |             |
+
+  Scenario: The current password is tried a limited number of times by a person
+    When I post to "/users/me/profile" 14 times at once the form:
+      | _method                  | patch                |
+      | user[password]           | a brand new password |
+      | user[password_challenge] | not the one          |
+    Then each status is one of "422, 429, 503"
+    And at least one status is 429
 
   Scenario Outline: A part that does not do is refused with the form again, and nothing is saved
     When I post to "/users/me/profile" the form:
@@ -188,6 +228,16 @@ Feature: The profile and the page of a user
     Then the status is 404
     When I get "/users/me"
     Then the status is 404
+
+  Scenario: A name and a bio are text on the user page and the profile, never markup
+    Given I run the sql "update users set name = '<script>alert(1)</script>', bio = '<img src=x onerror=alert(2)>' where id = 3"
+    When I get "/users/3"
+    Then the status is 200
+    And the body does not contain "<script>alert(1)"
+    And the body does not contain "<img src=x"
+    And the body contains "&lt;script&gt;alert(1)"
+    When I get "/users"
+    Then the body does not contain "<script>alert(1)"
 
   Scenario: The people page links each name to the page of the user
     When I get "/users"

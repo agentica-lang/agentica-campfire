@@ -924,8 +924,12 @@ export def profile_page(
             <input name="user[email_address]" type="email" value="<%= profile.email %>" autocomplete="username"></label>
         </p>
         <p>
-          <label>Change password
+          <label>New password
             <input name="user[password]" type="password" autocomplete="new-password" maxlength="72"></label>
+        </p>
+        <p>
+          <label>Current password (needed to set a new one)
+            <input name="user[password_challenge]" type="password" autocomplete="current-password" maxlength="72"></label>
         </p>
         <p>
           <label>Bio

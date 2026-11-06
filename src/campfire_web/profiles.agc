@@ -8,6 +8,9 @@
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
+import Channels from "pkg/channels/channels"
+import Hangup from "hangup"
+import RateLimit from "../campfire/rate_limit"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
 import Passwords from "../campfire/passwords"
@@ -18,12 +21,19 @@ import Routes from "routes"
 import SignedId from "../campfire/signed_id"
 import Slots from "../campfire/slots"
 import Views from "views"
+import {Config} from "../campfire/config"
 
 # The names of the fields of Rails' form (`params.require(:user)`).
 FIELD_NAME = "user[name]"
 FIELD_EMAIL = "user[email_address]"
 FIELD_PASSWORD = "user[password]"
 FIELD_BIO = "user[bio]"
+FIELD_CHALLENGE = "user[password_challenge]"
+
+# A person may try their current password this many times in this long (Rails' `rate_limit` of the sign-in).
+CHALLENGE_ATTEMPTS = 10
+CHALLENGE_WINDOW_MS = 180_000
+TOO_MANY = "Too many attempts, try again later"
 
 # The `:id` that the links use for the person who is signed in.
 ME = "me"
@@ -34,8 +44,15 @@ enum Answer
   NotAllowed
   Redirect(String)
   Busy(String)
+  Limited(String, Int)
   NotFound
   SignedOut
+end
+
+# What the check of a new password gave: its digest (`none` when there is no new password), or the answer to send.
+enum Hashed
+  Digest(Optional[String])
+  Refused(Answer)
 end
 
 # The form as a person sent it. A part that is not in the request is `none` (Rails' `compact` drops it), and a request
@@ -44,24 +61,45 @@ struct Form
   name: Optional[String]
   email: Optional[String]
   password: Optional[String]
+  challenge: String
   bio: Optional[String]
 end
 
-## Adds the routes of the user page and of the profile to `app`. `slots` is the bound on hashing that the sign-in shares,
-## and `key` is `SignedId.key` of the `SECRET_KEY_BASE`, `none` without one (no page then shows a picture).
-export def add(app: Bond.App, pool: Database.Pool, slots: ATS[String, Int], key: Optional[Bytes]) -> Bond.App
+# What the handlers share: the settings, the pool, the hashing slots, the attempts of the current password by person,
+# the key of the avatar links (`none` without one) and the hub whose sockets a new password ends.
+struct Env
+  config: Config
+  pool: Database.Pool
+  slots: ATS[String, Int]
+  attempts: ATS[String, Int]
+  key: Optional[Bytes]
+  hub: Channels.Hub
+end
+
+## Adds the routes of the user page and of the profile to `app`. `slots` is the bound on hashing that the sign-in
+## shares, and `key` is `SignedId.key` of the `SECRET_KEY_BASE`, `none` without one (no page then shows a picture). A
+## new password ends the other sessions of the person, and `hub` their sockets.
+export def add(
+  app: Bond.App,
+  config: Config,
+  pool: Database.Pool,
+  slots: ATS[String, Int],
+  key: Optional[Bytes],
+  hub: Channels.Hub,
+) -> Bond.App
+  env = Env(config: config, pool: pool, slots: slots, attempts: RateLimit.new(), key: key, hub: hub)
   return (
     app
-    |> Bond.get(Routes.USER) do |conn| show_user(conn, pool, key) end
-    |> Bond.get(Routes.PROFILE) do |conn| show_profile(conn, pool, key) end
-    |> Bond.post(Routes.PROFILE) do |conn| post_profile(conn, pool, slots, key) end
-    |> Bond.patch(Routes.PROFILE) do |conn| save_profile(conn, pool, slots, key) end
-    |> Bond.put(Routes.PROFILE) do |conn| save_profile(conn, pool, slots, key) end
+    |> Bond.get(Routes.USER) do |conn| show_user(conn, env) end
+    |> Bond.get(Routes.PROFILE) do |conn| show_profile(conn, env) end
+    |> Bond.post(Routes.PROFILE) do |conn| post_profile(conn, env) end
+    |> Bond.patch(Routes.PROFILE) do |conn| save_profile(conn, env) end
+    |> Bond.put(Routes.PROFILE) do |conn| save_profile(conn, env) end
   )
 end
 
-def show_user(conn: Bond.Conn, pool: Database.Pool, key: Optional[Bytes]) -> Result[Bond.Conn]
-  answer = try Database.with_connection(pool) do |db| user_answer(conn, db, key) end
+def show_user(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
+  answer = try Database.with_connection(env.pool) do |db| user_answer(conn, db, env.key) end
   return ok(respond(conn, answer))
 end
 
@@ -97,8 +135,8 @@ def user_of(conn: Bond.Conn, db: Db.Connection, person: Auth.User, key: Optional
   end
 end
 
-def show_profile(conn: Bond.Conn, pool: Database.Pool, key: Optional[Bytes]) -> Result[Bond.Conn]
-  answer = try Database.with_connection(pool) do |db| profile_answer(conn, db, key) end
+def show_profile(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
+  answer = try Database.with_connection(env.pool) do |db| profile_answer(conn, db, env.key) end
   return ok(respond(conn, answer))
 end
 
@@ -114,76 +152,102 @@ end
 # A `POST` is the form of Rails with `_method` set to `patch` (or `put`, which the router takes too); any other is
 # a 405
 # that lists the methods of the path.
-def post_profile(
-  conn: Bond.Conn,
-  pool: Database.Pool,
-  slots: ATS[String, Int],
-  key: Optional[Bytes],
-) -> Result[Bond.Conn]
+def post_profile(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   if method != Routes.METHOD_PATCH and method != Routes.METHOD_PUT
     return ok(respond(conn, Answer.NotAllowed))
   end
 
-  return save_profile(conn, pool, slots, key)
+  return save_profile(conn, env)
 end
 
-def save_profile(
-  conn: Bond.Conn,
-  pool: Database.Pool,
-  slots: ATS[String, Int],
-  key: Optional[Bytes],
-) -> Result[Bond.Conn]
+def save_profile(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(respond(conn, Answer.SignedOut))
     some(person) if not own?(conn, person) -> return ok(respond(conn, Answer.NotFound))
-    some(person) -> return saved(conn, pool, slots, key, person)
+    some(person) -> return saved(conn, env, person)
   end
 end
 
-def saved(
-  conn: Bond.Conn,
-  pool: Database.Pool,
-  slots: ATS[String, Int],
-  key: Optional[Bytes],
-  person: Auth.User,
-) -> Result[Bond.Conn]
+def saved(conn: Bond.Conn, env: Env, person: Auth.User) -> Result[Bond.Conn]
   form = try form_of(conn)
   if form.name.none? and form.email.none? and form.password.none? and form.bio.none?
     return Bond.bad_request("#{FIELD_NAME} is missing")
   end
 
-  problem = try Database.with_connection(pool) do |db|
+  problem = try Database.with_connection(env.pool) do |db|
     Profiles.problem(db, person.id, form.name, form.email, form.password, form.bio)
   end
 
   if problem != ""
-    return ok(respond(conn, Answer.Page(422, try refused(pool, person, key, form, problem))))
+    return ok(respond(conn, Answer.Page(422, try refusal(env, person, form, problem))))
   end
 
-  digest: Optional[String] = none
+  hashed = try new_digest(conn, env, person, form)
+  case hashed
+    Hashed.Refused(answer) -> return ok(respond(conn, answer))
+    Hashed.Digest(digest) -> return stored(conn, env, person, form, digest)
+  end
+end
+
+# The hash of the new password, if there is one. Setting one needs the current password (`password_challenge`), tried
+# at most `CHALLENGE_ATTEMPTS` times in `CHALLENGE_WINDOW_MS` for each person, and checked in the same hashing slot
+# as the
+# new hash, since both are slow; a request that cannot get a slot is told to come back, and one with a wrong or missing
+# current password is refused with nothing saved.
+def new_digest(conn: Bond.Conn, env: Env, person: Auth.User, form: Form) -> Result[Hashed]
   password = form.password.unwrap_or("")
-  if not password.empty?
-    if not Slots.take?(slots, AuthWeb.MAX_HASHES)
-      return ok(
-        respond(conn, Answer.Busy(try refused(pool, person, key, form, "Too many requests. Try again in a moment."))),
-      )
-    end
-
-    hashed = Passwords.hash(password)
-    Slots.release(slots)
-    digest = some(try hashed)
+  if password.empty?
+    return ok(Hashed.Digest(none))
   end
 
-  change = try Database.with_connection(pool) do |db|
-    Profiles.save(db, person.id, form.name, form.email, digest, form.bio)
+  wait = RateLimit.hit(env.attempts, "user:#{person.id}", Time.monotonic_ms(), CHALLENGE_ATTEMPTS, CHALLENGE_WINDOW_MS)
+  if wait > 0
+    return ok(Hashed.Refused(Answer.Limited(try refusal(env, person, form, TOO_MANY), wait)))
+  end
+
+  if not Slots.take?(env.slots, AuthWeb.MAX_HASHES)
+    return ok(Hashed.Refused(Answer.Busy(try refusal(env, person, form, "Too many requests. Try again in a moment."))))
+  end
+
+  digest = digest_if_current(env, person, form.challenge, password)
+  Slots.release(env.slots)
+  case try digest
+    none -> return ok(Hashed.Refused(Answer.Page(422, try refusal(env, person, form, Profiles.CHALLENGE_PROBLEM))))
+    some(value) -> return ok(Hashed.Digest(some(value)))
+  end
+end
+
+# The digest of `password` when `challenge` is the current password, else `none`.
+def digest_if_current(env: Env, person: Auth.User, challenge: String, password: String) -> Result[Optional[String]]
+  right = try Database.with_connection(env.pool) do |db|
+    Profiles.challenge_ok?(db, person.id, challenge, env.config.bcrypt_library)
+  end
+
+  if not right
+    return ok(none)
+  end
+
+  return ok(some(try Passwords.hash(password)))
+end
+
+# The save. A new password ends the other sessions of the person, and so their sockets: the ones of this browser
+# connect again with the session that stays.
+def stored(conn: Bond.Conn, env: Env, person: Auth.User, form: Form, digest: Optional[String]) -> Result[Bond.Conn]
+  change = try Database.with_connection(env.pool) do |db|
+    Profiles.save(db, person.id, form.name, form.email, digest, form.bio, AuthWeb.session_token(conn))
   end
 
   case change
-    Profiles.Change.Saved -> return ok(respond(conn, Answer.Redirect(Routes.profile_path())))
+    Profiles.Change.Saved ->
+      if digest.some?
+        Hangup.user(env.hub, person.id, true)
+      end
+
+      return ok(respond(conn, Answer.Redirect(Routes.profile_path())))
     Profiles.Change.Taken ->
-      return ok(respond(conn, Answer.Page(422, try refused(pool, person, key, form, Profiles.EMAIL_TAKEN))))
+      return ok(respond(conn, Answer.Page(422, try refusal(env, person, form, Profiles.EMAIL_TAKEN))))
     Profiles.Change.Gone -> return ok(respond(conn, Answer.SignedOut))
   end
 end
@@ -194,6 +258,7 @@ def form_of(conn: Bond.Conn) -> Result[Form]
       name: try first_of(conn, FIELD_NAME),
       email: try first_of(conn, FIELD_EMAIL),
       password: try first_of(conn, FIELD_PASSWORD),
+      challenge: (try first_of(conn, FIELD_CHALLENGE)).unwrap_or(""),
       bio: try first_of(conn, FIELD_BIO),
     ),
   )
@@ -208,9 +273,9 @@ def first_of(conn: Bond.Conn, field: String) -> Result[Optional[String]]
   return ok(some(values[0]))
 end
 
-# The profile page again for a refused save, with what the person typed (the password is never put back).
-def refused(pool: Database.Pool, person: Auth.User, key: Optional[Bytes], form: Form, note: String) -> Result[String]
-  return Database.with_connection(pool) do |db| profile_form(db, person, key, some(form), note) end
+# The profile page again for a refused save, with what the person typed (the passwords are never put back).
+def refusal(env: Env, person: Auth.User, form: Form, note: String) -> Result[String]
+  return Database.with_connection(env.pool) do |db| profile_form(db, person, env.key, some(form), note) end
 end
 
 def profile_form(
@@ -265,6 +330,8 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.Page(status, html) -> return AuthWeb.private_page(Bond.html(conn, status, html))
     Answer.NotAllowed -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", Routes.PROFILE_ALLOW)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
+    Answer.Limited(html, wait) ->
+      return AuthWeb.private_page(Bond.header(Bond.html(conn, 429, html), "retry-after", wait.to_s))
     Answer.Busy(html) -> return AuthWeb.private_page(Bond.header(Bond.html(conn, 503, html), "retry-after", "5"))
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
