@@ -139,7 +139,7 @@ Feature: The account settings page
       | _method | patch |
     Then the status is 404
 
-  Scenario: The last administrator cannot step down, and the account keeps one when two step on each other
+  Scenario: An administrator cannot step down alone, so after a hand-over the account still has one
     When I send a PATCH to "/account/users/1" the form:
       | user[role] | member |
     Then the status is 403
@@ -179,7 +179,22 @@ Feature: The account settings page
     Then the body does not contain "Bea"
     And the body does not contain "Cy"
 
+  Scenario Outline: The check inside the transaction refuses a role change of oneself or by a member
+    When "<actor>" asks Accounts to "<action>" the user <user>
+    Then the change is refused
+    And the query "select count(*) from users where id = 1 and role = 1" gives 1
+    And the query "select count(*) from users where id in (2, 3) and role = 0" gives 2
+
+    Examples:
+      | actor           | action          | user |
+      | ana@example.com | make_member     | 1    |
+      | bea@example.com | make_member     | 1    |
+      | bea@example.com | make_administrator | 2 |
+      | bea@example.com | make_administrator | 3 |
+
   Scenario Outline: A removal that is not allowed changes nothing
+    Given a user "Bot" with the email "bot@example.com", the role "member" and the status "active" exists
+    And I run the sql "update users set role = 2 where id = 5"
     When I sign in as "<who>"
     And I post to "<path>" the form:
       | _method | delete |
@@ -192,6 +207,8 @@ Feature: The account settings page
       | bea@example.com | /account/users/3   | 403    |
       | ana@example.com | /account/users/99  | 404    |
       | ana@example.com | /account/users/abc | 404    |
+      | ana@example.com | /account/users/4   | 404    |
+      | ana@example.com | /account/users/5   | 404    |
 
   Scenario: A visitor with no session is sent to sign in, and a page of another site changes nothing
     Given the browser has no cookies

@@ -5,6 +5,7 @@
 
 import BDD from "std/bdd"
 import Db from "pkg/db/db"
+import CableSteps from "cable_steps"
 import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
 import SmtpSteps from "smtp_steps"
@@ -118,7 +119,7 @@ def main() -> Void
     BDD.step("{string} takes the room {int} away and deletes {int} of its messages", &ask_delete_some),
   ]
 
-  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()).concat(MailSteps.steps()))
+  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()).concat(MailSteps.steps()).concat(CableSteps.steps()))
 end
 
 def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -527,7 +528,8 @@ def update_is_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 # `Accounts` straight, as the person with that email, skipping the check of the page, so that only the check inside the
-# transaction can refuse it. `action` is `deactivate` or `reactivate` of the user `user_id`, or `regenerate` (which
+# transaction can refuse it. `action` is `deactivate`, `reactivate`, `make_member` or `make_administrator` of the user
+# `user_id`, or `regenerate` (which
 # takes no user). The outcome is kept as `Changed` or `Refused` (and the others of `Accounts.Change`).
 def ask_accounts(ctx: BDD.Context, args: List[String]) -> BDD.Context
   outcome = with_database(ctx) do |conn| accounts_as(conn, args[0], args[1], args[2].to_i!) end
@@ -552,6 +554,10 @@ def accounts_as(conn: Db.Connection, email: String, action: String, user_id: Int
 
   if action == "deactivate"
     return ok(change_name(try Accounts.deactivate(conn, actor_id, user_id)))
+  end
+
+  if action == "make_member" or action == "make_administrator"
+    return ok(change_name(try Accounts.set_role(conn, actor_id, user_id, action == "make_administrator")))
   end
 
   return ok(change_name(try Accounts.reactivate(conn, actor_id, user_id)))

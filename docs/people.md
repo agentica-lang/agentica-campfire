@@ -35,8 +35,11 @@ people, the administrators first, to everybody who is signed in. An administrato
 renames the account (`account[name]`, `PATCH /account`, or a `POST` with `_method=patch` from the form), and for each
 person but themselves a switch that makes them an administrator or a member (`user[role]`, `PATCH /account/users/ID`)
 and a button that removes them (`DELETE /account/users/ID`, or a `POST` with `_method=delete`). Removing is what Rails
-does: it deactivates the person (ends their sessions, keeps them from signing in; their messages and rooms stay), and
-the people page brings them back.
+does: it deactivates the person (ends their sessions and their sockets, keeps them from signing in; their messages and
+rooms stay), and the people page brings them back. Rails' `User#deactivate` also deletes the person's non-direct
+memberships, push subscriptions and searches, and renames their email address; this app does none of that (the
+memberships stay so that a reactivated person is where they were, nothing writes push subscriptions yet, and the
+address stays taken). A person who is deactivated already is `404` here, as `User.active.find` is in Rails.
 
 The checks come in the order of Rails' filters: no session redirects to sign-in, a member who is not an administrator is
 `403` before anything else is read, then the person (`404` for a user that does not exist, is not active or is a bot),

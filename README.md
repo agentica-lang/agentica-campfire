@@ -8,7 +8,7 @@ This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is indepe
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.3 or later on `PATH` to run the app and its tests.
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.4 or later on `PATH` to run the app and its tests.
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by tag in agentica.toml) into deps/
@@ -60,6 +60,7 @@ To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`
 - [docs/configuration.md](docs/configuration.md): every `CAMPFIRE_*` variable, the data folder and the database.
 - [docs/security.md](docs/security.md): sessions, passwords, CSRF, public pages, known gaps.
 - [docs/rooms.md](docs/rooms.md): open, closed and direct rooms, settings, messages.
+- [docs/cable.md](docs/cable.md): the `/cable` WebSocket (Action Cable): streams, channels and what is broadcast.
 - [docs/people.md](docs/people.md): the join link and the people page.
 - [docs/mail.md](docs/mail.md): password reset, SMTP and the mailer.
 - [docs/docker.md](docs/docker.md): the image, Compose and the benchmark environment.
