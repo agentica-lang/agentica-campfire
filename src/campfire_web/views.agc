@@ -78,6 +78,7 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
           <li><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></li>
           <li><a href="<%= Routes.SEARCHES %>">Search</a></li>
           <li><a href="<%= Routes.USERS %>">People</a></li>
+          <li><a href="<%= Routes.ACCOUNT_EDIT %>">Account</a></li>
         </ul>
       </div>
       <form method="post" action="<%= Routes.SIGN_OUT %>">
@@ -85,6 +86,57 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
       </form>
     </nav>
   EAG
+end
+
+## The account settings page (`accounts/edit.html.erb`): the name of the account and, for an administrator, a form that
+## renames it (`name` is the box, `note` says why a save was refused), then the active people with the administrators
+## first, as Rails lists them. An administrator can make each person but themselves an administrator or a member, and
+## remove them (deactivate, which an administrator undoes on the people page). Plain form posts with the `_method` of
+## Rails' forms, so they work without a script.
+export def account(
+  sidebar: String,
+  name: String,
+  people: List[Accounts.Person],
+  me: Int,
+  admin: Bool,
+  note: String,
+) -> String
+  administrators = people.select do |one| one.role == Rooms.ADMINISTRATOR_ROLE_NAME end
+  members = people.select do |one| one.role != Rooms.ADMINISTRATOR_ROLE_NAME end
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1>Account settings</h1>
+    <% if not note.empty? %>
+      <p role="alert"><%= note %></p>
+    <% end %>
+    <% if admin %>
+      <form method="post" action="<%= Routes.ACCOUNT %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <p>
+          <label>Name of the account
+            <input name="account[name]" type="text" value="<%= name %>" maxlength="<%= Accounts.MAX_NAME_LENGTH %>"
+              required></label>
+        </p>
+        <p><button type="submit">Save</button></p>
+      </form>
+    <% else %>
+      <h2><%= name %></h2>
+    <% end %>
+      <h2>People</h2>
+      <ul class="people">
+    <% for one in administrators %>
+        <%== account_person(one, me, admin).strip %>
+    <% end %>
+    <% for one in members %>
+        <%== account_person(one, me, admin).strip %>
+    <% end %>
+      </ul>
+      <p><a href="<%= Routes.USERS %>">People and the join link</a></p>
+    </main>
+  EAG
+  return layout("Account settings", body)
 end
 
 ## The sidebar alone as a document, for `GET /users/me/sidebar`. `sources` is the markup of the live streams that the
@@ -813,5 +865,41 @@ def edit_link(message: Rooms.Message, controls: Bool) -> String
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
     <a href="<%= Routes.room_message_edit_path(message.room_id, message.id) %>">Edit</a>
+  EAG
+end
+
+# One person of the account page. The role switch offers the other role, and neither it nor the removal is drawn for
+# the person who looks (the server refuses both for oneself too).
+def account_person(one: Accounts.Person, me: Int, admin: Bool) -> String
+  other = Rooms.ADMINISTRATOR_ROLE_NAME
+  other_label = "Make administrator"
+  if one.role == Rooms.ADMINISTRATOR_ROLE_NAME
+    other = Rooms.MEMBER_ROLE_NAME
+    other_label = "Make member"
+  end
+
+  return <<~EAG
+    <%@ escape &Bond.escape %>
+    <li>
+      <span class="name"><%= one.name %></span>
+    <% if admin %>
+      <span class="meta"><%= one.email %></span>
+    <% end %>
+    <% if one.role == Rooms.ADMINISTRATOR_ROLE_NAME %>
+      <span class="badge">administrator</span>
+    <% end %>
+    <% if admin and one.id != me %>
+      <form method="post" action="<%= Routes.account_user_path(one.id) %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <input name="user[role]" type="hidden" value="<%= other %>">
+        <button type="submit" class="quiet"><%= other_label %></button>
+      </form>
+      <form method="post" action="<%= Routes.account_user_path(one.id) %>"
+        onsubmit="return confirm('Are you sure you want to remove this person from the account? They cannot sign in until an administrator reactivates them.')">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
+        <button type="submit" class="danger">Remove</button>
+      </form>
+    <% end %>
+    </li>
   EAG
 end
