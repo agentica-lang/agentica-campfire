@@ -395,7 +395,8 @@ export def edit_message(sidebar: String, room: Rooms.Room, one: Rooms.Message, t
           <p><button type="submit" class="danger">Delete message</button></p>
         </form>
       </turbo-frame>
-      <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
+      <p><a href="<%= Routes.room_path(room.id) %>" data-cancel>Back to the room</a></p>
+      <script src="<%= Routes.COMPOSER_SCRIPT %>" defer></script>
     </main>
   EAG
   return layout("Edit message", body)

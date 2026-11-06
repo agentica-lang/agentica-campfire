@@ -45,6 +45,7 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
                 `make.sh` makes it again in a ruby container)
 test/           unit tests (*_test.agc)
+tools/          keys_check.js: the by-hand browser check of the composer keys (playwright-core, not in CI)
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
@@ -236,9 +237,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
 - Assets: the CSS and the JS of `public/assets/` are named `campfire-DIGEST.css` and `campfire-DIGEST.js`, DIGEST the
   first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.COMPOSER_SCRIPT`
   when it changes (`specs/assets.feature` checks). `/assets/` is public (`AuthWeb.public?`). There is no asset pipeline
-  yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page links it, every form works
-  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script"). The composer textarea has no
-  `autofocus` (a phone would open its keyboard on each load).
+  yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page and the edit page link it, every form works
+  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script", which also has its keys;
+  `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
+  open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that
   takes gzip.
 - A UI change follows `DESIGN.md` and updates it with the stylesheet. Markup that specs match byte for byte (links, headings,

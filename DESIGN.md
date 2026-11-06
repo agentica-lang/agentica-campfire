@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation; change this file and
-the stylesheet together. One stylesheet, one script of about 5 KB (2.2 KB gzipped) that only the room page loads, no web fonts, no
+the stylesheet together. One stylesheet, one script of about 5 KB (2.2 KB gzipped) that the room page and the edit page load, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -101,8 +101,8 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 
 ## Script
 
-`public/assets/campfire-DIGEST.js` is the only script, linked by the room page alone (`Views.room`), and the composer
-works without it (a plain post and a redirect). It sends the message with `fetch`, asking for the Turbo Stream that
+`public/assets/campfire-DIGEST.js` is the only script, linked by the room page (`Views.room`) and the page that edits a
+message (`Views.edit_message`), and both work without it (a plain post and a redirect). It sends the message with `fetch`, asking for the Turbo Stream that
 `POST /rooms/ID/messages` already answers, appends the message to the list, clears the box, gives the form a new
 `client_message_id`, scrolls to the newest message and keeps the focus in the box, so a phone keeps its keyboard open
 (Send takes no focus on `pointerdown`). A refusal (any non-2xx answer) is sent again as a plain post, so the page of
@@ -111,7 +111,12 @@ uses the plain post, since the latest message does not belong at the end of that
 was in flight stays in the box; only the text that was sent is cleared. The "Not sent" line is an empty
 `<p aria-live="polite">` in the page that the script fills, so a screen reader announces it. The `client_message_id`
 is new after each send, but the server does not use it to drop a repeat (as in Rails: `docs/rooms.md`), so a retry
-after an answer that was lost can store the message twice. No framework, no CDN.
+after an answer that was lost can store the message twice. Keys, as in Rails Campfire: in the box, Enter sends and
+Shift+Enter is a new line, Ctrl or Cmd+Enter sends, and an input method that is choosing a character (`isComposing`)
+sends nothing; on a touch screen (`(pointer: coarse)`, the main pointer, not whether the device can be touched) Enter
+stays a new line. A blank box sends nothing and shows no validation bubble. On the edit page, Ctrl or Cmd+Enter saves
+and Esc goes to the room, discarding the change (it follows the `data-cancel` link). `tools/keys_check.js` checks the
+keys in a real browser; run it by hand after a change to the script. No framework, no CDN.
 
 ## Accessibility
 
