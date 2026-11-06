@@ -11,8 +11,8 @@ hash = "sha256:73bff8fef4f0a46073956b89b730cd7e2de195d1b7cca6d6c317e0cdf4e165a2"
 name = "channels"
 git = "https://github.com/agentica-lang/packages"
 subdir = "bond-channels"
-ref = "43f3ea90dcb179fb72b8cd7d82e0115e5394243c"
-commit = "43f3ea90dcb179fb72b8cd7d82e0115e5394243c"
+ref = "d3198d50b467be5fccc9f163ab0c99cacd11c84a"
+commit = "d3198d50b467be5fccc9f163ab0c99cacd11c84a"
 hash = "sha256:ea207faeae1e22863e210dcc3c7c3c64bd2a59b606ffab6199d6a5ea8af3c409"
 
 [[package]]

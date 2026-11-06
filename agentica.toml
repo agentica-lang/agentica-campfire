@@ -7,4 +7,4 @@ blank_line_after_end = true
 [dependencies]
 bond = { git = "https://github.com/agentica-lang/bond", tag = "0.7.0" }
 db = { git = "https://github.com/agentica-lang/agentica-db", tag = "0.4.0", subdir = "src/db" }
-channels = { git = "https://github.com/agentica-lang/packages", ref = "43f3ea90dcb179fb72b8cd7d82e0115e5394243c", subdir = "bond-channels" }
+channels = { git = "https://github.com/agentica-lang/packages", ref = "d3198d50b467be5fccc9f163ab0c99cacd11c84a", subdir = "bond-channels" }
