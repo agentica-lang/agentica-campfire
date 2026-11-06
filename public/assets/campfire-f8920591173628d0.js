@@ -1,10 +1,21 @@
 /* The composer of a room, as an enhancement: the form works without this file (a post and a redirect). With it, a message
    is sent with fetch, the text box keeps its focus (so a phone keeps its keyboard open) and the page does not reload.
-   The post asks for a Turbo Stream, which the app already answers with the message to append (`create_message`). */
+   The post asks for a Turbo Stream, which the app already answers with the message to append (`create_message`).
+   The keys are those of Rails Campfire: Enter sends and Shift+Enter is a new line (not on a touch screen, where Enter is
+   a new line), Ctrl or Cmd+Enter sends; on the page that edits a message, Ctrl or Cmd+Enter saves and Esc goes back to
+   the room, discarding the change. */
 (function () {
   "use strict";
 
   var STREAM = "text/vnd.turbo-stream.html";
+
+  // The edit page has its own form, the one in the frame of the message; the room page has the composer.
+  var edit = document.querySelector('main > turbo-frame[id^="edit_message_"] > form');
+  if (edit) {
+    editKeys(edit);
+    return;
+  }
+
   var form = document.querySelector("main.room > form");
   // The empty line above the form that is made to be filled: a screen reader announces text put into a live region
   // that was already in the page, and may skip one that arrives with its text.
@@ -34,6 +45,25 @@
     });
   });
 
+  // A touch screen has no Shift key to ask for a new line, so there Enter stays one and only Send sends. The main pointer
+  // decides, not whether the device can be touched: a laptop with a touch screen is a keyboard first.
+  var touch = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+
+  field.addEventListener("keydown", function (event) {
+    // `isComposing` and 229 are an input method choosing a character with Enter, which is not a send.
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229 || touch) {
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey || !event.shiftKey) {
+      event.preventDefault();
+      // A blank box sends nothing, and the browser's own "fill out this field" bubble would only get in the way.
+      if (field.value.trim()) {
+        submitForm(form);
+      }
+    }
+  });
+
   form.addEventListener("submit", function (event) {
     if (busy) {
       event.preventDefault();
@@ -52,6 +82,15 @@
       field.value = "";
     }
   });
+
+  // `requestSubmit` runs the `submit` event as a click on Send does; an old browser without it clicks the button.
+  function submitForm(target) {
+    if (target.requestSubmit) {
+      target.requestSubmit();
+    } else {
+      target.querySelector("button").click();
+    }
+  }
 
   function send() {
     var text = field.value;
@@ -155,5 +194,25 @@
       server.remove();
     }
     line.textContent = text;
+  }
+
+  // The page of a message that is being edited: Ctrl or Cmd+Enter saves it, as the button does, and Esc leaves for the
+  // room with the change discarded (the link under the form, which is also what a person without the script clicks).
+  function editKeys(target) {
+    var back = document.querySelector("main > p > a[data-cancel]");
+    // The frame, not the form, so Esc also works with the focus on the Delete button.
+    target.parentNode.addEventListener("keydown", function (event) {
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
+
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        submitForm(target);
+      } else if (event.key === "Escape" && back) {
+        event.preventDefault();
+        location.assign(back.href);
+      }
+    });
   }
 })();

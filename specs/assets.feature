@@ -36,6 +36,18 @@ Feature: The stylesheet and the script
     Then the body does not contain "<script"
     And the body contains "interactive-widget=resizes-content"
 
+  Scenario: The page that edits a message links the same script, which has the keys of the composer and of the edit form
+    Given the room 1 has 1 messages
+    When I get "/rooms/1/messages/1/edit"
+    Then the body contains "<script src=\"/assets/campfire-"
+    And the body contains "<a href=\"/rooms/1\" data-cancel>Back to the room</a>"
+    When I get the script that the page links
+    Then the status is 200
+    And the body contains "keydown"
+    And the body contains "Escape"
+    And the body contains "requestSubmit"
+    And the body has the SHA-256 that starts with the digest in the name of the file
+
   Scenario: The stylesheet is served to a visitor who is not signed in, and nothing else is
     Given the browser has no cookies
     When I get "/session/new"
