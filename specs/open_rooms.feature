@@ -150,6 +150,9 @@ Feature: Settings of open rooms, and converting between open and closed
     And the body is "Not Found"
     And the query "select count(*) from rooms where id = 3 and type = 'Rooms::Direct' and name is null" gives 1
     And the query "select count(*) from memberships where room_id = 3" gives 2
+    When I get "/rooms/3"
+    Then the status is 200
+    And the body does not contain "/rooms/3/settings"
 
     Examples:
       | step | query        |

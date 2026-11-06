@@ -705,13 +705,19 @@ def update_room_in(
     target = OPEN
   end
 
+  # `updated_at` moves only when the name or the type changes, as Rails' `update!` does for a save that
+  # changes nothing.
   changed = try Db.execute(
     tx,
-    "update rooms set name = ?, type = ?, updated_at = #{NOW} where id = ? and type in ('#{OPEN}', '#{CLOSED}') " +
+    "update rooms set name = ?, type = ?, " +
+    "updated_at = case when name is not ? or type is not ? then #{NOW} else updated_at end " +
+    "where id = ? and type in ('#{OPEN}', '#{CLOSED}') " +
     "and (creator_id = ? or exists (select 1 from users where id = ? and role = #{Rails.ADMINISTRATOR} and " +
     "status = #{Rails.ACTIVE})) " +
     "and exists (select 1 from memberships where room_id = rooms.id and user_id = ?)",
     [
+      Db.Value.Text(name),
+      Db.Value.Text(target),
       Db.Value.Text(name),
       Db.Value.Text(target),
       Db.Value.Int(room_id),
