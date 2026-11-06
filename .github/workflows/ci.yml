@@ -36,19 +36,6 @@ jobs:
           npm ci
           make assets-check
 
-      # The compiled programs of the specs and tests (`_build/bytecode`). The compiler names each one by a hash of its
-      # source and of the binary (its size and modified time, which the archive of a release keeps), so the pinned binary
-      # downloaded and extracted again gives the same names (checked: a fresh copy hits), and a run finds what an earlier
-      # one compiled. The key is the version of Agentica and the sources; a run with other sources starts from the nearest
-      # older cache and compiles only what changed.
-      - name: Cache the compiled programs
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
-        with:
-          path: _build
-          key: agentica-${{ env.AGENTICA_VERSION }}-${{ hashFiles('agentica.lock', 'campfire.agc', 'src/**', 'specs/**', 'test/**') }}
-          restore-keys: |
-            agentica-${{ env.AGENTICA_VERSION }}-
-
       # The locked packages (Bond), checked against the hashes of agentica.lock.
       - name: Install the packages
         run: |

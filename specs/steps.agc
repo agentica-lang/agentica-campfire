@@ -52,9 +52,13 @@ LISTENING = "listening on "
 # listens costs the full time. The steps that expect a failing start to exit use the same bound.
 START_MS = 30_000
 FOLDER_PREFIX = "campfire-spec-"
-# Where the migrated database that "a fresh database" copies is kept, under the folder where the specs run (`_build/`
-# is the build folder of the project, which CI keeps between runs). The file name is the digest of the migrations.
-TEMPLATE_DIR = "_build/spec-template"
+# Where the migrated database that "a fresh database" copies is kept: `_build/spec-template/` of the project (`_build/`
+# is its build folder, which git ignores). The file name is a digest (see `schema_template`). A template or a scratch
+# file is removed only when it is older than this many seconds.
+BUILD_DIR = "_build"
+TEMPLATE_FOLDER = "spec-template"
+TEMPLATE_KEEP_SECONDS = 600
+PACKAGE_LOCK = "agentica.lock"
 PRIVATE_FOLDER_MODE = 448
 FILE_MS = 5_000
 COPY_CHUNK = 65_536
@@ -297,18 +301,19 @@ def copy_template(to: String) -> Result[Void]
 end
 
 # The migrated database that "a fresh database" copies, made by the first scenario that needs it and kept for the
-# next ones, in this run and in the runs that follow while the migrations stay the same. The file name is the digest of
-# the migrations (versions, names and statements), so a changed migration makes another file. The files run in
-# parallel: each one that finds no template migrates a database of its own and moves it into place, which is atomic and
-# gives the same bytes whoever wins (the others find the file there and drop theirs).
+# next ones, in this run and in the runs that follow while nothing it depends on changes. The file name is the digest
+# of the migrations (versions, names and statements) and of `agentica.lock` (the pin of the package that migrates), so
+# a changed migration or package makes another file. The files run in parallel: each one that finds no template
+# migrates a database of its own and moves it into place, which is atomic and gives the same bytes whoever wins (the
+# others find the file there and drop theirs).
 def schema_template() -> Result[String]
-  try Dir.mkdir(TEMPLATE_DIR)
-  path = try Path.join([TEMPLATE_DIR, "#{schema_digest()}.db"])
+  folder = try template_dir()
+  path = try Path.join([folder, "#{try schema_digest()}.db"])
   if File.stat(path).ok?
     return ok(path)
   end
 
-  scratch = try Path.join([TEMPLATE_DIR, "making-#{SecureRandom.hex(8)}.db"])
+  scratch = try Path.join([folder, "making-#{SecureRandom.hex(8)}.db"])
   migrated = Database.migrate("sqlite:#{scratch}?fts5=required")
   if not migrated.ok?
     _ = Path.remove(scratch)
@@ -326,33 +331,51 @@ def schema_template() -> Result[String]
     return ok(path)
   end
 
-  remove_old_templates(path)
+  remove_old_templates(folder, path)
   return ok(path)
 end
 
-# The templates of earlier migrations are of no use to this checkout any more.
-def remove_old_templates(keep: String) -> Void
+# The folder of the templates, in the project (the specs run from its root, as the fixtures above assume).
+def template_dir() -> Result[String]
+  build = try Path.join([try Path.cwd(), BUILD_DIR])
+  _ = Dir.mkdir(build)
+  folder = try Path.join([build, TEMPLATE_FOLDER])
+  try Dir.mkdir(folder)
+  return ok(folder)
+end
+
+# Templates of earlier digests and the scratch files of a run that stopped half way are of no use. Only the ones that
+# nobody has touched for a few minutes go: a run of another checkout state may be using, or be making, a younger one.
+def remove_old_templates(folder: String, keep: String) -> Void
   nothing: List[String] = []
-  names = Dir.list(TEMPLATE_DIR).unwrap_or(nothing)
+  names = Dir.list(folder).unwrap_or(nothing)
+  now = Time.now_ms() / 1000
   for name in names
-    old = Path.join([TEMPLATE_DIR, name]).unwrap!
-    if old != keep and not name.start_with?("making-")
+    old = Path.join([folder, name]).unwrap!
+    info = File.stat(old)
+    if old != keep and info.ok? and now - info.unwrap!.modified_seconds > TEMPLATE_KEEP_SECONDS
       _ = Path.remove(old)
     end
   end
 end
 
-def schema_digest() -> String
-  parts = Migrations.all().map do |migration| "#{migration.version} #{migration.name}\n#{statements_of(migration)}" end
+def schema_digest() -> Result[String]
+  parts: List[String] = []
+  for migration in Migrations.all()
+    parts = parts.push("#{migration.version} #{migration.name}\n#{try statements_of(migration)}")
+  end
 
-  return Digest.sha256_hexdigest(parts.join("\n").bytes)
+  lock = try File.read_text(PACKAGE_LOCK)
+  return ok(Digest.sha256_hexdigest("#{parts.join("\n")}\n#{lock}".bytes))
 end
 
-# The statements of a migration. A migration that is a function has none to show; the app has none.
-def statements_of(migration: Migrate.Migration) -> String
+# The statements of a migration. A migration that is a function has none to show, so the digest would not see a change
+# in it: it is an error here, and a spec that needs one must say how it enters the digest.
+def statements_of(migration: Migrate.Migration) -> Result[String]
   case migration.action
-    Migrate.Action.Statements(statements) -> return statements.join(";\n")
-    Migrate.Action.Code(_) -> return ""
+    Migrate.Action.Statements(statements) -> return ok(statements.join(";\n"))
+    Migrate.Action.Code(_) ->
+      return error("migration #{migration.version} is a function: the template digest cannot see it")
   end
 end
 
