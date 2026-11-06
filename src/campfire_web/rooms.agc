@@ -5,8 +5,8 @@
 ##
 ## A room that the person is not in is answered 404 with the same body as a room that was never made, before anything
 ## about the room (or the form posted to it) is looked at, so no answer tells that a room exists. The settings are
-## only for a closed room: for a room of another kind the person is in, they are the same 404. In a closed room only its
-## maker and an account administrator may change it, and another member is answered 403. The same two people may delete
+## only for an open or a closed room: for a direct room the person is in, they are the same 404. Only the maker of a room
+## and an account administrator may change it, and another member is answered 403. The same two people may delete
 ## a room of any kind, and another member is answered 403 there too. A message is edited and deleted by its author and by
 ## an account administrator: after the membership check (404) and a message that is not in the room (404), anybody else
 ## is answered 403, before the form is read.
@@ -315,24 +315,25 @@ end
 
 def show_settings(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = room_id(conn)
-  answer = try Database.with_connection(pool) do |db| settings_answer(conn, db, id) end
+  wanted = first(try Bond.query_all(conn, "type"))
+  answer = try Database.with_connection(pool) do |db| settings_answer(conn, db, id, wanted) end
   return ok(respond(conn, answer))
 end
 
-def settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
+def settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], wanted: String) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return shown_settings(db, person, id)
+    some(person) -> return shown_settings(db, person, id, wanted)
   end
 end
 
-def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
-  room = try closed_room(db, person, id)
+def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int], wanted: String) -> Result[Answer]
+  room = try settings_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
     some(found) if not Rooms.editable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
-    some(found) -> return ok(Answer.Page(200, try first_settings(db, person, found)))
+    some(found) -> return ok(Answer.Page(200, try first_settings(db, person, found, kind_of(found, wanted))))
   end
 end
 
@@ -354,7 +355,7 @@ end
 # in a room that it exists. A member who may not change the room (not its maker, not an administrator) is told 403:
 # they are in the room, so that tells them nothing new.
 def saved_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
-  room = try closed_room(db, person, id)
+  room = try settings_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
     some(found) if not Rooms.editable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
@@ -366,13 +367,37 @@ def form_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, room: R
   name = (try Bond.form(conn, "name")).strip
   ids = try ids_of(conn, "member")
   was = try ids_of(conn, "was")
-  return change_settings(db, person, room, name, ids, was)
+  kinds = try Bond.form_all(conn, "type")
+  return change_settings(db, person, room, kind_of(room, first(kinds)), name, ids, was)
+end
+
+# What the room is to be after the form: the kind that it names (`type`), or what the room is now for no kind or a kind
+# that is none of the two, so a form of the first version of the settings (no `type`) keeps its meaning.
+def kind_of(room: Rooms.Room, wanted: String) -> String
+  if wanted == Routes.SETTINGS_OPEN or wanted == Routes.SETTINGS_CLOSED
+    return wanted
+  end
+
+  if Rooms.open?(room)
+    return Routes.SETTINGS_OPEN
+  end
+
+  return Routes.SETTINGS_CLOSED
+end
+
+def first(values: List[String]) -> String
+  if values.empty?
+    return ""
+  end
+
+  return values[0]
 end
 
 def change_settings(
   db: Db.Connection,
   person: Auth.User,
   room: Rooms.Room,
+  kind: String,
   name: String,
   ids: List[Int],
   was: List[Int],
@@ -381,11 +406,11 @@ def change_settings(
   chosen = chosen_of(people, ids)
   problem = Rooms.name_problem(name)
   if problem != ""
-    page = try settings_form(db, person, room, name, chosen, chosen_of(people, was), problem)
+    page = try settings_form(db, person, room, kind, name, chosen, chosen_of(people, was), problem)
     return ok(Answer.Page(422, page))
   end
 
-  changed = try Rooms.update_closed(db, room.id, person.id, name, chosen, was)
+  changed = try Rooms.update_room(db, room.id, person.id, name, kind == Routes.SETTINGS_OPEN, chosen, was)
   # The check before the form said they may; a refusal now is a change that happened meanwhile (they were taken out,
   # or lost the role), so they are told what a person who is not in the room is.
   if not changed
@@ -395,10 +420,11 @@ def change_settings(
   return ok(Answer.Redirect(Routes.room_path(room.id)))
 end
 
-# The form as it is first drawn: the people in the room are checked, and are the ones that it remembers as in it.
-def first_settings(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[String]
+# The form of the `kind` as it is first drawn: the people in the room are checked, and are the ones that it remembers
+# as in it (an open room drawn as closed has everyone checked).
+def first_settings(db: Db.Connection, person: Auth.User, room: Rooms.Room, kind: String) -> Result[String]
   members = try Rooms.member_ids(db, room.id)
-  return settings_form(db, person, room, room.name, members, members, "")
+  return settings_form(db, person, room, kind, room.name, members, members, "")
 end
 
 # A refused form comes back with what was typed and checked, and with the `was` that it had, so that fixing the name
@@ -407,13 +433,14 @@ def settings_form(
   db: Db.Connection,
   person: Auth.User,
   room: Rooms.Room,
+  kind: String,
   name: String,
   chosen: List[Int],
   was: List[Int],
   message: String,
 ) -> Result[String]
   people = try Rooms.people(db, person.id)
-  return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
+  return ok(Views.room_settings(try sidebar_of(db, person), room, kind, name, people, chosen, was, message))
 end
 
 # The `_method` field of a form, lower case ("" when it has none), which is how Rails reads
@@ -1004,12 +1031,11 @@ def member_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Resu
   end
 end
 
-# A room of the person that is closed: the settings exist for no other kind, so another kind is as missing as a room
-# of other people.
-def closed_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]
+# A room of the person that has settings: a direct room has none, so it is as missing as a room of other people.
+def settings_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]
   room = try member_room(db, person, id)
   case room
-    some(found) if found.room_type == Rooms.CLOSED -> return ok(room)
+    some(found) if Rooms.has_settings?(found) -> return ok(room)
     _ -> return ok(none)
   end
 end

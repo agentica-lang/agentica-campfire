@@ -270,16 +270,26 @@ export def administrable?(room: Room, user_id: Int, role: String) -> Bool
   return room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
 end
 
+## True for an open room.
+export def open?(room: Room) -> Bool
+  return room.room_type == OPEN
+end
+
+## True when the settings of the room exist: an open or a closed room. A direct room has none, and never converts: its
+## people agreed to a private conversation, not to one that someone else widens afterwards (`Room` of Rails).
+export def has_settings?(room: Room) -> Bool
+  return room.room_type != DIRECT
+end
+
 ## True when the person may edit or delete a message that `creator_id` wrote: they wrote it or are an account
 ## administrator (`User#can_administer?(message)` of upstream), in a room that they are in.
 export def changeable?(creator_id: Int, user_id: Int, role: String) -> Bool
   return creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
 end
 
-## True when the person may change the settings of the room: it is a closed room (the only kind with settings here) and
-## they may administer it.
+## True when the person may change the settings of the room: it has settings and they may administer it.
 export def editable?(room: Room, user_id: Int, role: String) -> Bool
-  return room.room_type == CLOSED and administrable?(room, user_id, role)
+  return has_settings?(room) and administrable?(room, user_id, role)
 end
 
 ## The active people that a person can put in a room, other than themselves (they are always in what they make), by
@@ -306,22 +316,27 @@ export def create_closed(conn: Db.Connection, creator_id: Int, name: String, mem
   return Db.transaction(conn) do |tx| create_closed_in(tx, creator_id, name, members) end
 end
 
-## Renames the closed room and applies the diff of the form, and nothing else: the people in `chosen` and not in `was`
-## (who were in the room when the form was drawn) are added, and the ones in `was` and not in `chosen` are taken out.
-## What the form did not change is left as it is, so a stale form neither takes out someone who was put in after it
-## was drawn nor brings back someone who was taken out. Someone who is not active now stays, and so does `editor_id`,
-## the person who sends the form, who is never offered. It gives false, and changes nothing, when the room is not closed
-## or `editor_id` may not edit it or is not in it (they were taken out, or lost the role, since the caller looked); the
-## active people are read inside the transaction for the same reason. An error is a failure of the database.
-export def update_closed(
+## Renames the room and makes it open (`open`) or closed, which is what the form that was sent is for: an open room that
+## is saved as closed, or a closed one saved as open, converts (`Rooms::OpensController#update` and `ClosedsController#update`
+## of Rails, which `becomes!` the other type). A room that is open after the call has every active person in it (the
+## people who are in it keep their involvement); one that is closed has the diff of the form applied, and nothing else:
+## the people in `chosen` and not in `was` (who were in the room when the form was drawn) are added, and the ones in `was`
+## and not in `chosen` are taken out. What the form did not change is left as it is, so a stale form neither takes out
+## someone who was put in after it was drawn nor brings back someone who was taken out. Someone who is not active now
+## stays, and so does `editor_id`, the person who sends the form, who is never offered. It gives false, and changes
+## nothing, when the room is a direct one or `editor_id` may not edit it or is not in it (they were taken out, or lost
+## the role, since the caller looked); the active people are read inside the transaction for the same reason. An error is
+## a failure of the database.
+export def update_room(
   conn: Db.Connection,
   room_id: Int,
   editor_id: Int,
   name: String,
+  open: Bool,
   chosen: List[Int],
   was: List[Int],
 ) -> Result[Bool]
-  return Db.transaction(conn) do |tx| update_closed_in(tx, room_id, editor_id, name, chosen, was) end
+  return Db.transaction(conn) do |tx| update_room_in(tx, room_id, editor_id, name, open, chosen, was) end
 end
 
 ## The direct room between `creator_id` and `others` (the people they picked, not themselves), which is the one that
@@ -338,7 +353,7 @@ end
 ## meanwhile is let in (`grant_open_rooms` skips what is not open), and every membership is deleted, so the room leaves
 ## every sidebar and is a 404 for everybody. A direct room keeps its type, which Rails does not let change. It gives
 ## false, and changes nothing, when `actor_id` is not in the room or may not administer it (they were taken out, or lost
-## the role, since the caller looked), as `update_closed` does. An error is a failure of the database.
+## the role, since the caller looked), as `update_room` does. An error is a failure of the database.
 export def destroy_later(conn: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]
   return Db.transaction(conn) do |tx| destroy_later_in(tx, room_id, actor_id) end
 end
@@ -740,22 +755,35 @@ def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: 
   return ok(room_id)
 end
 
-def update_closed_in(
+def update_room_in(
   tx: Db.Connection,
   room_id: Int,
   editor_id: Int,
   name: String,
+  open: Bool,
   chosen: List[Int],
   was: List[Int],
 ) -> Result[Bool]
+  target = CLOSED
+  if open
+    target = OPEN
+  end
+
+  # `updated_at` moves only when the name or the type changes, as Rails' `update!` does for a save that
+  # changes nothing.
   changed = try Db.execute(
     tx,
-    "update rooms set name = ?, updated_at = #{NOW} where id = ? and type = '#{CLOSED}' " +
+    "update rooms set name = ?, type = ?, " +
+    "updated_at = case when name is not ? or type is not ? then #{NOW} else updated_at end " +
+    "where id = ? and type in ('#{OPEN}', '#{CLOSED}') " +
     "and (creator_id = ? or exists (select 1 from users where id = ? and role = #{Rails.ADMINISTRATOR} and " +
     "status = #{Rails.ACTIVE})) " +
     "and exists (select 1 from memberships where room_id = rooms.id and user_id = ?)",
     [
       Db.Value.Text(name),
+      Db.Value.Text(target),
+      Db.Value.Text(name),
+      Db.Value.Text(target),
       Db.Value.Int(room_id),
       Db.Value.Int(editor_id),
       Db.Value.Int(editor_id),
@@ -768,6 +796,29 @@ def update_closed_in(
     return ok(false)
   end
 
+  if open
+    try grant_everyone(tx, room_id)
+  else
+    try apply_diff(tx, room_id, editor_id, chosen, was)
+  end
+
+  return ok(true)
+end
+
+# Every active person is in the room; the ones who are in already stay as they are (`Rooms::Open` grants with
+# `insert_all`, which skips a membership that exists).
+def grant_everyone(tx: Db.Connection, room_id: Int) -> Result[Void]
+  try Db.execute(
+    tx,
+    "insert into memberships (room_id, user_id, created_at, updated_at) " +
+    "select ?, id, #{NOW}, #{NOW} from users where status = #{Rails.ACTIVE} on conflict (room_id, user_id) do nothing",
+    [Db.Value.Int(room_id)],
+  )
+
+  return ok()
+end
+
+def apply_diff(tx: Db.Connection, room_id: Int, editor_id: Int, chosen: List[Int], was: List[Int]) -> Result[Void]
   for person in try people(tx, editor_id)
     if chosen.include?(person.id) and not was.include?(person.id)
       try add_member(tx, room_id, person.id, "mentions")
@@ -780,7 +831,7 @@ def update_closed_in(
     end
   end
 
-  return ok(true)
+  return ok()
 end
 
 def open_direct_in(tx: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]

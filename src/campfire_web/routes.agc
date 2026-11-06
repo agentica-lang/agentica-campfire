@@ -66,7 +66,10 @@ export METHOD_PATCH = "patch"
 export METHOD_DELETE = "delete"
 
 ## The forms of a closed room and of a direct message, and the posts that make them (each makes a room and goes to its
-## page), and the settings of a closed room: its form and the post that saves it.
+## page), and the settings of an open or closed room: its form and the post that saves it. Both take `type`, the kind
+## of room to be (`SETTINGS_OPEN` or `SETTINGS_CLOSED`); without it, or with another value, the room stays what it is.
+export SETTINGS_OPEN = "open"
+export SETTINGS_CLOSED = "closed"
 export CLOSED_ROOM_NEW = "/closed_rooms/new"
 export CLOSED_ROOMS = "/closed_rooms"
 export DIRECT_ROOM_NEW = "/direct_rooms/new"
@@ -121,7 +124,7 @@ export def room_message_edit_path(room_id: Int, message_id: Int) -> String
   return "/rooms/#{room_id}/messages/#{message_id}/edit"
 end
 
-## The path of the settings of a closed room, which is also where its form posts.
+## The path of the settings of an open or closed room, which is also where its form posts.
 export def room_settings_path(room_id: Int) -> String
   return "/rooms/#{room_id}/settings"
 end
@@ -129,6 +132,12 @@ end
 ## The path of the notification settings of a room, which is also where their form posts.
 export def room_involvement_path(room_id: Int) -> String
   return "/rooms/#{room_id}/involvement"
+end
+
+## The path of the settings drawn as the form of `kind` (`open` or `closed`), which is how a room is converted: the form
+## that is saved says what the room is to be (`SETTINGS_OPEN`, `SETTINGS_CLOSED`).
+export def room_settings_kind_path(room_id: Int, kind: String) -> String
+  return "/rooms/#{room_id}/settings?type=#{kind}"
 end
 
 ## The path of the join page of this code, which is also where its form posts.
