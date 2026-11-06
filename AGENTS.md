@@ -174,8 +174,9 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   Deleting a room is for its maker and an account administrator, of any kind (`Rooms.administrable?`; another member is
   answered 403, after the membership check): `Rooms.destroy_later` closes an open room and deletes its memberships in one
   transaction (it checks the right again inside), then `RoomDeletion` (a task that the request starts, one connection of
-  the pool per message) calls `Rooms.delete_next_message` until none is left and then `Rooms.delete_room`. Never delete
-  the messages of a room in one transaction: it holds the write lock until the last.
+  the pool per message) calls `Rooms.delete_next_message` until none is left and then `Rooms.delete_room`, trying a
+  step again when the database is busy (`RoomDeletion.retry`) and logging, not sweeping, what a failure leaves. Never
+  delete the messages of a room in one transaction: it holds the write lock until the last.
 - Message cache: the markup of each message of a room page and of the older messages (`Views.message`) is cached by
   `MessageCache` in one process-wide `std/cache` store (`CAMPFIRE_CACHE_MB`, 64 by default, 0 for none), under a key of
   the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial

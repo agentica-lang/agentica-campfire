@@ -28,8 +28,12 @@ transaction closes an open room (a person who joins the account meanwhile is not
 so the room is gone from every sidebar and is a `404` at once, and then a task of the app deletes the messages one at a
 time, each with its body, search row and boosts in a transaction of its own, so that other writes get through in
 between, and last the room, with any message posted meanwhile. The request redirects to the home page without waiting
-for the task. If the app stops before the task ends, what is left of the room (closed, with nobody in it) stays in
-the database. The settings pages of open and direct rooms, which would hold the button there, do not exist yet.
+for the task. A step of the task that fails because the database is busy (no free connection in time, `database is
+locked`) is tried again up to five times with a growing pause; if it still fails, or fails for any other reason, the
+task logs it and stops, and so does a restart of the app in the middle. What is left of the room (closed, with nobody in
+it, and the rest of its messages) stays in the database: nothing sweeps it. A post to a room that was deleted meanwhile
+stores nothing and is a `404`. A `POST /rooms/ID` without `_method=delete` is a `405` with `Allow: GET, HEAD, DELETE`.
+The settings pages of open and direct rooms, which would hold the button there, do not exist yet.
 
 ## Settings
 

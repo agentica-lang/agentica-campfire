@@ -42,6 +42,7 @@ enum Answer
   NoContent
   Redirect(String)
   NotFound
+  NotAllowed(String)
   Forbidden
   Deleted(Int)
   SignedOut
@@ -333,12 +334,12 @@ def settings_form(
   return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
 end
 
-# The form of Rails posts to the room with `_method=delete`; a post without it is a path that has no route, so it is
-# the 404 of one, whatever the room.
+# The form of Rails posts to the room with `_method=delete`; any other post is what a `POST` to the path was before the
+# form existed (the router's own answer), a 405 that says which methods the path takes, whatever the room.
 def post_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   methods = try Bond.form_all(conn, "_method")
   if methods.empty? or methods[0] != Routes.ROOM_DELETE_METHOD
-    return ok(respond(conn, Answer.NotFound))
+    return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW)))
   end
 
   return delete_room(conn, pool)
@@ -589,12 +590,21 @@ def post_to(
     return ok(Answer.Page(422, page))
   end
 
-  # The person may have been deactivated since the filter looked them up: the insert stores nothing for them.
+  # The insert stores nothing for a person who was deactivated since the filter looked them up, nor in a room that was
+  # deleted since the membership check (which also took the person out of it): looking the room up again tells which.
   stored = try Rooms.post(db, room.id, person.id, sent_id, HtmlSanitizer.from_text(body))
   case stored
-    none -> return ok(Answer.SignedOut)
+    none -> return ok(try refused_post(db, person, room))
     some(message) if stream -> return ok(Answer.TurboStream(Views.message_stream(room, message)))
     some(_) -> return ok(Answer.Redirect(Routes.room_path(room.id)))
+  end
+end
+
+def refused_post(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
+  still = try member_room(db, person, some(room.id))
+  case still
+    none -> return ok(Answer.NotFound)
+    some(_) -> return ok(Answer.SignedOut)
   end
 end
 
@@ -712,6 +722,7 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.NoContent -> return Bond.status(conn, 204)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
+    Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
     Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
     Answer.Deleted(_) -> return Bond.redirect(conn, Routes.HOME)
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
