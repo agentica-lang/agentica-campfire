@@ -1,0 +1,71 @@
+// The design tokens, as CSS custom properties: the light set, then the dark one. A component reads them with var(), so
+// a theme is these two blocks and nothing else.
+
+@use "mixins";
+
+:root {
+  color-scheme: light dark;
+
+  // Colour
+  --bg: #fff;
+  --bg-side: #f5f0ea;
+  --bg-canvas: #f5f0ea;
+  --bg-card: #fff;
+  --bg-field: #fff;
+  --hover: #2a1a1008;
+  --text: #211c18;
+  --muted: #645a51;
+  --line: #e3dcd3;
+  --line-strong: #8a7e74;
+  --accent: #b0301c;
+  --accent-hover: #8f2515;
+  --accent-fg: #fff;
+  --link: #b0301c;
+  --flash-bg: #fdece8;
+  --focus: #1a5fd0;
+  --shadow: 0 1px 2px #2a1a1014, 0 6px 24px #2a1a1010;
+  // A message bubble of somebody else; the bubble of the person who looks is the accent (see components/messages).
+  --bubble-other-bg: #efe9e1;
+  --bubble-other-fg: var(--text);
+
+  // Space, radius, type, size
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --r-sm: 0.375rem;
+  --r-md: 0.625rem;
+  --r-lg: 1rem;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.5rem;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --side-w: clamp(14rem, 22vw, 18rem);
+}
+
+@include mixins.dark {
+  :root {
+    --bg: #161311;
+    --bg-side: #1d1917;
+    --bg-canvas: #100e0d;
+    --bg-card: #1d1917;
+    --bg-field: #26211e;
+    --hover: #ffffff0d;
+    --text: #f2ede7;
+    --muted: #aca196;
+    --line: #302b27;
+    --line-strong: #7d7369;
+    --accent: #c4412b;
+    --accent-hover: #a8341f;
+    --link: #ff9a85;
+    --flash-bg: #3a1c16;
+    --focus: #7db0ff;
+    --shadow: 0 1px 2px #0006, 0 6px 24px #0004;
+    --bubble-other-bg: #26211e;
+  }
+}

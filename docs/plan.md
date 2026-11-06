@@ -83,8 +83,8 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 6. **std/time** (STD, S): ISO 8601 / UTC civil date from `Time.now_ms`. §41 (dates) is "planned, not started";
    do only the small helper now.
 7. **Realtime hub + Action Cable subset** (APP or a `bond-cable` package, M): see hard part "WebSockets".
-8. **Asset pipeline** (APP, S): Makefile + Docker stage with esbuild and dart-sass, fingerprinted output,
-   served by `Bond.static` with long cache headers.
+8. **Asset pipeline** (APP, S; done: `make assets`, `tools/assets.mjs`): esbuild and dart-sass, fingerprinted output
+   committed to `public/assets/` (no Node stage in the Docker image), served by `Bond.static` with long cache headers.
 
 Not blocking an MVP: Web Push, image variants, unfurl, rich text, QR transfer, ACME.
 

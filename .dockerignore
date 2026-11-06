@@ -10,3 +10,7 @@ Dockerfile
 Makefile
 *.md
 deps
+
+node_modules
+app
+tools

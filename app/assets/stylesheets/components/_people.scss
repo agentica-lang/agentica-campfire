@@ -1,0 +1,63 @@
+// The list of people and the join link. A row wraps its parts (the name, the address, the badge, the buttons) as the
+// width allows, which is inline wrapping, so it is the one place that keeps flex.
+
+@use "../settings/mixins";
+
+#join-link {
+  display: block;
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-side);
+}
+
+.people {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-1) var(--s-3);
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .meta {
+    flex: 1 1 14rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  form {
+    margin-inline-start: auto;
+  }
+
+  button {
+    min-height: 2rem;
+    padding: var(--s-1) var(--s-3);
+    font-size: var(--fs-sm);
+  }
+}
+
+.badge {
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+@include mixins.phone {
+  .people button {
+    min-height: 2.75rem;
+  }
+}

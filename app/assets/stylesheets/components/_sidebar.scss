@@ -1,0 +1,184 @@
+// The sidebar: who is signed in, the lists of rooms that scroll, and Sign out, as a grid of three rows. On a phone it is
+// a bar on top whose lists scroll sideways as one row of chips.
+
+@use "../settings/mixins";
+
+nav {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: var(--s-4) var(--s-3);
+  background: var(--bg-side);
+  border-inline-end: 1px solid var(--line);
+
+  .who {
+    margin: 0 var(--s-2) var(--s-3);
+    font-size: var(--fs-sm);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  .lists {
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  h2 {
+    margin: var(--s-4) var(--s-2) var(--s-1);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .actions {
+    margin-top: var(--s-4);
+    padding-top: var(--s-2);
+    border-top: 1px solid var(--line);
+
+    a {
+      font-size: var(--fs-sm);
+      color: var(--muted);
+    }
+  }
+
+  li a {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    padding: var(--s-1) var(--s-2);
+    border-radius: var(--r-sm);
+    color: var(--text);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+
+    &:hover {
+      background: var(--hover);
+      text-decoration: underline;
+    }
+  }
+
+  // A room with something new: bold, and a dot (the word for a screen reader is in the markup).
+  li.unread a {
+    font-weight: 700;
+
+    &::before {
+      content: "";
+      display: inline-block;
+      width: 0.5em;
+      height: 0.5em;
+      margin-inline-end: var(--s-1);
+      border-radius: 50%;
+      background: var(--accent);
+    }
+  }
+
+  form {
+    margin: var(--s-3) var(--s-2) 0;
+  }
+}
+
+@include mixins.phone {
+  nav {
+    position: static;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: none;
+    align-items: center;
+    padding: var(--s-2) var(--s-3);
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--line);
+
+    .who {
+      grid-row: 1;
+      margin: 0;
+    }
+
+    form {
+      grid-row: 1;
+      grid-column: 2;
+      margin: 0;
+
+      button {
+        padding: var(--s-1) var(--s-3);
+        font-size: var(--fs-sm);
+      }
+    }
+
+    .lists {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      align-items: center;
+      gap: var(--s-2);
+      margin-top: var(--s-2);
+      padding-bottom: var(--s-1);
+      overflow: auto hidden;
+    }
+
+    h2 {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+
+    ul {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: max-content;
+      gap: var(--s-2);
+    }
+
+    .actions {
+      margin: 0;
+      padding: 0 0 0 var(--s-2);
+      border-top: 0;
+      border-inline-start: 1px solid var(--line);
+    }
+
+    li a,
+    .actions a {
+      display: block;
+      max-width: 14rem;
+      // 44px with the line and the border: a chip is a tap target (the small text of the actions has the same line).
+      padding: 0.625rem var(--s-3);
+      line-height: 1.5rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--bg);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+  }
+
+  // A short window (a phone with its keyboard open, or turned sideways): the bar is one row, the chips and Sign out at
+  // their end, and "Signed in as" goes, so the messages have room. It depends on the height only, never on the focus:
+  // a layout that moves when the field loses the focus moves the chip that is being tapped.
+  @include mixins.short {
+    nav .who {
+      display: none;
+    }
+
+    nav .lists {
+      grid-row: 1;
+      grid-column: 1;
+      margin: 0 var(--s-2) 0 0;
+      padding-bottom: 0;
+    }
+  }
+}

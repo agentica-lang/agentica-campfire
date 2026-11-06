@@ -1,0 +1,8 @@
+// Motion only for the people who have not asked for less.
+
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  nav li a {
+    transition: background-color 0.12s ease-out;
+  }
+}

@@ -1,0 +1,22 @@
+// Text for a screen reader only, and the link that skips the sidebar.
+
+.sr-only,
+.skip:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  z-index: 1;
+  top: var(--s-2);
+  inset-inline-start: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  color: var(--accent-fg);
+  background: var(--accent);
+}

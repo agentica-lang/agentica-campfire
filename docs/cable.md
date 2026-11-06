@@ -32,7 +32,7 @@ under a key derived from `SECRET_KEY_BASE`, or from `CAMPFIRE_SESSION_SECRET` wh
 
 ## The pages
 
-The script of the pages (`public/assets/campfire-DIGEST.js`, `Routes.SCRIPT`) has two parts. The second opens one
+The script of the pages (`public/assets/campfire-DIGEST.js`, `Routes.SCRIPT`, built from `app/javascript/`) has two parts, `composer.js` and `live.js`. The second opens one
 WebSocket in every page that has the sidebar and applies what it hears; no page needs it to work. It is written by
 hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`, `remove`, `before` and `after`.
 

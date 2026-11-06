@@ -1,0 +1,10 @@
+// A notice above a form or the composer.
+
+[role="alert"],
+main.room > p[aria-live]:not(:empty) {
+  margin: 0 0 var(--s-4);
+  padding: var(--s-2) var(--s-3);
+  border-inline-start: 4px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--flash-bg);
+}

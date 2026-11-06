@@ -29,6 +29,7 @@ RUN /opt/agentica/bin/agentica install
 
 COPY campfire.agc ./
 COPY src ./src
+# The built stylesheet and script are committed (`make assets`), so this image needs no Node.
 COPY public ./public
 # A compressed copy next to each stylesheet and script: Bond sends it to a client that takes gzip (and does not
 # compress at run time). `-n` keeps the name and time out of the file so the build is the same each time, and `-k`

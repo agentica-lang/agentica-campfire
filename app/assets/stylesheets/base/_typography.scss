@@ -1,0 +1,38 @@
+// Type and links: element selectors only.
+
+body {
+  color: var(--text);
+  background: var(--bg);
+  font: var(--fs-md) / 1.5 var(--font);
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+h1 {
+  margin: 0 0 var(--s-4);
+  font-size: var(--fs-xl);
+}
+
+h2 {
+  margin: var(--s-5) 0 var(--s-2);
+  font-size: var(--fs-lg);
+}
+
+p {
+  margin: 0 0 var(--s-3);
+}
+
+a {
+  color: var(--link);
+  text-underline-offset: 0.2em;
+}
+
+code {
+  font: 0.9em var(--font-mono);
+  overflow-wrap: anywhere;
+}

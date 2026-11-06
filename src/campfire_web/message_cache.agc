@@ -50,9 +50,13 @@ def render(stored: Rooms.Stored, controls: Bool) -> String
   return Views.message(Rooms.clean(stored), controls)
 end
 
-# The author is counted and the body goes last, so that no two messages make the same text by moving bytes from one
-# part to the next.
+# The creator is in the key too, since the markup names it (`data-creator-id`): a message that went to another person
+# with the same name must not keep the old one. The author is counted and the body goes last, so that no two messages
+# make the same text by moving bytes from one part to the next.
 def key(stored: Rooms.Stored, controls: Bool) -> String
-  text = "#{stored.room_id}\n#{stored.created_at}\n#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
+  text = (
+    "#{stored.room_id}\n#{stored.creator_id}\n#{stored.created_at}\n#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
+  )
+
   return "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{Digest.sha256_hexdigest(text.bytes)}"
 end
