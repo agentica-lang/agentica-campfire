@@ -6,7 +6,8 @@
 #   bench/run.sh --apps agentica --preflight  setup, then bin/benchmark with these arguments
 #
 # Settings (environment): BENCH_DIR (default ~/apps/bench), BENCH_TMPDIR (outside /tmp, which is a small
-# tmpfs on many boxes), BENCH_CACHE (the cargo registry), CARGO_BUILD_JOBS (passed on to cargo).
+# tmpfs on many boxes), BENCH_CACHE (the cargo registry), CARGO_BUILD_JOBS (passed on to cargo), AGENTICA_IMAGE (the
+# image of the app, once-campfire-agentica:app by default; the harness reads it, so it is passed into the container).
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -69,6 +70,7 @@ docker build --quiet --file "$here/runner.Dockerfile" --tag "$image" "$here" >/d
 # LANG: without a UTF-8 locale Ruby tags gunzipped response bodies as US-ASCII and fails on the Rails pages.
 extra_env=()
 if [ -n "${CARGO_BUILD_JOBS:-}" ]; then extra_env+=(--env "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"); fi
+if [ -n "${AGENTICA_IMAGE:-}" ]; then extra_env+=(--env "AGENTICA_IMAGE=$AGENTICA_IMAGE"); fi
 
 in_container() {
   docker run --rm --init --network host \

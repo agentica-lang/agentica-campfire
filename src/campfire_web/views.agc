@@ -272,11 +272,7 @@ export def message(message: Rooms.Message, controls: Bool) -> String
     <%@ escape &Bond.escape %>
     <div id="message_<%= message.id %>" data-message-id="<%= message.id %>">
       <h3><strong><%= message.author %></strong>
-        <time datetime="<%= message.created_at %>"><%= message.created_at %></time>
-    <% if controls %>
-        <a href="<%= Routes.room_message_edit_path(message.room_id, message.id) %>">Edit</a>
-    <% end %>
-      </h3>
+        <time datetime="<%= message.created_at %>"><%= message.created_at %></time><%== edit_link(message, controls) %></h3>
       <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div></turbo-frame></div>
   EAG
 end
@@ -687,4 +683,17 @@ export def busy(message: String) -> String
     </main>
   EAG
   return layout(NAME, body)
+end
+
+# The link to the edit page, after the time, or nothing: an interpolated piece, so that without it `</h3>` follows
+# `</time>` with no byte between, as the benchmark's markup has it.
+def edit_link(message: Rooms.Message, controls: Bool) -> String
+  if not controls
+    return ""
+  end
+
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <a href="<%= Routes.room_message_edit_path(message.room_id, message.id) %>">Edit</a>
+  EAG
 end

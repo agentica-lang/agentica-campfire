@@ -51,9 +51,9 @@ export ROOM = "/rooms/:id"
 export ROOM_MESSAGES = "/rooms/:id/messages"
 
 ## `/rooms/:id` takes the form that deletes a room: a `POST` with the field `_method` set to `delete`, as the forms of
-## Rails send it (a browser form cannot send `DELETE`), and a real `DELETE`. A `POST` without it is a 405 that lists the
-## methods of the path (`ROOM_ALLOW`).
-export ROOM_ALLOW = "GET, HEAD, DELETE"
+## Rails send it (a browser form cannot send `DELETE`), and a real `DELETE`. A `POST` without it, and any other method,
+## is a 405 that lists the methods of the path (`ROOM_ALLOW`, which is the list that Bond itself gives for the path).
+export ROOM_ALLOW = "GET, HEAD, POST, DELETE"
 
 ## One message of a room and the page that edits it (`:id` is the room and `:message_id` the message). The page of the
 ## message takes `PATCH`, which saves the edit, and `DELETE`, and as a `POST` with `_method` set to one of the two
@@ -61,7 +61,7 @@ export ROOM_ALLOW = "GET, HEAD, DELETE"
 ## `ROOM_MESSAGE_ALLOW`.
 export ROOM_MESSAGE = "/rooms/:id/messages/:message_id"
 export ROOM_MESSAGE_EDIT = "/rooms/:id/messages/:message_id/edit"
-export ROOM_MESSAGE_ALLOW = "PATCH, DELETE"
+export ROOM_MESSAGE_ALLOW = "POST, PATCH, DELETE"
 export METHOD_PATCH = "patch"
 export METHOD_DELETE = "delete"
 

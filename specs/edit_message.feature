@@ -140,6 +140,36 @@ Feature: Editing and deleting a message
       | send a DELETE to | /rooms/1/messages/99    |
       | send a DELETE to | /rooms/abc/messages/1   |
 
+  Scenario: A page of another site cannot patch or delete, whatever the method is called
+    Given the request header "sec-fetch-site" is "cross-site"
+    When I send a PATCH to "/rooms/1/messages/1" the form:
+      | message[body] | Hijacked |
+    Then the status is 403
+    When I send a DELETE to "/rooms/1/messages/1"
+    Then the status is 403
+    When I post to "/rooms/1/messages/1" the form:
+      | _method | Delete |
+    Then the status is 403
+    And the query "select count(*) from messages where id = 1" gives 1
+    And the query "select count(*) from action_text_rich_texts where record_id = 1 and body = 'Coffee at nine'" gives 1
+
+  Scenario: The _method of a form is read in any case, as Rails reads it, and anything else is a 405 with the list of the path
+    When I post to "/rooms/1/messages/1" the form:
+      | _method       | PATCH   |
+      | message[body] | Renamed |
+    Then the status is 302
+    When I post to "/rooms/1/messages/1" the form:
+      | _method | put |
+    Then the status is 405
+    And the header "allow" is "POST, PATCH, DELETE"
+    When I send a PUT to "/rooms/1/messages/1"
+    Then the status is 405
+    And the header "allow" is "POST, PATCH, DELETE"
+    When I post to "/rooms/1/messages/1" the form:
+      | _method | DELETE |
+    Then the status is 302
+    And the query "select count(*) from messages" gives 0
+
   Scenario Outline: A visitor with no session and a page of another site change nothing
     Given the browser has no cookies
     When I post to "/rooms/1/messages/1" the form:

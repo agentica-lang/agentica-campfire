@@ -347,11 +347,23 @@ def settings_form(
   return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
 end
 
-# The form of Rails posts to the room with `_method=delete`; any other post is what a `POST` to the path was before the
-# form existed (the router's own answer), a 405 that says which methods the path takes, whatever the room.
-def post_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+# The `_method` field of a form, lower case ("" when it has none), which is how Rails reads
+# it (`Rack::MethodOverride`).
+def override_method(conn: Bond.Conn) -> Result[String]
   methods = try Bond.form_all(conn, "_method")
-  if methods.empty? or methods[0] != Routes.METHOD_DELETE
+  if methods.empty?
+    return ok("")
+  end
+
+  return ok(methods[0].downcase)
+end
+
+# The form of Rails posts to the room with `_method=delete` (in any case, as Rails reads it); any other post is what a
+# `POST` to the path was before the form existed (the router's own answer), a 405 that says which methods the path
+# takes, whatever the room.
+def post_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  method = try override_method(conn)
+  if method != Routes.METHOD_DELETE
     return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW)))
   end
 
@@ -440,15 +452,15 @@ def edit_page(
   return ok(Views.edit_message(try sidebar_of(db, person), room, message, text, note))
 end
 
-# The form of Rails posts to the message with `_method` `patch` to save it and `delete` to delete it; any other post is
-# a 405 that says which methods the path takes, whatever the message.
+# The form of Rails posts to the message with `_method` `patch` to save it and `delete` to delete it (in any case, as
+# Rails reads it); any other post is a 405 that says which methods the path takes, whatever the message.
 def post_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
-  methods = try Bond.form_all(conn, "_method")
-  if not methods.empty? and methods[0] == Routes.METHOD_PATCH
+  method = try override_method(conn)
+  if method == Routes.METHOD_PATCH
     return update_message(conn, pool)
   end
 
-  if not methods.empty? and methods[0] == Routes.METHOD_DELETE
+  if method == Routes.METHOD_DELETE
     return delete_message(conn, pool)
   end
 

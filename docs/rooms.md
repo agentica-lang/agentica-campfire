@@ -32,7 +32,7 @@ for the task. A step of the task that fails because the database is busy (no fre
 locked`) is tried again up to five times with a growing pause; if it still fails, or fails for any other reason, the
 task logs it and stops, and so does a restart of the app in the middle. What is left of the room (closed, with nobody in
 it, and the rest of its messages) stays in the database: nothing sweeps it. A post to a room that was deleted meanwhile
-stores nothing and is a `404`. A `POST /rooms/ID` without `_method=delete` is a `405` with `Allow: GET, HEAD, DELETE`.
+stores nothing and is a `404`. A `POST /rooms/ID` without `_method=delete` is a `405` with `Allow: GET, HEAD, POST, DELETE`, as is any other method.
 The settings pages of open and direct rooms, which would hold the button there, do not exist yet.
 
 ## Settings
@@ -100,7 +100,7 @@ nobody else, even in a room that they are in. The heading of a message has an `E
 holds the form in `<turbo-frame id="edit_message_MID">`: a textarea with the text of the message, a Save button
 (`POST /rooms/ID/messages/MID` with `_method=patch`, or a real `PATCH`) and a Delete button that asks first
 (`_method=delete`, or a real `DELETE`). A post to the message with any other `_method` is a `405` with
-`Allow: PATCH, DELETE`.
+`Allow: POST, PATCH, DELETE`.
 
 The text in the form is the plain text of the body: a body that this app stored (plain text made HTML) comes back exactly,
 blank lines included; a body that Rails wrote with markup comes back as its plain text, without its formatting and blank

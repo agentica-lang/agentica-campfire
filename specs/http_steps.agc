@@ -77,6 +77,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("I send a DELETE to {string}", &delete_to),
     BDD.step("I send a PATCH to {string} the form:", &patch_form),
     BDD.step("I send a PATCH to {string} a message of {int} characters", &patch_message_of_length),
+    BDD.step("I send a PUT to {string}", &put_to),
     BDD.step("I submit the form of the page that posts to {string}", &submit_page_form),
     BDD.step("I submit the join form of the page with:", &submit_join_form),
     BDD.step("I remember the join link", &remember_join_link),
@@ -306,6 +307,11 @@ end
 def patch_message_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
   text = List.repeat("x", args[1].to_i!).join("")
   return send(ctx, "PATCH", args[0], URI.encode_www_form([URI.Pair(name: "message[body]", value: text)]))
+end
+
+# A method that the path does not take, with no body.
+def put_to(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return send(ctx, "PUT", args[0], "")
 end
 
 # The method that a browser form cannot send, with no body.
