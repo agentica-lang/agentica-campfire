@@ -183,6 +183,21 @@ Feature: The cache of whole pages
     Then the status is 200
     And the body contains "First of many"
 
+  Scenario: The sidebar and the search have the tag and give a 304 with the page cache off too
+    When the app restarts with the page cache off
+    And I get "/users/me/sidebar"
+    Then the status is 200
+    And the header "etag" contains "W/\""
+    And the header "cache-control" is "max-age=0, private, must-revalidate"
+    When the request header "if-none-match" is the header "etag" of the answer
+    And I get "/users/me/sidebar"
+    Then the status is 304
+    When I get "/searches?q=first"
+    Then the header "etag" contains "W/\""
+    When the request header "if-none-match" is the header "etag" of the answer
+    And I get "/searches?q=first"
+    Then the status is 304
+
   Scenario: A query longer than the form allows is answered with its results and is not kept
     When I get "/searches?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     Then the status is 200

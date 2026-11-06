@@ -217,21 +217,24 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   made, so a kept page is never older than its key. Only a 200 is kept (a 404 looks the membership up each time), a
   room page with `?before=` is not kept (one person could fill the cache with a page for every number), and a hit
   skips the room lookup because a change of members is a commit. If the observer fails, the page is made and not kept.
-  The search is the one page whose key the client chooses without a bound, so it relaxes "a key per version": a person
-  has `search_slots` places for search pages (`CAMPFIRE_SEARCH_PAGES`, 8 by default), chosen by the words, each kept
-  with the version, the person's state and the words (a page of another stamp is a miss and is written over), so a
-  person holds at most that many search pages whatever they type, and words longer than `Searches.MAX_QUERY_LENGTH`
+  The words of a search are the client's to choose without a bound, so the search relaxes "a key per version": a
+  person has `search_slots` places for search pages (`CAMPFIRE_SEARCH_PAGES`, 8 by default), chosen by the words, each
+  kept with the version, the person's state and the words (a page of another stamp is a miss and is written over), so
+  a person holds at most that many search pages whatever they type, and words longer than `Searches.MAX_QUERY_LENGTH`
   are not kept. The people of the sessions live in a store of their own (`CAMPFIRE_SESSION_CACHE_MB`, 4 by default),
-  so that the churn of pages cannot push a session out.
+  so that the churn of pages cannot push a session out. The `?before=` and `?after=` pages of older messages are keyed
+  by a number the client chooses too, and nothing bounds them yet (follow-up issue #111).
   The sign-in filter reads the version first for a `GET` or `HEAD` of a page that is kept (`PageCache.cached?`,
   `PageCache.watch`, kept for the handler with `PageCache.seen`) and looks the person up after it: the person of a
   session is kept under the version too (`known_user`, `remember_user`), so a hit costs one lease of the observer and
-  none of the pool, and a sign-out, a deactivation, a ban or a rename is a commit and so a miss. Never keep a person
-  under a key that has no version. A page that starts to depend on something that no commit changes (the time, a
-  request header, a file) must not use this cache or must put that in the key. Pages carry a weak `ETag` and answer
-  `If-None-Match` with a 304; the `client_message_id` of the form is drawn when the page is made, so nothing may drop a
-  message because its id was seen. The `I run the sql` steps write on another connection, so a spec that changes the
-  database between two gets checks the invalidation: `specs/page_cache.feature`.
+  none of the pool, and a sign-out, a deactivation, a ban or a rename is a commit and so a miss. A hit does not touch
+  the session (`Auth.user_for`), so `last_active_at` can be older than its five-minute refresh on a quiet database;
+  only Rails reads it. Never keep a person under a key that has no version. A page that starts to depend on something
+  that no commit changes (the time, a request header, a file) must not use this cache or must put that in the key.
+  Pages carry a weak `ETag` and answer `If-None-Match` with a 304; the `client_message_id` of the form is drawn when
+  the page is made, so nothing may drop a message because its id was seen. The `I run the sql` steps write on another
+  connection, so a spec that changes the database between two gets checks the invalidation:
+  `specs/page_cache.feature`.
 - Live (`/cable`, `docs/cable.md`): the room page and `GET /users/me/sidebar` name their streams with
   `<turbo-cable-stream-source channel="X" signed-stream-name="Y">`, that exact markup (the benchmark scrapes it).
   `/cable` is in `PUBLIC_PATHS` (a 302 on the handshake makes the Rails client retry in a loop) and `CableWeb.connect`

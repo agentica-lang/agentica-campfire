@@ -15,6 +15,9 @@
 ## making a page needs no repeat on a hit, since a change of members is a commit and so a new version. When the
 ## version cannot be read the page is made and not kept.
 ##
+## The older messages (`?before=`, `?after=`) are also keyed by a number that the client chooses, and nothing bounds
+## their pages yet (follow-up issue #111).
+##
 ## The sidebar page and the search page are kept the same way (kinds `SIDEBAR` and `SEARCH`, for the person, and for
 ## the words of the search): they are a function of the database and the person too, and nothing in them depends on
 ## the request (the signed stream names are the same for every load). The key of the sidebar has no room. A search has
@@ -27,7 +30,9 @@
 ##
 ## The sign-in filter reads the version of a read of a page that is kept (`cached?`, `watch`) before it looks the
 ## person up, and keeps it for the handler (`seen`), so a hit costs one lease of the observer and none of the pool:
-## the person of a session is kept for one version of the database too (`known_user`, `remember_user`), in a store of
+## the person of a session is kept for one version of the database too (`known_user`, `remember_user`; a hit does not
+## touch the session, see `Auth.user_for`, so on a quiet database `last_active_at` can be older than its five-minute
+## refresh), in a store of
 ## its own (`CAMPFIRE_SESSION_CACHE_MB`) so that the churn of pages cannot push a session out. A sign-out, a
 ## deactivation, a ban, a rename or a change of role is a commit, so the next read has a new version and looks the
 ## session up again. The person is looked up after the version was read, so what is kept under a version is that of
@@ -61,6 +66,9 @@ export SEARCH = "search"
 
 # Where the sign-in filter keeps the version of the database for the handler (`Bond.assign`).
 VERSION_KEY = "database_version"
+
+# The version that `watch` keeps when the observer failed: no real version is empty.
+UNREADABLE = ""
 
 # How much of the digest of the words of a search goes in the stamp of its page.
 QUERY_DIGITS = 32
@@ -205,22 +213,20 @@ export def cached?(path: String) -> Bool
 end
 
 ## Reads the version of the database for a request and keeps it for the handler, which finds it with `seen`; `conn`
-## as it is when there is no cache or the version cannot be read. The sign-in filter calls it before it looks the
-## person up, so everything that the request then reads is at that version or later.
+## as it is when there is no cache. The sign-in filter calls it before it looks the person up, so everything that the
+## request then reads is at that version or later. A version that cannot be read is kept as unreadable, so that the
+## handler does not lease the observer again and wait out the checkout a second time: nothing is kept for the request.
 export def watch(conn: Bond.Conn, pages: Optional[Pages]) -> Bond.Conn
   case pages
     none -> return conn
     some(found) ->
       version = Database.version(found.observer)
-      if not version.ok?
-        return conn
-      end
-
-      return Bond.assign(conn, VERSION_KEY, Version(text: version.unwrap!))
+      return Bond.assign(conn, VERSION_KEY, Version(text: version.unwrap_or(UNREADABLE)))
   end
 end
 
-## The version that `watch` kept for the request, if it did.
+## The version that `watch` kept for the request, if it did (empty if the observer failed: the spots and the kept
+## people take it as no version).
 export def seen(conn: Bond.Conn) -> Optional[String]
   if not Bond.assigned?(conn, VERSION_KEY)
     return none
@@ -251,7 +257,9 @@ export def remember_user(pages: Optional[Pages], seen: Optional[String], token: 
     some(found) ->
       case seen
         none -> return
-        some(version) -> Cache.put(found.people, user_key(version, token), Auth.User.codec.encode(person))
+        some(version) if not version.empty? ->
+          Cache.put(found.people, user_key(version, token), Auth.User.codec.encode(person))
+        _ -> return
       end
   end
 end
@@ -335,6 +343,7 @@ end
 
 def version_of(pages: Pages, seen: Optional[String]) -> Result[String]
   case seen
+    some(version) if version.empty? -> return error("database error: the version could not be read")
     some(version) -> return ok(version)
     none -> return Database.version(pages.observer)
   end
@@ -343,6 +352,7 @@ end
 def recalled(pages: Pages, seen: Optional[String], token: String) -> Optional[Auth.User]
   case seen
     none -> return none
+    some(version) if version.empty? -> return none
     some(version) ->
       kept = Cache.get(pages.people, user_key(version, token))
       if kept.none?
