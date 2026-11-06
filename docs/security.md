@@ -115,6 +115,14 @@ The exception is sign-up on the join page: it tells a person whose email has an 
 to sign in instead (a deactivated person's address was renamed, so it is free), and only whoever holds the link
 can ask.
 
+## Bans
+
+A request that is not a `GET` or a `HEAD` from an address that a ban holds gets `429` before the sign-in check, so a
+banned person cannot sign in again from where they were, and cannot post. The address is the peer of the connection
+(`Conn.remote_addr`), not `X-Forwarded-For`, which a client chooses. Behind a proxy every request comes from the
+proxy, so a ban there would refuse everybody; loopback, private and link-local addresses are never written, which
+covers a proxy on the same host or the same network, but not a public one.
+
 ## Deactivation and open requests
 
 A deactivation takes effect on the next request: the sign-in filter looks the person up once per request and the

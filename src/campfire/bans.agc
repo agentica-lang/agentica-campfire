@@ -68,7 +68,7 @@ def ban_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Accounts.Ch
   end
 
   status = try status_of(tx, user_id)
-  if status.none? or status.unwrap! != Rails.ACTIVE and status.unwrap! != Rails.BANNED
+  if status.none? or (status.unwrap! != Rails.ACTIVE and status.unwrap! != Rails.BANNED)
     return ok(Accounts.Change.Missing)
   end
 
@@ -107,7 +107,7 @@ def unban_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Accounts.
   end
 
   status = try status_of(tx, user_id)
-  if status.none? or status.unwrap! != Rails.ACTIVE and status.unwrap! != Rails.BANNED
+  if status.none? or (status.unwrap! != Rails.ACTIVE and status.unwrap! != Rails.BANNED)
     return ok(Accounts.Change.Missing)
   end
 
@@ -123,11 +123,7 @@ end
 
 # The status of a person who is not a bot, or `none`.
 def status_of(tx: Db.Connection, user_id: Int) -> Result[Optional[Int]]
-  rows = try Db.query(
-    tx,
-    "select status from users where id = ? and role <> #{Rails.BOT}",
-    [Db.Value.Int(user_id)],
-  )
+  rows = try Db.query(tx, "select status from users where id = ? and role <> #{Rails.BOT}", [Db.Value.Int(user_id)])
 
   if rows.empty?
     return ok(none)
@@ -194,7 +190,7 @@ end
 
 # Hex groups and colons, and not `::1`, `fc00::/7` or `fe80::/10`.
 def public_v6?(text: String) -> Bool
-  for index in 0..text.length - 1
+  for index in 0..(text.length - 1)
     if not "0123456789abcdef:".include?(text.slice(index, 1))
       return false
     end

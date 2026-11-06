@@ -59,8 +59,8 @@ methods.
 `GET /users/ID` (`UsersController#show`) is open to anybody who is signed in, for a user in any status: the name, the
 bio, the email address for an administrator only, and a button that opens a direct message with an active user. A bot
 has only the button, and a deactivated person only their name and "is no longer on this account". A user that does not
-exist (or an id that is not a number, or `me`) is `404`. Banning and the sign-in transfer link of Rails are not here
-yet.
+exist (or an id that is not a number, or `me`) is `404`. The sign-in transfer link of Rails is not here yet. An
+administrator also sees a button to ban the person (or, for a banned one, to lift the ban), see below.
 
 `/users/me/profile` (`Users::ProfilesController`) is the person's own form for the name, the email address, the
 password and the bio (`user[name]`, `user[email_address]`, `user[password]`, `user[bio]`), saved with a `PATCH` (a real
@@ -83,6 +83,29 @@ sign-in (`503` with `Retry-After` past it). A save with none of the four fields 
 was deactivated before the rename of PR 101 is still their plain address, so it still counts as taken here and at the
 join form.
 
+## Bans
+
+An administrator bans an active person from their page (`POST /users/ID/ban`, the button of `Users::BansController`),
+and lifts the ban with `DELETE /users/ID/ban` (a `POST` with `_method=delete` from the form). The checks come in the
+order of the other administrator-only posts: no session redirects to sign-in, a member is `403`, then the person: `404`
+for a user that does not exist, is a bot or is deactivated (Rails would ban a deactivated person, and lifting that ban
+would make them active, which skips the reactivation). Repeating either is a redirect, not a failure. Any other method
+is `405` with `Allow: POST, DELETE`.
+
+A ban (`User#ban`): the person's status becomes banned, their sessions and password-reset links end, their sockets are
+told not to come back, and there is one `bans` row for each distinct address their sessions came from. Only public
+addresses count: Rails refuses a private, loopback or link-local one with an error that undoes the whole ban, while
+here such an address is left out, since banning it would lock out everyone behind it. A task takes the person's
+messages away one by one and tells the rooms (`RemoveBannedContentJob`); a restart in the middle leaves what is left,
+as for a deleted room. Lifting the ban (`User#unban`) deletes the person's `bans` and makes them active; the messages
+do not come back. The memberships are not touched by either. Unlike Rails, an administrator cannot ban or unban
+themselves (`403`), so the account keeps one.
+
+A request that is not a `GET` or a `HEAD` and comes from a banned address is answered `429` before anything else is
+looked at, after the check of the site (`BlockBannedRequests`). The address is the peer of the connection, as for
+the session and the sign-in limit; `X-Forwarded-For` is not read, so behind a proxy every request has the proxy's
+address.
+
 ## The tables
 
 The people and the account live in the tables of a Rails Campfire, with Rails' columns and types
@@ -102,6 +125,6 @@ writes the last three decimals as zeros. Rails' columns have no defaults, so the
 and Rails stores an address as it was typed, so the app stores its own in lower case and looks an address up
 with `lower(email_address)`: a row that Rails made as `David@37signals.com` signs in with any case. Of two rows
 that differ only in case, the lower case one is the person. Deactivating a person renames their address
-as Rails does, and reactivating restores it. The banned are not listed: the app does not ban yet.
+as Rails does, and reactivating restores it. A banned person is listed, with a `banned` badge, to an administrator only.
 
 The security notes on the code are in [security.md](security.md).

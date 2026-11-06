@@ -69,7 +69,8 @@ export def add(app: Bond.App, config: Config, pool: Database.Pool, cable: CableW
   )
 end
 
-# A `POST` with no `_method` is the ban button of Rails and one with `_method` set to `delete` is the button that lifts it;
+# A `POST` with no `_method` is the ban button of Rails and one with `_method` set to `delete` is the button that
+# lifts it;
 # any other is a 405 that lists the methods of the path.
 def post_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
@@ -85,7 +86,8 @@ def post_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Res
 end
 
 # A banned person has no session left, so their sockets are closed and told not to come back, and their messages are
-# taken away by a task, which tells the rooms (`RemoveBannedContentJob`). Only a ban that changed something does either.
+# taken away by a task, which tells the rooms (`RemoveBannedContentJob`). Only a ban that changed something
+# does either.
 def change_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, banning: Bool) -> Result[Bond.Conn]
   id = user_id(conn)
   answer = try Database.with_connection(pool) do |db| ban_answer(conn, db, id, banning) end

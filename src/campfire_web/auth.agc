@@ -171,7 +171,7 @@ def reject_banned(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
 
   banned = try Database.with_connection(pool) do |db| Bans.banned?(db, conn.remote_addr) end
   if banned
-    return ok(Bond.text(conn, 429, "Too Many Requests"))
+    return ok(Bond.halt(conn, 429, "Too Many Requests"))
   end
 
   return ok(conn)
