@@ -40,20 +40,25 @@ The tests are BDD first and take under a minute. Rules for contributors and agen
 
 ## Benchmark
 
-Requests per second (higher is better), median of the rounds, 16 clients, from the
-[Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) of 2026-11-06
-(run `20261106-130459-7`). The server ran on CPUs 4-7 and the client on CPUs 0-3, with the page cache on.
-Campfire is at c6147de. Agentica: master 7ec41cb (after 0.24.4), not a release.
+Requests per second (higher is better), median of 3 rounds, from the
+[Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) at ec02deb, with the server on
+CPUs 4-7 and the client on CPUs 0-3. Go and Agentica are run `20261106-200652-7` (2026-11-06): Campfire c2cdc7d on
+Agentica 0.25.0, and [once-campfire-go](https://github.com/basecamp/once-campfire-go) c4ab53d. Rails is the
+reference run `20261105-101743-7` on the same machine.
 
-| Route | Rails | Agentica | Agentica / Rails |
-| --- | ---: | ---: | ---: |
-| room_show | 834.3 | 3189.1 | 3.8x |
-| messages_page | 876.9 | 3168.7 | 3.6x |
-| sidebar | 990.1 | 2279.3 | 2.3x |
-| search | 970.8 | 1038.7 | 1.07x |
-| post_message | 88.5 | 665.1 | 7.5x |
+| Route | Rails | Go | Agentica | Agentica / Rails | Agentica / Go |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| room_show | 834.3 | 7050.1 | 3042.4 | 3.6x | 43% |
+| messages_page | 876.9 | 7412.6 | 3087.6 | 3.5x | 42% |
+| sidebar | 990.1 | 8312.0 | 1835.3 | 1.9x | 22% |
+| search | 970.8 | 8321.5 | 877.0 | 0.90x | 11% |
+| post_message | 88.5 | 979.6 | 583.8 | 6.6x | 60% |
 
-To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps rails,agentica`. Method and details: [docs/benchmarks.md](docs/benchmarks.md).
+Since the run at c6147de (before live updates, chat bubbles, bans and the rest of #83 group 2), sidebar fell from
+2279.3 to 1835.3 (-19%), search from 1038.7 to 877.0 (-16%, now below Rails) and post_message from 665.1 to 583.8
+(-12%). Those, then search and sidebar against Go, are the next things to improve.
+
+To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Documentation
 
