@@ -16,7 +16,6 @@ import Bcrypt from "../src/campfire/bcrypt"
 import Database from "../src/campfire/repo/database"
 import HtmlSanitizer from "../src/campfire/html_sanitizer"
 import Migrations from "../src/campfire/repo/migrations"
-import Passwords from "../src/campfire/passwords"
 import Rails from "../src/campfire/repo/rails"
 import Rooms from "../src/campfire/rooms"
 
@@ -32,6 +31,11 @@ AVATAR_STORAGE = "specs/fixtures/rails/storage"
 SECRET_KEY_BASE = (
   "5d1f1c3e0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f"
 )
+# The scrypt digest of `HttpSteps.MEMBER_PASSWORD` at a cost of 1024 (the app's own is 65536, 64 MiB for each hash and
+# each sign-in, which was about 75 % of the CPU of the suite). It is in the form that `Passwords.hash` writes, which
+# carries its cost, so `Passwords.verify` checks it with the cost it names. Made with Python:
+# `hashlib.scrypt(b"another long password", salt=bytes(range(1, 17)), n=1024, r=8, p=2, dklen=32)`.
+MEMBER_DIGEST = "scrypt$1024$8$2$AQIDBAUGBwgJCgsMDQ4PEA==$k6UaLA1ch6VFTNpUo+rxtZz9UjXZ5kX/WzWpBpW+qS4="
 STARTED = "started"
 STARTUP = "startup_lines"
 UPDATED = "updated"
@@ -299,12 +303,7 @@ end
 # A person that the app did not make through a page (there is no invitation yet): the password is the same for every
 # member, so `I sign in as` can sign them in, and they join the open rooms that exist, as an invitation will make them.
 def member_exists(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  digest = Passwords.hash(HttpSteps.MEMBER_PASSWORD)
-  if not digest.ok?
-    return BDD.assert(ctx, false, "cannot hash the password: #{digest.message}")
-  end
-
-  made = with_database(ctx) do |conn| add_member(conn, args[0], args[1], digest.unwrap!) end
+  made = with_database(ctx) do |conn| add_member(conn, args[0], args[1], MEMBER_DIGEST) end
   return BDD.assert(ctx, made.ok?, "cannot make the member #{args[1]}: #{made.message}")
 end
 
