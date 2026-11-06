@@ -1,7 +1,7 @@
 ## The web side of first run, the join link, sign in, sign out and password reset: the session cookie, the CSRF check,
-## the filter that asks for a signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS` names
-## it (or it is the join page, see `public?`), so a route that a later change adds needs a sign-in without anyone
-## remembering to ask for it.
+## the filter that asks for a signed-in person, and the routes of the forms. A page is public only if `PUBLIC_PATHS`
+## names it (or it is the join page, see `public?`), so a route that a later change adds needs a sign-in without
+## anyone remembering to ask for it.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
@@ -103,6 +103,17 @@ export def assigned_user(conn: Bond.Conn) -> Result[Optional[Auth.User]]
 
   user = try Bond.assigned(conn, USER_KEY, JSON.codec(Auth.User))
   return ok(some(user))
+end
+
+## The `_method` field of a form, lower case ("" when it has none), which is how Rails reads it
+## (`Rack::MethodOverride`): a browser form cannot send `PATCH`, `PUT` or `DELETE`, so it posts and names the method.
+export def form_method(conn: Bond.Conn) -> Result[String]
+  methods = try Bond.form_all(conn, "_method")
+  if methods.empty?
+    return ok("")
+  end
+
+  return ok(methods[0].downcase)
 end
 
 ## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it.

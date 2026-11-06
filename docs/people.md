@@ -28,6 +28,24 @@ rooms stay. Reactivating puts them in the open rooms that were made while they w
 Everything but the page answers `403` to a member who is not an administrator, and `404` for a user
 that does not exist or is a bot. The role is checked again inside the transaction.
 
+## The account settings page
+
+`Account` in the sidebar (`/account/edit`, `AccountsController#edit`) shows the name of the account and the active
+people, the administrators first, to everybody who is signed in. An administrator also sees the emails and a box that
+renames the account (`account[name]`, `PATCH /account`, or a `POST` with `_method=patch` from the form), and for each
+person but themselves a switch that makes them an administrator or a member (`user[role]`, `PATCH /account/users/ID`)
+and a button that removes them (`DELETE /account/users/ID`, or a `POST` with `_method=delete`). Removing is what Rails
+does: it deactivates the person (ends their sessions, keeps them from signing in; their messages and rooms stay), and
+the people page brings them back.
+
+The checks come in the order of Rails' filters: no session redirects to sign-in, a member who is not an administrator is
+`403` before anything else is read, then the person (`404` for a user that does not exist, is not active or is a bot),
+then the form (`400` for a missing field). Where this differs from Rails: a name that is blank or over 100 characters is
+`422` with the form again (Rails saves anything); a role that is not `member` or `administrator` is `422` (Rails takes
+it for `member`); and an administrator cannot change or remove themselves on the server either (Rails only hides the
+controls), so the account always keeps an administrator. Any other method on the two paths is a `405` that lists their
+methods.
+
 ## The tables
 
 The people and the account live in the tables of a Rails Campfire, with Rails' columns and types

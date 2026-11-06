@@ -43,8 +43,8 @@ export PASSWORD_RESET_EDIT = "/password_reset/edit"
 export PASSWORD_RESET_UPDATE = "/password_reset/confirm"
 
 ## The rooms: the form of a new one, the post that makes it, a room page (with `?before=ID` for the messages before
-## that one) and the messages of a room: a `GET` gives the fragment of the 40 before `?before=ID` (without the layout, for
-## the script that loads older messages) and a `POST` stores one. `:id` is the id of the room.
+## that one) and the messages of a room: a `GET` gives the fragment of the 40 before `?before=ID` (without the layout,
+## for the script that loads older messages) and a `POST` stores one. `:id` is the id of the room.
 export ROOMS = "/rooms"
 export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"
@@ -94,6 +94,17 @@ export METHOD_PUT = "put"
 ## The join link of the account: its page and the post of its form, which is the same path, with the join code as
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
 export JOIN = "/join/:code"
+
+## The account settings page (`/account/edit`), the save of its name (`PATCH /account`, or a `POST` with `_method` set
+## to `patch`, as Rails' forms send it) and the person under the account (`:id` is the user): `PATCH` sets the role,
+## `DELETE` removes the person (deactivates, as Rails' `User#deactivate` does), and a `POST` with `_method` does
+## either. Any other method is a 405 that lists the methods of the path (`ACCOUNT_ALLOW`, `ACCOUNT_USER_ALLOW`: Bond's
+## own lists).
+export ACCOUNT_EDIT = "/account/edit"
+export ACCOUNT = "/account"
+export ACCOUNT_ALLOW = "POST, PATCH"
+export ACCOUNT_USER = "/account/users/:id"
+export ACCOUNT_USER_ALLOW = "POST, PATCH, DELETE"
 
 ## The people page, the posts that deactivate and reactivate a person (`:id` is the id of the user), and the post that
 ## makes a new join code.
@@ -161,6 +172,11 @@ end
 ## The path of the join page of this code, which is also where its form posts.
 export def join_path(code: String) -> String
   return "/join/#{code}"
+end
+
+## The path of a person under the account, which is where the forms of their role and of their removal post.
+export def account_user_path(user_id: Int) -> String
+  return "/account/users/#{user_id}"
 end
 
 ## The path that deactivates this user.

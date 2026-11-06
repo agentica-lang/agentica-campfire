@@ -23,6 +23,7 @@ export DIRECT = Rails.ROOM_DIRECT
 ## The label of the role of an account administrator, who may edit any closed room (`Auth.User.role` carries it; it is
 ## not the integer that `users.role` holds, which is `Rails.ADMINISTRATOR`).
 export ADMINISTRATOR_ROLE_NAME = Rails.ADMINISTRATOR_NAME
+export MEMBER_ROLE_NAME = Rails.MEMBER_NAME
 
 ## The longest name of a room, in characters, and the longest message.
 export MAX_NAME_LENGTH = 100
