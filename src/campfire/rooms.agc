@@ -414,8 +414,8 @@ end
 
 ## The levels of involvement that a person can choose for the room, in the order that Rails offers them
 ## (`SHARED_INVOLVEMENT_ORDER` and `DIRECT_INVOLVEMENT_ORDER` of its helper): an open or closed room can be made
-## invisible (out of the sidebar, still reachable), a direct room is only on or off, since a hidden conversation would be
-## one that its people cannot find again.
+## invisible (out of the sidebar, still reachable), a direct room is only on or off, since a hidden conversation
+## would be one that its people cannot find again.
 export def involvement_levels(room: Room) -> List[String]
   if room.room_type == DIRECT
     return [Rails.EVERYTHING, Rails.NOTHING]
@@ -461,7 +461,8 @@ end
 
 ## Sets the level of the person's membership of the room (`Rooms::InvolvementsController#update`), which touches the
 ## membership as `update!` does. It gives false, and changes nothing, when `level` is not one of the
-## `involvement_levels` of the room, or the person is not in it. It sets no `unread_at`: a room made invisible keeps what it had.
+## `involvement_levels` of the room, or the person is not in it. It sets no `unread_at`: a room made invisible keeps
+## what it had.
 export def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level: String) -> Result[Bool]
   if not involvement_levels(room).include?(level)
     return ok(false)

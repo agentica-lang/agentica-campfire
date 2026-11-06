@@ -62,18 +62,18 @@ otherwise.
 
 ## Notifications
 
-Every room page has a Notifications link to `/rooms/ID/involvement` (`Rooms::InvolvementsController`), which shows the
-levels of the person's own membership as radios and saves one with a `PUT` (a `POST` with `_method=put` from the form, in
-any case, or a real `PUT`) and the field `involvement`, then goes back to the page. An open or closed room offers
-`mentions` (the default), `everything`, `nothing` and `invisible`; the page says what each does, in Rails' words. A
-direct room offers only `everything` and `nothing` (as Rails' `DIRECT_INVOLVEMENT_ORDER`): it has no invisible level, so a
-conversation cannot be lost. A level the room does not offer is `422` with the page again and nothing changed; a save with
-no field is `400`. A room that the person is not in is `404`, checked first, and any other method is `405` with Bond's
-`Allow` list.
+Every room page has a Notifications link to `/rooms/ID/involvement` (`Rooms::InvolvementsController`), which shows
+the levels of the person's own membership as radios and saves one with a `PUT` (a `POST` with `_method=put` from the
+form, in any case, or a real `PUT`) and the field `involvement`, then goes back to the page. An open or closed room
+offers `mentions` (the default), `everything`, `nothing` and `invisible`; the page says what each does, in Rails'
+words. A direct room offers only `everything` and `nothing` (as Rails' `DIRECT_INVOLVEMENT_ORDER`): it has no
+invisible level, so a conversation cannot be lost. A level the room does not offer is `422` with the page again and
+nothing changed; a save with no field is `400`. A room that the person is not in is `404`, checked first, and so is a
+save that finds the membership gone; any other method is `405` with Bond's `Allow` list.
 
-There is no action for leaving a room, as in Rails: `invisible` takes the room out of the sidebar, and out of the people
-that new messages notify, but its page is still reachable by URL and the person stays a member. Other members are not
-affected.
+There is no action for leaving a room, as in Rails: `invisible` takes the room out of the sidebar, and out of the
+people that new messages notify, but its page is still reachable by URL and the person stays a member. Other members
+are not affected.
 
 ## Messages
 

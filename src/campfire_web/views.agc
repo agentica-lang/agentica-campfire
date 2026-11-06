@@ -256,8 +256,8 @@ export def room_settings(
 end
 
 ## The page where a person sets how much a room notifies them: a radio for each of the `levels` that the room offers,
-## the `current` one checked, and a plain form post with the `_method` field of Rails' forms, so it works without a script.
-## `message` says why a save was refused.
+## the `current` one checked, and a plain form post with the `_method` field of Rails' forms, so it works without a
+## script. `message` says why a save was refused.
 export def involvement(
   sidebar: String,
   room: Rooms.Room,

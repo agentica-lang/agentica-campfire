@@ -129,17 +129,39 @@ Feature: Notification settings of a room
       | /rooms/99/involvement  |
       | /rooms/abc/involvement |
 
-  Scenario: A visitor with no session is sent to sign in, and a page of another site saves nothing
+  Scenario: A visitor with no session is sent to sign in, whatever the way to save, and saves nothing
     Given the browser has no cookies
     When I get "/rooms/1/involvement"
     Then the status is 302
     And the header "location" is "/session/new"
+    When I post to "/rooms/1/involvement" the form:
+      | _method     | put        |
+      | involvement | everything |
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I send a PUT to "/rooms/1/involvement" the form:
+      | involvement | everything |
+    Then the status is 302
+    And the header "location" is "/session/new"
+    And the query "select count(*) from memberships where involvement = 'everything'" gives 0
+
+  Scenario: A page of another site saves nothing, as a form or as a real PUT
     Given the request header "sec-fetch-site" is "cross-site"
     When I post to "/rooms/1/involvement" the form:
       | _method     | put        |
       | involvement | everything |
     Then the status is 403
+    When I send a PUT to "/rooms/1/involvement" the form:
+      | involvement | everything |
+    Then the status is 403
     And the query "select count(*) from memberships where involvement = 'everything'" gives 0
+
+  Scenario: The method of the form is read in any case, as Rails reads it
+    When I post to "/rooms/1/involvement" the form:
+      | _method     | PUT        |
+      | involvement | everything |
+    Then the status is 302
+    And the query "select count(*) from memberships where room_id = 1 and user_id = 1 and involvement = 'everything'" gives 1
 
   Scenario Outline: A post that is not a put is a 405 that lists the methods of the path
     When I post to "/rooms/1/involvement" the form:

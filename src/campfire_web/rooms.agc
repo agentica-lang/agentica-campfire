@@ -503,10 +503,16 @@ def involvement_of(
 end
 
 # A level that the room does not offer (an invisible direct room, or one made up) is a 422 with the page again and the
-# level that the person has, so nothing is changed. A save ends at the page, as Rails' `redirect_to` does.
+# level that the person has, so nothing is changed. A level that it offers but that was not saved means the membership
+# went between the check and the update, which is a person who is not in the room: a 404. A save ends at the page, as
+# Rails' `redirect_to` does.
 def saved_involvement(conn: Bond.Conn, db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
   level = try Bond.form(conn, "involvement")
   changed = try Rooms.set_involvement(db, person.id, room, level)
+  if not changed and Rooms.involvement_levels(room).include?(level)
+    return ok(Answer.NotFound)
+  end
+
   if not changed
     page = try involvement_page(db, person, room, INVOLVEMENT_REFUSED)
     return ok(Answer.Page(422, page))
