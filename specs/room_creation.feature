@@ -124,6 +124,23 @@ Feature: Who may create rooms
       | '{}'                                          |
       | 'not json'                                    |
       | json_object('restrict_room_creation_to_administrators', json('false')) |
+      | json_object('restrict_room_creation_to_administrators', 'false')       |
+
+  Scenario Outline: Saving the switch over settings that are not a JSON object starts them over
+    Given I run the sql "update accounts set settings = <settings>"
+    And I sign in as "ana@example.com"
+    When I post to "/account" the form:
+      | _method                                                         | patch |
+      | account[settings][restrict_room_creation_to_administrators]     | true  |
+    Then the status is 302
+    And the query "select count(*) from accounts where json_extract(settings, '$.restrict_room_creation_to_administrators') = 1" gives 1
+
+    Examples:
+      | settings   |
+      | null       |
+      | '[1]'      |
+      | '5'        |
+      | 'not json' |
 
   Scenario: A member cannot change the switch, and a value that is not true or false is refused
     Given I sign in as "bea@example.com"

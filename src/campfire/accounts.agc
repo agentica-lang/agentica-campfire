@@ -89,11 +89,13 @@ end
 
 ## True when the account lets only administrators make a shared room (open or closed): `Rooms::OpensController` and
 ## `ClosedsController` answer 403 to anyone else. A direct message is not a room in that sense and is not restricted, as
-## in Rails. A `settings` that is empty, or is not JSON, is the default: not restricted.
+## in Rails. Only a real true (or the text `true`) restricts: a `settings` that is empty, is not JSON, or holds any other
+## value under the key (a string `"false"`, `0.0`, an object) is the default, not restricted.
 export def room_creation_restricted?(conn: Db.Connection) -> Result[Bool]
   rows = try Db.query(
     conn,
-    "select case when json_valid(settings) then coalesce(json_extract(settings, '$.#{RESTRICT_KEY}'), 0) else 0 end " +
+    "select case when json_valid(settings) then " +
+    "coalesce(json_extract(settings, '$.#{RESTRICT_KEY}') in (1, 'true'), 0) else 0 end " +
     "as restricted from accounts order by id limit 1",
     [],
   )
@@ -213,10 +215,13 @@ def save_in(tx: Db.Connection, actor_id: Int, name: Optional[String], restricted
       flag = "true"
     end
 
-    # `json(?)` makes the text a JSON boolean, not a string; the other keys of the settings are kept.
+    # `json(?)` makes the text a JSON boolean, not a string; the other keys of the settings are kept. Settings that are
+    # not a JSON object (`[1]`, `null`, `5`, not JSON) would stay unchanged under `json_set`, so they start over
+    # as `{}`.
     try Db.execute(
       tx,
-      "update accounts set settings = json_set(case when json_valid(settings) then settings else '{}' end, " +
+      "update accounts set settings = json_set(case when json_valid(settings) then " +
+      "case when json_type(settings) = 'object' then settings else '{}' end else '{}' end, " +
       "'$.#{RESTRICT_KEY}', json(?)), updated_at = #{NOW} where singleton_guard = 0",
       [Db.Value.Text(flag)],
     )

@@ -76,7 +76,12 @@ def account_page(db: Db.Connection, person: Auth.User, note: String, typed: Opti
   admin = person.role == Rooms.ADMINISTRATOR_ROLE_NAME
   name = try Accounts.name(db)
   people = try Accounts.people(db, false)
-  restricted = try Accounts.room_creation_restricted?(db)
+  # Only an administrator sees the switch.
+  restricted = false
+  if admin
+    restricted = try Accounts.room_creation_restricted?(db)
+  end
+
   shown = typed.unwrap_or(name)
   return ok(Views.account(try RoomsWeb.sidebar_of(db, person), shown, people, person.id, admin, restricted, note))
 end

@@ -48,8 +48,8 @@ end
 
 ## The column at the side of every page of a person who is signed in: who they are, their rooms (the direct messages
 ## apart, named after the other people) and the ways to make a room and to sign out. `can_create` is false for a member
-## when the account lets only administrators make a shared room: the two links to those forms are then left out. It is raw HTML that this file
-## made, for the pages below to put in.
+## when the account lets only administrators make a shared room: the two links to those forms are then left out. It is
+## raw HTML that this file made, for the pages below to put in.
 export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool) -> String
   shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
   direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
