@@ -1,0 +1,35 @@
+// Build-time helpers: Sass only, nothing of this reaches the browser as a variable.
+
+// Phone: the sidebar becomes a bar on top. A touch screen turned sideways is as short as a phone with its keyboard
+// open, so it gets the bar too.
+@mixin phone {
+  @media (max-width: 40rem), ((max-height: 30rem) and (pointer: coarse)) {
+    @content;
+  }
+}
+
+// A short window inside the phone rules: a phone with its keyboard open, or turned sideways.
+@mixin short {
+  @media (max-height: 34rem) {
+    @content;
+  }
+}
+
+@mixin shorter {
+  @media (max-height: 24rem) {
+    @content;
+  }
+}
+
+// Only where there is hover: on a touch screen a tint would stay on what was tapped last.
+@mixin can-hover {
+  @media (hover: hover) {
+    @content;
+  }
+}
+
+@mixin dark {
+  @media (prefers-color-scheme: dark) {
+    @content;
+  }
+}

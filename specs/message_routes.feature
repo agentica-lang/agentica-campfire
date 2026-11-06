@@ -1,7 +1,7 @@
 Feature: The message routes of the benchmark
   The room page, the page of older messages and the post of a message have the markup and the answers that the
   benchmark of basecamp/once-campfire-verification checks (its `bench/contracts.rb` and `loadgen/src/validation.rs`): a
-  message is a `<div data-message-id="N" id="message_N">` with its text in `<div id="presentation_message_N">` and ends
+  message is a `<div data-message-id="N" id="message_N" data-creator-id="ID">` (the author, for the side of the bubble: see message_sides.feature) with its text in `<div id="presentation_message_N">` and ends
   with `</turbo-frame></div>`; a post that asks for a Turbo Stream gets one that appends the message to the list of the
   room, `messages_rooms_open_ID` for an open room. A post that does not ask for it (a form without script) is
   redirected to the room page as before. The room is room 1, "All Talk", an open room, and the person is the first
@@ -21,7 +21,7 @@ Feature: The message routes of the benchmark
     And the header "content-type" contains "text/html"
     And the body starts with "<!DOCTYPE html>"
     And the body ends with "</html>"
-    And the body contains "<div id=\"message_1\" data-message-id=\"1\">" 1 times
+    And the body contains "<div id=\"message_1\" data-message-id=\"1\" data-creator-id=\"1\">" 1 times
     And the body contains "data-message-id=\"" 3 times
     And the body contains "<div id=\"presentation_message_3\">message 003</div>"
     And the body contains "<turbo-frame id=\"edit_message_3\">"
@@ -100,7 +100,7 @@ Feature: The message routes of the benchmark
     And the body contains "<template>" 1 times
     And the body contains "</template>" 1 times
     And the body contains "data-message-id=\"" 1 times
-    And the body contains "<div id=\"message_1\" data-message-id=\"1\">" 1 times
+    And the body contains "<div id=\"message_1\" data-message-id=\"1\" data-creator-id=\"1\">" 1 times
     And the body contains "<div id=\"presentation_message_1\">bench write 1f2e3d</div>" 1 times
     And the query "select count(*) from messages where id = 1 and room_id = 1 and creator_id = 1 and client_message_id = '17aa5b'" gives 1
     And the query "select count(*) from action_text_rich_texts where (record_type, record_id, name, body) = ('Message', 1, 'body', 'bench write 1f2e3d')" gives 1

@@ -1,0 +1,66 @@
+// Buttons: the primary one is the default; .quiet and .danger are the other two. The settings link of a room is styled
+// as a quiet button, since its markup is fixed.
+
+@use "../settings/mixins";
+
+button,
+main.room > header a {
+  display: inline-grid;
+  place-items: center;
+  min-height: 2.5rem;
+  padding: var(--s-2) var(--s-4);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--accent-fg);
+  background: var(--accent);
+  text-decoration: none;
+}
+
+button:hover {
+  background: var(--accent-hover);
+}
+
+button.quiet,
+button.danger,
+main.room > header a {
+  background: transparent;
+}
+
+button.quiet,
+main.room > header a {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+button.danger {
+  color: var(--link);
+  border-color: var(--accent);
+}
+
+button.quiet:hover,
+button.danger:hover,
+main.room > header a:hover {
+  background: var(--hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+main.room > header a {
+  min-height: 2rem;
+  padding: var(--s-1) var(--s-3);
+  font-size: var(--fs-sm);
+}
+
+@include mixins.phone {
+  button,
+  main.room > header a {
+    min-height: 2.75rem;
+  }
+}

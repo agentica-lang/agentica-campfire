@@ -1,0 +1,19 @@
+// The reset: box model, text size, the focus ring and the custom element of the live streams.
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+// The place of a live stream (`<turbo-cable-stream-source>`): it shows nothing and must not be a cell of a grid.
+turbo-cable-stream-source {
+  display: none;
+}

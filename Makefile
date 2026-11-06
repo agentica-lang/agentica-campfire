@@ -6,7 +6,7 @@ AGENTICA ?= agentica
 # How many test files run at once (`make test JOBS=1` runs them one by one).
 JOBS ?= 4
 
-.PHONY: help install run check fmt-check test
+.PHONY: help install run check fmt-check test assets assets-check
 
 help:
 	@echo "install    fetch the packages of agentica.lock into deps/"
@@ -28,6 +28,8 @@ help:
 	@echo "check      type-check every .agc file"
 	@echo "fmt-check  fail when a file is not formatted (agentica fmt)"
 	@echo "test       run the features of specs/ and the tests of test/ (JOBS=4 files at once)"
+	@echo "assets     build public/assets/ (Dart Sass and esbuild, fingerprinted) from app/; needs Node 20+ and npm ci"
+	@echo "assets-check  build them and fail if that changed a committed file (what CI runs)"
 
 install:
 	$(AGENTICA) install
@@ -43,3 +45,15 @@ fmt-check:
 
 test:
 	$(AGENTICA) test --jobs $(JOBS)
+
+# The stylesheet and the script, built from app/ into public/assets/ and named by their digest; the names go to
+# src/campfire_web/asset_names.agc. The output is committed: CI runs this and fails if it changes anything.
+assets:
+	node tools/assets.mjs
+
+# The test of CI: the committed build is the build of the sources (and no file of an older build is left).
+assets-check: assets
+	@changed="$$(git status --porcelain -- public/assets src/campfire_web/asset_names.agc)"; \
+	if [ -n "$$changed" ]; then \
+	  echo "make assets changed the built files; commit them:" >&2; echo "$$changed" >&2; exit 1; \
+	fi

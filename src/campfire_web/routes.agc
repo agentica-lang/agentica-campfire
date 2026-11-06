@@ -2,6 +2,7 @@
 ## the same ones.
 
 import URI from "std/uri"
+import AssetNames from "asset_names"
 
 export HOME = "/"
 export FIRST_RUN = "/first_run"
@@ -26,14 +27,15 @@ export UP = "/up"
 export MISSING = "Not Found"
 
 ## The stylesheet that every page links, a fingerprinted file of `public/assets/` (the name has the first 16 hex digits
-## of the SHA-256 of the file: `specs/assets.feature` checks it, so a change to the file renames it and this). The
-## benchmark reads the link out of the room page (`/assets/....css`), and the folder is served under `ASSETS`.
+## of the SHA-256 of the file: `specs/assets.feature` checks it). `make assets` builds it from `app/assets/stylesheets/`
+## and writes the name to `asset_names.agc`, so nobody renames it by hand. The benchmark reads the link out of the room
+## page (`/assets/....css`), and the folder is served under `ASSETS`.
 export ASSETS = "/assets"
-export STYLESHEET = "/assets/campfire-c882132af5b656e2.css"
+export STYLESHEET = AssetNames.STYLESHEET
 
 ## The script of the pages (the composer of the room page sends with `fetch`, and every page with the sidebar listens to
 ## `/cable`), fingerprinted like the stylesheet. The room page and the pages with the sidebar link it; they work without.
-export SCRIPT = "/assets/campfire-d9d1ca1387b11b98.js"
+export SCRIPT = AssetNames.SCRIPT
 
 ## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
 ## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and

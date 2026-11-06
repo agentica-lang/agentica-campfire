@@ -455,13 +455,16 @@ end
 ## `Rooms.post` has cleaned, the one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
 ## where a message ends (see specs/message_routes.feature). `controls` is for the person who may change the message
 ## (`Rooms.changeable?`): it adds the link to the edit page to the heading, after the time, and nothing else, so for
-## everybody else the markup is the benchmark's byte for byte.
+## everybody else the markup is the benchmark's byte for byte but for `data-creator-id`, which names the author so that
+## the page can put the messages of the person who looks on the other side (`viewer_style`): the markup is the same for
+## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC); the
+## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone.
 export def message(message: Rooms.Message, controls: Bool) -> String
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
-    <div id="message_<%= message.id %>" data-message-id="<%= message.id %>">
+    <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
       <h3><strong><%= message.author %></strong>
-        <time datetime="<%= message.created_at %>"><%= message.created_at %></time><%== edit_link(message, controls) %></h3>
+        <time datetime="<%= message.created_at %>" title="<%= message.created_at %>"><%= clock(message.created_at) %></time><%== edit_link(message, controls) %></h3>
       <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div></turbo-frame></div>
   EAG
 end
@@ -611,7 +614,8 @@ end
 ## the form that posts a message. `thread` is the markup of the messages of `page` (`MessageCache.list`, which is
 ## `messages_list` of them with their bodies cleaned), written with `<%== %>`. `can_edit` adds the link to the
 ## settings, for the people who may change the room. `sources` is the markup of the live stream of the room
-## (`CableWeb.room_sources`).
+## (`CableWeb.room_sources`). `me` is the id of the person who looks: the page is made for that person alone (the page
+## cache keys it by person), so it may carry the one rule that sets their messages apart (`viewer_style`).
 export def room(
   sidebar: String,
   room: Rooms.Room,
@@ -620,6 +624,7 @@ export def room(
   composer: Composer,
   can_edit: Bool,
   sources: String,
+  me: Int,
 ) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
@@ -663,6 +668,7 @@ export def room(
         </p>
         <p><button type="submit">Send</button></p>
       </form>
+      <%== viewer_style(me) %>
       <script src="<%= Routes.SCRIPT %>" defer></script>
     </main>
   EAG
@@ -1087,4 +1093,21 @@ def sidebar_choice(level: String) -> String
   end
 
   return "Shown in the sidebar"
+end
+
+# The messages of the person who looks sit on the other side, in the accent colour. The stylesheet reads six custom
+# properties (`components/messages`) with the other people's values as their defaults; this one rule sets them for the
+# messages of `me`. It
+# is in the page, not the stylesheet, because the stylesheet is the same for everybody and so is the HTML of a message:
+# the viewer is the only thing that differs, and a CSS rule can compare an attribute with a number only when it is
+# written out.
+def viewer_style(me: Int) -> String
+  return (
+    "<style>.thread [data-creator-id=\"#{me}\"]{--bubble-bg:var(--accent);--bubble-fg:var(--accent-fg);--bubble-meta:var(--accent-fg);--bubble-link:var(--accent-fg);--bubble-side:end;--bubble-name:none}</style>"
+  )
+end
+
+# `09:05` of `2026-03-01T09:05:00.000Z`.
+def clock(iso: String) -> String
+  return iso.slice(11, 5)
 end

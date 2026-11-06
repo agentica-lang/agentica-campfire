@@ -1227,6 +1227,7 @@ def page_view(
       form,
       Rooms.editable?(room, person.id, person.role),
       CableWeb.room_sources(cable, room.id),
+      person.id,
     ),
   )
 end
