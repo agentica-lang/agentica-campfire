@@ -3,9 +3,10 @@
 ## page and of the page of older messages is kept under a key that holds everything the markup is made of, so a hit
 ## skips cleaning the body and rendering it.
 ##
-## The markup of a message is the same for every viewer (who is signed in and which messages are "mine" are not in it),
-## so one entry serves everybody. The key is the message id, its `updated_at` and a SHA-256 of the author's name, the
-## time and the body as the database holds them. Rails digests the same things (the attributes of the message, its
+## The markup of a message is the same for every viewer but one thing: the link to the edit page of the person who may
+## change it (`Views.message`), so there are two entries at most, with the link and without. The key is the message id,
+## whether it has the link, its `updated_at` and a SHA-256 of the room, the author's name, the time and the body as the
+## database holds them. Rails digests the same things (the attributes of the message, its
 ## creator and its room, and the body) because a rename, a body or a boost can change the markup without touching the
 ## `updated_at` of the message, and another program may write to the database. So an edit, a rename of the author or a
 ## body that another program changed gives a new key, and the old entry is never read again (the cache drops it when it
@@ -30,27 +31,28 @@ export def start(megabytes: Int) -> Optional[Cache.Store]
   return some(Cache.memory(megabytes * BYTES_PER_MB))
 end
 
-## The messages one after the other, as `Views.messages_list` writes them, each from the cache when it is there.
-export def list(cache: Optional[Cache.Store], messages: List[Rooms.Stored]) -> String
-  return messages.map do |one| html(cache, one) end.join("\n")
+## The messages one after the other, as `Views.messages_list` writes them for the person `user_id` with the account
+## `role`, each from the cache when it is there.
+export def list(cache: Optional[Cache.Store], messages: List[Rooms.Stored], user_id: Int, role: String) -> String
+  return messages.map do |one| html(cache, one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
 end
 
 # The markup of one message, with its body cleaned. Two requests that miss together both render it, which is the same
 # text, so one of them wins and nothing is wrong.
-def html(cache: Optional[Cache.Store], stored: Rooms.Stored) -> String
+def html(cache: Optional[Cache.Store], stored: Rooms.Stored, controls: Bool) -> String
   case cache
-    none -> return render(stored)
-    some(store) -> return Cache.fetch(store, key(stored)) do render(stored) end
+    none -> return render(stored, controls)
+    some(store) -> return Cache.fetch(store, key(stored, controls)) do render(stored, controls) end
   end
 end
 
-def render(stored: Rooms.Stored) -> String
-  return Views.message(Rooms.clean(stored))
+def render(stored: Rooms.Stored, controls: Bool) -> String
+  return Views.message(Rooms.clean(stored), controls)
 end
 
 # The author is counted and the body goes last, so that no two messages make the same text by moving bytes from one
 # part to the next.
-def key(stored: Rooms.Stored) -> String
-  text = "#{stored.created_at}\n#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
-  return "message:#{stored.id}:#{stored.updated_at}:#{Digest.sha256_hexdigest(text.bytes)}"
+def key(stored: Rooms.Stored, controls: Bool) -> String
+  text = "#{stored.room_id}\n#{stored.created_at}\n#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
+  return "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{Digest.sha256_hexdigest(text.bytes)}"
 end

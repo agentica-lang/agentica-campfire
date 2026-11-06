@@ -318,6 +318,17 @@ export def from_text(text: String) -> String
   return HTML.escape(text).replace("\r\n", "\n").replace("\n", "<br>")
 end
 
+## The text that an edit form shows for a clean body. A body that is plain text as `from_text` wrote it (no tag but
+## `<br>`) gives that text back exactly, blank lines included, so saving the form again changes nothing. Any other markup
+## (a body that Rails wrote) gives `plain_text_of_clean`, which keeps no blank line and no formatting.
+export def text_of_clean(clean: String) -> String
+  if clean.replace("<br>", "").include?("<")
+    return plain_text_of_clean(clean)
+  end
+
+  return HTML.unescape(clean.replace("<br>", "\n"))
+end
+
 ## The text of the HTML `html` without its markup, as the search index keeps it (Action Text's `to_plain_text` does the
 ## same for Rails): the text of the sanitized body, the entities read back (`&amp;` is `&`), a line break at the end of
 ## a block and at a `<br>`, and no empty line. It reads what `sanitize` wrote, so a tag in it is a name, maybe the

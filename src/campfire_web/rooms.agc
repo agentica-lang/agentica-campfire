@@ -7,7 +7,9 @@
 ## about the room (or the form posted to it) is looked at, so no answer tells that a room exists. The settings are
 ## only for a closed room: for a room of another kind the person is in, they are the same 404. In a closed room only its
 ## maker and an account administrator may change it, and another member is answered 403. The same two people may delete
-## a room of any kind, and another member is answered 403 there too.
+## a room of any kind, and another member is answered 403 there too. A message is edited and deleted by its author and by
+## an account administrator: after the membership check (404) and a message that is not in the room (404), anybody else
+## is answered 403, before the form is read.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
@@ -47,6 +49,13 @@ enum Answer
   SignedOut
 end
 
+# Where a request for a message of a room ends up, once the room and the message are looked up for the person.
+enum Located
+  Missing
+  Refused
+  Found(Rooms.Room, Rooms.Message)
+end
+
 ## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cache` keeps
 ## the markup of the messages that a room page and the older messages write (`MessageCache`), `none` for no cache, and
 ## `pages` keeps those two pages whole (`PageCache`), `none` for no cache.
@@ -71,6 +80,10 @@ export def add(
     |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool) end
     |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool) end
     |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool) end
+    |> Bond.get(Routes.ROOM_MESSAGE_EDIT) do |conn| edit_message(conn, pool) end
+    |> Bond.post(Routes.ROOM_MESSAGE) do |conn| post_message(conn, pool) end
+    |> Bond.patch(Routes.ROOM_MESSAGE) do |conn| update_message(conn, pool) end
+    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool) end
   )
 end
 
@@ -337,7 +350,7 @@ end
 # the 404 of one, whatever the room.
 def post_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   methods = try Bond.form_all(conn, "_method")
-  if methods.empty? or methods[0] != Routes.ROOM_DELETE_METHOD
+  if methods.empty? or methods[0] != Routes.METHOD_DELETE
     return ok(respond(conn, Answer.NotFound))
   end
 
@@ -382,6 +395,210 @@ def taken_away(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result
   end
 
   return ok(Answer.Deleted(room.id))
+end
+
+def edit_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  id = room_id(conn)
+  message_id = message_id(conn)
+  answer = try Database.with_connection(pool) do |db| edit_answer(conn, db, id, message_id) end
+  return ok(respond(conn, answer))
+end
+
+def edit_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], message_id: Optional[Int]) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return edit_form_answer(db, person, id, message_id)
+  end
+end
+
+def edit_form_answer(
+  db: Db.Connection,
+  person: Auth.User,
+  id: Optional[Int],
+  message_id: Optional[Int],
+) -> Result[Answer]
+  located = try locate(db, person, id, message_id)
+  case located
+    Located.Missing -> return ok(Answer.NotFound)
+    Located.Refused -> return ok(Answer.Forbidden)
+    Located.Found(room, message) -> return ok(Answer.Page(200, try edit_page(db, person, room, message, none, "")))
+  end
+end
+
+# `typed` is what was sent when a refusal shows the page again, `none` for the text that the message has.
+def edit_page(
+  db: Db.Connection,
+  person: Auth.User,
+  room: Rooms.Room,
+  message: Rooms.Message,
+  typed: Optional[String],
+  note: String,
+) -> Result[String]
+  text = typed.unwrap_or(HtmlSanitizer.text_of_clean(message.body))
+  return ok(Views.edit_message(try sidebar_of(db, person), room, message, text, note))
+end
+
+# The form of Rails posts to the message with `_method` `patch` to save it and `delete` to delete it; any other post is
+# a path that has no route.
+def post_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  methods = try Bond.form_all(conn, "_method")
+  if not methods.empty? and methods[0] == Routes.METHOD_PATCH
+    return update_message(conn, pool)
+  end
+
+  if not methods.empty? and methods[0] == Routes.METHOD_DELETE
+    return delete_message(conn, pool)
+  end
+
+  return ok(respond(conn, Answer.NotFound))
+end
+
+def update_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  id = room_id(conn)
+  message_id = message_id(conn)
+  answer = try Database.with_connection(pool) do |db| update_answer(conn, db, id, message_id) end
+  return ok(respond(conn, answer))
+end
+
+def update_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], message_id: Optional[Int]) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return updated_message(conn, db, person, id, message_id)
+  end
+end
+
+# The body is read only after the right is checked, as everywhere, so that a 400 for a missing field does not tell a
+# person who may not see the message that it exists.
+def updated_message(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  person: Auth.User,
+  id: Optional[Int],
+  message_id: Optional[Int],
+) -> Result[Answer]
+  located = try locate(db, person, id, message_id)
+  case located
+    Located.Missing -> return ok(Answer.NotFound)
+    Located.Refused -> return ok(Answer.Forbidden)
+    Located.Found(room, message) -> return save_message(conn, db, person, room, message)
+  end
+end
+
+def save_message(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  person: Auth.User,
+  room: Rooms.Room,
+  message: Rooms.Message,
+) -> Result[Answer]
+  body = (try Bond.form(conn, MESSAGE_BODY)).strip
+  problem = Rooms.body_problem(body)
+  if problem != ""
+    page = try edit_page(db, person, room, message, some(body), problem)
+    return ok(Answer.Page(422, page))
+  end
+
+  saved = try Rooms.update_message(db, room.id, message.id, person.id, HtmlSanitizer.from_text(body))
+  # A refusal now is a change that happened meanwhile (they were taken out of the room, or lost the role).
+  if not saved
+    return ok(Answer.NotFound)
+  end
+
+  return ok(Answer.Redirect(Routes.room_path(room.id)))
+end
+
+def delete_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  id = room_id(conn)
+  message_id = message_id(conn)
+  stream = wants_stream?(conn)
+  answer = try Database.with_connection(pool) do |db| delete_message_answer(conn, db, id, message_id, stream) end
+  return ok(respond(conn, answer))
+end
+
+def delete_message_answer(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  id: Optional[Int],
+  message_id: Optional[Int],
+  stream: Bool,
+) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return deleted_message(db, person, id, message_id, stream)
+  end
+end
+
+# A browser with the scripts of Turbo asks for a Turbo Stream that takes the message off the page; a plain form gets the
+# room page.
+def deleted_message(
+  db: Db.Connection,
+  person: Auth.User,
+  id: Optional[Int],
+  message_id: Optional[Int],
+  stream: Bool,
+) -> Result[Answer]
+  located = try locate(db, person, id, message_id)
+  case located
+    Located.Missing -> return ok(Answer.NotFound)
+    Located.Refused -> return ok(Answer.Forbidden)
+    Located.Found(room, message) -> return gone_message(db, person, room, message, stream)
+  end
+end
+
+def gone_message(
+  db: Db.Connection,
+  person: Auth.User,
+  room: Rooms.Room,
+  message: Rooms.Message,
+  stream: Bool,
+) -> Result[Answer]
+  gone = try Rooms.delete_message(db, room.id, message.id, person.id)
+  if not gone
+    return ok(Answer.NotFound)
+  end
+
+  if stream
+    return ok(Answer.TurboStream(Views.message_removed(message.id)))
+  end
+
+  return ok(Answer.Redirect(Routes.room_path(room.id)))
+end
+
+# The message that the path names, for a person who is in the room: `Missing` for a room that is not theirs and for a
+# message that is not in it (the same answer, so neither tells that the other exists), `Refused` for a message that they
+# may not change.
+def locate(
+  db: Db.Connection,
+  person: Auth.User,
+  id: Optional[Int],
+  message_id: Optional[Int],
+) -> Result[Located]
+  room = try member_room(db, person, id)
+  case room
+    none -> return ok(Located.Missing)
+    some(found) -> return located_message(db, person, found, message_id)
+  end
+end
+
+def located_message(
+  db: Db.Connection,
+  person: Auth.User,
+  room: Rooms.Room,
+  message_id: Optional[Int],
+) -> Result[Located]
+  case message_id
+    none -> return ok(Located.Missing)
+    some(wanted) ->
+      stored = try Rooms.find_message(db, room.id, wanted)
+      case stored
+        none -> return ok(Located.Missing)
+        some(one) if not Rooms.changeable?(one.creator_id, person.id, person.role) -> return ok(Located.Refused)
+        some(one) -> return ok(Located.Found(room, Rooms.clean(one)))
+      end
+  end
 end
 
 def show_room(
@@ -511,16 +728,16 @@ def older_fragment(
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return ok(fragment_of(cache, try Rooms.page(db, found.id, before)))
+    some(found) -> return ok(fragment_of(cache, person, try Rooms.page(db, found.id, before)))
   end
 end
 
-def fragment_of(cache: Optional[Cache.Store], page: Rooms.Page) -> Answer
+def fragment_of(cache: Optional[Cache.Store], person: Auth.User, page: Rooms.Page) -> Answer
   if page.messages.empty?
     return Answer.NoContent
   end
 
-  return Answer.Fragment(MessageCache.list(cache, page.messages))
+  return Answer.Fragment(MessageCache.list(cache, page.messages, person.id, person.role))
 end
 
 def create_message(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
@@ -608,7 +825,7 @@ def room_page(
   form: Views.Composer,
 ) -> Result[String]
   page = try Rooms.page(db, room.id, before)
-  thread = MessageCache.list(cache, page.messages)
+  thread = MessageCache.list(cache, page.messages, person.id, person.role)
   return ok(
     Views.room(try sidebar_of(db, person), room, page, thread, form, Rooms.editable?(room, person.id, person.role)),
   )
@@ -664,6 +881,17 @@ end
 # A room id that is not a whole number (or is too big for one) names no room, which is a 404 like any other.
 def room_id(conn: Bond.Conn) -> Optional[Int]
   text = Bond.param(conn, "id").unwrap_or("")
+  parsed = text.to_i
+  if parsed.ok?
+    return some(parsed.unwrap!)
+  end
+
+  return none
+end
+
+# A message id that is not a whole number names no message, which is a 404 like any other.
+def message_id(conn: Bond.Conn) -> Optional[Int]
+  text = Bond.param(conn, "message_id").unwrap_or("")
   parsed = text.to_i
   if parsed.ok?
     return some(parsed.unwrap!)

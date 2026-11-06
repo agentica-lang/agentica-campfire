@@ -50,9 +50,14 @@ export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"
 export ROOM_MESSAGES = "/rooms/:id/messages"
 
-## `/rooms/:id` also takes the form that deletes a room: a `POST` with the field `_method` set to `delete`, as the forms
-## of Rails send it (a browser form cannot send `DELETE`), and a real `DELETE`.
-export ROOM_DELETE_METHOD = "delete"
+## One message of a room and the page that edits it (`:id` is the room and `:message_id` the message). The page of the
+## message takes `PATCH`, which saves the edit, and `DELETE`, and as a `POST` with `_method` set to one of the two
+## `METHOD_` names, as Rails' forms send them (a browser form cannot send either). A room takes the same `POST` with
+## `delete`, which deletes it.
+export ROOM_MESSAGE = "/rooms/:id/messages/:message_id"
+export ROOM_MESSAGE_EDIT = "/rooms/:id/messages/:message_id/edit"
+export METHOD_PATCH = "patch"
+export METHOD_DELETE = "delete"
 
 ## The forms of a closed room and of a direct message, and the posts that make them (each makes a room and goes to its
 ## page), and the settings of a closed room: its form and the post that saves it.
@@ -91,6 +96,16 @@ end
 ## The path that a message of the room is posted to.
 export def room_messages_path(room_id: Int) -> String
   return "/rooms/#{room_id}/messages"
+end
+
+## The path of a message, which is where its edit form posts.
+export def room_message_path(room_id: Int, message_id: Int) -> String
+  return "/rooms/#{room_id}/messages/#{message_id}"
+end
+
+## The path of the page that edits a message.
+export def room_message_edit_path(room_id: Int, message_id: Int) -> String
+  return "/rooms/#{room_id}/messages/#{message_id}/edit"
 end
 
 ## The path of the settings of a closed room, which is also where its form posts.
