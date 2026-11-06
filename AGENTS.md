@@ -1,8 +1,8 @@
 # agentica-campfire
 
 A port of ONCE Campfire (group chat) in Agentica, on Bond.
-`README.md` has what it is and how to run it; `docs/` has the behavior
-(configuration, security, rooms, people, mail) and `docs/plan.md` the plan and the phases.
+`README.md` has what it is and the quick start; `docs/` has the behavior
+(configuration, security, rooms, people, mail, docker, benchmarks) and `docs/plan.md` the plan and the phases.
 
 ## Map
 
@@ -34,7 +34,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 and forms of rooms), message_cache.agc (the cache of rendered messages), page_cache.agc (the cache of
                 whole room pages), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and the
                 avatar link)
-Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
+Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with

@@ -1,44 +1,34 @@
 # agentica-campfire
 
-Group chat written in [Agentica](https://github.com/agentica-lang/agentica): a port of 37signals' [ONCE Campfire](https://github.com/basecamp/once-campfire), built on [Bond](https://github.com/agentica-lang/bond), EAG templates and [agentica-db](https://github.com/agentica-lang/agentica-db).
+Group chat written in [Agentica](https://github.com/agentica-lang/agentica): a port of 37signals' [ONCE Campfire](https://github.com/basecamp/once-campfire), built on [Bond](https://github.com/agentica-lang/bond), EAG templates and [agentica-db](https://github.com/agentica-lang/agentica-db). The goal is parity with Rails Campfire.
 
-Status: a skeleton with sign-in, the join link, the people page, password reset by email, and rooms with messages, on SQLite. The database is the schema of a Rails Campfire, so that a database that Rails made opens as it is: the people, the account, the rooms, the messages (HTML bodies and the search index) and the tables for boosts, webhooks, bans, searches, push and Active Storage are there; the routes that use some of them are next. See [docs/plan.md](docs/plan.md) for what is missing and the phases.
+Status: a skeleton with sign-in, the join link, the people page, password reset by email, and rooms with messages, on SQLite. The database is the schema of a Rails Campfire, so a database that Rails made opens as it is (see [docs/configuration.md](docs/configuration.md#data-folder-and-database)). Some tables are there before the routes that use them. What is missing, and the phases, are in [docs/plan.md](docs/plan.md).
 
-This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is independent. It is not affiliated with or endorsed by 37signals. Campfire is MIT licensed (copyright 37signals, LLC). Any CSS, JavaScript or images reused from it keep that copyright and license notice, and the notice is added to this repository when the first file is copied (`specs/fixtures/rails/LICENSE.37signals`, for the Rails schema that the specs compare with).
+This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is independent. It is not affiliated with or endorsed by 37signals. Campfire is MIT licensed (copyright 37signals, LLC). Any CSS, JavaScript or images reused from it keep that copyright and license notice (`specs/fixtures/rails/LICENSE.37signals`).
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.1 or later on `PATH` to run the app and its tests.
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.3 or later on `PATH` to run the app and its tests.
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by tag in agentica.toml) into deps/
 CAMPFIRE_SESSION_SECRET=$(openssl rand -hex 32) make run   # http://127.0.0.1:3000/
 ```
 
-`CAMPFIRE_SESSION_SECRET` is required (at least 32 bytes) and has no default. Behind HTTPS also set `CAMPFIRE_SECURE_COOKIES=true`.
+`CAMPFIRE_SESSION_SECRET` is required (at least 32 bytes). Behind HTTPS also set `CAMPFIRE_SECURE_COOKIES=true`. All variables are in [docs/configuration.md](docs/configuration.md).
 
-On the first run there is no account, so every page shows a setup form (a name, an email and a password of at least 8 characters). Finishing it makes the first user, an administrator, and signs you in. Whoever reaches `/first_run` first gets that role: do the setup before anyone else can reach the app. It listens on `127.0.0.1` by default; keep `CAMPFIRE_HOST` that way until the account exists.
+On the first run there is no account, so every page shows a setup form. Finishing it makes the first user, an administrator. Whoever reaches `/first_run` first gets that role, so do the setup before anyone else can reach the app: the app listens on `127.0.0.1` by default. See [docs/security.md](docs/security.md).
 
 ## Docker
 
 ```sh
-docker build -t once-campfire-agentica:app .
-docker run --rm --init -p 3000:3000 -e CAMPFIRE_HOST=0.0.0.0 -e CAMPFIRE_PORT=3000 \
-  -e SECRET_KEY_BASE=$(openssl rand -hex 64) -v "$PWD/storage:/rails/storage" once-campfire-agentica:app
-```
-
-Or with Compose, which keeps the data in the `campfire-storage` volume and publishes the port on `127.0.0.1` only:
-
-```sh
 [ -f .env ] || echo "SECRET_KEY_BASE=$(openssl rand -hex 64)" > .env
-docker compose up -d --build
+docker compose up -d --build   # http://127.0.0.1:3000/
 ```
 
-Local settings, such as a network or `CAMPFIRE_BASE_URL`, go in `docker-compose.override.yml`, which Compose reads on its own. Compose adds an override's `ports` to the base list, so use `ports: !override [...]` there to change the published address. Git ignores that file and `.env`.
+More in [docs/docker.md](docs/docker.md).
 
-The image has the pinned Agentica release, the app and its packages (no network at run time) on Debian 13 slim, and a `.gz` copy next to each stylesheet and script, which Bond sends to a client that takes gzip. `docker/entrypoint.sh` maps the environment of the [Rails benchmark harness](https://github.com/basecamp/once-campfire-verification) to `CAMPFIRE_*` (the database is `/rails/storage/db/production.sqlite3`, the Active Storage files `/rails/storage/files`; `HTTP_PORT` is the port; the session secret comes from `SECRET_KEY_BASE`); a `CAMPFIRE_*` variable that you set wins. It listens on `127.0.0.1` unless `CAMPFIRE_HOST` says otherwise. The image is x86_64 only. In the benchmark harness, `bin/seed` writes `SECRET_KEY_BASE`.
-
-## Develop
+## Tests
 
 ```sh
 make check       # type-check
@@ -46,14 +36,33 @@ make fmt-check   # formatting
 make test        # the features of specs/ and the tests of test/
 ```
 
-The tests are BDD first and take under a minute. CI (`.github/workflows/ci.yml`) pins the Agentica release with its sha256. Rules for contributors and agents: [AGENTS.md](AGENTS.md).
+The tests are BDD first and take under a minute. Rules for contributors and agents: [AGENTS.md](AGENTS.md).
 
-## Docs
+## Benchmark
+
+Requests per second (higher is better), median of the rounds, 16 clients, from the
+[Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) of 2026-11-06
+(run `20261106-130459-7`). The server ran on CPUs 4-7 and the client on CPUs 0-3, with the page cache on.
+Campfire is at c6147de. Agentica: master 7ec41cb (after 0.24.4), not a release.
+
+| Route | Rails | Agentica | Agentica / Rails |
+| --- | ---: | ---: | ---: |
+| room_show | 834.3 | 3189.1 | 3.8x |
+| messages_page | 876.9 | 3168.7 | 3.6x |
+| sidebar | 990.1 | 2279.3 | 2.3x |
+| search | 970.8 | 1038.7 | 1.07x |
+| post_message | 88.5 | 665.1 | 7.5x |
+
+To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps rails,agentica`. Method and details: [docs/benchmarks.md](docs/benchmarks.md).
+
+## Documentation
 
 - [docs/configuration.md](docs/configuration.md): every `CAMPFIRE_*` variable, the data folder and the database.
 - [docs/security.md](docs/security.md): sessions, passwords, CSRF, public pages, known gaps.
 - [docs/rooms.md](docs/rooms.md): open, closed and direct rooms, settings, messages.
 - [docs/people.md](docs/people.md): the join link and the people page.
 - [docs/mail.md](docs/mail.md): password reset, SMTP and the mailer.
+- [docs/docker.md](docs/docker.md): the image, Compose and the benchmark environment.
+- [docs/benchmarks.md](docs/benchmarks.md): how the benchmark is run; [bench/README.md](bench/README.md) has the harness steps.
 - [DESIGN.md](DESIGN.md): the visual design system (colours, type, components, accessibility).
 - [docs/plan.md](docs/plan.md): what Agentica, Bond and agentica-db still need, the MVP and the phases.
