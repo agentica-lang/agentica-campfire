@@ -41,6 +41,10 @@ LAST_ROOM_SECONDS = 20 * 365 * 24 * 60 * 60
 # What a save of a level that the room does not offer is told.
 INVOLVEMENT_REFUSED = "That is not a choice for this room"
 
+# The most digits of a `since` that is read as it is; one with more is `SINCE_FAR`, a time that no message is after.
+SINCE_DIGITS = 15
+SINCE_FAR = 1_000_000_000_000_000
+
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
 
@@ -856,10 +860,9 @@ def kept(spot: Optional[PageCache.Spot], answer: Answer) -> Answer
   end
 end
 
-# The messages that come before `?before=ID` (the newest 40 without it) or, with `?after=ID` and no `before`, the
-# 40 that
-# come after it (Rails reads `before` first too), as the fragment that the script of the page puts in the list: no
-# layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
+# The messages that come before `?before=ID` (the newest 40 without it) or, with `?after=ID` and no `before`, the 40
+# that come after it (Rails reads `before` first too), as the fragment that the script of the page puts in the list:
+# no layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
 def older_messages(
   conn: Bond.Conn,
   pool: Database.Pool,
@@ -887,9 +890,11 @@ def older_page(
   after: Optional[Int],
 ) -> Result[Bond.Conn]
   # The two cursors are kept apart, so `?before=7` and `?after=7` are two pages.
-  spot = PageCache.spot(pages, PageCache.MESSAGES, person, id, before)
+  spot: Optional[PageCache.Spot] = none
   if before.none? and after.some?
     spot = PageCache.spot(pages, PageCache.AFTER, person, id, after)
+  else
+    spot = PageCache.spot(pages, PageCache.MESSAGES, person, id, before)
   end
 
   found = PageCache.lookup(spot)
@@ -1242,14 +1247,44 @@ def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
   return ok(some(parsed.unwrap!))
 end
 
-# `?since=`, as Rails' `to_i` reads it: a value that is not a number is 0.
+# `?since=`, as Ruby's `to_i` reads it: the whitespace, the sign and the digits at the start, and nothing after them
+# (`12abc` is 12, `1.5e3` is 1), so a value with no digits is 0. More digits than any time has are as far in the future
+# as one can write, which no message is after.
 def since_of(conn: Bond.Conn) -> Result[Int]
   values = try Bond.query_all(conn, "since")
   if values.empty?
     return ok(0)
   end
 
-  return ok(values[0].to_i.unwrap_or(0))
+  text = values[0].strip
+  negative = text.start_with?("-")
+  if negative or text.start_with?("+")
+    text = text.slice(1, text.length - 1)
+  end
+
+  digits = ""
+  for ch in text.split("")
+    if not "0123456789".include?(ch)
+      break
+    end
+
+    digits = digits + ch
+  end
+
+  if digits.empty?
+    return ok(0)
+  end
+
+  if digits.length > SINCE_DIGITS
+    return ok(SINCE_FAR)
+  end
+
+  value = digits.to_i.unwrap_or(0)
+  if negative
+    return ok(0 - value)
+  end
+
+  return ok(value)
 end
 
 # The message of `/rooms/ID/@MESSAGE`: `none` for a segment that is not `@` and a whole number.

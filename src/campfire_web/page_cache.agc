@@ -1,8 +1,8 @@
 ## The cache of whole pages, as Rails Campfire caches the answer of `rooms#show` and `messages#index` (the
 ## `CachedResponses` concern: `ResponseCache` keeps the finished HTML under a key of the person and the request, and
 ## drops everything when `PRAGMA data_version` says that any connection committed). The room page and the page of older
-## messages are a function of the database, the person, the room and `?before=`, so a page that was made from the
-## database as it is now is the page to send again.
+## messages are a function of the database, the person, the room and `?before=` (or `?after=`, the kind `AFTER`), so a
+## page that was made from the database as it is now is the page to send again.
 ##
 ## Invalidation is the version of the database (`Database.version`), which is in every key: a commit by anyone (a new
 ## message, an edit, a delete, a change of members, a rename of the room or of a person, a session that is touched, a
@@ -79,8 +79,8 @@ export def stop(pages: Optional[Pages]) -> Void
   end
 end
 
-## Where the page of `kind` (`ROOM` or `MESSAGES`) of `person` in the room `room_id` (`before` is the cursor) goes, as
-## the database is now: read this before the page is made. `none` when there is no cache, the room is no number, the
+## Where the page of `kind` (`ROOM`, `MESSAGES` or `AFTER`) of `person` in the room `room_id` (`before` is the cursor of
+## the kind) goes, as the database is now: read this before the page is made. `none` when there is no cache, the room is no number, the
 ## room page has a cursor (a person could fill the cache with a page for every number), or the version cannot be read
 ## (the page is then made and not kept). The name and the role of the person are in the key: the sign-in filter read
 ## them before the version, so a rename or a change of role that was committed in between must not be kept under the

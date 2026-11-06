@@ -216,7 +216,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   `id`, never by id alone. `/rooms/:id/:at` serves `@MESSAGE` because Bond params are whole segments (the handler
   404s any other segment); it is not kept in `PageCache` (a cursor per message), `?after=` is (kind `AFTER`).
   `refresh` compares `created_at`/`updated_at` as text against `INSTANT` of `rooms.agc` (the millisecond time written as the
-  columns are), answers Turbo Stream whatever `Accept` says, and reads `since` as `to_i` (no number is 0).
+  columns are), answers Turbo Stream whatever `Accept` says, reads `since` as `to_i` (its leading digits) and compares with `>=`, so a message in the
+  same millisecond as the last one the client saw is not skipped.
 - Involvement: `/rooms/ID/involvement` reads and sets the person's own `memberships.involvement` (`Rooms.involvement`,
   `Rooms.set_involvement`); the levels a room offers are `Rooms.involvement_levels` (a direct room never offers
   `invisible`, as Rails), and anything else is 422 with nothing written. Membership is checked first (404), then the

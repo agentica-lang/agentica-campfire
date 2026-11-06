@@ -552,8 +552,10 @@ end
 
 ## The `Refresh` of the room since `millis`, in milliseconds since the epoch (what the client keeps). A time before the
 ## epoch is the epoch. The instant is written as the columns are (`Rails.STAMP`, which has three zeros for the
-## microseconds that `%f` lacks), so the comparison is by text, as it is for the rows that Rails wrote; a message made in
-## the same millisecond as `millis` is therefore after it, as in Rails.
+## microseconds that `%f` lacks), so the comparison is by text, as it is for the rows that Rails wrote. It is `>=`, where
+## Rails has `>`: a client keeps the time in milliseconds, and a message made in the same millisecond as the last one it
+## saw would be skipped by `>`. The message that the client has is sent again, and a Turbo Stream that appends or
+## replaces an element that has the id of one in the page puts the new one in its place, so the repeat is harmless.
 export def since(conn: Db.Connection, room_id: Int, millis: Int) -> Result[Refresh]
   at = millis
   if at < 0
@@ -564,18 +566,18 @@ export def since(conn: Db.Connection, room_id: Int, millis: Int) -> Result[Refre
   fresh_rows = try Db.query(
     conn,
     "select #{MESSAGE_COLUMNS} from (select messages.id from messages where messages.room_id = ? " +
-    "and messages.created_at > #{INSTANT} order by messages.created_at, messages.id limit ?) picked " +
+    "and messages.created_at >= #{INSTANT} order by messages.created_at, messages.id limit ?) picked " +
     "join messages on messages.id = picked.id #{MESSAGE_JOINS} order by messages.created_at, messages.id",
     [Db.Value.Int(room_id), from, from, Db.Value.Int(PAGE_SIZE)],
   )
 
   fresh = fresh_rows.map do |row| stored_of(row) end
   ids = fresh.map do |one| Db.Value.Int(one.id) end
-  # `updated_at` has an index with the room, so the few edited rows are found first and only those are sorted.
+  # Only the rows of the room are read: the schema has no index on `updated_at` (it is Rails' own), so this walks them.
   changed_rows = try Db.query(
     conn,
     "select #{MESSAGE_COLUMNS} from (select messages.id from messages where messages.room_id = ? " +
-    "and messages.updated_at > #{INSTANT} and messages.id not in (#{placeholders(ids.size)}) " +
+    "and messages.updated_at >= #{INSTANT} and messages.id not in (#{placeholders(ids.size)}) " +
     "order by messages.created_at desc, messages.id desc limit ?) picked " +
     "join messages on messages.id = picked.id #{MESSAGE_JOINS} order by messages.created_at, messages.id",
     [Db.Value.Int(room_id), from, from].concat(ids).push(Db.Value.Int(PAGE_SIZE)),

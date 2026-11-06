@@ -115,6 +115,22 @@ Feature: Messages after a message, around a message, and since a time
       | /rooms/99/refresh   |
       | /rooms/abc/refresh  |
 
+  Scenario: The messages after a message are not for a person who is not in the room, nor after a message of another room
+    Given a member "Bea" with the email "bea@example.com" exists
+    And a closed room "Secret" with the members "bea@example.com"
+    And the room 2 has 3 messages
+    And the room 1 has 3 messages
+    When I get "/rooms/2/messages?after=1"
+    Then the status is 404
+    And the body is "Not Found"
+    When I get "/rooms/1/messages?after=1"
+    Then the status is 204
+
+  Scenario: A post to a path under a room that has no post is a 405, not a 404
+    When I post nothing to "/rooms/1/nothing"
+    Then the status is 405
+    And the header "allow" is "GET, HEAD"
+
   Scenario Outline: A visitor with no session is sent to sign in
     Given the browser has no cookies
     When I get "<path>"
@@ -152,6 +168,29 @@ Feature: Messages after a message, around a message, and since a time
     Then the body contains "<turbo-stream action=\"replace\" target=\"message_1\">"
     And the body contains "edited text"
     And the body does not contain "action=\"append\""
+
+  Scenario: A message made in the same millisecond as the time is sent again, not skipped
+    Given a message "same instant" in the room 1 at "2026-06-01 10:00:00.123000"
+    And a message "also this millisecond" in the room 1 at "2026-06-01 10:00:00.123000"
+    And a message "before" in the room 1 at "2026-06-01 10:00:00.122000"
+    When I get "/rooms/1/refresh?since=1780308000123"
+    Then the body contains "same instant"
+    And the body contains "also this millisecond"
+    And the body does not contain "before"
+
+  Scenario Outline: The time is read as its leading digits, as Ruby's to_i reads it
+    Given a message "early" in the room 1 at "1970-01-01 00:00:05.000000"
+    And a message "late" in the room 1 at "2026-06-01 10:00:00.000000"
+    When I get "/rooms/1/refresh?since=<since>"
+    Then the body <late> "late"
+    And the body <early> "early"
+
+    Examples:
+      | since                | early            | late             |
+      | 3000abc              | contains         | contains         |
+      | 6000abc              | does not contain | contains         |
+      | 1.5e9                | contains         | contains         |
+      | 99999999999999999999 | does not contain | does not contain |
 
   Scenario Outline: No time, a time that is no number, and a time before the epoch are the epoch
     Given the room 1 has 3 messages

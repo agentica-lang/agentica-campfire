@@ -109,9 +109,11 @@ also makes `POST` to another path under a room a `405` where it was a `404`. Tha
 `GET /rooms/ID/refresh?since=MILLISECONDS` is how a client catches up after a lost connection: Turbo Streams that
 append the messages created after that time (the first 40, oldest first) to the list, and a replace for each other
 message edited after it (the newest 40). A message created since but past the first 40 is a replace too (the client has
-nothing to replace, so it ignores it), as in Rails. `since` is read as Rails' `to_i`: none, or not a number, or before
-the epoch, is the epoch. The answer is always a Turbo Stream, empty when nothing changed. The time is compared as text
-with the columns (`2026-03-01 09:00:00.123000`), so a message made in the same millisecond as `since` counts as after it.
+nothing to replace, so it ignores it), as in Rails. `since` is read as Ruby's `to_i` reads it (`12abc` is 12, `1.5e3`
+is 1): none, or no digits at the start, or a time before the epoch, is the epoch. The time is compared as text with the
+columns (`2026-03-01 09:00:00.123000`), and with `>=` where Rails has `>`: a client keeps the time in milliseconds, so
+a second message made in the same millisecond as the last one it saw would be skipped. The message that the client
+has comes again, and a Turbo Stream that appends or replaces an id that is in the page puts the new one in its place.
 
 The room page and the page of older messages are kept whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0
 for none), as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept for one person, one
