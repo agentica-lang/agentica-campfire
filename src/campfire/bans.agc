@@ -55,12 +55,12 @@ end
 
 ## True for an address that a ban may hold. This is stricter than Rails, which refuses only loopback, private (RFC 1918
 ## and unique local) and link-local addresses, and it has to be: the app bans the raw peer of the connection, not
-## `remote_ip`, so behind a reverse proxy every request has the proxy's address, and a ban of it would answer 429 to every
-## write of everybody, the sign-in included. A proxy is usually on a loopback, private, shared (100.64.0.0/10, which
-## Tailscale and carrier networks use) or documentation address, so none of these is held, nor are the other ranges that
-## are not the open internet: 0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15, multicast and reserved (224.0.0.0/3), `::`, `::1`,
-## `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`, `2001:db8::/32` and anything else that starts with `::` but an
-## IPv4-mapped address (`::ffff:a.b.c.d` or `::ffff:xxxx:xxxx`), which is judged as the IPv4 address it holds.
+## `remote_ip`, so behind a reverse proxy every request has the proxy's address, and a ban of it would answer 429 to
+## every write of everybody, the sign-in included. A proxy is usually on a loopback, private, shared (100.64.0.0/10,
+## which Tailscale and carrier networks use) or documentation address, so none of these is held, nor are the other
+## ranges that are not the open internet: 0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15, and multicast and reserved
+## (224.0.0.0/3). An IPv6 address is held only inside `2000::/3`, and not in `2001:db8::/32`, `2001:2::/48` or
+## `3fff::/20`. An IPv4-mapped address (`::ffff:a.b.c.d` or `::ffff:xxxx:xxxx`) is judged as the IPv4 address it holds.
 export def public_address?(address: String) -> Bool
   text = address.downcase
   if text.start_with?("::ffff:")
@@ -237,7 +237,7 @@ def public_v4?(text: String) -> Bool
   return public_octets?(numbers[0], numbers[1], numbers[2])
 end
 
-# The first three octets of an IPv4 address are not in a range that is not the open internet.
+# True when the first three octets of an IPv4 address are in none of the ranges that are not the open internet.
 def public_octets?(first: Int, second: Int, third: Int) -> Bool
   local = (
     first == 0 or
@@ -257,9 +257,9 @@ def public_octets?(first: Int, second: Int, third: Int) -> Bool
   return not local
 end
 
-# Hex groups and colons, in public space: not `::`-led, `fc00::/7`, `fe80::/10` and up to `fec0::/10`, `ff00::/8`,
-# nor the
-# documentation prefix `2001:db8::/32`.
+# An allowlist: only the global unicast space `2000::/3` can be public, and in it not the documentation prefix
+# `2001:db8::/32`, the benchmarking prefix `2001:2::/48` and the reserved `3fff::/20`. Everything else is a special
+# address (`::`, `::1`, unique local, link-local, multicast...) or not allocated yet.
 def public_v6?(text: String) -> Bool
   for index in 0..(text.length - 1)
     if not "0123456789abcdef:".include?(text.slice(index, 1))
@@ -267,10 +267,34 @@ def public_v6?(text: String) -> Bool
     end
   end
 
-  first = text.split(":")[0]
-  zero_led = first.empty? or first == "0" or first == "00" or first == "000" or first == "0000"
-  documentation = text.start_with?("2001:db8:") or text.start_with?("2001:0db8:") or text == "2001:db8::"
-  special = first.start_with?("fc") or first.start_with?("fd") or first.start_with?("fe") or first.start_with?("ff")
-  complete = text.include?("::") or text.split(":").size == 8
-  return complete and not zero_led and not documentation and not special
+  groups = text.split(":")
+  if not (text.include?("::") or groups.size == 8) or groups.empty?
+    return false
+  end
+
+  first = hex_value(groups[0])
+  if first.none? or first.unwrap! < 8192 or first.unwrap! > 16383
+    return false
+  end
+
+  second = group_value(groups, 1)
+  third = group_value(groups, 2)
+  documentation = first.unwrap! == 8193 and second == 3512
+  benchmarking = first.unwrap! == 8193 and second == 2 and third == 0
+  reserved = first.unwrap! == 16383 and second < 4096
+  return second >= 0 and not documentation and not benchmarking and not reserved
+end
+
+# The value of the group `index`: 0 for one that `::` leaves empty or that is not there, -1 for one that is no number.
+def group_value(groups: List[String], index: Int) -> Int
+  if index >= groups.size or groups[index].empty?
+    return 0
+  end
+
+  value = hex_value(groups[index])
+  if value.none?
+    return -1
+  end
+
+  return value.unwrap!
 end

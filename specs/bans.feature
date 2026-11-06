@@ -110,44 +110,54 @@ Feature: Bans
     And the query "select count(*) from bans where user_id = 3" gives <bans>
 
     Examples:
-      | address         | bans |
-      | 8.8.8.8         | 1    |
-      | 2606:4700::1111 | 1    |
-      | ::ffff:8.8.8.8  | 1    |
-      | ::ffff:808:808  | 1    |
-      | 100.128.0.1     | 1    |
-      | 172.32.0.1      | 1    |
-      | 198.20.0.1      | 1    |
-      | 127.0.0.1       | 0    |
-      | 10.1.2.3        | 0    |
-      | 172.16.0.1      | 0    |
-      | 192.168.1.1     | 0    |
-      | 169.254.1.1     | 0    |
-      | 100.64.0.1      | 0    |
-      | 100.127.255.254 | 0    |
-      | 0.0.0.0         | 0    |
-      | 192.0.0.8       | 0    |
-      | 192.0.2.1       | 0    |
-      | 198.18.0.1      | 0    |
-      | 198.19.255.1    | 0    |
-      | 198.51.100.7    | 0    |
-      | 203.0.113.9     | 0    |
-      | 224.0.0.1       | 0    |
-      | 240.0.0.1       | 0    |
-      | 255.255.255.255 | 0    |
-      | ::1             | 0    |
-      | ::              | 0    |
-      | fe80::1         | 0    |
-      | fec0::1         | 0    |
-      | fd00::1         | 0    |
-      | ff02::1         | 0    |
-      | 2001:db8::1     | 0    |
-      | ::ffff:7f00:1   | 0    |
-      | ::ffff:a00:1    | 0    |
-      | ::ffff:10.0.0.1 | 0    |
-      | ::ffff:6440:1   | 0    |
-      | not an address  | 0    |
-      | 999.1.1.1       | 0    |
+      | address              | bans |
+      | 8.8.8.8              | 1    |
+      | 2606:4700::1111      | 1    |
+      | ::ffff:8.8.8.8       | 1    |
+      | ::ffff:808:808       | 1    |
+      | 100.128.0.1          | 1    |
+      | 172.32.0.1           | 1    |
+      | 198.20.0.1           | 1    |
+      | 127.0.0.1            | 0    |
+      | 10.1.2.3             | 0    |
+      | 172.16.0.1           | 0    |
+      | 192.168.1.1          | 0    |
+      | 169.254.1.1          | 0    |
+      | 100.64.0.1           | 0    |
+      | 100.127.255.254      | 0    |
+      | 0.0.0.0              | 0    |
+      | 192.0.0.8            | 0    |
+      | 192.0.2.1            | 0    |
+      | 198.18.0.1           | 0    |
+      | 198.19.255.1         | 0    |
+      | 198.51.100.7         | 0    |
+      | 203.0.113.9          | 0    |
+      | 224.0.0.1            | 0    |
+      | 240.0.0.1            | 0    |
+      | 255.255.255.255      | 0    |
+      | ::1                  | 0    |
+      | ::                   | 0    |
+      | fe80::1              | 0    |
+      | fec0::1              | 0    |
+      | fd00::1              | 0    |
+      | ff02::1              | 0    |
+      | 2001:2::1            | 0    |
+      | 2001:2:1::1          | 1    |
+      | 3fff::1              | 0    |
+      | 3fff:1000::1         | 1    |
+      | 3ffe::1              | 1    |
+      | 1fff::1              | 0    |
+      | 4000::1              | 0    |
+      | 2001:db8:0:0:0:0:0:1 | 0    |
+      | 2001:0db8::1         | 0    |
+      | 2001:4860:4860::8888 | 1    |
+      | 2001:db8::1          | 0    |
+      | ::ffff:7f00:1        | 0    |
+      | ::ffff:a00:1         | 0    |
+      | ::ffff:10.0.0.1      | 0    |
+      | ::ffff:6440:1        | 0    |
+      | not an address       | 0    |
+      | 999.1.1.1            | 0    |
 
   Scenario: A request that changes something from a banned address gets 429 and a read is served
     Given I run the sql "insert into bans (ip_address, user_id, created_at, updated_at) values ('127.0.0.1', 3, '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
@@ -194,6 +204,19 @@ Feature: Bans
     And the query "select count(*) from users where id = 2 and status = 2" gives 1
     And the query "select count(*) from bans where user_id = 2 and ip_address = '4.4.4.4'" gives 1
     And the query "select count(*) from messages where creator_id = 2" gives 0 within 5000 milliseconds
+
+  Scenario: A ban row added by hand is not seen until a restart once a write has found no ban
+    When I post to "/rooms/1/messages" the form:
+      | message[body] | before |
+    Then the status is 302
+    When I run the sql "insert into bans (ip_address, user_id, created_at, updated_at) values ('127.0.0.1', 3, '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | still passes |
+    Then the status is 302
+    When the app restarts
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | refused |
+    Then the status is 429
 
   Scenario Outline: Only an administrator bans, not oneself, and only an active person
     When I sign in as "<actor>"
