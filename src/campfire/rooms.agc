@@ -49,7 +49,7 @@ ISO = "%Y-%m-%dT%H:%M:%fZ"
 # The columns of a message as `stored_of` reads them and the tables they come from, for `MESSAGE_SELECT` and for
 # `page`, which picks its rows first and then joins only those.
 MESSAGE_COLUMNS = (
-  "messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
+  "messages.id, messages.room_id, messages.creator_id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
   "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +
   "messages.updated_at as updated_at"
 )
@@ -92,11 +92,13 @@ export struct Person
   name: String
 end
 
-## A message with the name of its author. `body` is HTML that `HtmlSanitizer.sanitize` has cleaned, so a view writes it
+## A message with the name of its author (`creator_id` is who wrote it, `room_id` where). `body` is HTML that `HtmlSanitizer.sanitize` has cleaned, so a view writes it
 ## with `<%== %>`. `created_at` is an ISO 8601 UTC instant with milliseconds (`2026-03-01T09:00:00.123Z`), made from
 ## the Rails form of the column, so that `<time datetime>` and the scripts that read it take it as UTC.
 export struct Message
   id: Int
+  room_id: Int
+  creator_id: Int
   author: String
   body: String
   created_at: String
@@ -107,6 +109,8 @@ end
 ## cleaning. `updated_at` is the column as it is.
 export struct Stored
   id: Int
+  room_id: Int
+  creator_id: Int
   author: String
   body: String
   created_at: String
@@ -162,6 +166,8 @@ end
 export def stored_of(row: Db.Row) -> Stored
   return Stored(
     id: int_of(row, "id"),
+    room_id: int_of(row, "room_id"),
+    creator_id: int_of(row, "creator_id"),
     author: text_of(row, "author"),
     body: text_of(row, "body"),
     created_at: text_of(row, "created_at"),
@@ -175,6 +181,8 @@ end
 export def clean(stored: Stored) -> Message
   return Message(
     id: stored.id,
+    room_id: stored.room_id,
+    creator_id: stored.creator_id,
     author: stored.author,
     body: HtmlSanitizer.sanitize(stored.body),
     created_at: stored.created_at,
@@ -267,6 +275,12 @@ end
 ## (`User#can_administer?` of upstream). Being in the room is not enough.
 export def administrable?(room: Room, user_id: Int, role: String) -> Bool
   return room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
+end
+
+## True when the person may edit or delete a message that `creator_id` wrote: they wrote it or are an account
+## administrator (`User#can_administer?(message)` of upstream), in a room that they are in.
+export def changeable?(creator_id: Int, user_id: Int, role: String) -> Bool
+  return creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
 end
 
 ## True when the person may change the settings of the room: it is a closed room (the only kind with settings here) and
@@ -370,6 +384,47 @@ end
 ## after `destroy_later` goes with the room, as `dependent: :destroy` does in Rails.
 export def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
   return Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
+end
+
+## The message of the room, as it is stored, or `none` when the room has no such message (one of another room is none
+## too, so a room's path cannot reach into another). The caller has checked that the person is in the room.
+export def find_message(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Stored]]
+  rows = try Db.query(
+    conn,
+    "#{MESSAGE_SELECT} where messages.room_id = ? and messages.id = ?",
+    [Db.Value.Int(room_id), Db.Value.Int(message_id)],
+  )
+
+  if rows.empty?
+    return ok(none)
+  end
+
+  return ok(some(stored_of(rows[0])))
+end
+
+## Replaces the body of a message with `html` (cleaned here, before the transaction begins, as `post` does), in one
+## transaction: the body in `action_text_rich_texts`, the plain text in `message_search_index` (`Message::Searchable`
+## rewrites it when the body changes), and `updated_at` of the message and the room (a rich text touches its record, and
+## a message touches its room). The right is checked inside, as `update_closed` does: the message is in the room, the
+## editor is in the room and wrote it or is an active administrator. It gives false, and changes nothing, when it does
+## not hold. Unlike a new message, an edit sets no `unread_at`. An error is a failure of the database.
+export def update_message(
+  conn: Db.Connection,
+  room_id: Int,
+  message_id: Int,
+  editor_id: Int,
+  html: String,
+) -> Result[Bool]
+  body = HtmlSanitizer.sanitize(html)
+  text = HtmlSanitizer.plain_text_of_clean(body)
+  return Db.transaction(conn) do |tx| update_message_in(tx, room_id, message_id, editor_id, body, text) end
+end
+
+## Deletes a message with its body, its search row and its boosts, in one transaction, when it is in the room and the
+## person is in the room and wrote it or is an active administrator (the same check as `update_message`). It gives false,
+## and changes nothing, when it does not hold. The room is not touched, as `destroy` of Rails does not touch it.
+export def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
+  return Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
 end
 
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
@@ -479,6 +534,8 @@ def post_in(
     some(
       Message(
         id: int_of(rows[0], "id"),
+        room_id: room_id,
+        creator_id: user_id,
         author: text_of(rows[0], "author"),
         body: body,
         created_at: text_of(rows[0], "created_at"),
@@ -537,7 +594,12 @@ def delete_first_message(tx: Db.Connection, room_id: Int) -> Result[Bool]
     return ok(false)
   end
 
-  message_id = Db.Value.Int(int_of(rows[0], "id"))
+  try delete_message_rows(tx, Db.Value.Int(int_of(rows[0], "id")))
+  return ok(true)
+end
+
+# The rows of a message, the message last (a boost has a key to it).
+def delete_message_rows(tx: Db.Connection, message_id: Db.Value) -> Result[Void]
   try Db.execute(tx, "delete from boosts where message_id = ?", [message_id])
   try Db.execute(
     tx,
@@ -547,6 +609,65 @@ def delete_first_message(tx: Db.Connection, room_id: Int) -> Result[Bool]
 
   try Db.execute(tx, "delete from message_search_index where rowid = ?", [message_id])
   try Db.execute(tx, "delete from messages where id = ?", [message_id])
+  return ok()
+end
+
+# Whether the message is in the room and the person may change it, as one query inside the transaction that changes it.
+def may_change?(tx: Db.Connection, room_id: Int, message_id: Int, user_id: Int) -> Result[Bool]
+  rows = try Db.query(
+    tx,
+    "select 1 from messages where id = ? and room_id = ? " +
+    "and exists (select 1 from memberships where room_id = messages.room_id and user_id = ?) " +
+    "and (creator_id = ? or exists (select 1 from users where id = ? and role = #{Rails.ADMINISTRATOR} and " +
+    "status = #{Rails.ACTIVE}))",
+    [
+      Db.Value.Int(message_id),
+      Db.Value.Int(room_id),
+      Db.Value.Int(user_id),
+      Db.Value.Int(user_id),
+      Db.Value.Int(user_id),
+    ],
+  )
+
+  return ok(not rows.empty?)
+end
+
+def update_message_in(
+  tx: Db.Connection,
+  room_id: Int,
+  message_id: Int,
+  editor_id: Int,
+  body: String,
+  text: String,
+) -> Result[Bool]
+  if not try may_change?(tx, room_id, message_id, editor_id)
+    return ok(false)
+  end
+
+  id = Db.Value.Int(message_id)
+  # A message that Rails wrote always has its row, but nothing makes the app's schema promise it: insert when absent.
+  try Db.execute(
+    tx,
+    "insert into action_text_rich_texts (record_type, record_id, name, body, created_at, updated_at) " +
+    "values ('#{Rails.MESSAGE_RECORD}', ?, '#{Rails.BODY_NAME}', ?, #{NOW}, #{NOW}) " +
+    "on conflict (record_type, record_id, name) do update set body = excluded.body, updated_at = excluded.updated_at",
+    [id, Db.Value.Text(body)],
+  )
+
+  # An FTS5 table has no upsert: the old row goes and the new one comes in, in the same transaction.
+  try Db.execute(tx, "delete from message_search_index where rowid = ?", [id])
+  try Db.execute(tx, "insert into message_search_index (rowid, body) values (?, ?)", [id, Db.Value.Text(text)])
+  try Db.execute(tx, "update messages set updated_at = #{NOW} where id = ?", [id])
+  try Db.execute(tx, "update rooms set updated_at = #{NOW} where id = ?", [Db.Value.Int(room_id)])
+  return ok(true)
+end
+
+def delete_message_in(tx: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
+  if not try may_change?(tx, room_id, message_id, actor_id)
+    return ok(false)
+  end
+
+  try delete_message_rows(tx, Db.Value.Int(message_id))
   return ok(true)
 end
 

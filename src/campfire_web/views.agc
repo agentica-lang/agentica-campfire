@@ -279,7 +279,7 @@ export def delete_form(room: Rooms.Room) -> String
     <%@ escape &Bond.escape %>
     <form method="post" action="<%= Routes.room_path(room.id) %>"
       onsubmit="return confirm('Are you sure you want to delete this room and all messages in it? This can’t be undone.')">
-      <input name="_method" type="hidden" value="<%= Routes.ROOM_DELETE_METHOD %>">
+      <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
       <p><button type="submit" class="danger">Delete room</button></p>
     </form>
   EAG
@@ -294,34 +294,84 @@ end
 ## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the presentation
 ## `<div>` inside the frame that Turbo edits it in. The body is HTML that `Rooms.clean` (`MessageCache`, for a page) or
 ## `Rooms.post` has cleaned, the one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
-## where a message ends (see specs/message_routes.feature).
-export def message(message: Rooms.Message) -> String
+## where a message ends (see specs/message_routes.feature). `controls` is for the person who may change the message
+## (`Rooms.changeable?`): it adds the link to the edit page to the heading, after the time, and nothing else, so for
+## everybody else the markup is the benchmark's byte for byte.
+export def message(message: Rooms.Message, controls: Bool) -> String
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
     <div id="message_<%= message.id %>" data-message-id="<%= message.id %>">
       <h3><strong><%= message.author %></strong>
-        <time datetime="<%= message.created_at %>"><%= message.created_at %></time></h3>
+        <time datetime="<%= message.created_at %>"><%= message.created_at %></time><%== edit_link(message, controls) %></h3>
       <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div></turbo-frame></div>
   EAG
 end
 
-## The messages one after the other, as the room page and the page of older messages write them.
-export def messages_list(messages: List[Rooms.Message]) -> String
-  return messages.map do |one| message(one) end.join("\n")
+## The messages one after the other, as the room page and the page of older messages write them, with the controls of
+## the ones that the person (`user_id`, with the account `role`) may change.
+export def messages_list(messages: List[Rooms.Message], user_id: Int, role: String) -> String
+  return messages.map do |one| message(one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
 end
 
-## The Turbo Stream that appends the message to the list of the room, which a post answers to a browser.
-export def message_stream(room: Rooms.Room, one: Rooms.Message) -> String
+## The Turbo Stream that appends the message to the list of the room: the answer of a post to the person who wrote it,
+## with the controls (`controls` true), and the broadcast to the others, without.
+export def message_stream(room: Rooms.Room, one: Rooms.Message, controls: Bool) -> String
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
-    <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== message(one) %></template></turbo-stream>
+    <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== message(one, controls) %></template></turbo-stream>
   EAG
+end
+
+## The Turbo Stream that takes a deleted message off the page (`destroy.turbo_stream.erb` of Rails).
+export def message_removed(message_id: Int) -> String
+  return "<turbo-stream action=\"remove\" target=\"message_#{message_id}\"><template></template></turbo-stream>"
+end
+
+## The page that edits a message (the form in the frame `edit_message_ID` that Rails loads into the message): the text
+## as `HtmlSanitizer.text_of_clean` gives it, or what was typed again after a refusal (`message` says why), a button that
+## saves, and one that deletes after a question. Both are plain form posts with the `_method` of Rails' forms, so
+## they work without a script.
+export def edit_message(sidebar: String, room: Rooms.Room, one: Rooms.Message, text: String, note: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1>Edit message</h1>
+    <% if not note.empty? %>
+      <p role="alert"><%= note %></p>
+    <% end %>
+      <turbo-frame id="edit_message_<%= one.id %>">
+        <form method="post" action="<%= Routes.room_message_path(room.id, one.id) %>">
+          <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+          <p>
+            <label><span class="sr-only">Message</span>
+              <textarea name="message[body]" rows="4" required autofocus><%= text %></textarea></label>
+          </p>
+          <p><button type="submit">Save</button></p>
+        </form>
+        <form method="post" action="<%= Routes.room_message_path(room.id, one.id) %>"
+          onsubmit="return confirm('Are you sure you want to delete this message?')">
+          <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
+          <p><button type="submit" class="danger">Delete message</button></p>
+        </form>
+      </turbo-frame>
+      <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
+    </main>
+  EAG
+  return layout("Edit message", body)
 end
 
 ## The search page: the form, the recent searches (`recent`, the words of each) and, for a `query` (the words that
 ## `Searches.words` made, "" for none), the messages that match it in the markup of the room page. The query is shown as
 ## text, and only the messages carry a `data-message-id`.
-export def search(sidebar: String, query: String, messages: List[Rooms.Message], recent: List[String]) -> String
+export def search(
+  sidebar: String,
+  query: String,
+  messages: List[Rooms.Message],
+  recent: List[String],
+  user_id: Int,
+  role: String,
+) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
@@ -347,7 +397,7 @@ export def search(sidebar: String, query: String, messages: List[Rooms.Message],
       <p class="empty">No messages match.</p>
     <% end %>
       <div id="search_results">
-    <%== messages_list(messages) %>
+    <%== messages_list(messages, user_id, role) %>
       </div>
     </main>
   EAG
@@ -679,4 +729,17 @@ end
 
 def room_item_id(room: Rooms.Room) -> String
   return "room_#{room.id}"
+end
+
+# The link to the edit page, after the time, or nothing: an interpolated piece, so that without it `</h3>` follows
+# `</time>` with no byte between, as the benchmark's markup has it.
+def edit_link(message: Rooms.Message, controls: Bool) -> String
+  if not controls
+    return ""
+  end
+
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <a href="<%= Routes.room_message_edit_path(message.room_id, message.id) %>">Edit</a>
+  EAG
 end

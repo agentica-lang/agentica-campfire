@@ -181,6 +181,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   the pool per message) calls `Rooms.delete_next_message` until none is left and then `Rooms.delete_room`, trying a
   step again when the database is busy (`RoomDeletion.retry`) and logging, not sweeping, what a failure leaves. Never
   delete the messages of a room in one transaction: it holds the write lock until the last.
+  Editing and deleting a message is for its author and an account administrator (`Rooms.changeable?`; anybody else in the
+  room is answered 403, after the 404 of a room or a message that is not found): `Rooms.update_message` and
+  `Rooms.delete_message` check the right again inside their transaction, and an edit rewrites the three rows of a message
+  as `post` wrote them. The Edit link is the one thing in `Views.message` that depends on the viewer (`controls`), so
+  `MessageCache.list` takes the person and the key holds the flag; the markup without it is the benchmark's, unchanged.
 - Message cache: the markup of each message of a room page and of the older messages (`Views.message`) is cached by
   `MessageCache` in one process-wide `std/cache` store (`CAMPFIRE_CACHE_MB`, 64 by default, 0 for none), under a key of
   the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial

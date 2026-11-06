@@ -140,7 +140,7 @@ end
 ## the post does not wait for a notice for each member. A broadcast that cannot be queued is counted as lost by the hub
 ## and does not fail the post.
 export def message_created(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
-  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_stream(room, message))
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_stream(room, message, false))
   _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
 end
 

@@ -5,7 +5,9 @@ Feature: The message routes of the benchmark
   with `</turbo-frame></div>`; a post that asks for a Turbo Stream gets one that appends the message to the list of the
   room, `messages_rooms_open_ID` for an open room. A post that does not ask for it (a form without script) is
   redirected to the room page as before. The room is room 1, "All Talk", an open room, and the person is the first
-  admin, user 1.
+  admin, user 1. The person who may change a message (its author, an administrator) gets one more element in its
+  heading, the Edit link of edit_message.feature, and the markup is otherwise this one; the scenarios here are read by
+  Ana, who may change every message, so each has the link, in the heading only.
 
   Background:
     Given a fresh database
