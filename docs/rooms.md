@@ -2,6 +2,13 @@
 
 There are no live updates yet: a page shows what the database holds when it is asked for.
 
+`GET /` sends a person who is in a room to the one they were in last, as Rails does (`WelcomeController`,
+`TrackedRoomVisit`): a room page that is served (a `200` or a `304`, from the cache or not) sets the cookie `last_room` to
+the room id for 20 years (`HttpOnly`, `SameSite=Lax`; it is not set again while it holds that room, and not by a `404`, the
+settings or the older messages). With no cookie, or one for a room the person is not in, which no longer exists or is not
+a number, home opens the oldest room they are in (by `created_at`, then id; any kind and any involvement). A person in no
+room gets the welcome page. The cookie is `Secure` when `CAMPFIRE_SECURE_COOKIES=true`, as the session cookie is. It only chooses among the person's own rooms, so a forged one reveals nothing. A client that never sends it (the load generator of the benchmark) gets one `Set-Cookie` on every room page, as with Rails.
+
 The sidebar lists the rooms that a person is in. The first run makes the open room "All Talk".
 
 ## Kinds
@@ -33,19 +40,25 @@ locked`) is tried again up to five times with a growing pause; if it still fails
 task logs it and stops, and so does a restart of the app in the middle. What is left of the room (closed, with nobody in
 it, and the rest of its messages) stays in the database: nothing sweeps it. A post to a room that was deleted meanwhile
 stores nothing and is a `404`. A `POST /rooms/ID` without `_method=delete` is a `405` with `Allow: GET, HEAD, POST, DELETE`, as is any other method.
-The settings pages of open and direct rooms, which would hold the button there, do not exist yet.
 
 ## Settings
 
-`/rooms/ID/settings` exists for closed rooms only. The maker and an account administrator can
-rename the room and add or remove people. Another member is answered `403` and sees no Settings
-link; a person who is not in the room gets `404`, checked first. For a room of another type, the
-settings are the same `404`, before the form is read.
+`/rooms/ID/settings` exists for open and closed rooms. The maker and an account administrator can rename the room; for a
+closed room they can also add and remove people. Another member is answered `403` and sees no Settings link; a person who
+is not in the room gets `404`, checked first. A direct room has no settings: it is the same `404`, before the form is
+read, and it never converts.
 
-The form never takes out the person who sends it. Saving applies only its own changes, so a stale
-form neither removes someone added since nor brings back someone removed since. A person who is not
-active stays in. The update checks again, inside its transaction, that the room is still closed and
-that the person may still change it, and rolls back otherwise.
+A room converts the way Rails does it (`Rooms::OpensController#update`, `ClosedsController#update`): the form that is
+saved says what the room is to be (the field `type`, `open` or `closed`; without it, or with another value, the room stays
+what it is), and a link on the page draws the form of the other kind (`?type=closed` or `?type=open`). An open room saved
+as closed keeps the people that the form does not take out (the page draws everyone checked); a closed room saved as open
+gets every active person in it, and the ones who were in already keep their involvement. Both pages end with the button
+that deletes the room.
+
+The form never takes out the person who sends it. Saving applies only its own changes, so a stale form neither removes
+someone added since nor brings back someone removed since. A person who is not active stays in. The update checks again,
+inside its transaction, that the room is not a direct one and that the person may still change it, and rolls back
+otherwise.
 
 ## Messages
 
@@ -91,6 +104,26 @@ The form carries a random `client_message_id`, which is stored and used for noth
 there is no unique index on it, so posting it twice (a double click) stores two messages. This is a known
 gap: a double click or a retry after a lost answer posts twice, until the client checks `client_message_id`
 (the app does not).
+
+## Editing and deleting a message
+
+The person who wrote a message and an account administrator can edit and delete it (`User#can_administer?` of Rails);
+nobody else, even in a room that they are in. The heading of a message has an `Edit` link to
+`/rooms/ID/messages/MID/edit` for those two people only, and the message is the same markup for everybody else. That page
+holds the form in `<turbo-frame id="edit_message_MID">`: a textarea with the text of the message, a Save button
+(`POST /rooms/ID/messages/MID` with `_method=patch`, or a real `PATCH`) and a Delete button that asks first
+(`_method=delete`, or a real `DELETE`). A post to the message with any other `_method` is a `405` with
+`Allow: POST, PATCH, DELETE`.
+
+The text in the form is the plain text of the body: a body that this app stored (plain text made HTML) comes back exactly,
+blank lines included; a body that Rails wrote with markup comes back as its plain text, without its formatting and blank
+lines, and saving it stores that text. A save is cleaned and stored as a new message is (limits `Write something to send`
+and 10000 characters, `422` with the form again), rewrites the body in `action_text_rich_texts` and the row of
+`message_search_index`, and sets `updated_at` of the message and the room; it does not make the room unread. It redirects to the room
+page. A delete removes the message with its body, its search row and its boosts in one transaction, and answers a Turbo
+Stream that removes the message when `Accept` asks for one, else redirects to the room page. A person who is not in the
+room, a message of another room, and a message that does not exist are all `404`, checked before the `403`. There are no
+live updates yet (#52): other people see the change when they load the page.
 
 Who may see a room, and why a non-member gets `404`: [security.md](security.md).
 

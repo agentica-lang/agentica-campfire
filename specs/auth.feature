@@ -35,7 +35,7 @@ Feature: First run, sign in and sign out
     And the header "set-cookie" contains "session_token="
     And the header "set-cookie" does not contain "Secure"
     And the header "set-cookie" does not contain "__Host-"
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "Signed in as Ana"
     And the query "select count(*) from accounts" gives 1
@@ -164,7 +164,7 @@ Feature: First run, sign in and sign out
       | password      | correct horse battery |
     Then the status is 302
     And the header "location" is "/"
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "Signed in as Ana"
     And the query "select count(*) from sessions" gives 2
@@ -241,7 +241,7 @@ Feature: First run, sign in and sign out
     And the header "location" is "/"
     And the header "set-cookie" contains "session_token="
     And the header "set-cookie" does not contain "_campfire_session"
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "Signed in as Ana"
 

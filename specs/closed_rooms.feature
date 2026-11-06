@@ -14,7 +14,7 @@ Feature: Closed rooms
     And a user "Di" with the email "di@example.com", the role "member" and the status "deactivated" exists
 
   Scenario: The form of a closed room lists the active people, and the sidebar has the way to it
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body contains "<a href=\"/closed_rooms/new\">New closed room</a>"
     When I get "/closed_rooms/new"
     Then the status is 200
@@ -39,13 +39,13 @@ Feature: Closed rooms
     Then the status is 200
     And the body contains "<h1>Secret</h1>"
     When I sign in as "bea@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/2\">Secret</a>"
     When I post to "/rooms/2/messages" the form:
       | message[body] | Hi Ana |
     Then the status is 302
     When I sign in as "cy@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body does not contain "Secret"
     When I get "/rooms/2"
     Then the status is 404
@@ -318,7 +318,6 @@ Feature: Closed rooms
       | /rooms/2/settings                    |
       | /rooms/3/settings                    |
       | /rooms/4/settings                    |
-      | /rooms/1/settings                    |
       | /rooms/99/settings                   |
       | /rooms/0/settings                    |
       | /rooms/abc/settings                  |
@@ -335,7 +334,6 @@ Feature: Closed rooms
       | path                |
       | /rooms/2/settings   |
       | /rooms/3/settings   |
-      | /rooms/1/settings   |
       | /rooms/99/settings  |
       | /rooms/abc/settings |
 
@@ -374,4 +372,3 @@ Feature: Closed rooms
       | 3    | cy@example.com  | a person who is not in the room                 |
       | 3    | ana@example.com | an administrator who is not in the room         |
       | 4    | ana@example.com | a direct room                                   |
-      | 1    | ana@example.com | an open room                                    |

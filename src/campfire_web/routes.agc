@@ -21,7 +21,7 @@ export MISSING = "Not Found"
 ## of the SHA-256 of the file: `specs/assets.feature` checks it, so a change to the file renames it and this). The
 ## benchmark reads the link out of the room page (`/assets/....css`), and the folder is served under `ASSETS`.
 export ASSETS = "/assets"
-export STYLESHEET = "/assets/campfire-0d54c4f15d2135e3.css"
+export STYLESHEET = "/assets/campfire-65c285f24a690567.css"
 
 ## The script of the room page (the composer sends with `fetch`), fingerprinted like the stylesheet. Only the room page
 ## links it; the page works without it.
@@ -50,11 +50,20 @@ export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"
 export ROOM_MESSAGES = "/rooms/:id/messages"
 
-## `/rooms/:id` also takes the form that deletes a room: a `POST` with the field `_method` set to `delete`, as the forms
-## of Rails send it (a browser form cannot send `DELETE`), and a real `DELETE`. A `POST` without it, and any other method,
+## `/rooms/:id` takes the form that deletes a room: a `POST` with the field `_method` set to `delete`, as the forms of
+## Rails send it (a browser form cannot send `DELETE`), and a real `DELETE`. A `POST` without it, and any other method,
 ## is a 405 that lists the methods of the path (`ROOM_ALLOW`, which is the list that Bond itself gives for the path).
-export ROOM_DELETE_METHOD = "delete"
 export ROOM_ALLOW = "GET, HEAD, POST, DELETE"
+
+## One message of a room and the page that edits it (`:id` is the room and `:message_id` the message). The page of the
+## message takes `PATCH`, which saves the edit, and `DELETE`, and as a `POST` with `_method` set to one of the two
+## `METHOD_` names, as Rails' forms send them (a browser form cannot send either); any other `POST` is a 405 that lists
+## `ROOM_MESSAGE_ALLOW`.
+export ROOM_MESSAGE = "/rooms/:id/messages/:message_id"
+export ROOM_MESSAGE_EDIT = "/rooms/:id/messages/:message_id/edit"
+export ROOM_MESSAGE_ALLOW = "POST, PATCH, DELETE"
+export METHOD_PATCH = "patch"
+export METHOD_DELETE = "delete"
 
 ## The forms of a closed room and of a direct message, and the posts that make them (each makes a room and goes to its
 ## page), and the settings of an open or closed room: its form and the post that saves it. Both take `type`, the kind
@@ -96,6 +105,16 @@ end
 ## The path that a message of the room is posted to.
 export def room_messages_path(room_id: Int) -> String
   return "/rooms/#{room_id}/messages"
+end
+
+## The path of a message, which is where its edit form posts.
+export def room_message_path(room_id: Int, message_id: Int) -> String
+  return "/rooms/#{room_id}/messages/#{message_id}"
+end
+
+## The path of the page that edits a message.
+export def room_message_edit_path(room_id: Int, message_id: Int) -> String
+  return "/rooms/#{room_id}/messages/#{message_id}/edit"
 end
 
 ## The path of the settings of an open or closed room, which is also where its form posts.

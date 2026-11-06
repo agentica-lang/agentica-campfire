@@ -46,7 +46,7 @@ end
 def results_page(db: Db.Connection, person: Auth.User, query: String) -> Result[String]
   messages = try Searches.messages(db, person.id, query)
   recent = try Searches.recent(db, person.id)
-  return ok(Views.search(try RoomsWeb.sidebar_of(db, person), query, messages, recent))
+  return ok(Views.search(try RoomsWeb.sidebar_of(db, person), query, messages, recent, person.id, person.role))
 end
 
 def remember(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]

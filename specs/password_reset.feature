@@ -39,7 +39,7 @@ Feature: Password reset
     Then the status is 302
     And the header "location" is "/"
     And the header "set-cookie" contains "session_token="
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "Signed in as Ana"
     And the query "select count(*) from sessions" gives 1

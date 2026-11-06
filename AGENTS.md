@@ -162,9 +162,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   is inserted). The settings form carries `was`, the people in the room when it was drawn, and an update applies only
   its diff (the chosen that are not in `was` are added, `was` minus the chosen is taken out), so a stale form neither
   takes out someone added since nor brings back someone taken out; the sender is never offered. The settings of a room
-  exist for a closed room only, and for any other room the person is in they are the same 404. Only the maker and an
-  account administrator may change a closed room (`Rooms.editable?`): another member is answered 403, after the
-  membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
+  exist for an open and a closed room, and for a direct room the person is in they are the same 404 (a direct room never
+  converts). The form says what the room is to be (`type`; absent keeps it), and `Rooms.update_room` converts it: closed to
+  open grants every active person, open to closed applies the diff of the form. Only the maker and an
+  account administrator may change an open or closed room (`Rooms.editable?`): another member is answered 403, after the
+  membership check (a non-member is 404) and before the form is read; `Rooms.update_room` checks it again inside its
   transaction and fails, rolling back, when it no longer holds. The form sends plain text, stripped of the space around
   it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; every body that `Rooms`
   gives out is cleaned as it is read (`Rooms.clean`, called by `Rooms.message_of` for the search and by
@@ -177,6 +179,15 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   the pool per message) calls `Rooms.delete_next_message` until none is left and then `Rooms.delete_room`, trying a
   step again when the database is busy (`RoomDeletion.retry`) and logging, not sweeping, what a failure leaves. Never
   delete the messages of a room in one transaction: it holds the write lock until the last.
+  Editing and deleting a message is for its author and an account administrator (`Rooms.changeable?`; anybody else in the
+  room is answered 403, after the 404 of a room or a message that is not found): `Rooms.update_message` and
+  `Rooms.delete_message` check the right again inside their transaction, and an edit rewrites the three rows of a message
+  as `post` wrote them. The Edit link is the one thing in `Views.message` that depends on the viewer (`controls`), so
+  `MessageCache.list` takes the person and the key holds the flag; the markup without it is the benchmark's, unchanged.
+- Last room: `GET /` opens `Rooms.last_visited`: the room of the `last_room` cookie when the person has a membership in
+  it, else the oldest of their rooms, else the welcome page. `RoomsWeb.respond_visit` sets the cookie on a served room page
+  only (never from a handler that answers a 404), after the page cache, so a cached page sets it too. Specs that need the
+  sidebar get `/users/me/sidebar`, not `/`.
 - Message cache: the markup of each message of a room page and of the older messages (`Views.message`) is cached by
   `MessageCache` in one process-wide `std/cache` store (`CAMPFIRE_CACHE_MB`, 64 by default, 0 for none), under a key of
   the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial

@@ -5,6 +5,8 @@ import Rooms from "../src/campfire/rooms"
 def stored(id: Int, body: String) -> Rooms.Stored
   return Rooms.Stored(
     id: id,
+    room_id: 1,
+    creator_id: 1,
     author: "Ana",
     body: body,
     created_at: "2026-03-01T09:00:00.000Z",
@@ -25,19 +27,33 @@ def main() -> Void
     Test.test("a message is rendered once: the same message again adds nothing, another body adds an entry") do
       cache = MessageCache.start(1)
       once = [stored(1, "<p>Hi</p>")]
-      first = MessageCache.list(cache, once)
+      first = MessageCache.list(cache, once, 1, "member")
       bytes = held(cache)
       try Test.assert(bytes > 0, "nothing was cached")
-      try Test.eq(MessageCache.list(cache, once), first)
+      try Test.eq(MessageCache.list(cache, once, 1, "member"), first)
       try Test.eq(held(cache), bytes)
-      MessageCache.list(cache, [stored(1, "<p>Hi again</p>")])
+      MessageCache.list(cache, [stored(1, "<p>Hi again</p>")], 1, "member")
       Test.assert(held(cache) > bytes, "a changed body did not make a new entry")
+    end,
+    Test.test("the link to the edit page is for the author and an administrator, and a viewer's entry is its own") do
+      cache = MessageCache.start(1)
+      one = [stored(1, "<p>Hi</p>")]
+      link = "/rooms/1/messages/1/edit"
+      try Test.assert(MessageCache.list(cache, one, 1, "member").include?(link), "the author has no link")
+      try Test.assert(MessageCache.list(cache, one, 2, "administrator").include?(link), "an administrator has no link")
+      other = MessageCache.list(cache, one, 2, "member")
+      try Test.assert(not other.include?("/edit"), "another member has the link")
+      Test.eq(MessageCache.list(none, one, 2, "member"), other)
     end,
     Test.test("the markup is the same with the cache on and off, and 0 megabytes is no cache") do
       messages = [stored(1, "<p>Hi <b onclick=\"x()\">there</b></p>"), stored(2, "a & b")]
       try Test.assert(MessageCache.start(0).none?, "0 megabytes made a cache")
-      try Test.eq(MessageCache.list(MessageCache.start(1), messages), MessageCache.list(none, messages))
-      Test.eq(MessageCache.list(none, []), "")
+      try Test.eq(
+        MessageCache.list(MessageCache.start(1), messages, 1, "member"),
+        MessageCache.list(none, messages, 1, "member"),
+      )
+
+      Test.eq(MessageCache.list(none, [], 1, "member"), "")
     end,
   ])
 end
