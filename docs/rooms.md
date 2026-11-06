@@ -32,7 +32,7 @@ for the task. A step of the task that fails because the database is busy (no fre
 locked`) is tried again up to five times with a growing pause; if it still fails, or fails for any other reason, the
 task logs it and stops, and so does a restart of the app in the middle. What is left of the room (closed, with nobody in
 it, and the rest of its messages) stays in the database: nothing sweeps it. A post to a room that was deleted meanwhile
-stores nothing and is a `404`. A `POST /rooms/ID` without `_method=delete` is a `405` with `Allow: GET, HEAD, DELETE`.
+stores nothing and is a `404`. A `POST /rooms/ID` without `_method=delete` is a `405` with `Allow: GET, HEAD, POST, DELETE`, as is any other method.
 The settings pages of open and direct rooms, which would hold the button there, do not exist yet.
 
 ## Settings

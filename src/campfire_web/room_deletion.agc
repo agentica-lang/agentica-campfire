@@ -12,7 +12,9 @@ import Database from "../campfire/repo/database"
 import Rooms from "../campfire/rooms"
 
 # How many times a step is tried, and the pause after the first failure; the pause grows with each try (100, 200, 300
-# and 400 milliseconds, so a step that never works gives up after a second).
+# and 400 milliseconds, a second in all). Each try can also wait on its own, for a connection of the pool
+# (`CAMPFIRE_DB_CHECKOUT_MS`) or for the busy timeout of SQLite, so a step that never works gives up after a second of
+# pauses plus the waits of its five tries.
 ATTEMPTS = 5
 PAUSE_MS = 100
 

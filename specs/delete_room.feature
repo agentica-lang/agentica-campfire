@@ -142,7 +142,7 @@ Feature: Deleting a room
     When I post to "/rooms/2" the form:
       | _method | <method> |
     Then the status is 405
-    And the header "allow" is "GET, HEAD, DELETE"
+    And the header "allow" is "GET, HEAD, POST, DELETE"
     And the query "select count(*) from rooms where id = 2" gives 1
 
     Examples:
@@ -150,6 +150,13 @@ Feature: Deleting a room
       | put    |
       | patch  |
       |        |
+
+  Scenario: A real PUT is a 405 with the same list
+    Given a closed room "Secret" with the members "ana@example.com"
+    When I send a PUT to "/rooms/2"
+    Then the status is 405
+    And the header "allow" is "GET, HEAD, POST, DELETE"
+    And the query "select count(*) from rooms where id = 2" gives 1
 
   Scenario: A post that arrives after the room was deleted stores nothing
     Given a closed room "Secret" with the members "ana@example.com"
