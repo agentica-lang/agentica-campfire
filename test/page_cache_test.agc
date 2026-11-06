@@ -128,6 +128,41 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   return Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, later, ana())).none?, "a sidebar across a commit")
 end
 
+# The session that `Auth.user_for` reads from a row is kept as it is and found again. Its end is in Unix ms, which
+# guards the `* 1000` of the query (it once multiplied only the seconds of the cookie life), and is `SESSION_SECONDS`
+# after the row was made.
+def fresh_session_is_kept_and_found(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
+  _ = try Database.migrate(url)
+  stamp = "'2026-03-01 09:00:00.000000'"
+  try Db.execute(
+    writer,
+    "insert into users (name, email_address, password_digest, role, created_at, updated_at) " +
+    "values ('Ana', 'ana@example.com', 'x', 1, #{stamp}, #{stamp})",
+    [],
+  )
+
+  opened = try Auth.open_session(writer, 1, "", "")
+  token = opened.unwrap_or("")
+  try Test.assert(not token.empty?, "no session was opened")
+  found = try Auth.user_for(writer, token)
+  try Test.assert(found.some?, "a fresh session was refused")
+  session = found.unwrap!
+  expected = Time.now_ms() + Auth.SESSION_SECONDS * 1000
+  try Test.assert((session.ends_at_ms - expected).abs < 10_000, "the end of the session is not 30 days from now")
+  pages = some(
+    PageCache.Pages(
+      store: Cache.memory(1_000_000),
+      people: Cache.memory(100_000),
+      search_slots: SLOTS,
+      observer: observer,
+    ),
+  )
+
+  seen = some(try Database.version(observer))
+  PageCache.remember_user(pages, seen, token, session)
+  return Test.eq(PageCache.known_user(pages, seen, token).unwrap!.name, "Ana")
+end
+
 # A person has `search_slots` places for search pages whatever they type: the pages of more queries write over each
 # other, the page of another person stays, and a page is only found for the words, the version and the person it was
 # made for.
@@ -223,6 +258,9 @@ def main() -> Void
     ) do run_in_dir(&spots_follow_the_person) end,
     Test.test("the sidebar, the search and the person of a session are kept for their version") do
       run_in_dir(&sidebar_search_and_person_are_kept)
+    end,
+    Test.test("the session that user_for reads from a row is kept and found, and ends 30 days after it began") do
+      run_in_dir(&fresh_session_is_kept_and_found)
     end,
     Test.test("a person keeps a bounded number of search pages, each for its words, version and person") do
       run_in_dir(&searches_are_bounded_per_person)

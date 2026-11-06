@@ -42,7 +42,7 @@ RESET_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '+#{RESET_MINUTES} minutes')"
 RESEND_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{RESEND_SECONDS} seconds')"
 SESSION_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '-#{SESSION_SECONDS} seconds')"
 # The second at which a session row stops working (Unix seconds): `user_for` and `seconds_left` both count from it.
-SESSION_ENDS = "cast(strftime('%s', sessions.created_at) as integer) + #{SESSION_SECONDS}"
+SESSION_ENDS = "coalesce(cast(strftime('%s', sessions.created_at) as integer), 0) + #{SESSION_SECONDS}"
 TOUCH_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{TOUCH_SECONDS} seconds')"
 
 ## A person who is signed in.
@@ -269,7 +269,7 @@ end
 export def user_for(conn: Db.Connection, token: String) -> Result[Optional[Session]]
   rows = try Db.query(
     conn,
-    "select users.id, users.name, users.role, #{SESSION_ENDS} * 1000 as ends_at_ms, " +
+    "select users.id, users.name, users.role, (#{SESSION_ENDS}) * 1000 as ends_at_ms, " +
     "sessions.last_active_at < #{TOUCH_LIMIT} as stale " +
     "from sessions join users on users.id = sessions.user_id where sessions.token = ? and " +
     "sessions.created_at >= #{SESSION_EXPIRY} and users.status = #{Rails.ACTIVE}",

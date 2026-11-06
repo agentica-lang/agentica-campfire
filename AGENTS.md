@@ -228,7 +228,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   The sign-in filter reads the version first for a `GET` or `HEAD` of a page that is kept (`PageCache.cached?`,
   `PageCache.watch`, kept for the handler with `PageCache.seen`) and looks the person up after it: the person of a
   session is kept under the version too (`known_user`, `remember_user`), so a hit costs one lease of the observer and
-  none of the pool, and a sign-out, a deactivation, a ban or a rename is a commit and so a miss. A hit does not touch
+  none of the pool; it is valid for that version and until the session ends (`Auth.Session`), and a sign-out, a
+  deactivation, a ban or a rename is a commit and so a miss. A hit does not touch
   the session (`Auth.user_for`), so `last_active_at` can be older than its five-minute refresh on a quiet database;
   only Rails reads it. Never keep a person under a key that has no version. A page that starts to depend on something
   that no commit changes (the time, a request header, a file) must not use this cache or must put that in the key.
