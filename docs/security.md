@@ -13,7 +13,8 @@ takes it from the host itself (see [configuration.md](configuration.md)). The si
 and password-reset forms still call their field `email`.)
 
 Signing out deletes the row, so a copy of the cookie stops working. So do deactivating a person
-and resetting their password, which delete every session of that person (a deactivation deletes their reset links too).
+and resetting their password, which delete every session of that person (a deactivation deletes their reset
+links too).
 
 A session row keeps the address of the client that made it and `last_active_at`, which is written
 at most every five minutes. Starting a session deletes the rows older than the cookie life (30
@@ -111,7 +112,8 @@ who is registered. The work behind the password reset differs by a few queries, 
 measurement could in principle tell apart.
 
 The exception is sign-up on the join page: it tells a person whose email has an account
-to sign in instead (a deactivated person's address was renamed, so it is free), and only whoever holds the link can ask.
+to sign in instead (a deactivated person's address was renamed, so it is free), and only whoever holds the link
+can ask.
 
 ## Deactivation and open requests
 

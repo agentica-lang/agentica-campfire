@@ -142,14 +142,16 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a
   form that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code
   refuses a form that was open and two forms with one email make one person. Joining never reactivates a deactivated
-  person (a deactivation renames their address with `-deactivated-UUID`, as Rails does, so the address is free). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
-  `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an
-  administrator cannot deactivate themselves; deactivating deletes the person's sessions, reset links, push subscriptions, searches and shared-room memberships
+  person (a deactivation renames their address with `-deactivated-UUID`, as Rails does, so the address is free).
+  Everything of `Accounts` that changes something (`deactivate`, `reactivate`, `regenerate_join_code`) checks inside
+  its transaction that the actor is an active administrator, and an administrator cannot deactivate themselves;
+  deactivating deletes the person's sessions, reset links, push subscriptions, searches and shared-room memberships
   (`Rooms.leave_shared_rooms`) and renames the address, and reactivating restores the address (`Change.Taken` is a 409
-  when another account has it) and calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `status` itself
-  (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive. The pages with
-  the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an
-  email answers the same for every address": it answers 422 for an email that has an account (why: `docs/security.md`).
+  when another account has it) and calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads
+  `status` itself (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive.
+  The pages with the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that
+  asks for an email answers the same for every address": it answers 422 for an email that has an account (why:
+  `docs/security.md`).
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A
   link in an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email
   answers the same for every address (no enumeration). A reset token is stored as a hash only. The write

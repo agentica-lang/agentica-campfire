@@ -24,11 +24,13 @@ and is only the path otherwise. An administrator can deactivate each person but 
 reactivate a deactivated one.
 
 Deactivating is what `User#deactivate` does in Rails: it ends the sessions and the password-reset links of that
-person, deletes their push subscriptions and searches and their memberships of open and closed rooms (the direct
-ones stay), and renames their address to `name-deactivated-UUID@host`, so the address is free again and a new person can
-join with it. Their messages and rooms stay. Reactivating (which Rails does not have) gives back the original
-address, which is `409` when another account has it by then, and puts the person in every open room, as a new person
-is; the closed rooms they were in are lost, as in Rails. A person deactivated before this rename keeps their address.
+person, deletes their push subscriptions and searches and their memberships of open and closed rooms (the direct ones
+stay), and renames their address to `name-deactivated-UUID@host`, so the address is free again and a new person can
+join with it. Their messages and rooms stay. Reactivating (which Rails does not have) gives back the original address,
+which is `409` when another account has it by then, and puts the person in every open room, as a new person is; the
+closed rooms they were in are lost, as in Rails. Only a marker with a UUID right before the `@` is taken away, so an
+address that has `-deactivated-` by its owner's choice comes back as it was, and a person deactivated before this
+rename keeps their address.
 
 Everything but the page answers `403` to a member who is not an administrator, and `404` for a user
 that does not exist or is a bot. The role is checked again inside the transaction.
