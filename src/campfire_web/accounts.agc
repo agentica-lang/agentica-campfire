@@ -5,11 +5,13 @@
 ## holds the join code, so it is kept out of caches and out of the `Referer` of the links on it.
 
 import Bond from "pkg/bond/bond"
+import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
+import Hangup from "hangup"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
@@ -25,12 +27,12 @@ enum Answer
 end
 
 ## Adds the routes of the people page to `app`.
-export def add(app: Bond.App, config: Config, pool: Database.Pool) -> Bond.App
+export def add(app: Bond.App, config: Config, pool: Database.Pool, hub: Channels.Hub) -> Bond.App
   return (
     app
     |> Bond.get(Routes.USERS) do |conn| show_users(conn, config, pool) end
-    |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, true) end
-    |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, false) end
+    |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, hub, true) end
+    |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, hub, false) end
     |> Bond.post(Routes.JOIN_CODE) do |conn| regenerate_code(conn, pool) end
   )
 end
@@ -67,9 +69,16 @@ def join_link(db: Db.Connection, config: Config) -> Result[String]
   return ok("#{config.base_url}#{Routes.join_path(code)}")
 end
 
-def change_user(conn: Bond.Conn, pool: Database.Pool, deactivating: Bool) -> Result[Bond.Conn]
+# A deactivated person has no session left, so their sockets are closed and told not to come back (`Hangup`). A repeat
+# of the click does it again, which costs nothing.
+def change_user(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub, deactivating: Bool) -> Result[Bond.Conn]
   id = user_id(conn)
   answer = try Database.with_connection(pool) do |db| change_answer(conn, db, id, deactivating) end
+  case answer
+    Answer.Redirect(_) if deactivating and id.some? -> Hangup.user(hub, id.unwrap!, false)
+    _ -> return ok(respond(conn, answer))
+  end
+
   return ok(respond(conn, answer))
 end
 

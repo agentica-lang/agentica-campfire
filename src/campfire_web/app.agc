@@ -1,6 +1,7 @@
 ## The app as a program runs it: the database first, then the server.
 
 import Bond from "pkg/bond/bond"
+import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import Mailer from "../campfire/mail/mailer"
 import MessageCache from "message_cache"
@@ -14,6 +15,7 @@ export struct Running
   mailer: Mailer.Mailer
   pool: Database.Pool
   pages: Optional[PageCache.Pages]
+  cable: CableWeb.Cable
 end
 
 ## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
@@ -64,8 +66,11 @@ export def start(config: Config) -> Result[Running]
   return running
 end
 
-## Stops the server, then the mailer, which sends what is queued first, then closes the pool.
+## Stops the hub (its connections are told to reconnect and are closed), then the server, then the mailer, which sends
+## what is queued first, then closes the pool. The hub goes first because a WebSocket holds a connection of the server
+## for as long as its tab is open, and a server that waits for the open ones waits for the tabs.
 export def stop(running: Running) -> Void
+  CableWeb.stop(running.cable)
   Bond.stop(running.server)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
@@ -76,6 +81,7 @@ end
 export def run(config: Config) -> Result[Void]
   running = try start(config)
   waited = Bond.wait(running.server)
+  CableWeb.stop(running.cable)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
   Database.close_pool(running.pool)
@@ -91,9 +97,11 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   end
 
   mailer = try Mailer.start(config.smtp, config.mail_queue)
+  cable = try CableWeb.start(config, pool)
   messages = MessageCache.start(config.cache_mb)
   watched = PageCache.start(config.response_cache_mb, config.database_url, config.db_checkout_ms)
   if not watched.ok?
+    CableWeb.stop(cable)
     Mailer.stop(mailer)
     return error(
       "cannot open the database connection that watches for changes (CAMPFIRE_DATABASE_URL): #{watched.message}",
@@ -101,8 +109,17 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   end
 
   pages = watched.unwrap!
-  started = Bond.start(Web.build(config, pool, schema_version, mailer, messages, pages), config.host, config.port)
+  # A WebSocket holds a connection of the server for as long as its tab is open, so the limit is a setting.
+  limits = HttpServerOptions(max_connections: config.max_connections)
+  started = Bond.start_with(
+    Web.build(config, pool, schema_version, mailer, cable, messages, pages),
+    config.host,
+    config.port,
+    limits,
+  )
+
   if not started.ok?
+    CableWeb.stop(cable)
     Mailer.stop(mailer)
     PageCache.stop(pages)
     # The system's message names the host and the port, not the variables that a person has to change.
@@ -112,7 +129,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  return ok(Running(server: server, mailer: mailer, pool: pool, pages: pages))
+  return ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable))
 end
 
 # A cookie without `Secure` travels over plain HTTP, so the line tells a person who forgot the setting behind HTTPS.

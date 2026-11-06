@@ -65,11 +65,12 @@ struct Client
   ip_address: String
 end
 
-## What setting a new password with a reset link did. `SignedIn` holds the token of the new session. `Gone` is a link
+## What setting a new password with a reset link did. `SignedIn` holds the token of the new session and the id of the
+## person, whose other sessions it ended. `Gone` is a link
 ## that does not work (unknown, used, expired, or its person was deactivated). `Invalid` holds what is wrong with the
 ## password, to show again; the link is still good.
 export enum ResetOutcome
-  SignedIn(String)
+  SignedIn(String, Int)
   Gone
   Invalid(String)
 end
@@ -279,6 +280,29 @@ export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]
   )
 end
 
+## How many seconds the session with this token has before it is as old as a cookie lives (`SESSION_SECONDS`): the
+## time after which `purge_sessions` removes it. 0 for a session that is not there or is older. A socket that holds the
+## session is closed at the next check that finds 0 (`CableWeb`), not at that time.
+export def seconds_left(conn: Db.Connection, token: String) -> Result[Int]
+  rows = try Db.query(
+    conn,
+    "select cast(strftime('%s', created_at) as integer) + #{SESSION_SECONDS} - cast(strftime('%s', 'now') as integer) " +
+    "as remaining from sessions where token = ?",
+    [Db.Value.Text(token)],
+  )
+
+  if rows.empty?
+    return ok(0)
+  end
+
+  remaining = int_of(rows[0], "remaining")
+  if remaining < 0
+    return ok(0)
+  end
+
+  return ok(remaining)
+end
+
 ## Ends the session with this token. A token that is not there is not an error.
 export def sign_out(conn: Db.Connection, token: String) -> Result[Void]
   try Db.execute(conn, "delete from sessions where token = ?", [Db.Value.Text(token)])
@@ -354,8 +378,8 @@ export def reset_password(
   session = SecureRandom.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   made = try Db.transaction(conn) do |tx| finish_reset(tx, token, digest, session, client) end
-  if made
-    return ok(ResetOutcome.SignedIn(session))
+  if made.some?
+    return ok(ResetOutcome.SignedIn(session, made.unwrap!))
   end
 
   return ok(ResetOutcome.Gone)
@@ -458,8 +482,15 @@ def token_digest(token: String) -> String
   return Digest.sha256_hexdigest(token.bytes)
 end
 
-# False when the link was used or expired since it was looked at, or when its person is gone, with no session started.
-def finish_reset(tx: Db.Connection, token: String, digest: String, session: String, client: Client) -> Result[Bool]
+# `none` when the link was used or expired since it was looked at, or when its person is gone, with no session started;
+# else the id of the person.
+def finish_reset(
+  tx: Db.Connection,
+  token: String,
+  digest: String,
+  session: String,
+  client: Client,
+) -> Result[Optional[Int]]
   used = try Db.query(
     tx,
     "update password_resets set used_at = #{NOW} where token_digest = ? and used_at is null and expires_at > #{NOW} " +
@@ -468,7 +499,7 @@ def finish_reset(tx: Db.Connection, token: String, digest: String, session: Stri
   )
 
   if used.empty?
-    return ok(false)
+    return ok(none)
   end
 
   user_id = int_of(used[0], "user_id")
@@ -480,13 +511,13 @@ def finish_reset(tx: Db.Connection, token: String, digest: String, session: Stri
   )
 
   if changed == 0
-    return ok(false)
+    return ok(none)
   end
 
   try Db.execute(tx, "delete from sessions where user_id = ?", [Db.Value.Int(user_id)])
   try Db.execute(tx, "delete from password_resets where user_id = ? and used_at is null", [Db.Value.Int(user_id)])
   try insert_session(tx, user_id, session, client)
-  return ok(true)
+  return ok(some(user_id))
 end
 
 def account_exists?(conn: Db.Connection) -> Result[Bool]

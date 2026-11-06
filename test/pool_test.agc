@@ -3,6 +3,7 @@ import HTTP from "std/http"
 import Config from "../src/campfire/config"
 import Database from "../src/campfire/repo/database"
 import Mailer from "../src/campfire/mail/mailer"
+import CableWeb from "../src/campfire_web/cable"
 import Web from "../src/campfire_web/web"
 
 SECRET = "0123456789abcdef0123456789abcdef"
@@ -24,7 +25,8 @@ def probe(dir: String) -> Result[Void]
   # One connection, and a short wait for it. The pool belongs to the task of the test, which closes it.
   pool = try Database.open_pool(config.database_url, 1, CHECKOUT_MS)
   mailer = try Mailer.start(none, 1)
-  app = Web.build(config, pool, schema.version, mailer)
+  cable = try CableWeb.start(config, pool)
+  app = Web.build(config, pool, schema.version, mailer, cable)
   started: Channel[Bool] = Channel.new(1)
   release: Channel[Bool] = Channel.new(1)
   holder = Task.spawn do hold(pool, started, release) end
@@ -34,6 +36,7 @@ def probe(dir: String) -> Result[Void]
   try release.send(true, WAIT_MS)
   held = Task.await(holder)
   after = Testing.request(app, "GET", "/")
+  CableWeb.stop(cable)
   Database.close_pool(pool)
   try held
   try Test.eq(busy.status, 503)

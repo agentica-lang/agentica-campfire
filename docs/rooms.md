@@ -1,6 +1,7 @@
 # Rooms and messages
 
-There are no live updates yet: a page shows what the database holds when it is asked for.
+A page shows what the database holds when it is asked for. The server also pushes what changes over `/cable`
+([cable.md](cable.md)); the page does not listen yet.
 
 `GET /` sends a person who is in a room to the one they were in last, as Rails does (`WelcomeController`,
 `TrackedRoomVisit`): a room page that is served (a `200` or a `304`, from the cache or not) sets the cookie `last_room` to

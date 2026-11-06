@@ -55,6 +55,15 @@ export DEFAULT_RESPONSE_CACHE_MB = 64
 ## The most that `CAMPFIRE_RESPONSE_CACHE_MB` may ask for (4 GiB).
 export MAX_RESPONSE_CACHE_MB = 4096
 
+## The connections that the server holds at once when `CAMPFIRE_MAX_CONNECTIONS` is not set. A WebSocket of `/cable`
+## holds one for as long as its tab is open, so this is the tabs that can be connected, and the requests share what is
+## left: set it above the clients and the posters.
+export DEFAULT_MAX_CONNECTIONS = 4_096
+
+## The fewest and the most that `CAMPFIRE_MAX_CONNECTIONS` may ask for.
+export MIN_MAX_CONNECTIONS = 16
+export MAX_MAX_CONNECTIONS = 65_535
+
 ## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set.
 export DEFAULT_MAIL_QUEUE = 32
 
@@ -86,7 +95,8 @@ SMTP_URL_FORM = (
 ## (not set) makes every avatar link a 404; it is as secret as the session secret. `storage_dir` is the folder of the
 ## files of Active Storage (`xx/yy/KEY` inside it, as Rails' Disk service writes them), `DATA_DIR/files` when it is
 ## not set, and `assets_dir` the folder of the stylesheet. `cache_mb` is the size of the cache of rendered messages in
-## megabytes, 0 for none, and `response_cache_mb` the size of the cache of whole pages, 0 for none.
+## megabytes, 0 for none, and `response_cache_mb` the size of the cache of whole pages, 0 for none. `max_connections` is
+## the connections that the server holds at once, the WebSockets of `/cable` among them.
 export struct Config
   host: String
   port: Int
@@ -106,6 +116,7 @@ export struct Config
   assets_dir: String = DEFAULT_ASSETS_DIR
   cache_mb: Int = DEFAULT_CACHE_MB
   response_cache_mb: Int = DEFAULT_RESPONSE_CACHE_MB
+  max_connections: Int = DEFAULT_MAX_CONNECTIONS
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -127,7 +138,7 @@ end
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`,
 ## `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`, `CAMPFIRE_STORAGE_DIR` and
-## `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB` and `CAMPFIRE_RESPONSE_CACHE_MB`, with the defaults for a variable that
+## `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB`, `CAMPFIRE_RESPONSE_CACHE_MB` and `CAMPFIRE_MAX_CONNECTIONS`, with the defaults for a variable that
 ## is not set (the secret has none, and without the smtp url there is no email). An `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
@@ -149,6 +160,7 @@ export def load() -> Result[Config]
   assets_dir = System.env("CAMPFIRE_ASSETS_DIR").unwrap_or(DEFAULT_ASSETS_DIR)
   cache_mb = System.env("CAMPFIRE_CACHE_MB").unwrap_or("")
   response_cache_mb = System.env("CAMPFIRE_RESPONSE_CACHE_MB").unwrap_or("")
+  max_connections = System.env("CAMPFIRE_MAX_CONNECTIONS").unwrap_or("")
   return parse(
     host,
     port,
@@ -169,6 +181,7 @@ export def load() -> Result[Config]
     assets_dir,
     cache_mb,
     response_cache_mb,
+    max_connections,
   )
 end
 
@@ -195,6 +208,8 @@ end
 ## empty. `cache_mb` (`CAMPFIRE_CACHE_MB`) is the size of the cache of rendered messages, 0 to `MAX_CACHE_MB`
 ## (`DEFAULT_CACHE_MB` when left out); 0 turns the cache off. `response_cache_mb` (`CAMPFIRE_RESPONSE_CACHE_MB`) is the
 ## same for the cache of whole pages, 0 to `MAX_RESPONSE_CACHE_MB` (`DEFAULT_RESPONSE_CACHE_MB` when left out).
+## `max_connections` (`CAMPFIRE_MAX_CONNECTIONS`) is `MIN_MAX_CONNECTIONS` to `MAX_MAX_CONNECTIONS`
+## (`DEFAULT_MAX_CONNECTIONS` when left out).
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -215,6 +230,7 @@ export def parse(
   assets_dir: String = DEFAULT_ASSETS_DIR,
   cache_mb: String = "",
   response_cache_mb: String = "",
+  max_connections: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -281,6 +297,14 @@ export def parse(
     MAX_RESPONSE_CACHE_MB,
   )
 
+  connections = try parse_db_number(
+    "CAMPFIRE_MAX_CONNECTIONS",
+    max_connections,
+    DEFAULT_MAX_CONNECTIONS,
+    MIN_MAX_CONNECTIONS,
+    MAX_MAX_CONNECTIONS,
+  )
+
   if assets_dir.strip.empty?
     return error("CAMPFIRE_ASSETS_DIR is empty")
   end
@@ -316,6 +340,7 @@ export def parse(
       assets_dir: assets_dir.strip,
       cache_mb: cache,
       response_cache_mb: pages,
+      max_connections: connections,
     ),
   )
 end
