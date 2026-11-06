@@ -28,13 +28,15 @@ export MAX_NAME_LENGTH = 100
 # The key of the setting in the JSON of `accounts.settings`, the one Rails writes.
 RESTRICT_KEY = "restrict_room_creation_to_administrators"
 
-## A person of the account as the people page lists them. A bot is not a person, so it is never in the list.
+## A person of the account as the people page lists them. A bot is not a person, so it is never in the list. A person
+## who is neither `active` nor `banned` is deactivated.
 export struct Person
   id: Int
   name: String
   email: String
   role: String
   active: Bool
+  banned: Bool
 end
 
 ## What a deactivation or reactivation did. `Unchanged` is a person who was in that state already (a double click).
@@ -150,14 +152,12 @@ export def regenerate_join_code(conn: Db.Connection, actor_id: Int) -> Result[Bo
   return Db.transaction(conn) do |tx| regenerate_in(tx, actor_id) end
 end
 
-## The people of the account by name: the active ones, or with `everyone` the deactivated ones too, for the
-## administrator who may bring them back.
+## The people of the account by name: the active ones, or with `everyone` the deactivated and banned ones too, for the
+## administrator who may bring them back or lift the ban.
 export def people(conn: Db.Connection, everyone: Bool) -> Result[List[Person]]
-  # A banned person is not in the list: banning is not something the app does yet, and the people page has no way back
-  # from it.
   shown = "status = #{Rails.ACTIVE}"
   if everyone
-    shown = "status in (#{Rails.ACTIVE}, #{Rails.DEACTIVATED})"
+    shown = "status in (#{Rails.ACTIVE}, #{Rails.DEACTIVATED}, #{Rails.BANNED})"
   end
 
   sql = "select id, name, email_address, role, status from users where role <> #{Rails.BOT} and #{shown}"
@@ -170,6 +170,7 @@ export def people(conn: Db.Connection, everyone: Bool) -> Result[List[Person]]
         email: text_of(row, "email_address"),
         role: Rails.role_name(int_of(row, "role")),
         active: int_of(row, "status") == Rails.ACTIVE,
+        banned: int_of(row, "status") == Rails.BANNED,
       )
     end,
   )

@@ -189,6 +189,25 @@ Feature: Live updates over /cable
     Then client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"
     And client "bea" is closed by the server with the code 1000
 
+  Scenario: A person who is banned is disconnected and told not to come back, and the room sees the messages go
+    Given I run the sql "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) values (1, 2, 'm1', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
+    When I sign in as "bea@example.com"
+    And client "bea" connects with the cookies of the browser
+    And client "bea" subscribes to the channel "UnreadRoomsChannel"
+    Then client "bea" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "ana@example.com"
+    And client "ana" connects with the cookies of the browser
+    And I get "/rooms/1"
+    And client "ana" subscribes to the streams of the last page
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When I post to "/users/2/ban" the form:
+      | x | y |
+    Then the status is 302
+    And client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"
+    And client "bea" is closed by the server with the code 1000
+    And client "ana" eventually receives a frame containing "message_"
+    And the query "select count(*) from messages where creator_id = 2" gives 0 within 5000 milliseconds
+
   Scenario: A person who is removed on the account page is disconnected and told not to come back
     When I sign in as "bea@example.com"
     And client "bea" connects with the cookies of the browser

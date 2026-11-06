@@ -29,7 +29,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 | Boosts (`models/boost.rb`, `messages/boosts_controller.rb`) | SQL | exists | APP | S |
 | Bots API + webhooks (`user/bot.rb` key `id-token`, `messages/by_bots_controller.rb`, `webhook.rb` 7 s timeout, `jobs/bot/webhook_job.rb`) | HTTP.post with timeout, Bond routes, SecureRandom | exists | APP | S |
 | Auth: sessions, bcrypt, rate limit 10/3 min, signed cookie, CSRF header-only (`sessions_controller.rb`, `concerns/authentication.rb`, `session.rb`, `user.rb`) | scrypt/PBKDF2, HMAC + `secure_compare`, std/cookie, Bond cookies | exists: Bond cookie sessions, `Bond.csrf` (Sec-Fetch-Site and Origin) and `Conn.remote_addr`; the rate limit is built per IP, 10 sign-in posts in 3 minutes (`src/campfire/rate_limit.agc`) | BOND, STD | M |
-| Invite link, first-run wizard, roles, bans by IP (`account/joinable.rb`, `first_runs_controller.rb`, `user/role.rb`, `user/bannable.rb`, `block_banned_requests.rb`) | SecureRandom | exists; bans by IP are not built, and can use `Conn.remote_addr` | APP, STD | S |
+| Invite link, first-run wizard, roles, bans by IP (`account/joinable.rb`, `first_runs_controller.rb`, `user/role.rb`, `user/bannable.rb`, `block_banned_requests.rb`) | SecureRandom | exists; bans by IP use `Conn.remote_addr` | APP, STD | S |
 | Session transfer by QR (`sessions/transfers_controller.rb`, `user/transferable.rb`, `qr_code_controller.rb`, rqrcode) | HMAC tokens | missing: QR encoder (or draw it client-side in JS) | APP | S |
 | DB: SQLite, WAL, 13 tables, FTS5 (`db/schema.rb`, `config/database.yml`, `initializers/sqlite_wal_checkpoint.rb`) | agentica-db `Db`/`Orm`, sqlite adapter (busy timeout 5 s, BEGIN IMMEDIATE) | partial: a connection is owned by one task, so the app lends them from a `DbPool` (one per request); a migrations runner exists | DB | M |
 | Background jobs (resque + Redis, 6 jobs in `app/jobs/`) | Task, Channel, Task.map | exists in-process (not durable) | APP | S |
@@ -69,7 +69,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
    channel. Workaround for a prototype: a second port behind a path-routing proxy.
 2. **`HttpRequest` had no peer address** (std/http, S). Done: `HttpRequest.remote_addr` (Agentica 0.22.0) and
    `Conn.remote_addr` (Bond main, which this repo pins until Bond 0.6.0). The session IP and the per-IP sign-in
-   limit use it; bans by IP are not built.
+   limit and the bans by IP use it.
 3. **EAG lands, with an escape policy** (LANG, in progress). Output is raw (`stdlib/eag.agc`: write
    `EAG.html_escape(x)` everywhere). For a chat app one missed escape is stored XSS. Decide before the
    views are written: an auto-escaping `<%= %>` plus a `SafeHtml`-like marker for partials, or a lint/check.

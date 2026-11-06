@@ -110,6 +110,11 @@ export USER = "/users/:id"
 export PROFILE = "/users/:id/profile"
 export PROFILE_ALLOW = "GET, HEAD, POST, PATCH, PUT"
 
+## The ban of a user (`:id` is the user): a `POST` bans them and a `DELETE`, or a `POST` with `_method` set to
+## `METHOD_DELETE`, lifts the ban. Any other method is a 405 that lists `USER_BAN_ALLOW`.
+export USER_BAN = "/users/:id/ban"
+export USER_BAN_ALLOW = "POST, DELETE"
+
 ## The join link of the account: its page and the post of its form, which is the same path, with the join code as
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
 export JOIN = "/join/:code"
@@ -206,6 +211,11 @@ end
 ## The path of the profile of the person who is signed in, which is also where its form posts.
 export def profile_path() -> String
   return "/users/me/profile"
+end
+
+## The path of the ban of this user, which is where the forms of the ban and of its lifting post.
+export def user_ban_path(user_id: Int) -> String
+  return "/users/#{user_id}/ban"
 end
 
 ## The path that deactivates this user.

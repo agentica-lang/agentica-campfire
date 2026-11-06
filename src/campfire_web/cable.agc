@@ -156,8 +156,8 @@ export def message_edited(cable: Cable, room: Rooms.Room, message: Rooms.Message
   _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_replaced_stream(message))
 end
 
-export def message_removed(cable: Cable, room: Rooms.Room, message_id: Int) -> Void
-  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_removed(message_id))
+export def message_removed(cable: Cable, room_id: Int, message_id: Int) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.message_removed(message_id))
 end
 
 ## A room was made (`renamed` false) or renamed: its entry goes to the sidebars that list it, in a task of its own.
