@@ -2,6 +2,13 @@
 
 There are no live updates yet: a page shows what the database holds when it is asked for.
 
+`GET /` sends a person who is in a room to the one they were in last, as Rails does (`WelcomeController`,
+`TrackedRoomVisit`): a room page that is served (a `200` or a `304`, from the cache or not) sets the cookie `last_room` to
+the room id for 20 years (`HttpOnly`, `SameSite=Lax`; it is not set again while it holds that room, and not by a `404`, the
+settings or the older messages). With no cookie, or one for a room the person is not in, which no longer exists or is not
+a number, home opens the oldest room they are in (by `created_at`, then id; any kind and any involvement). A person in no
+room gets the welcome page. The cookie only chooses among the person's own rooms, so a forged one reveals nothing.
+
 The sidebar lists the rooms that a person is in. The first run makes the open room "All Talk".
 
 ## Kinds

@@ -18,7 +18,7 @@ Feature: Digests from a Rails Campfire
     Then the status is 302
     And the header "location" is "/"
     And the header "set-cookie" contains "session_token="
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "Signed in as Dave"
     And the query "select count(*) from users where password_digest like '$2a$12$%'" gives 1

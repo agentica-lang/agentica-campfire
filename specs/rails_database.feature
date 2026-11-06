@@ -93,7 +93,7 @@ Feature: A database that Rails made
     And I post to "/session" the form:
       | email_address | david@37signals.com |
       | password      | secret123456        |
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body contains "Watercooler"
     When I get "/rooms/1"
     Then the status is 200
