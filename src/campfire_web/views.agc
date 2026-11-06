@@ -879,6 +879,21 @@ export def user_page(sidebar: String, profile: Profiles.Detail, me: Int, admin: 
       </form>
     <% end %>
     <% end %>
+    <% if admin and profile.id != me and not gone and not bot %>
+    <% if profile.status == Rails.BANNED %>
+      <p class="banned">Banned</p>
+      <form method="post" action="<%= Routes.user_ban_path(profile.id) %>"
+        onsubmit="return confirm('Are you sure you want to remove the ban on this user?')">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
+        <button type="submit">Remove ban</button>
+      </form>
+    <% else %>
+      <form method="post" action="<%= Routes.user_ban_path(profile.id) %>"
+        onsubmit="return confirm('Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.')">
+        <button type="submit" class="danger">Ban <%= profile.name %></button>
+      </form>
+    <% end %>
+    <% end %>
     <% if profile.id == me %>
       <p><a href="<%= Routes.profile_path() %>">Edit my profile</a></p>
     <% end %>
@@ -975,7 +990,9 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
     <% if person.role == Rooms.ADMINISTRATOR_ROLE_NAME %>
           <span class="badge">administrator</span>
     <% end %>
-    <% if not person.active %>
+    <% if person.banned %>
+          <span class="badge">banned</span>
+    <% elsif not person.active %>
           <span class="badge">deactivated</span>
     <% end %>
     <% end %>
@@ -984,7 +1001,7 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
             <button type="submit" class="danger">Deactivate</button>
           </form>
     <% end %>
-    <% if admin and not person.active %>
+    <% if admin and not person.active and not person.banned %>
           <form method="post" action="<%= Routes.user_reactivate_path(person.id) %>">
             <button type="submit" class="quiet">Reactivate</button>
           </form>

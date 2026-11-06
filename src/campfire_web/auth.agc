@@ -8,6 +8,7 @@ import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
+import Bans from "../campfire/bans"
 import Database from "../campfire/repo/database"
 import Failure from "failure"
 import Hangup from "hangup"
@@ -82,6 +83,7 @@ export def add(
   return (
     app
     |> Bond.csrf()
+    |> Bond.before() do |conn| reject_banned(conn, pool) end
     |> Bond.sessions(session_options(config))
     |> Bond.before() do |conn| require_sign_in(conn, pool) end
     |> Bond.get(Routes.FIRST_RUN) do |conn| show_first_run(conn, pool) end
@@ -159,6 +161,22 @@ def user_of_session(conn: Bond.Conn, db: Db.Connection) -> Result[Optional[Auth.
 end
 
 # A visitor goes to the first run while there is no account, and to the sign-in page after that.
+# A request that changes something and comes from an address that a ban holds is refused with 429 before anything else
+# is looked at (`BlockBannedRequests`): a banned person cannot sign in again from where they were, nor post. Reading
+# stays open, as in Rails. The address is the peer of the connection, as for the sign-in limit.
+def reject_banned(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  if conn.method == "GET" or conn.method == "HEAD"
+    return ok(conn)
+  end
+
+  banned = try Database.with_connection(pool) do |db| Bans.banned?(db, conn.remote_addr) end
+  if banned
+    return ok(Bond.text(conn, 429, "Too Many Requests"))
+  end
+
+  return ok(conn)
+end
+
 def require_sign_in(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   if public?(conn.path)
     return ok(conn)

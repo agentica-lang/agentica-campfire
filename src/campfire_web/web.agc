@@ -51,7 +51,7 @@ export def build(
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots)
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
-    |> AccountsWeb.add(config, pool, cable.hub)
+    |> AccountsWeb.add(config, pool, cable)
     |> SidebarsWeb.add(pool, cable)
     |> SearchesWeb.add(pool)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)

@@ -10,6 +10,9 @@ import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
+import Bans from "../campfire/bans"
+import CableWeb from "cable"
+import ContentRemoval from "content_removal"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
 import Hangup from "hangup"
@@ -36,18 +39,22 @@ enum Answer
   Refused(String)
   NotAllowed(String)
   Redirect(String)
+  Banned(Int)
   NotFound
   Forbidden
   SignedOut
 end
 
 ## Adds the routes of the people page to `app`.
-export def add(app: Bond.App, config: Config, pool: Database.Pool, hub: Channels.Hub) -> Bond.App
+export def add(app: Bond.App, config: Config, pool: Database.Pool, cable: CableWeb.Cable) -> Bond.App
+  hub = cable.hub
   return (
     app
     |> Bond.get(Routes.USERS) do |conn| show_users(conn, config, pool) end
     |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, hub, true) end
     |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, hub, false) end
+    |> Bond.post(Routes.USER_BAN) do |conn| post_ban(conn, pool, cable) end
+    |> Bond.delete(Routes.USER_BAN) do |conn| change_ban(conn, pool, cable, false) end
     |> Bond.post(Routes.JOIN_CODE) do |conn| regenerate_code(conn, pool) end
     |> Bond.get(Routes.ACCOUNT_EDIT) do |conn| show_account(conn, pool) end
     |> Bond.post(Routes.ACCOUNT) do |conn| post_account(conn, pool) end
@@ -56,6 +63,59 @@ export def add(app: Bond.App, config: Config, pool: Database.Pool, hub: Channels
     |> Bond.patch(Routes.ACCOUNT_USER) do |conn| set_role(conn, pool) end
     |> Bond.delete(Routes.ACCOUNT_USER) do |conn| remove_person(conn, pool, hub) end
   )
+end
+
+# A `POST` with no `_method` is the ban button of Rails and one with `_method` set to `delete` is the button that lifts it;
+# any other is a 405 that lists the methods of the path.
+def post_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+  method = try AuthWeb.form_method(conn)
+  if method == ""
+    return change_ban(conn, pool, cable, true)
+  end
+
+  if method == Routes.METHOD_DELETE
+    return change_ban(conn, pool, cable, false)
+  end
+
+  return ok(respond(conn, Answer.NotAllowed(Routes.USER_BAN_ALLOW)))
+end
+
+# A banned person has no session left, so their sockets are closed and told not to come back, and their messages are
+# taken away by a task, which tells the rooms (`RemoveBannedContentJob`). Only a ban that changed something does either.
+def change_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, banning: Bool) -> Result[Bond.Conn]
+  id = user_id(conn)
+  answer = try Database.with_connection(pool) do |db| ban_answer(conn, db, id, banning) end
+  case answer
+    Answer.Banned(banned_id) ->
+      Hangup.user(cable.hub, banned_id, false)
+      _ = ContentRemoval.start(pool, cable, banned_id)
+    _ -> nil
+  end
+
+  return ok(respond(conn, answer))
+end
+
+# Administrator first (403), then the person (404), as the other administrator-only posts.
+def ban_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], banning: Bool) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
+    some(_) if id.none? -> return ok(Answer.NotFound)
+    some(person) -> return banned_answer(db, person, id.unwrap!, banning)
+  end
+end
+
+def banned_answer(db: Db.Connection, person: Auth.User, user_id: Int, banning: Bool) -> Result[Answer]
+  if banning
+    change = try Bans.ban(db, person.id, user_id)
+    case change
+      Accounts.Change.Changed -> return ok(Answer.Banned(user_id))
+      _ -> return answer_of(change, Routes.user_path(user_id))
+    end
+  end
+
+  return answer_of(try Bans.unban(db, person.id, user_id), Routes.user_path(user_id))
 end
 
 def show_account(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
@@ -352,6 +412,7 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.Refused(html) -> return AuthWeb.private_page(Bond.html(conn, 422, html))
     Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
+    Answer.Banned(user_id) -> return Bond.redirect(conn, Routes.user_path(user_id))
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
     Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
