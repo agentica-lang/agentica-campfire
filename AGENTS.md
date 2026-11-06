@@ -212,6 +212,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an
   attribute or a script. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
   tag or attribute.
+- Message windows: `Rooms.page` (before), `Rooms.page_after`, `Rooms.around` and `Rooms.since` read by `created_at` then
+  `id`, never by id alone. `/rooms/:id/:at` serves `@MESSAGE` because Bond params are whole segments (the handler
+  404s any other segment); it is not kept in `PageCache` (a cursor per message), `?after=` is (kind `AFTER`).
+  `refresh` compares `created_at`/`updated_at` as text against `INSTANT` of `rooms.agc` (the millisecond time written as the
+  columns are), answers Turbo Stream whatever `Accept` says, and reads `since` as `to_i` (no number is 0).
 - Involvement: `/rooms/ID/involvement` reads and sets the person's own `memberships.involvement` (`Rooms.involvement`,
   `Rooms.set_involvement`); the levels a room offers are `Rooms.involvement_levels` (a direct room never offers
   `invisible`, as Rails), and anything else is 422 with nothing written. Membership is checked first (404), then the

@@ -96,6 +96,23 @@ the same markup without the layout or the sidebar: the 40 messages before `?befo
 it), `204` when there are none, `404` for a room that is not the person's. Every page links one fingerprinted
 stylesheet, `/assets/campfire-DIGEST.css` (see [Assets](#assets)).
 
+`?after=ID` on the same route is the 40 messages after message ID, oldest first, `204` when there are none; with both
+cursors, `before` wins, as in Rails. A cursor that is not a number is `400`; one that names no message of the room gives
+nothing (`204`).
+`/rooms/ID/@MESSAGE` is the room page around a message (`page_around`): the 40 before it, it, and the 40 after, with
+`Older messages` and `Latest messages` links where the window does not reach the first or the last message. A message
+that the room does not have shows the newest page, as in Rails; a segment that is not `@` and a number is `404`. Bond's
+route params are whole segments, so the route is `/rooms/:id/:at` (a literal segment such as `messages` wins), which
+also makes `POST` to another path under a room a `405` where it was a `404`. That page, like the room page with
+`?before=`, is not kept in the cache, since there is one for every message; `?after=` is kept like `?before=`.
+
+`GET /rooms/ID/refresh?since=MILLISECONDS` is how a client catches up after a lost connection: Turbo Streams that
+append the messages created after that time (the first 40, oldest first) to the list, and a replace for each other
+message edited after it (the newest 40). A message created since but past the first 40 is a replace too (the client has
+nothing to replace, so it ignores it), as in Rails. `since` is read as Rails' `to_i`: none, or not a number, or before
+the epoch, is the epoch. The answer is always a Turbo Stream, empty when nothing changed. The time is compared as text
+with the columns (`2026-03-01 09:00:00.123000`), so a message made in the same millisecond as `since` counts as after it.
+
 The room page and the page of older messages are kept whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0
 for none), as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept for one person, one
 room and one `?before=`, so nobody is sent a page that was made for somebody else, and only a 200 is kept. It is valid
