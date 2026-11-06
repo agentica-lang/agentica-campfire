@@ -232,11 +232,22 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   `refresh` compares `created_at`/`updated_at` as text against `INSTANT` of `rooms.agc` (the millisecond time written as the
   columns are), answers Turbo Stream whatever `Accept` says, reads `since` as `to_i` (its leading digits) and compares with `>=`, so a message in the
   same millisecond as the last one the client saw is not skipped.
+- Account settings: `/account/edit`, `PATCH /account` (name) and `PATCH`/`DELETE /account/users/:id` (role, removal =
+  `Accounts.deactivate`) are administrator-only writes: 403 for a member before the form is read, then 404 for a user
+  who is not an active person, then 400/422 for the form. `Accounts.set_role` and `Accounts.rename` check that the actor
+  is an active administrator again inside the transaction, and `set_role` refuses the actor's own row, so the account always
+  keeps an administrator. `AuthWeb.form_method` reads `_method` for every `POST` override.
+- Who may create rooms: `Accounts.room_creation_restricted?` reads the key `restrict_room_creation_to_administrators`
+  of `accounts.settings` with `json_extract`, guarded by `json_valid`. `RoomsWeb.may_create_rooms?` is the one check,
+  used by the four open and closed create routes (403 before the form is read) and by `sidebar_of` (the links). A
+  direct room is never restricted, as in Rails. `Accounts.save` writes the name and the flag in one transaction with
+  `json_set`, keeping the other keys.
 - Involvement: `/rooms/ID/involvement` reads and sets the person's own `memberships.involvement` (`Rooms.involvement`,
-  `Rooms.set_involvement`); the levels a room offers are `Rooms.involvement_levels` (a direct room never offers
-  `invisible`, as Rails), and anything else is 422 with nothing written. Membership is checked first (404), then the
-  form. `invisible` is the only way out of a sidebar (the room stays reachable and the person a member), and `visible`
-  and `receive` already skip it.
+  `Rooms.set_involvement`); the choices a room offers are `Rooms.involvement_levels` (`mentions` shown, `invisible`
+  hidden; a direct room offers none, as Rails never lets it be `invisible`), and anything else is 422 with nothing
+  written. Saving `mentions` keeps an `everything` or `nothing` row as it is; #57 and #81 bring those levels back.
+  Membership is checked first (404), then the form. `invisible` is the only way out of a sidebar (the room stays
+  reachable and the person a member), and `visible` and `receive` already skip it.
 - Search: a query is words, never FTS5 syntax. `Searches.words` turns everything that is not a letter, digit or `_` into
   a separator (as `SearchesController#query` does) and `Searches.match` puts each word in double quotes, so a query
   cannot make the index fail; never hand the text of a client to `MATCH` in any other way. A search reads the rooms the

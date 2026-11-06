@@ -189,6 +189,17 @@ Feature: Live updates over /cable
     Then client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"
     And client "bea" is closed by the server with the code 1000
 
+  Scenario: A person who is removed on the account page is disconnected and told not to come back
+    When I sign in as "bea@example.com"
+    And client "bea" connects with the cookies of the browser
+    And client "bea" subscribes to the channel "UnreadRoomsChannel"
+    Then client "bea" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "ana@example.com"
+    And I send a DELETE to "/account/users/2"
+    Then the status is 302
+    And client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"
+    And client "bea" is closed by the server with the code 1000
+
   Scenario: A sign-out ends the sockets of the person, who comes back where another session of theirs is still good
     When client "first" connects with the cookies of the browser
     And the browser saves a copy of its cookies

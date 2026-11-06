@@ -25,7 +25,7 @@ Feature: Editing and deleting a message
     And the body ends with "</turbo-frame></div>"
     When I sign in as "cy@example.com"
     And I get "/rooms/1"
-    Then the body does not contain "/edit"
+    Then the body does not contain "/messages/1/edit"
     When I sign in as "ana@example.com"
     And I get "/rooms/1"
     Then the body contains "<a href=\"/rooms/1/messages/1/edit\">Edit</a>" 1 times

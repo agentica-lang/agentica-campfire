@@ -47,9 +47,10 @@ export def layout(title: String, content: String) -> String
 end
 
 ## The column at the side of every page of a person who is signed in: who they are, their rooms (the direct messages
-## apart, named after the other people) and the ways to make a room and to sign out. It is raw HTML that this file
-## made, for the pages below to put in.
-export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
+## apart, named after the other people) and the ways to make a room and to sign out. `can_create` is false for a member
+## when the account lets only administrators make a shared room: the two links to those forms are then left out. It is
+## raw HTML that this file made, for the pages below to put in.
+export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool) -> String
   shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
   direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
   return <<~EAG
@@ -73,11 +74,14 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
         </ul>
     <% end %>
         <ul class="actions" aria-label="Actions">
+    <% if can_create %>
           <li><a href="<%= Routes.ROOM_NEW %>">New room</a></li>
           <li><a href="<%= Routes.CLOSED_ROOM_NEW %>">New closed room</a></li>
+    <% end %>
           <li><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></li>
           <li><a href="<%= Routes.SEARCHES %>">Search</a></li>
           <li><a href="<%= Routes.USERS %>">People</a></li>
+          <li><a href="<%= Routes.ACCOUNT_EDIT %>">Account</a></li>
         </ul>
       </div>
       <form method="post" action="<%= Routes.SIGN_OUT %>">
@@ -85,6 +89,72 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
       </form>
     </nav>
   EAG
+end
+
+## The account settings page (`accounts/edit.html.erb`): the name of the account and, for an administrator, a form that
+## renames it (`name` is the box, `note` says why a save was refused) and a button that switches who may create rooms
+## (`restricted`, the setting of the account: only administrators, or everybody), then the active people with the administrators
+## first, as Rails lists them. An administrator can make each person but themselves an administrator or a member, and
+## remove them (deactivate, which an administrator undoes on the people page). Plain form posts with the `_method` of
+## Rails' forms, so they work without a script.
+export def account(
+  sidebar: String,
+  name: String,
+  people: List[Accounts.Person],
+  me: Int,
+  admin: Bool,
+  restricted: Bool,
+  note: String,
+) -> String
+  administrators = people.select do |one| one.role == Rooms.ADMINISTRATOR_ROLE_NAME end
+  members = people.select do |one| one.role != Rooms.ADMINISTRATOR_ROLE_NAME end
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1>Account settings</h1>
+    <% if not note.empty? %>
+      <p role="alert"><%= note %></p>
+    <% end %>
+    <% if admin %>
+      <form method="post" action="<%= Routes.ACCOUNT %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <p>
+          <label>Name of the account
+            <input name="account[name]" type="text" value="<%= name %>" maxlength="<%= Accounts.MAX_NAME_LENGTH %>"
+              required></label>
+        </p>
+        <p><button type="submit">Save</button></p>
+      </form>
+      <form method="post" action="<%= Routes.ACCOUNT %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <input name="account[settings][restrict_room_creation_to_administrators]" type="hidden" value="<%= not restricted %>">
+        <p>
+    <% if restricted %>
+          Who can create rooms: <strong>administrators only</strong>
+          <button type="submit" class="quiet">Let everybody create rooms</button>
+    <% else %>
+          Who can create rooms: <strong>everybody</strong>
+          <button type="submit" class="quiet">Only administrators can create rooms</button>
+    <% end %>
+        </p>
+      </form>
+    <% else %>
+      <h2><%= name %></h2>
+    <% end %>
+      <h2>People</h2>
+      <ul class="people">
+    <% for one in administrators %>
+        <%== account_person(one, me, admin).strip %>
+    <% end %>
+    <% for one in members %>
+        <%== account_person(one, me, admin).strip %>
+    <% end %>
+      </ul>
+      <p><a href="<%= Routes.USERS %>">People and the join link</a></p>
+    </main>
+  EAG
+  return layout("Account settings", body)
 end
 
 ## The sidebar alone as a document, for `GET /users/me/sidebar`. `sources` is the markup of the live streams that the
@@ -285,43 +355,48 @@ export def room_settings(
   return layout("Settings of #{room.name}", body)
 end
 
-## The page where a person sets how much a room notifies them: a radio for each of the `levels` that the room offers,
-## the `current` one checked, and a plain form post with the `_method` field of Rails' forms, so it works without a
-## script. `message` says why a save was refused.
+## The page where a person chooses whether a room is shown in their sidebar or hidden from it: a radio for each of the
+## `levels` that the room offers (none for a direct room, which stays in the sidebar), the hidden one checked when
+## `hidden`, and a plain form post with the `_method` field of Rails' forms, so it works without a script. `message` says
+## why a save was refused.
 export def involvement(
   sidebar: String,
   room: Rooms.Room,
   levels: List[String],
-  current: String,
+  hidden: Bool,
   message: String,
 ) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
     <main id="main">
-      <h1>Notifications for <%= room.name %></h1>
+      <h1>Sidebar for <%= room.name %></h1>
     <% if not message.empty? %>
       <p role="alert"><%= message %></p>
     <% end %>
+    <% if levels.empty? %>
+      <p>A direct message always stays in the sidebar.</p>
+    <% else %>
       <form method="post" action="<%= Routes.room_involvement_path(room.id) %>">
         <input name="_method" type="hidden" value="<%= Routes.METHOD_PUT %>">
     <% for level in levels %>
         <p>
-    <% if level == current %>
+    <% if Rooms.hidden?(level) == hidden %>
           <label><input name="involvement" type="radio" value="<%= level %>" checked>
-            <%= Rooms.involvement_label(level) %></label>
+            <%= sidebar_choice(level) %></label>
     <% else %>
           <label><input name="involvement" type="radio" value="<%= level %>">
-            <%= Rooms.involvement_label(level) %></label>
+            <%= sidebar_choice(level) %></label>
     <% end %>
         </p>
     <% end %>
         <p><button type="submit">Save</button></p>
       </form>
+    <% end %>
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
     </main>
   EAG
-  return layout("Notifications for #{room.name}", body)
+  return layout("Sidebar for #{room.name}", body)
 end
 
 ## The form that deletes a room (the button of the settings page, as `button_to_delete_room` is in Rails). It is a plain
@@ -516,7 +591,9 @@ export def room(
     <% if can_edit %>
         <a href="<%= Routes.room_settings_path(room.id) %>">Settings</a>
     <% end %>
-        <a href="<%= Routes.room_involvement_path(room.id) %>">Notifications</a>
+    <% if room.room_type != Rooms.DIRECT %>
+        <a href="<%= Routes.room_involvement_path(room.id) %>">Sidebar</a>
+    <% end %>
       </header>
       <div class="scroller">
         <div class="thread">
@@ -814,4 +891,48 @@ def edit_link(message: Rooms.Message, controls: Bool) -> String
     <%@ escape &Bond.escape %>
     <a href="<%= Routes.room_message_edit_path(message.room_id, message.id) %>">Edit</a>
   EAG
+end
+
+# One person of the account page. The role switch offers the other role, and neither it nor the removal is drawn for
+# the person who looks (the server refuses both for oneself too).
+def account_person(one: Accounts.Person, me: Int, admin: Bool) -> String
+  other = Rooms.ADMINISTRATOR_ROLE_NAME
+  other_label = "Make administrator"
+  if one.role == Rooms.ADMINISTRATOR_ROLE_NAME
+    other = Rooms.MEMBER_ROLE_NAME
+    other_label = "Make member"
+  end
+
+  return <<~EAG
+    <%@ escape &Bond.escape %>
+    <li>
+      <span class="name"><%= one.name %></span>
+    <% if admin %>
+      <span class="meta"><%= one.email %></span>
+    <% end %>
+    <% if one.role == Rooms.ADMINISTRATOR_ROLE_NAME %>
+      <span class="badge">administrator</span>
+    <% end %>
+    <% if admin and one.id != me %>
+      <form method="post" action="<%= Routes.account_user_path(one.id) %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <input name="user[role]" type="hidden" value="<%= other %>">
+        <button type="submit" class="quiet"><%= other_label %></button>
+      </form>
+      <form method="post" action="<%= Routes.account_user_path(one.id) %>"
+        onsubmit="return confirm('Are you sure you want to remove this person from the account? They cannot sign in until an administrator reactivates them.')">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
+        <button type="submit" class="danger">Remove</button>
+      </form>
+    <% end %>
+    </li>
+  EAG
+end
+
+def sidebar_choice(level: String) -> String
+  if Rooms.hidden?(level)
+    return "Hidden from the sidebar"
+  end
+
+  return "Shown in the sidebar"
 end

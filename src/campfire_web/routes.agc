@@ -92,7 +92,7 @@ export ROOM_REFRESH = "/rooms/:id/refresh"
 export ROOM_AT = "/rooms/:id/:at"
 export AT_PREFIX = "@"
 
-## The notification settings of a person for a room (`:id` is the room): the page that shows the level and its form, and
+## The sidebar setting of a person for a room (`:id` is the room): the page that shows the choice and its form, and
 ## the save, a `PUT` or a `POST` with `_method` set to `METHOD_PUT` (as Rails' forms send it), with the field
 ## `involvement`. Any other method is a 405 that lists `ROOM_INVOLVEMENT_ALLOW`, which is Bond's own list for the path.
 export ROOM_INVOLVEMENT = "/rooms/:id/involvement"
@@ -102,6 +102,17 @@ export METHOD_PUT = "put"
 ## The join link of the account: its page and the post of its form, which is the same path, with the join code as
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
 export JOIN = "/join/:code"
+
+## The account settings page (`/account/edit`), the save of its name (`PATCH /account`, or a `POST` with `_method` set
+## to `patch`, as Rails' forms send it) and the person under the account (`:id` is the user): `PATCH` sets the role,
+## `DELETE` removes the person (deactivates, as Rails' `User#deactivate` does), and a `POST` with `_method` does
+## either. Any other method is a 405 that lists the methods of the path (`ACCOUNT_ALLOW`, `ACCOUNT_USER_ALLOW`: Bond's
+## own lists).
+export ACCOUNT_EDIT = "/account/edit"
+export ACCOUNT = "/account"
+export ACCOUNT_ALLOW = "POST, PATCH"
+export ACCOUNT_USER = "/account/users/:id"
+export ACCOUNT_USER_ALLOW = "POST, PATCH, DELETE"
 
 ## The people page, the posts that deactivate and reactivate a person (`:id` is the id of the user), and the post that
 ## makes a new join code.
@@ -145,7 +156,7 @@ export def room_settings_path(room_id: Int) -> String
   return "/rooms/#{room_id}/settings"
 end
 
-## The path of the notification settings of a room, which is also where their form posts.
+## The path of the sidebar setting of a room, which is also where their form posts.
 export def room_involvement_path(room_id: Int) -> String
   return "/rooms/#{room_id}/involvement"
 end
@@ -169,6 +180,11 @@ end
 ## The path of the join page of this code, which is also where its form posts.
 export def join_path(code: String) -> String
   return "/join/#{code}"
+end
+
+## The path of a person under the account, which is where the forms of their role and of their removal post.
+export def account_user_path(user_id: Int) -> String
+  return "/account/users/#{user_id}"
 end
 
 ## The path that deactivates this user.

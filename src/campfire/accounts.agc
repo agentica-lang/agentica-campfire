@@ -18,6 +18,12 @@ MAX_CODE_LENGTH = 64
 
 NOW = Rails.NOW
 
+## The longest name of the account, in characters.
+export MAX_NAME_LENGTH = 100
+
+# The key of the setting in the JSON of `accounts.settings`, the one Rails writes.
+RESTRICT_KEY = "restrict_room_creation_to_administrators"
+
 ## A person of the account as the people page lists them. A bot is not a person, so it is never in the list.
 export struct Person
   id: Int
@@ -51,6 +57,74 @@ export def join_code(conn: Db.Connection) -> Result[String]
   end
 
   return ok(text_of(rows[0], "join_code"))
+end
+
+## The name of the account, or "" before the first run has made it.
+export def name(conn: Db.Connection) -> Result[String]
+  rows = try Db.query(conn, "select name from accounts order by id limit 1", [])
+  if rows.empty?
+    return ok("")
+  end
+
+  return ok(text_of(rows[0], "name"))
+end
+
+## What is wrong with an account name, or "". The caller strips it first. Rails has no check (the column only refuses
+## null); a blank name would leave the page with nothing to show, so it is refused here.
+export def name_problem(name: String) -> String
+  if name.empty? or name.length > MAX_NAME_LENGTH
+    return "Give the account a name of 1 to #{MAX_NAME_LENGTH} characters"
+  end
+
+  return ""
+end
+
+## Saves what `AccountsController#update` takes of the form, in one transaction: the `name`, and whether only
+## administrators `restricted` the creation of rooms (the setting `restrict_room_creation_to_administrators`, which Rails
+## keeps in the JSON of `accounts.settings`; the other keys of that JSON stay as they are). A part that is `none` is left
+## alone. It gives false, with nothing changed, when `actor_id` is not an active administrator.
+export def save(conn: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
+  return Db.transaction(conn) do |tx| save_in(tx, actor_id, name, restricted) end
+end
+
+## True when the account lets only administrators make a shared room (open or closed): `Rooms::OpensController` and
+## `ClosedsController` answer 403 to anyone else. A direct message is not a room in that sense and is not restricted, as
+## in Rails. Only a real true (or the text `true`) restricts: a `settings` that is empty, is not JSON, or holds any other
+## value under the key (a string `"false"`, `0.0`, an object) is the default, not restricted.
+export def room_creation_restricted?(conn: Db.Connection) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select case when json_valid(settings) then " +
+    "coalesce(json_extract(settings, '$.#{RESTRICT_KEY}') in (1, 'true'), 0) else 0 end " +
+    "as restricted from accounts order by id limit 1",
+    [],
+  )
+
+  if rows.empty?
+    return ok(false)
+  end
+
+  return ok(int_of(rows[0], "restricted") != 0)
+end
+
+## True when `user_id` is an active person of the account (not a bot), whom the role and the removal can name.
+export def active_person?(conn: Db.Connection, user_id: Int) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select count(*) as total from users where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok(int_of(rows[0], "total") > 0)
+end
+
+## Makes `user_id` an administrator, or a member with `administrator` false (`Accounts::UsersController#update`), for
+## `actor_id`. `Missing` is nobody active (a deactivated person, a bot, no such user). `Refused` is a person who asks
+## without being an active administrator, or who changes their own role: the page has no switch for oneself, and an
+## administrator who steps down alone could leave the account without one. Rails does not check either on the server;
+## here the actor stays an administrator, so the account always has one.
+export def set_role(conn: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
+  return Db.transaction(conn) do |tx| set_role_in(tx, actor_id, user_id, administrator) end
 end
 
 ## True when `code` is the code of the account now: the old code of a regenerated one is not.
@@ -119,6 +193,65 @@ def regenerate_in(tx: Db.Connection, actor_id: Int) -> Result[Bool]
   )
 
   return ok(true)
+end
+
+def save_in(tx: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
+  allowed = try administrator?(tx, actor_id)
+  if not allowed
+    return ok(false)
+  end
+
+  if name.some?
+    try Db.execute(
+      tx,
+      "update accounts set name = ?, updated_at = #{NOW} where singleton_guard = 0",
+      [Db.Value.Text(name.unwrap!)],
+    )
+  end
+
+  if restricted.some?
+    flag = "false"
+    if restricted.unwrap!
+      flag = "true"
+    end
+
+    # `json(?)` makes the text a JSON boolean, not a string; the other keys of the settings are kept. Settings that are
+    # not a JSON object (`[1]`, `null`, `5`, not JSON) would stay unchanged under `json_set`, so they start over
+    # as `{}`.
+    try Db.execute(
+      tx,
+      "update accounts set settings = json_set(case when json_valid(settings) then " +
+      "case when json_type(settings) = 'object' then settings else '{}' end else '{}' end, " +
+      "'$.#{RESTRICT_KEY}', json(?)), updated_at = #{NOW} where singleton_guard = 0",
+      [Db.Value.Text(flag)],
+    )
+  end
+
+  return ok(true)
+end
+
+def set_role_in(tx: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
+  allowed = try administrator?(tx, actor_id)
+  if not allowed or actor_id == user_id
+    return ok(Change.Refused)
+  end
+
+  role = Rails.MEMBER
+  if administrator
+    role = Rails.ADMINISTRATOR
+  end
+
+  changed = try Db.execute(
+    tx,
+    "update users set role = ?, updated_at = #{NOW} where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
+    [Db.Value.Int(role), Db.Value.Int(user_id)],
+  )
+
+  if changed == 0
+    return ok(Change.Missing)
+  end
+
+  return ok(Change.Changed)
 end
 
 def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
