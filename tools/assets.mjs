@@ -5,7 +5,7 @@
 // `git diff` shows a change.
 
 import { createHash } from "node:crypto";
-import { readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
@@ -29,6 +29,8 @@ const script = await esbuild.build({
 });
 
 const built = { css: Buffer.from(css), js: Buffer.from(script.outputFiles[0].contents) };
+
+mkdirSync(out, { recursive: true });
 
 for (const old of readdirSync(out)) {
   if (/^campfire-[0-9a-f]{16}\.(css|js)(\.gz)?$/.test(old)) {
