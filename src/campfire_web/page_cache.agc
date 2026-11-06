@@ -32,11 +32,10 @@
 ## person up, and keeps it for the handler (`seen`), so a hit costs one lease of the observer and none of the pool:
 ## the person of a session is kept for one version of the database too (`known_user`, `remember_user`; a hit does not
 ## touch the session, see `Auth.user_for`, so on a quiet database `last_active_at` can be older than its five-minute
-## refresh), in a store of
-## its own (`CAMPFIRE_SESSION_CACHE_MB`) so that the churn of pages cannot push a session out. A sign-out, a
-## deactivation, a ban, a rename or a change of role is a commit, so the next read has a new version and looks the
-## session up again. The person is looked up after the version was read, so what is kept under a version is that of
-## the database at that version or later.
+## refresh), in a store of its own (`CAMPFIRE_SESSION_CACHE_MB`) so that the churn of pages cannot push a session out.
+## A sign-out, a deactivation, a ban, a rename or a change of role is a commit, so the next read has a new version and
+## looks the session up again. The person is looked up after the version was read, so what is kept under a version is
+## that of the database at that version or later.
 ##
 ## Every page has a weak `ETag` (a digest of its bytes, as `Rack::ETag` writes it) and `Cache-Control: max-age=0,
 ## private, must-revalidate`, as Rails sends, and a request whose `If-None-Match` has the tag is a 304. The form of a

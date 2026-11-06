@@ -199,40 +199,40 @@ def require_sign_in(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCa
   # (`PageCache.watch`), so that the person of the session can be the one kept for that version and the handler does
   # not read it again. A request with no cookie never leases the observer, and any other request looks the person up
   # as it always did.
+  token = session_token(conn)
   watched = conn
-  if (
-    (conn.method == "GET" or conn.method == "HEAD") and
-    Bond.get_session(conn, TOKEN_KEY).ok? and
-    PageCache.cached?(conn.path)
-  )
+  if (conn.method == "GET" or conn.method == "HEAD") and not token.empty? and PageCache.cached?(conn.path)
     watched = PageCache.watch(conn, pages)
   end
 
-  user = try session_user(watched, pool, pages)
+  user = try session_user(watched, pool, pages, token)
   case user
     some(person) -> return ok(Bond.assign(watched, USER_KEY, person))
     none -> return ok(Bond.redirect(watched, try entry_path(pool)))
   end
 end
 
-# The person of the session: the one kept for the version of the database that the request was read at, else the
-# one the
-# database gives (which is then kept). No cookie is no person, with no lease of the pool.
-def session_user(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Optional[Auth.User]]
-  token = Bond.get_session(conn, TOKEN_KEY)
-  if not token.ok?
+# The person of the session with `token` ("" for no cookie, which is no person and leases nothing): the one kept for
+# the version of the database that the request was read at, else the one the database gives, which is then kept.
+def session_user(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  pages: Optional[PageCache.Pages],
+  token: String,
+) -> Result[Optional[Auth.User]]
+  if token.empty?
     return ok(none)
   end
 
   seen = PageCache.seen(conn)
-  kept = PageCache.known_user(pages, seen, token.unwrap!)
+  kept = PageCache.known_user(pages, seen, token)
   if kept.some?
     return ok(kept)
   end
 
-  found = try current_user(conn, pool)
+  found = try Database.with_connection(pool) do |db| Auth.user_for(db, token) end
   case found
-    some(person) -> PageCache.remember_user(pages, seen, token.unwrap!, person)
+    some(person) -> PageCache.remember_user(pages, seen, token, person)
     none -> return ok(none)
   end
 

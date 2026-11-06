@@ -108,6 +108,9 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   # A version that the filter could not read is kept as empty: nothing is kept or found under it, and the observer is
   # not asked again.
   try Test.assert(PageCache.known_user(pages, some(""), "token").none?, "a person under an unreadable version")
+  PageCache.remember_user(pages, some(""), "ghost", ana())
+  try Test.assert(PageCache.known_user(pages, seen, "ghost").none?, "a person kept under an unreadable version")
+  try Test.assert(PageCache.known_user(pages, some(""), "ghost").none?, "a person found under an unreadable version")
   try Test.assert(PageCache.sidebar_spot(pages, some(""), ana()).none?, "a sidebar under an unreadable version")
   try Test.assert(PageCache.search_spot(pages, some(""), ana(), "tea").none?, "a search under an unreadable version")
   try Db.execute(writer, "insert into notes (body) values ('x')", [])
