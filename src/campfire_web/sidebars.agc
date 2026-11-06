@@ -4,33 +4,64 @@
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
+import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
+import PageCache from "page_cache"
 import RoomsWeb from "rooms"
 import Routes from "routes"
 import Views from "views"
 
-## Adds the route of the sidebar to `app`. It is not in `AuthWeb.PUBLIC_PATHS`, so it needs a sign-in.
-export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable) -> Bond.App
-  return app |> Bond.get(Routes.SIDEBAR) do |conn| show(conn, pool, cable) end
-end
-
-def show(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
-  page = try Database.with_connection(pool) do |db| page_of(conn, db, cable) end
-  case page
-    none -> return ok(Bond.redirect(conn, Routes.SIGN_IN))
-    some(html) -> return ok(Bond.html(conn, 200, html))
-  end
+## Adds the route of the sidebar to `app`. It is not in `AuthWeb.PUBLIC_PATHS`, so it needs a sign-in. The page is kept
+## whole in `pages` for one person and one version of the database (`PageCache`), as the room page is.
+export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, pages: Optional[PageCache.Pages]) -> Bond.App
+  return app |> Bond.get(Routes.SIDEBAR) do |conn| show(conn, pool, cable, pages) end
 end
 
 # `none` for a request that has no person, which the sign-in filter does not let through.
-def page_of(conn: Bond.Conn, db: Db.Connection, cable: CableWeb.Cable) -> Result[Optional[String]]
+def show(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  pages: Optional[PageCache.Pages],
+) -> Result[Bond.Conn]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(none)
-    some(person) ->
-      sources = CableWeb.sidebar_sources(cable, person.id)
-      return ok(some(Views.sidebar_page(try RoomsWeb.sidebar_of(db, person), sources)))
+    none -> return ok(Bond.redirect(conn, Routes.SIGN_IN))
+    some(person) -> return shown(conn, pool, cable, pages, person)
   end
+end
+
+# The version of the database is read before the page is made (`PageCache.sidebar_spot`), so a page that is kept is
+# never older than its key.
+def shown(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  pages: Optional[PageCache.Pages],
+  person: Auth.User,
+) -> Result[Bond.Conn]
+  spot = PageCache.sidebar_spot(pages, PageCache.seen(conn), person)
+  kept = PageCache.lookup(spot)
+  case kept
+    some(page) -> return ok(PageCache.respond(conn, page))
+    none -> return made(conn, pool, cable, spot, person)
+  end
+end
+
+def made(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  spot: Optional[PageCache.Spot],
+  person: Auth.User,
+) -> Result[Bond.Conn]
+  html = try Database.with_connection(pool) do |db| page_of(db, cable, person) end
+  return ok(PageCache.respond(conn, PageCache.keep(spot, html)))
+end
+
+def page_of(db: Db.Connection, cable: CableWeb.Cable, person: Auth.User) -> Result[String]
+  sources = CableWeb.sidebar_sources(cable, person.id)
+  return ok(Views.sidebar_page(try RoomsWeb.sidebar_of(db, person), sources))
 end

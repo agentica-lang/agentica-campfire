@@ -36,7 +36,8 @@ end
 ## `SECRET_KEY_BASE`) and the folder of the stylesheet, and `/cable`, the live WebSocket (`CableWeb`), which the routes
 ## that change a room broadcast through `cable`. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered
 ## messages for the room pages (`MessageCache.start`); without it every message is rendered each time. `pages` keeps
-## the room page and the older messages whole (`PageCache.start`); without it each is made for every request.
+## the room page, the older messages, the sidebar and the search whole (`PageCache.start`); without it each is made for
+## every request.
 export def build(
   config: Config,
   pool: Database.Pool,
@@ -50,12 +51,12 @@ export def build(
   bans = BanFlag.new()
   return (
     Bond.app()
-    |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans)
+    |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
     |> AccountsWeb.add(config, pool, cable, bans)
-    |> SidebarsWeb.add(pool, cable)
-    |> SearchesWeb.add(pool)
+    |> SidebarsWeb.add(pool, cable, pages)
+    |> SearchesWeb.add(pool, pages)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)
     |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
     |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)

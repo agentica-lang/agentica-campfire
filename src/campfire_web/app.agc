@@ -99,7 +99,14 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   mailer = try Mailer.start(config.smtp, config.mail_queue)
   cable = try CableWeb.start(config, pool)
   messages = MessageCache.start(config.cache_mb)
-  watched = PageCache.start(config.response_cache_mb, config.database_url, config.db_checkout_ms)
+  watched = PageCache.start(
+    config.response_cache_mb,
+    config.search_pages,
+    config.session_cache_mb,
+    config.database_url,
+    config.db_checkout_ms,
+  )
+
   if not watched.ok?
     CableWeb.stop(cable)
     Mailer.stop(mailer)
