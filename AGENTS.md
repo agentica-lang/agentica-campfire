@@ -48,7 +48,7 @@ test/           unit tests (*_test.agc)
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`pool` comes with it), agentica.lock has their hashes
+agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` comes with `db`, which pins it by commit), agentica.lock has their hashes
 ```
 
 ## Commands
@@ -59,8 +59,8 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   specs draw their own).
 - Agentica 0.24.3 or later (`std/cache`; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in `.github/workflows/ci.yml`).
-- To move Bond or agentica-db: `agentica add bond https://github.com/agentica-lang/bond --ref COMMIT` (or `db`
-  and `https://github.com/agentica-lang/agentica-db`), commit the lock.
+- To move Bond or agentica-db: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`), commit the lock.
+  A new dependency is `agentica add NAME URL --tag TAG`.
 
 ## Rules
 
