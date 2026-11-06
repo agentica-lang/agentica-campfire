@@ -200,6 +200,19 @@ Feature: Live updates over /cable
     And client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"
     And client "bea" is closed by the server with the code 1000
 
+  Scenario: A removal that is refused leaves the socket open
+    When client "ana" connects with the cookies of the browser
+    And client "ana" subscribes to the channel "UnreadRoomsChannel"
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When I send a DELETE to "/account/users/1"
+    Then the status is 403
+    When I send a DELETE to "/account/users/99"
+    Then the status is 404
+    When I sign in as "bea@example.com"
+    And I send a DELETE to "/account/users/1"
+    Then the status is 403
+    And client "ana" receives nothing for 500 milliseconds
+
   Scenario: A sign-out ends the sockets of the person, who comes back where another session of theirs is still good
     When client "first" connects with the cookies of the browser
     And the browser saves a copy of its cookies

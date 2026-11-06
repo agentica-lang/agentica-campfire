@@ -8,7 +8,8 @@ become a member, join every open room that exists and are signed in. It is the o
 the sign-in ones that needs no session.
 
 - A code that is not the account's answers the `404` of a missing page, and the form is not read.
-- An email that has an account (a deactivated person's too) is refused with a message.
+- An email that has an account is refused with a message. The address of a deactivated person is not taken: a
+  deactivation renames it (see below).
 - Forms that arrive together with one email make one person: the code and the email are checked
   again inside the write transaction, after the password was hashed under the same limit of two
   hashes at a time (`503` with `Retry-After` past it, with the form again).
@@ -22,8 +23,14 @@ one (the old link stops working at once). The link starts with `CAMPFIRE_BASE_UR
 and is only the path otherwise. An administrator can deactivate each person but themselves, and
 reactivate a deactivated one.
 
-Deactivating ends the sessions of that person and keeps them from signing in; their messages and
-rooms stay. Reactivating puts them in the open rooms that were made while they were away.
+Deactivating is what `User#deactivate` does in Rails: it ends the sessions and the password-reset links of that
+person, deletes their push subscriptions and searches and their memberships of open and closed rooms (the direct ones
+stay), and renames their address to `name-deactivated-UUID@host`, so the address is free again and a new person can
+join with it. Their messages and rooms stay. Reactivating (which Rails does not have) gives back the original address,
+which is `409` when another account has it by then, and puts the person in every open room, as a new person is; the
+closed rooms they were in are lost, as in Rails. Only a marker with a UUID right before the `@` is taken away, so an
+address that has `-deactivated-` by its owner's choice comes back as it was, and a person deactivated before this
+rename keeps their address.
 
 Everything but the page answers `403` to a member who is not an administrator, and `404` for a user
 that does not exist or is a bot. The role is checked again inside the transaction.
@@ -36,10 +43,8 @@ renames the account (`account[name]`, `PATCH /account`, or a `POST` with `_metho
 person but themselves a switch that makes them an administrator or a member (`user[role]`, `PATCH /account/users/ID`)
 and a button that removes them (`DELETE /account/users/ID`, or a `POST` with `_method=delete`). Removing is what Rails
 does: it deactivates the person (ends their sessions and their sockets, keeps them from signing in; their messages and
-rooms stay), and the people page brings them back. Rails' `User#deactivate` also deletes the person's non-direct
-memberships, push subscriptions and searches, and renames their email address; this app does none of that (the
-memberships stay so that a reactivated person is where they were, nothing writes push subscriptions yet, and the
-address stays taken). A person who is deactivated already is `404` here, as `User.active.find` is in Rails.
+rooms stay), and the people page brings them back. The effects are those of Rails' `User#deactivate`
+(see above), plus the sockets. A person who is deactivated already is `404` here, as `User.active.find` is in Rails.
 
 The checks come in the order of Rails' filters: no session redirects to sign-in, a member who is not an administrator is
 `403` before anything else is read, then the person (`404` for a user that does not exist, is not active or is a bot),
@@ -86,8 +91,7 @@ writes the last three decimals as zeros. Rails' columns have no defaults, so the
 `created_at` and `updated_at` in every insert. The unique index on `email_address` compares bytes
 and Rails stores an address as it was typed, so the app stores its own in lower case and looks an address up
 with `lower(email_address)`: a row that Rails made as `David@37signals.com` signs in with any case. Of two rows
-that differ only in case, the lower case one is the person. Unlike Rails, deactivating a person
-keeps their address (Rails renames it), so an administrator can bring them back and the address
-stays taken. The banned are not listed: the app does not ban yet.
+that differ only in case, the lower case one is the person. Deactivating a person renames their address
+as Rails does, and reactivating restores it. The banned are not listed: the app does not ban yet.
 
 The security notes on the code are in [security.md](security.md).
