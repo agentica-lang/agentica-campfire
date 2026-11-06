@@ -12,7 +12,7 @@ Feature: Rooms
     And the first admin exists
 
   Scenario: The first run makes an open room with the administrator in it
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "<a href=\"/rooms/1\">All Talk</a>"
     And the query "select count(*) from rooms where (id, type, name, creator_id) = (1, 'Rooms::Open', 'All Talk', 1)" gives 1
@@ -44,7 +44,7 @@ Feature: Rooms
     And the query "select count(*) from memberships where room_id = 2" gives 2
     And the query "select count(*) from memberships where room_id = 2 and user_id = 3" gives 0
     When I sign in as "bea@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/1\">All Talk</a>"
     And the body contains "<a href=\"/rooms/2\">Lunch</a>"
 
@@ -73,19 +73,19 @@ Feature: Rooms
     Given a member "Bea" with the email "bea@example.com" exists
     And a closed room "Secret" with the members "bea@example.com"
     And a direct room with the members "ana@example.com, bea@example.com"
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/1\">All Talk</a>"
     And the body contains "<a href=\"/rooms/3\">Bea</a>"
     And the body does not contain "Secret"
     When I sign in as "bea@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/1\">All Talk</a>"
     And the body contains "<a href=\"/rooms/2\">Secret</a>"
     And the body contains "<a href=\"/rooms/3\">Ana</a>"
 
   Scenario: A room that the person set to invisible is out of the sidebar, and still there for whoever has the address
     Given I run the sql "update memberships set involvement = 'invisible' where room_id = 1 and user_id = 1"
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body does not contain "All Talk"
     When I get "/rooms/1"
     Then the status is 200

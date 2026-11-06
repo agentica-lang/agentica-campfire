@@ -35,7 +35,7 @@ Feature: Joining with the link
     Then the status is 302
     And the header "location" is "/"
     And the header "set-cookie" contains "session_token="
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the status is 200
     And the body contains "Signed in as Bea"
     And the body contains "<a href=\"/rooms/1\">All Talk</a>"
@@ -54,7 +54,7 @@ Feature: Joining with the link
       | email    | bea@example.com       |
       | password | another long password |
     And I sign in as "bea@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body contains "Signed in as Bea"
 
   Scenario Outline: A code that is not the account's is a 404 like any missing page, for a page and for a form

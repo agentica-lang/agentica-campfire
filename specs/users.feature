@@ -14,7 +14,7 @@ Feature: The people of the account
 
   Scenario: A member sees the people and nothing that only an administrator needs
     Given I sign in as "bea@example.com"
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body contains "<a href=\"/users\">People</a>"
     When I get "/users"
     Then the status is 200
@@ -87,7 +87,7 @@ Feature: The people of the account
     And I submit the form of the page that posts to "/users/2/reactivate"
     Then the query "select count(*) from memberships where room_id in (1, 2) and user_id = 2" gives 2
     When I sign in as "bea@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/2\">Lunch</a>"
 
   Scenario: Deactivating and reactivating again and again changes nothing more

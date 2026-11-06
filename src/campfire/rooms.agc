@@ -217,6 +217,21 @@ export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optio
   return ok(some(room_of(rows[0])))
 end
 
+## The room that the home page opens for the person (`last_room_visited` of Rails): `wanted` (the room that they were in
+## last, from their cookie) when they are in it, else the oldest room that they are in (`Room.original`: by `created_at`,
+## then id), any involvement and any kind. `none` when they are in no room, which is the welcome page. A `wanted` that
+## names a room they left, or never were in, or that does not exist, is the oldest like any other.
+export def last_visited(conn: Db.Connection, user_id: Int, wanted: Optional[Int]) -> Result[Optional[Room]]
+  if wanted.some?
+    found = try find(conn, user_id, wanted.unwrap!)
+    if found.some?
+      return ok(found)
+    end
+  end
+
+  return oldest(conn, user_id)
+end
+
 ## Makes an open room that `creator_id` made and puts every active person in it, in one transaction. It gives the id.
 export def create_open(conn: Db.Connection, creator_id: Int, name: String) -> Result[Int]
   return Db.transaction(conn) do |tx| create_open_in(tx, creator_id, name) end
@@ -514,6 +529,20 @@ def receive(tx: Db.Connection, room_id: Int, user_id: Int, message_id: Db.Value)
   )
 
   return ok()
+end
+
+def oldest(conn: Db.Connection, user_id: Int) -> Result[Optional[Room]]
+  rows = try Db.query(
+    conn,
+    "#{ROOM_COLUMNS} order by rooms.created_at, rooms.id limit 1",
+    [Db.Value.Int(user_id), Db.Value.Int(user_id)],
+  )
+
+  if rows.empty?
+    return ok(none)
+  end
+
+  return ok(some(room_of(rows[0])))
 end
 
 def destroy_later_in(tx: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]

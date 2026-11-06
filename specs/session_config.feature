@@ -14,6 +14,14 @@ Feature: The session secret and the cookie
     And the header "set-cookie" contains "__Host-session_token="
     And the header "set-cookie" contains "Secure"
 
+  Scenario: Behind HTTPS the cookie of the last room is Secure too
+    Given a fresh database
+    And the app starts with secure cookies
+    And the first admin exists
+    When I get "/rooms/1"
+    Then the status is 200
+    And the header "set-cookie" contains "last_room=1; Path=/; Max-Age=630720000; Secure; HttpOnly"
+
   Scenario Outline: A start without a usable session secret stops
     Given the environment variable "CAMPFIRE_HOST" is "127.0.0.1"
     And the environment variable "CAMPFIRE_PORT" is "0"
