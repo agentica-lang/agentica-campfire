@@ -39,7 +39,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 avatar link), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
                 broadcasts of the routes, on bond-channels)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
-public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+public/assets/  the fingerprinted stylesheet and the script (composer, keys, live updates), served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through fixtures/cable_peer.py, a raw-socket
@@ -260,10 +260,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   one name for the segment under `/users/`, so the token is `:id`. The Active Storage rows and files of the specs are
   made by Rails (`specs/fixtures/rails/make_avatar.sh`).
 - Assets: the CSS and the JS of `public/assets/` are named `campfire-DIGEST.css` and `campfire-DIGEST.js`, DIGEST the
-  first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.COMPOSER_SCRIPT`
+  first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.SCRIPT`
   when it changes (`specs/assets.feature` checks). `/assets/` is public (`AuthWeb.public?`). There is no asset pipeline
-  yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page and the edit page link it, every form works
-  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script", which also has its keys;
+  yet (`docs/plan.md` phase 2). The script is progressive enhancement: the room page, the edit page and every page with the sidebar link it, every form works
+  without it, and it stays about 25 KB (7.7 KB gzipped) with no framework (`DESIGN.md`, "Script", which also has its keys;
   `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
   open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that
