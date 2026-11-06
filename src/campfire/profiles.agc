@@ -17,6 +17,7 @@ export MAX_BIO_LENGTH = 200
 
 ## What a profile form is told when a part of it does not do.
 export NAME_PROBLEM = "Enter your name"
+export CHALLENGE_PROBLEM = "Enter your current password to set a new one"
 export EMAIL_PROBLEM = "Enter a valid email address"
 export EMAIL_TAKEN = "An account with that email exists already"
 export BIO_PROBLEM = "The bio can have at most #{MAX_BIO_LENGTH} characters"
@@ -117,9 +118,26 @@ export def problem(
   return ok("")
 end
 
+## True when `current` is the password of the person (`password_challenge`). It hashes, so the caller holds a hashing
+## slot. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY`, for a digest that Rails made.
+export def challenge_ok?(conn: Db.Connection, user_id: Int, current: String, bcrypt_library: String) -> Result[Bool]
+  if current.bytes.size > Passwords.MAX_BYTES
+    return ok(false)
+  end
+
+  rows = try Db.query(conn, "select password_digest from users where id = ?", [Db.Value.Int(user_id)])
+  if rows.empty? or text_of(rows[0], "password_digest").empty?
+    return ok(false)
+  end
+
+  return Passwords.verify(current, text_of(rows[0], "password_digest"), bcrypt_library)
+end
+
 ## Saves the parts of the form that are not `none` for `user_id`, in one transaction that checks again that the person
 ## is active and that nobody took the address meanwhile. `digest` is the hash of the new password (`Passwords.hash`),
-## `none` to keep the old one. A blank email is left as it is. A bio can be emptied.
+## `none` to keep the old one; a new digest also ends every session of the person but the one with the token
+## `keep_token`, and deletes their push subscriptions (`sign_out_all_sessions` of Rails), so a stolen cookie or a
+## forgotten browser stops working. A blank email is left as it is. A bio can be emptied.
 export def save(
   conn: Db.Connection,
   user_id: Int,
@@ -127,8 +145,9 @@ export def save(
   email: Optional[String],
   digest: Optional[String],
   bio: Optional[String],
+  keep_token: String,
 ) -> Result[Change]
-  return Db.transaction(conn) do |tx| save_in(tx, user_id, name, email, digest, bio) end
+  return Db.transaction(conn) do |tx| save_in(tx, user_id, name, email, digest, bio, keep_token) end
 end
 
 def save_in(
@@ -138,6 +157,7 @@ def save_in(
   email: Optional[String],
   digest: Optional[String],
   bio: Optional[String],
+  keep_token: String,
 ) -> Result[Change]
   found = try Db.query(
     tx,
@@ -164,6 +184,9 @@ def save_in(
 
   if digest.some?
     try set_column(tx, user_id, "password_digest", digest.unwrap!)
+    id = Db.Value.Int(user_id)
+    try Db.execute(tx, "delete from sessions where user_id = ? and token <> ?", [id, Db.Value.Text(keep_token)])
+    try Db.execute(tx, "delete from push_subscriptions where user_id = ?", [id])
   end
 
   if bio.some?
@@ -182,12 +205,24 @@ def set_column(tx: Db.Connection, user_id: Int, column: String, value: String) -
   )
 end
 
-# True when a user other than `user_id` has the address, with or without capitals.
+# True when a user other than `user_id` has the address, with or without capitals: the exact address first, which the
+# unique index serves, and `lower(email_address)`, which scans `users`, only when no row has it
+# (as `Auth.email_taken?`).
 def taken_by_other?(conn: Db.Connection, address: String, user_id: Int) -> Result[Bool]
+  exact = try Db.query(
+    conn,
+    "select 1 from users where email_address = ? and id <> ? limit 1",
+    [Db.Value.Text(address), Db.Value.Int(user_id)],
+  )
+
+  if not exact.empty?
+    return ok(true)
+  end
+
   rows = try Db.query(
     conn,
-    "select 1 from users where id <> ? and (email_address = ? or lower(email_address) = ?) limit 1",
-    [Db.Value.Int(user_id), Db.Value.Text(address), Db.Value.Text(address)],
+    "select 1 from users where lower(email_address) = ? and id <> ? limit 1",
+    [Db.Value.Text(address), Db.Value.Int(user_id)],
   )
 
   return ok(not rows.empty?)

@@ -14,8 +14,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
-                accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user page and
-                the profile save, over SQL), auth.agc
+                accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
+                page and the profile save, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
                 in memory), searches.agc (the words of a query, the
@@ -32,7 +32,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 the 503 of a failure), routes.agc
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
-                password reset), accounts.agc (the people page and those posts), profiles.agc (the user page and the profile), rooms.agc (the routes
+                password reset), accounts.agc (the people page and those posts), profiles.agc (the user page and the profile),
+                rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
                 searches.agc and avatars.agc (the sidebar page, the search and the
@@ -143,13 +144,16 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a
   form that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code
   refuses a form that was open and two forms with one email make one person. Joining never reactivates a deactivated
-  person (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
-  `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an
-  administrator cannot deactivate themselves; deactivating deletes the person's sessions and reset links, and
-  reactivating calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `status` itself
-  (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive. The pages with
-  the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an
-  email answers the same for every address": it answers 422 for an email that has an account (why: `docs/security.md`).
+  person (a deactivation renames their address with `-deactivated-UUID`, as Rails does, so the address is free).
+  Everything of `Accounts` that changes something (`deactivate`, `reactivate`, `regenerate_join_code`) checks inside
+  its transaction that the actor is an active administrator, and an administrator cannot deactivate themselves;
+  deactivating deletes the person's sessions, reset links, push subscriptions, searches and shared-room memberships
+  (`Rooms.leave_shared_rooms`) and renames the address, and reactivating restores the address (`Change.Taken` is a 409
+  when another account has it) and calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads
+  `status` itself (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive.
+  The pages with the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that
+  asks for an email answers the same for every address": it answers 422 for an email that has an account (why:
+  `docs/security.md`).
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A
   link in an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email
   answers the same for every address (no enumeration). A reset token is stored as a hash only. The write

@@ -385,8 +385,8 @@ export def reset_password(
   return ok(ResetOutcome.Gone)
 end
 
-## True when `email` (in the `normal` form) is a single `@` between a name and a domain with a dot, with no space and not
-## too long: enough to catch a typo. Only a mail sent to the address proves that it works.
+## True when `email` (in the `normal` form) is a single `@` between a name and a domain with a dot, with no space
+## and not too long: enough to catch a typo. Only a mail sent to the address proves that it works.
 export def valid_email?(email: String) -> Bool
   parts = email.split("@")
   if parts.size != 2 or email.length > MAX_EMAIL_LENGTH or email.include?(" ")

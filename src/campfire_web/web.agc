@@ -31,9 +31,9 @@ end
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
-## `AccountsWeb`, the user page and the profile, the sidebar, the search, the avatars (checked with the key of `SECRET_KEY_BASE`) and the folder of the
-## stylesheet, and `/cable`, the live WebSocket (`CableWeb`), which the routes that change a room broadcast through
-## `cable`. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered
+## `AccountsWeb`, the user page and the profile, the sidebar, the search, the avatars (checked with the key of
+## `SECRET_KEY_BASE`) and the folder of the stylesheet, and `/cable`, the live WebSocket (`CableWeb`), which the routes
+## that change a room broadcast through `cable`. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered
 ## messages for the room pages (`MessageCache.start`); without it every message is rendered each time. `pages` keeps
 ## the room page and the older messages whole (`PageCache.start`); without it each is made for every request.
 export def build(
@@ -55,7 +55,7 @@ export def build(
     |> SidebarsWeb.add(pool, cable)
     |> SearchesWeb.add(pool)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)
-    |> ProfilesWeb.add(pool, slots, avatar_key(config))
+    |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
     |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)
     |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, pool) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end

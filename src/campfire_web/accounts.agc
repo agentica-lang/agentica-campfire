@@ -22,6 +22,9 @@ import Routes from "routes"
 import Views from "views"
 import {Config} from "../campfire/config"
 
+# What a reactivation of a person whose address is another account's now is told.
+CONFLICT = "That address belongs to another account now"
+
 # The names of the fields of Rails' forms (`params.require(:account)` and `params.require(:user)`).
 ACCOUNT_NAME = "account[name]"
 USER_ROLE = "user[role]"
@@ -42,6 +45,7 @@ enum Answer
   Banned(Int)
   NotFound
   Forbidden
+  Conflict
   SignedOut
 end
 
@@ -370,6 +374,7 @@ def answer_of(change: Accounts.Change, back: String) -> Result[Answer]
     Accounts.Change.Unchanged -> return ok(Answer.Redirect(back))
     Accounts.Change.Missing -> return ok(Answer.NotFound)
     Accounts.Change.Refused -> return ok(Answer.Forbidden)
+    Accounts.Change.Taken -> return ok(Answer.Conflict)
   end
 end
 
@@ -415,6 +420,7 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.Banned(user_id) -> return Bond.redirect(conn, Routes.user_path(user_id))
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
     Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
+    Answer.Conflict -> return Bond.text(conn, 409, CONFLICT)
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
   end
 end

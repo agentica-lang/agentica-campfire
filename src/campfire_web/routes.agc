@@ -100,10 +100,10 @@ export ROOM_INVOLVEMENT_ALLOW = "GET, HEAD, POST, PUT"
 export METHOD_PUT = "put"
 
 ## The page of a user (`:id` is their id; any signed-in person may read it) and the profile of the person who is signed
-## in: the page that shows their form, and the save of it, a `PATCH` or a `PUT` or a `POST` with `_method` set to one of
-## the `METHOD_` names (as Rails' forms send it). `:id` is `me` in the links, as in Rails, and is the id of the person
-## too; the profile of another user is a 404 here, so it is only read on their page. Any other method is a 405 that lists
-## `PROFILE_ALLOW`, which is Bond's own list for the path.
+## in: the page that shows their form, and the save of it, a `PATCH` or a `PUT` or a `POST` with `_method` set to one
+## of the `METHOD_` names (as Rails' forms send it). `:id` is `me` in the links, as in Rails, and is the id of the
+## person too; the profile of another user is a 404 here, so it is only read on their page. Any other method is a 405
+## that lists `PROFILE_ALLOW`, which is Bond's own list for the path.
 export USER = "/users/:id"
 export PROFILE = "/users/:id/profile"
 export PROFILE_ALLOW = "GET, HEAD, POST, PATCH, PUT"
