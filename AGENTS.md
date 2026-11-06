@@ -2,7 +2,7 @@
 
 A port of ONCE Campfire (group chat) in Agentica, on Bond.
 `README.md` has what it is and the quick start; `docs/` has the behavior
-(configuration, security, rooms, people, mail, docker) and `docs/plan.md` the plan and the phases.
+(configuration, security, rooms, people, mail, docker, benchmarks) and `docs/plan.md` the plan and the phases.
 
 ## Map
 

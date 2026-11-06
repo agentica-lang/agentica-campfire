@@ -38,6 +38,23 @@ make test        # the features of specs/ and the tests of test/
 
 The tests are BDD first and take under a minute. Rules for contributors and agents: [AGENTS.md](AGENTS.md).
 
+## Benchmark
+
+Requests per second (higher is better), median of the rounds, 16 clients, from the
+[Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) of 2026-11-06
+(run `20261106-130459-7`). The server ran on CPUs 4-7 and the client on CPUs 0-3, with the page cache on.
+Campfire is at c6147de. Agentica: master 7ec41cb (after 0.24.4), not a release.
+
+| Route | Rails | Agentica | Agentica / Rails |
+| --- | ---: | ---: | ---: |
+| room_show | 834.3 | 3189.1 | 3.8x |
+| messages_page | 876.9 | 3168.7 | 3.6x |
+| sidebar | 990.1 | 2279.3 | 2.3x |
+| search | 970.8 | 1038.7 | 1.07x |
+| post_message | 88.5 | 665.1 | 7.5x |
+
+To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps rails,agentica`. Method and details: [docs/benchmarks.md](docs/benchmarks.md).
+
 ## Documentation
 
 - [docs/configuration.md](docs/configuration.md): every `CAMPFIRE_*` variable, the data folder and the database.
@@ -46,6 +63,6 @@ The tests are BDD first and take under a minute. Rules for contributors and agen
 - [docs/people.md](docs/people.md): the join link and the people page.
 - [docs/mail.md](docs/mail.md): password reset, SMTP and the mailer.
 - [docs/docker.md](docs/docker.md): the image, Compose and the benchmark environment.
-- [bench/README.md](bench/README.md): the Rails benchmark harness on the app.
+- [docs/benchmarks.md](docs/benchmarks.md): how the benchmark is run; [bench/README.md](bench/README.md) has the harness steps.
 - [DESIGN.md](DESIGN.md): the visual design system (colours, type, components, accessibility).
 - [docs/plan.md](docs/plan.md): what Agentica, Bond and agentica-db still need, the MVP and the phases.
