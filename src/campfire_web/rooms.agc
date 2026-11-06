@@ -508,7 +508,7 @@ def involvement_of(
   end
 end
 
-# A level that the room does not offer (an invisible direct room, or one made up) is a 422 with the page again and the
+# A level that the room does not offer (any for a direct room, or one made up) is a 422 with the page again and the
 # level that the person has, so nothing is changed. A level that it offers but that was not saved means the membership
 # went between the check and the update, which is a person who is not in the room: a 404. A save ends at the page, as
 # Rails' `redirect_to` does.
@@ -529,9 +529,8 @@ end
 
 def involvement_page(db: Db.Connection, person: Auth.User, room: Rooms.Room, message: String) -> Result[String]
   level = try Rooms.involvement(db, person.id, room.id)
-  return ok(
-    Views.involvement(try sidebar_of(db, person), room, Rooms.involvement_levels(room), level.unwrap_or(""), message),
-  )
+  hidden = Rooms.hidden?(level.unwrap_or(""))
+  return ok(Views.involvement(try sidebar_of(db, person), room, Rooms.involvement_levels(room), hidden, message))
 end
 
 # The form of Rails posts to the room with `_method=delete` (in any case, as Rails reads it); any other post is what a

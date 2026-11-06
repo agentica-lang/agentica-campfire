@@ -25,7 +25,9 @@ export ROOM_DIRECT = "Rooms::Direct"
 export INVISIBLE = "invisible"
 
 ## The other levels of `memberships.involvement`: `nothing` (no notification, the room is in the sidebar), `mentions`
-## (the default) and `everything`.
+## (the default) and `everything`. Only the default is written, to show a hidden room again, and the other two are
+## only read back from a Rails database: notifications do not exist yet, and the issues of push (#81) and mentions
+## (#57) bring the levels back to the page of the room.
 export NOTHING = "nothing"
 export MENTIONS = "mentions"
 export EVERYTHING = "everything"

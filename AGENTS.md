@@ -238,8 +238,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   is an active administrator again inside the transaction, and `set_role` refuses the actor's own row, so the account always
   keeps an administrator. `AuthWeb.form_method` reads `_method` for every `POST` override.
 - Involvement: `/rooms/ID/involvement` reads and sets the person's own `memberships.involvement` (`Rooms.involvement`,
-  `Rooms.set_involvement`); the levels a room offers are `Rooms.involvement_levels` (a direct room never offers
-  `invisible`, as Rails), and anything else is 422 with nothing written. Membership is checked first (404), then the
+  `Rooms.set_involvement`); the choices a room offers are `Rooms.involvement_levels` (`mentions` shown, `invisible` hidden; a direct room offers
+  none, as Rails never lets it be `invisible`), and anything else is 422 with nothing written. Saving `mentions` keeps
+  an `everything` or `nothing` row as it is; #57 and #81 bring those levels back. Membership is checked first (404), then the
   form. `invisible` is the only way out of a sidebar (the room stays reachable and the person a member), and `visible`
   and `receive` already skip it.
 - Search: a query is words, never FTS5 syntax. `Searches.words` turns everything that is not a letter, digit or `_` into
