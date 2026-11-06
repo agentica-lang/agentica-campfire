@@ -300,7 +300,7 @@ end
 # next ones, in this run and in the runs that follow while the migrations stay the same. The file name is the digest of
 # the migrations (versions, names and statements), so a changed migration makes another file. The files run in
 # parallel: each one that finds no template migrates a database of its own and moves it into place, which is atomic and
-# gives the same bytes whoever wins.
+# gives the same bytes whoever wins (the others find the file there and drop theirs).
 def schema_template() -> Result[String]
   try Dir.mkdir(TEMPLATE_DIR)
   path = try Path.join([TEMPLATE_DIR, "#{schema_digest()}.db"])
@@ -315,7 +315,17 @@ def schema_template() -> Result[String]
     return error(migrated.message)
   end
 
-  try Path.rename(scratch, path)
+  # A rename onto a file that exists fails: another file of specs won the race, and its template has the same bytes.
+  moved = Path.rename(scratch, path)
+  if not moved.ok?
+    _ = Path.remove(scratch)
+    if not File.stat(path).ok?
+      return error(moved.message)
+    end
+
+    return ok(path)
+  end
+
   remove_old_templates(path)
   return ok(path)
 end
