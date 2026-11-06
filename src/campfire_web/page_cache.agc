@@ -16,21 +16,22 @@
 ## version cannot be read the page is made and not kept.
 ##
 ## The sidebar page and the search page are kept the same way (kinds `SIDEBAR` and `SEARCH`, for the person, and for
-## the words of the search): they are a function of the database and the person too, and nothing in them depends on the
-## request (the signed stream names are the same for every load). The key of the sidebar has no room. A search has no
-## cursor to bound it, and the words are the client's, so one person could fill the shared store with a page for every
-## query and push out the room pages and the sessions of everybody: a person has `SEARCH_SLOTS` places for search pages,
-## chosen by the words, and a page is kept in its place with the version, the person and the words it was made for, so
-## a page that is another query's, or an old version's, is a miss and is written over. That bounds the search pages of
-## a person at `SEARCH_SLOTS` for good (the cost is that two queries of one place take turns), and the words longer than
-## the form of the search allows are not kept at all.
+## the words of the search): they are a function of the database and the person too, and nothing in them depends on
+## the request (the signed stream names are the same for every load). The key of the sidebar has no room. A search has
+## no cursor to bound it, and the words are the client's, so one person could fill the shared store with a page for
+## every query and push out the room pages and the sessions of everybody: a person has `search_slots` places for
+## search pages (`CAMPFIRE_SEARCH_PAGES`), chosen by the words, and a page is kept in its place with the version, the
+## person and the words it was made for, so a page that is another query's, or an old version's, is a miss and is
+## written over. That bounds the search pages of a person at `search_slots` for good (the cost is that two queries of
+## one place take turns), and the words longer than the form of the search allows are not kept at all.
 ##
-## The sign-in filter reads the version of a read of a page that is kept (`cached?`, `watch`) before it looks the person
-## up, and keeps it for the handler (`seen`), so a hit costs one lease of the observer and none of the pool: the person
-## of a session is kept for one version of the database too (`known_user`, `remember_user`), in a store of its own so
-## that the churn of pages cannot push a session out. A sign-out, a deactivation, a ban, a rename or a change of role is
-## a commit, so the next read has a new version and looks the session up again. The person is looked up after the
-## version was read, so what is kept under a version is that of the database at that version or later.
+## The sign-in filter reads the version of a read of a page that is kept (`cached?`, `watch`) before it looks the
+## person up, and keeps it for the handler (`seen`), so a hit costs one lease of the observer and none of the pool:
+## the person of a session is kept for one version of the database too (`known_user`, `remember_user`), in a store of
+## its own (`CAMPFIRE_SESSION_CACHE_MB`) so that the churn of pages cannot push a session out. A sign-out, a
+## deactivation, a ban, a rename or a change of role is a commit, so the next read has a new version and looks the
+## session up again. The person is looked up after the version was read, so what is kept under a version is that of
+## the database at that version or later.
 ##
 ## Every page has a weak `ETag` (a digest of its bytes, as `Rack::ETag` writes it) and `Cache-Control: max-age=0,
 ## private, must-revalidate`, as Rails sends, and a request whose `If-None-Match` has the tag is a 304. The form of a
@@ -64,12 +65,6 @@ VERSION_KEY = "database_version"
 # How much of the digest of the words of a search goes in the stamp of its page.
 QUERY_DIGITS = 32
 
-# How many search pages one person keeps (see the top of this file).
-export SEARCH_SLOTS = 8
-
-# The store of the people of the sessions: a person is about a hundred bytes, for every version of the database.
-PEOPLE_BYTES = 4 * 1024 * 1024
-
 # How much of the digest of the name and the role of the person goes in the key.
 SEEN_DIGITS = 16
 
@@ -84,6 +79,7 @@ end
 export struct Pages
   store: Cache.Store
   people: Cache.Store
+  search_slots: Int
   observer: Database.Observer
 end
 
@@ -102,16 +98,31 @@ export struct Spot
   stamp: String
 end
 
-## The cache for `megabytes` of pages and its observer of the database at `url`, or `none` for 0, which turns it off.
-## An `error` is an observer that does not open.
-export def start(megabytes: Int, url: String, checkout_ms: Int) -> Result[Optional[Pages]]
+## The cache for `megabytes` of pages, `search_slots` search pages for each person and `session_mb` megabytes for the
+## people of the sessions, and its observer of the database at `url`, or `none` for 0 megabytes of pages, which turns it
+## off. An `error` is an observer that does not open.
+export def start(
+  megabytes: Int,
+  search_slots: Int,
+  session_mb: Int,
+  url: String,
+  checkout_ms: Int,
+) -> Result[Optional[Pages]]
   if megabytes <= 0
     return ok(none)
   end
 
   observer = try Database.open_observer(url, checkout_ms)
-  pages = Pages(store: Cache.memory(megabytes * BYTES_PER_MB), people: Cache.memory(PEOPLE_BYTES), observer: observer)
-  return ok(some(pages))
+  return ok(
+    some(
+      Pages(
+        store: Cache.memory(megabytes * BYTES_PER_MB),
+        people: Cache.memory(session_mb * BYTES_PER_MB),
+        search_slots: search_slots,
+        observer: observer,
+      ),
+    ),
+  )
 end
 
 ## Closes the observer of `pages`, if there are any.
@@ -149,7 +160,7 @@ export def sidebar_spot(pages: Optional[Pages], seen: Optional[String], person: 
   return located(pages, seen, SIDEBAR, person, "")
 end
 
-## Where the search page of `person` for the words `query` goes (see `spot`): one of the `SEARCH_SLOTS` places of the
+## Where the search page of `person` for the words `query` goes (see `spot`): one of the `search_slots` places of the
 ## person, which the words choose, kept with the version, the state of the person and the words.
 export def search_spot(
   pages: Optional[Pages],
@@ -166,7 +177,7 @@ export def search_spot(
       end
 
       words = Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS)
-      place = Digest.sha256(query.bytes)[0] % SEARCH_SLOTS
+      place = Digest.sha256(query.bytes)[0] % found.search_slots
       return some(
         Spot(
           pages: found,

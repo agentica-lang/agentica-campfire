@@ -130,6 +130,34 @@ def pages_of(megabytes: String) -> Result[Config.Config]
   )
 end
 
+# `parse` with these numbers of search pages for each person and megabytes of the store of the people of the sessions.
+def places_of(search_pages: String, session_cache_mb: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    Config.DEFAULT_ASSETS_DIR,
+    "",
+    "",
+    "",
+    search_pages,
+    session_cache_mb,
+  )
+end
+
 def connections_of(text: String) -> Result[Config.Config]
   return Config.parse(
     Config.DEFAULT_HOST,
@@ -453,6 +481,20 @@ def main() -> Void
       try Test.error?(pages_of("-1"))
       try Test.error?(pages_of("#{Config.MAX_RESPONSE_CACHE_MB + 1}"))
       Test.error?(pages_of("a lot"))
+    end,
+    Test.test("the search pages of a person and the store of the sessions have defaults and a lowest and a highest") do
+      try Test.eq(places_of("", "").unwrap!.search_pages, Config.DEFAULT_SEARCH_PAGES)
+      try Test.eq(places_of("", "").unwrap!.session_cache_mb, Config.DEFAULT_SESSION_CACHE_MB)
+      chosen = places_of(" 3 ", " 16 ").unwrap!
+      try Test.eq(chosen.search_pages, 3)
+      try Test.eq(chosen.session_cache_mb, 16)
+      try Test.ok?(places_of("#{Config.MIN_SEARCH_PAGES}", "#{Config.MIN_SESSION_CACHE_MB}"))
+      try Test.error?(places_of("0", ""))
+      try Test.error?(places_of("#{Config.MAX_SEARCH_PAGES + 1}", ""))
+      try Test.error?(places_of("many", ""))
+      try Test.error?(places_of("", "0"))
+      try Test.error?(places_of("", "#{Config.MAX_SESSION_CACHE_MB + 1}"))
+      Test.error?(places_of("", "a lot"))
     end,
     Test.test("the connections have a default, and the environment may name from the fewest to the most") do
       try Test.eq(connections_of("").unwrap!.max_connections, Config.DEFAULT_MAX_CONNECTIONS)

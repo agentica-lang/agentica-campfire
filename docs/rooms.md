@@ -132,17 +132,18 @@ whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none); Rail
 for one query), so nobody is sent a page that was made for somebody else, and only a 200 is kept. The search is the
 one page whose key the person chooses, so a person keeps at most 8 search pages (`PageCache.SEARCH_SLOTS`; the words
 choose the place, and a query of another place or version is written over), and words longer than the form allows are
-not kept. The people of the sessions are in a store of their own, so that no number of pages pushes a session out. It
-is valid for one version of the database: a connection of its own reads `PRAGMA data_version`, which changes whenever
-any connection or program commits (a new message, an edit, a delete, a change of members, a rename of the room or of a
-person), and the version is in the key, so the next request builds the page again. Every page has a weak `ETag` (a
-digest of its bytes) and `Cache-Control: max-age=0, private, must-revalidate`, and a request with `If-None-Match` of
-that tag is answered `304`. The `client_message_id` of the form is drawn when a page is made, so two loads at one
-version share it; the app stores it and does nothing else with it. The same version also keeps the person of a
-session: a read request reads the version first and finds the person in the cache of the version, so a hit takes one
-connection (the observer's) and none of the pool. A sign-out, a deactivation, a ban, a rename and a change of role are
-commits, so the next read has a new version and looks the session up again. The cache of messages
-(`CAMPFIRE_CACHE_MB`) is separate: it saves rendering a message again when the page is built.
+not kept. The people of the sessions are in a store of their own (`CAMPFIRE_SESSION_CACHE_MB`, 4 by default), so that
+no number of pages pushes a session out. It is valid for one version of the database: a connection of its own reads
+`PRAGMA data_version`, which changes whenever any connection or program commits (a new message, an edit, a delete, a
+change of members, a rename of the room or of a person), and the version is in the key, so the next request builds the
+page again. Every page has a weak `ETag` (a digest of its bytes) and `Cache-Control: max-age=0, private,
+must-revalidate`, and a request with `If-None-Match` of that tag is answered `304`. The `client_message_id` of the
+form is drawn when a page is made, so two loads at one version share it; the app stores it and does nothing else with
+it. The same version also keeps the person of a session: a read request reads the version first and finds the person
+in the cache of the version, so a hit takes one connection (the observer's) and none of the pool. A sign-out, a
+deactivation, a ban, a rename and a change of role are commits, so the next read has a new version and looks the
+session up again. The cache of messages (`CAMPFIRE_CACHE_MB`) is separate: it saves rendering a message again when the
+page is built.
 
 The form of a message has the fields `message[body]` and `message[client_message_id]`, the names that Rails
 uses. A post that sends `Accept: text/vnd.turbo-stream.html` is answered `200` with a Turbo Stream that appends

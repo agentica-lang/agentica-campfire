@@ -218,10 +218,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   room page with `?before=` is not kept (one person could fill the cache with a page for every number), and a hit
   skips the room lookup because a change of members is a commit. If the observer fails, the page is made and not kept.
   The search is the one page whose key the client chooses without a bound, so it relaxes "a key per version": a person
-  has `PageCache.SEARCH_SLOTS` places for search pages, chosen by the words, each kept with the version, the person's
-  state and the words (a page of another stamp is a miss and is written over), so a person holds at most that many
-  search pages whatever they type, and words longer than `Searches.MAX_QUERY_LENGTH` are not kept. The people of the
-  sessions live in a store of their own, so that the churn of pages cannot push a session out.
+  has `search_slots` places for search pages (`CAMPFIRE_SEARCH_PAGES`, 8 by default), chosen by the words, each kept
+  with the version, the person's state and the words (a page of another stamp is a miss and is written over), so a
+  person holds at most that many search pages whatever they type, and words longer than `Searches.MAX_QUERY_LENGTH`
+  are not kept. The people of the sessions live in a store of their own (`CAMPFIRE_SESSION_CACHE_MB`, 4 by default),
+  so that the churn of pages cannot push a session out.
   The sign-in filter reads the version first for a `GET` or `HEAD` of a page that is kept (`PageCache.cached?`,
   `PageCache.watch`, kept for the handler with `PageCache.seen`) and looks the person up after it: the person of a
   session is kept under the version too (`known_user`, `remember_user`), so a hit costs one lease of the observer and

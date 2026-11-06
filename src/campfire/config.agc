@@ -55,6 +55,23 @@ export DEFAULT_RESPONSE_CACHE_MB = 64
 ## The most that `CAMPFIRE_RESPONSE_CACHE_MB` may ask for (4 GiB).
 export MAX_RESPONSE_CACHE_MB = 4096
 
+## The search pages that one person keeps in the cache of whole pages when `CAMPFIRE_SEARCH_PAGES` is not set. A search
+## has no cursor to bound it, so the cache gives each person this many places for search pages and no more.
+export DEFAULT_SEARCH_PAGES = 8
+
+## The fewest and the most that `CAMPFIRE_SEARCH_PAGES` may ask for.
+export MIN_SEARCH_PAGES = 1
+export MAX_SEARCH_PAGES = 64
+
+## The megabytes of the store of the people of the sessions (kept apart from the pages, so that the pages cannot push a
+## session out) when `CAMPFIRE_SESSION_CACHE_MB` is not set. A person is about a hundred bytes for every version of the
+## database, so this holds tens of thousands.
+export DEFAULT_SESSION_CACHE_MB = 4
+
+## The fewest and the most that `CAMPFIRE_SESSION_CACHE_MB` may ask for.
+export MIN_SESSION_CACHE_MB = 1
+export MAX_SESSION_CACHE_MB = 1024
+
 ## The connections that the server holds at once when `CAMPFIRE_MAX_CONNECTIONS` is not set. A WebSocket of `/cable`
 ## holds one for as long as its tab is open, so this is the tabs that can be connected, and the requests share what is
 ## left: set it above the clients and the posters.
@@ -96,7 +113,9 @@ SMTP_URL_FORM = (
 ## files of Active Storage (`xx/yy/KEY` inside it, as Rails' Disk service writes them), `DATA_DIR/files` when it is
 ## not set, and `assets_dir` the folder of the stylesheet. `cache_mb` is the size of the cache of rendered messages in
 ## megabytes, 0 for none, and `response_cache_mb` the size of the cache of whole pages, 0 for none. `max_connections` is
-## the connections that the server holds at once, the WebSockets of `/cable` among them.
+## the connections that the server holds at once, the WebSockets of `/cable` among them. `search_pages` is how many
+## search pages one person keeps in the cache of whole pages, and `session_cache_mb` the size of the store of the people
+## of the sessions in megabytes (both are used only while `response_cache_mb` is not 0).
 export struct Config
   host: String
   port: Int
@@ -117,6 +136,8 @@ export struct Config
   cache_mb: Int = DEFAULT_CACHE_MB
   response_cache_mb: Int = DEFAULT_RESPONSE_CACHE_MB
   max_connections: Int = DEFAULT_MAX_CONNECTIONS
+  search_pages: Int = DEFAULT_SEARCH_PAGES
+  session_cache_mb: Int = DEFAULT_SESSION_CACHE_MB
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -136,10 +157,12 @@ struct SmtpPlace
 end
 
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
-## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`,
-## `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`, `CAMPFIRE_STORAGE_DIR` and
-## `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB`, `CAMPFIRE_RESPONSE_CACHE_MB` and `CAMPFIRE_MAX_CONNECTIONS`, with the defaults for a variable that
-## is not set (the secret has none, and without the smtp url there is no email). An `error` says which value is wrong.
+## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`,
+## `CAMPFIRE_SMTP_FROM`, `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`,
+## `CAMPFIRE_STORAGE_DIR` and `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB`, `CAMPFIRE_RESPONSE_CACHE_MB`,
+## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES` and `CAMPFIRE_SESSION_CACHE_MB`, with the defaults for a
+## variable that is not set (the secret has none, and without the smtp url there is no email). An `error` says which
+## value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
@@ -161,6 +184,8 @@ export def load() -> Result[Config]
   cache_mb = System.env("CAMPFIRE_CACHE_MB").unwrap_or("")
   response_cache_mb = System.env("CAMPFIRE_RESPONSE_CACHE_MB").unwrap_or("")
   max_connections = System.env("CAMPFIRE_MAX_CONNECTIONS").unwrap_or("")
+  search_pages = System.env("CAMPFIRE_SEARCH_PAGES").unwrap_or("")
+  session_cache_mb = System.env("CAMPFIRE_SESSION_CACHE_MB").unwrap_or("")
   return parse(
     host,
     port,
@@ -182,6 +207,8 @@ export def load() -> Result[Config]
     cache_mb,
     response_cache_mb,
     max_connections,
+    search_pages,
+    session_cache_mb,
   )
 end
 
@@ -209,7 +236,9 @@ end
 ## (`DEFAULT_CACHE_MB` when left out); 0 turns the cache off. `response_cache_mb` (`CAMPFIRE_RESPONSE_CACHE_MB`) is the
 ## same for the cache of whole pages, 0 to `MAX_RESPONSE_CACHE_MB` (`DEFAULT_RESPONSE_CACHE_MB` when left out).
 ## `max_connections` (`CAMPFIRE_MAX_CONNECTIONS`) is `MIN_MAX_CONNECTIONS` to `MAX_MAX_CONNECTIONS`
-## (`DEFAULT_MAX_CONNECTIONS` when left out).
+## (`DEFAULT_MAX_CONNECTIONS` when left out). `search_pages` (`CAMPFIRE_SEARCH_PAGES`) is `MIN_SEARCH_PAGES` to
+## `MAX_SEARCH_PAGES` (`DEFAULT_SEARCH_PAGES` when left out) and `session_cache_mb` (`CAMPFIRE_SESSION_CACHE_MB`) is
+## `MIN_SESSION_CACHE_MB` to `MAX_SESSION_CACHE_MB` (`DEFAULT_SESSION_CACHE_MB` when left out).
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -231,6 +260,8 @@ export def parse(
   cache_mb: String = "",
   response_cache_mb: String = "",
   max_connections: String = "",
+  search_pages: String = "",
+  session_cache_mb: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -305,6 +336,22 @@ export def parse(
     MAX_MAX_CONNECTIONS,
   )
 
+  places = try parse_db_number(
+    "CAMPFIRE_SEARCH_PAGES",
+    search_pages,
+    DEFAULT_SEARCH_PAGES,
+    MIN_SEARCH_PAGES,
+    MAX_SEARCH_PAGES,
+  )
+
+  people = try parse_db_number(
+    "CAMPFIRE_SESSION_CACHE_MB",
+    session_cache_mb,
+    DEFAULT_SESSION_CACHE_MB,
+    MIN_SESSION_CACHE_MB,
+    MAX_SESSION_CACHE_MB,
+  )
+
   if assets_dir.strip.empty?
     return error("CAMPFIRE_ASSETS_DIR is empty")
   end
@@ -341,6 +388,8 @@ export def parse(
       cache_mb: cache,
       response_cache_mb: pages,
       max_connections: connections,
+      search_pages: places,
+      session_cache_mb: people,
     ),
   )
 end
