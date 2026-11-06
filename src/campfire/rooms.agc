@@ -492,34 +492,21 @@ export def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, ac
   return Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
 end
 
-## The levels of involvement that a person can choose for the room, in the order that Rails offers them
-## (`SHARED_INVOLVEMENT_ORDER` and `DIRECT_INVOLVEMENT_ORDER` of its helper): an open or closed room can be made
-## invisible (out of the sidebar, still reachable), a direct room is only on or off, since a hidden conversation
-## would be one that its people cannot find again.
+## The choices of the sidebar page for the room: `mentions` (shown, the default level of Rails) and `invisible` (hidden:
+## out of the sidebar, still reachable). A direct room has none, as in Rails (`DIRECT_INVOLVEMENT_ORDER` has no
+## `invisible`): a hidden conversation would be one that its people cannot find again. The other levels of Rails
+## (`everything`, `nothing`) only matter for notifications, which do not exist yet (#57, #81 bring them back).
 export def involvement_levels(room: Room) -> List[String]
   if room.room_type == DIRECT
-    return [Rails.EVERYTHING, Rails.NOTHING]
+    return []
   end
 
-  return [Rails.MENTIONS, Rails.EVERYTHING, Rails.NOTHING, Rails.INVISIBLE]
+  return [Rails.MENTIONS, Rails.INVISIBLE]
 end
 
-## What the page of the notification settings says for a level (`HUMANIZE_INVOLVEMENT` of Rails' helper); a level that
-## is not one of them reads as the last.
-export def involvement_label(level: String) -> String
-  if level == Rails.MENTIONS
-    return "Notifying about @ mentions"
-  end
-
-  if level == Rails.EVERYTHING
-    return "Notifying about all messages"
-  end
-
-  if level == Rails.NOTHING
-    return "Notifications are off"
-  end
-
-  return "Notifications are off and room invisible in sidebar"
+## True for the level of a room that the person has hidden from their sidebar.
+export def hidden?(level: String) -> Bool
+  return level == Rails.INVISIBLE
 end
 
 ## The level that the person has in the room, or `none` when they are not in it. A row with no level (a database that
@@ -539,19 +526,30 @@ export def involvement(conn: Db.Connection, user_id: Int, room_id: Int) -> Resul
   return ok(some(text_of(rows[0], "involvement")))
 end
 
-## Sets the level of the person's membership of the room (`Rooms::InvolvementsController#update`), which touches the
-## membership as `update!` does. It gives false, and changes nothing, when `level` is not one of the
-## `involvement_levels` of the room, or the person is not in it. It sets no `unread_at`: a room made invisible keeps
-## what it had.
+## Sets the choice of the person's membership of the room (`Rooms::InvolvementsController#update`). It gives false, and
+## changes nothing, when `level` is not one of the `involvement_levels` of the room, or the person is not in it. `mentions`
+## ("shown") only brings back a room that was hidden: on a room that is shown already it keeps the level the row has (a
+## Rails database may hold `everything` or `nothing`, which the page cannot set but must not lose). It sets no
+## `unread_at`: a room made invisible keeps what it had.
 export def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level: String) -> Result[Bool]
   if not involvement_levels(room).include?(level)
     return ok(false)
   end
 
+  hidden = "(involvement is null or involvement = '#{Rails.INVISIBLE}')"
   changed = try Db.execute(
     conn,
-    "update memberships set involvement = ?, updated_at = #{NOW} where room_id = ? and user_id = ?",
-    [Db.Value.Text(level), Db.Value.Int(room.id), Db.Value.Int(user_id)],
+    "update memberships set involvement = case when ? = '#{Rails.INVISIBLE}' then ? when #{hidden} then ? " +
+    "else involvement end, updated_at = case when ? = '#{Rails.INVISIBLE}' or #{hidden} then #{NOW} " +
+    "else updated_at end where room_id = ? and user_id = ?",
+    [
+      Db.Value.Text(level),
+      Db.Value.Text(level),
+      Db.Value.Text(level),
+      Db.Value.Text(level),
+      Db.Value.Int(room.id),
+      Db.Value.Int(user_id),
+    ],
   )
 
   return ok(changed == 1)

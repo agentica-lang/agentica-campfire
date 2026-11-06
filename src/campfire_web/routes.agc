@@ -92,7 +92,7 @@ export ROOM_REFRESH = "/rooms/:id/refresh"
 export ROOM_AT = "/rooms/:id/:at"
 export AT_PREFIX = "@"
 
-## The notification settings of a person for a room (`:id` is the room): the page that shows the level and its form, and
+## The sidebar setting of a person for a room (`:id` is the room): the page that shows the choice and its form, and
 ## the save, a `PUT` or a `POST` with `_method` set to `METHOD_PUT` (as Rails' forms send it), with the field
 ## `involvement`. Any other method is a 405 that lists `ROOM_INVOLVEMENT_ALLOW`, which is Bond's own list for the path.
 export ROOM_INVOLVEMENT = "/rooms/:id/involvement"
@@ -156,7 +156,7 @@ export def room_settings_path(room_id: Int) -> String
   return "/rooms/#{room_id}/settings"
 end
 
-## The path of the notification settings of a room, which is also where their form posts.
+## The path of the sidebar setting of a room, which is also where their form posts.
 export def room_involvement_path(room_id: Int) -> String
   return "/rooms/#{room_id}/involvement"
 end
