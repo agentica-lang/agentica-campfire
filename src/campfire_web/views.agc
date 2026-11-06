@@ -228,13 +228,16 @@ export def new_direct_room(sidebar: String, people: List[Rooms.Person], chosen: 
   return layout("New direct message", body)
 end
 
-## The settings of a closed room: its name and who is in it (`chosen` of `people`, the others than the person who is
-## looking, who stays). The form sends the ids of the people who were in the room when it was drawn (`was`), so that
-## saving it takes out only those that it unchecked, not someone who was put in after the page was drawn. `name` and
-## `message` fill the form again after a refusal.
+## The settings of an open or a closed room, drawn as the form of `kind` (`Routes.SETTINGS_OPEN` or `SETTINGS_CLOSED`),
+## which is also what the room is after it is saved: a link switches the form to the other kind (Rails' toggle between
+## "Everyone" and "only some"). The closed form has its name and who is in it (`chosen` of `people`, the others than the
+## person who is looking, who stays); it sends the ids of the people who were in the room when it was drawn (`was`), so
+## that saving it takes out only those that it unchecked, not someone who was put in after the page was drawn. The open
+## form has the name alone, since everyone is in. `name` and `message` fill the form again after a refusal.
 export def room_settings(
   sidebar: String,
   room: Rooms.Room,
+  kind: String,
   name: String,
   people: List[Rooms.Person],
   chosen: List[Int],
@@ -242,6 +245,7 @@ export def room_settings(
   message: String,
 ) -> String
   picker = member_picker(people, chosen)
+  open = kind == Routes.SETTINGS_OPEN
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
@@ -251,19 +255,29 @@ export def room_settings(
       <p role="alert"><%= message %></p>
     <% end %>
       <form method="post" action="<%= Routes.room_settings_path(room.id) %>">
+        <input name="type" type="hidden" value="<%= kind %>">
         <p>
           <label>Name
             <input name="name" type="text" value="<%= name %>" maxlength="<%= Rooms.MAX_NAME_LENGTH %>"
               required autofocus></label>
         </p>
+    <% if open %>
+        <p>Everyone on the account is in this room.</p>
+    <% else %>
         <%== picker.strip %>
     <% for person in people %>
     <% if was.include?(person.id) %>
         <input name="was" type="hidden" value="<%= person.id %>">
     <% end %>
     <% end %>
+    <% end %>
         <p><button type="submit">Save</button></p>
       </form>
+    <% if open %>
+      <p><a href="<%= Routes.room_settings_kind_path(room.id, Routes.SETTINGS_CLOSED) %>">Give only some access to this room</a></p>
+    <% else %>
+      <p><a href="<%= Routes.room_settings_kind_path(room.id, Routes.SETTINGS_OPEN) %>">Give everyone access to this room</a></p>
+    <% end %>
       <%== delete_form(room).strip %>
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
     </main>
