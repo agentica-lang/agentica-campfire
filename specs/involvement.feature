@@ -46,21 +46,22 @@ Feature: Sidebar setting of a room
       | mentions  |
 
   Scenario Outline: Saving shown brings back a hidden room, and keeps the level of one that is shown already
-    Given I run the sql "update memberships set involvement = '<before>' where room_id = 1 and user_id = 1"
+    Given I run the sql "update memberships set involvement = '<before>', updated_at = '2000-01-01 00:00:00' where room_id = 1 and user_id = 1"
     When I post to "/rooms/1/involvement" the form:
       | _method     | put      |
       | involvement | mentions |
     Then the status is 302
     And the query "select count(*) from memberships where room_id = 1 and user_id = 1 and involvement = '<after>'" gives 1
+    And the query "select count(*) from memberships where room_id = 1 and user_id = 1 and updated_at = '2000-01-01 00:00:00'" gives <kept>
     When I get "/rooms/1/involvement"
     Then the body contains "value=\"mentions\" checked"
 
     Examples:
-      | before     | after      |
-      | invisible  | mentions   |
-      | everything | everything |
-      | nothing    | nothing    |
-      | mentions   | mentions   |
+      | before     | after      | kept |
+      | invisible  | mentions   | 0    |
+      | everything | everything | 1    |
+      | nothing    | nothing    | 1    |
+      | mentions   | mentions   | 1    |
 
   Scenario: An invisible room leaves the sidebar of the person but stays reachable, and the others keep it
     When I post to "/rooms/1/involvement" the form:
@@ -130,7 +131,7 @@ Feature: Sidebar setting of a room
     Then the status is 404
     And the body is "Not Found"
     When I post to "<path>" the form:
-      | _method     | put        |
+      | _method     | put       |
       | involvement | invisible |
     Then the status is 404
     And the query "select count(*) from memberships where room_id = 2 and involvement = 'invisible'" gives 0
@@ -147,7 +148,7 @@ Feature: Sidebar setting of a room
     Then the status is 302
     And the header "location" is "/session/new"
     When I post to "/rooms/1/involvement" the form:
-      | _method     | put        |
+      | _method     | put       |
       | involvement | invisible |
     Then the status is 302
     And the header "location" is "/session/new"
@@ -160,7 +161,7 @@ Feature: Sidebar setting of a room
   Scenario: A page of another site saves nothing, as a form or as a real PUT
     Given the request header "sec-fetch-site" is "cross-site"
     When I post to "/rooms/1/involvement" the form:
-      | _method     | put        |
+      | _method     | put       |
       | involvement | invisible |
     Then the status is 403
     When I send a PUT to "/rooms/1/involvement" the form:
@@ -170,14 +171,14 @@ Feature: Sidebar setting of a room
 
   Scenario: The method of the form is read in any case, as Rails reads it
     When I post to "/rooms/1/involvement" the form:
-      | _method     | PUT        |
+      | _method     | PUT       |
       | involvement | invisible |
     Then the status is 302
     And the query "select count(*) from memberships where room_id = 1 and user_id = 1 and involvement = 'invisible'" gives 1
 
   Scenario Outline: A post that is not a put is a 405 that lists the methods of the path
     When I post to "/rooms/1/involvement" the form:
-      | _method     | <method>   |
+      | _method     | <method>  |
       | involvement | invisible |
     Then the status is 405
     And the header "allow" is "GET, HEAD, POST, PUT"
