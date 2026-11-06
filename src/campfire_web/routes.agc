@@ -21,7 +21,7 @@ export MISSING = "Not Found"
 ## of the SHA-256 of the file: `specs/assets.feature` checks it, so a change to the file renames it and this). The
 ## benchmark reads the link out of the room page (`/assets/....css`), and the folder is served under `ASSETS`.
 export ASSETS = "/assets"
-export STYLESHEET = "/assets/campfire-0d54c4f15d2135e3.css"
+export STYLESHEET = "/assets/campfire-65c285f24a690567.css"
 
 ## The script of the room page (the composer sends with `fetch`), fingerprinted like the stylesheet. Only the room page
 ## links it; the page works without it.
@@ -50,12 +50,18 @@ export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"
 export ROOM_MESSAGES = "/rooms/:id/messages"
 
+## `/rooms/:id` takes the form that deletes a room: a `POST` with the field `_method` set to `delete`, as the forms of
+## Rails send it (a browser form cannot send `DELETE`), and a real `DELETE`. A `POST` without it is a 405 that lists the
+## methods of the path (`ROOM_ALLOW`).
+export ROOM_ALLOW = "GET, HEAD, DELETE"
+
 ## One message of a room and the page that edits it (`:id` is the room and `:message_id` the message). The page of the
 ## message takes `PATCH`, which saves the edit, and `DELETE`, and as a `POST` with `_method` set to one of the two
-## `METHOD_` names, as Rails' forms send them (a browser form cannot send either). A room takes the same `POST` with
-## `delete`, which deletes it.
+## `METHOD_` names, as Rails' forms send them (a browser form cannot send either); any other `POST` is a 405 that lists
+## `ROOM_MESSAGE_ALLOW`.
 export ROOM_MESSAGE = "/rooms/:id/messages/:message_id"
 export ROOM_MESSAGE_EDIT = "/rooms/:id/messages/:message_id/edit"
+export ROOM_MESSAGE_ALLOW = "PATCH, DELETE"
 export METHOD_PATCH = "patch"
 export METHOD_DELETE = "delete"
 

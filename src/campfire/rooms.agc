@@ -425,7 +425,8 @@ end
 
 ## Stores a message of the person in the room, which the caller has checked they are in, and gives it as it is stored
 ## (`some`), or `none` when the person is not active any more: the insert itself needs an active person, so a
-## deactivation that came after the sign-in check (the request may have waited for a connection) stores nothing.
+## deactivation that came after the sign-in check (the request may have waited for a connection) stores nothing, and
+## neither does a room that was deleted after the caller looked it up (`none` for both).
 ## `html` is the body as the editor sent it. It is cleaned here by `HtmlSanitizer.sanitize` before the transaction
 ## begins, so the work of the sanitizer does not hold the write lock of the database that the other writers wait for,
 ## and goes in `action_text_rich_texts`; the plain text of it goes in `message_search_index` with the id of the message
@@ -458,9 +459,16 @@ def post_in(
     tx,
     "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) " +
     "select ?, ?, ?, #{NOW}, #{NOW} where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
+    "and exists (select 1 from rooms where id = ?) " +
     "returning id, #{iso("created_at")} as created_at, " +
     "coalesce((select name from users where id = messages.creator_id), '#{UNKNOWN_AUTHOR}') as author",
-    [Db.Value.Int(room_id), Db.Value.Int(user_id), Db.Value.Text(client_message_id), Db.Value.Int(user_id)],
+    [
+      Db.Value.Int(room_id),
+      Db.Value.Int(user_id),
+      Db.Value.Text(client_message_id),
+      Db.Value.Int(user_id),
+      Db.Value.Int(room_id),
+    ],
   )
 
   if rows.empty?

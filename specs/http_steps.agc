@@ -74,6 +74,9 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post to {string} a message of {int} characters", &post_message_of_length),
     BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
     BDD.step("I post nothing to {string}", &post_nothing),
+    BDD.step("I send a DELETE to {string}", &delete_to),
+    BDD.step("I send a PATCH to {string} the form:", &patch_form),
+    BDD.step("I send a PATCH to {string} a message of {int} characters", &patch_message_of_length),
     BDD.step("I submit the form of the page that posts to {string}", &submit_page_form),
     BDD.step("I submit the join form of the page with:", &submit_join_form),
     BDD.step("I remember the join link", &remember_join_link),
@@ -293,6 +296,23 @@ def post_nothing(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "POST", args[0], "")
 end
 
+# The methods that a browser form cannot send: PATCH with the fields of the table, or a message body of
+# `args[1]` letters.
+def patch_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
+  return send(ctx, "PATCH", args[0], URI.encode_www_form(pairs))
+end
+
+def patch_message_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  text = List.repeat("x", args[1].to_i!).join("")
+  return send(ctx, "PATCH", args[0], URI.encode_www_form([URI.Pair(name: "message[body]", value: text)]))
+end
+
+# The method that a browser form cannot send, with no body.
+def delete_to(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return send(ctx, "DELETE", args[0], "")
+end
+
 # A new session: the browser forgets its cookies and signs in through the form, as a person does. The first admin has
 # its own password and the members that `a member ... exists` makes share another.
 def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -361,7 +381,7 @@ def perform(port: Int, state: Browser, method: String, path: String, body: Strin
     headers = headers.push(Header(name: "cookie", value: pairs.join("; ")))
   end
 
-  if method == "POST"
+  if method == "POST" or method == "PATCH"
     headers = headers.push(Header(name: "content-type", value: FORM_TYPE))
   end
 

@@ -95,7 +95,6 @@ Feature: Deleting a room
       | ana@example.com | /rooms/2     | delete | 404    |
       | ana@example.com | /rooms/99    | delete | 404    |
       | ana@example.com | /rooms/abc   | delete | 404    |
-      | bea@example.com | /rooms/2     | put    | 404    |
       | bea@example.com | /rooms/1     | delete | 403    |
 
   Scenario: A visitor with no session and a page of another site delete nothing
@@ -119,16 +118,43 @@ Feature: Deleting a room
     And the query "select count(*) from action_text_rich_texts" gives 0
     And the query "select count(*) from message_search_index" gives 0
 
-  Scenario: A room of many messages does not stop a post in another room while it is deleted
+  Scenario: The messages go one at a time, so another write gets in between
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
-    And the room 2 has 150 messages
-    When I post to "/rooms/2" the form:
-      | _method | delete |
-    Then the status is 302
-    When I post to "/rooms/1/messages" the form:
+    And the room 2 has 3 messages
+    When "ana@example.com" takes the room 2 away and deletes 1 of its messages
+    And I post to "/rooms/1/messages" the form:
       | message[body] | Still here |
     Then the status is 302
-    And the answer came within 2000 milliseconds
-    And the query "select count(*) from messages where room_id = 2" gives 0 within 20000 milliseconds
-    And the query "select count(*) from rooms where id = 2" gives 0
+    And the query "select count(*) from messages where room_id = 2" gives 2
     And the query "select count(*) from messages where room_id = 1" gives 1
+    And the query "select count(*) from memberships where room_id = 2" gives 0
+
+  Scenario: A real DELETE deletes the room as the form does
+    Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
+    When I send a DELETE to "/rooms/2"
+    Then the status is 302
+    And the header "location" is "/"
+    And the query "select count(*) from memberships where room_id = 2" gives 0
+    And the query "select count(*) from rooms where id = 2" gives 0 within 5000 milliseconds
+
+  Scenario Outline: A post to the room that is not a delete is a 405 that lists the methods
+    Given a closed room "Secret" with the members "ana@example.com"
+    When I post to "/rooms/2" the form:
+      | _method | <method> |
+    Then the status is 405
+    And the header "allow" is "GET, HEAD, DELETE"
+    And the query "select count(*) from rooms where id = 2" gives 1
+
+    Examples:
+      | method |
+      | put    |
+      | patch  |
+      |        |
+
+  Scenario: A post that arrives after the room was deleted stores nothing
+    Given a closed room "Secret" with the members "ana@example.com"
+    And I run the sql "delete from memberships where room_id = 2"
+    And I run the sql "delete from rooms where id = 2"
+    When "ana@example.com" asks Rooms.post to post "too late" in the room 2
+    Then the update is refused
+    And the query "select count(*) from messages" gives 0
