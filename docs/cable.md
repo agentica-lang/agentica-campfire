@@ -42,11 +42,14 @@ hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`
 - **New messages** are appended to the room page when it shows the latest messages (not `?before=`); a message that is
   there already (the sender's tab has the answer of its post) is not added twice, and the answer of the post wins over
   the broadcast, which has no Edit link.
-- **After a reconnect**, once the room's subscription is confirmed (what comes later arrives live), the script fetches
-  the room page and makes its list of messages the page's: a message deleted or edited while the socket was away is
-  removed or replaced, and the ones that came are added in order. A message newer than the fetch, or older than its 40
-  (the page shows the newest 40), is left alone, and so is the composer. It then fetches `GET /users/me/sidebar` again
-  and takes the rooms and the unread marks from it.
+- **After a reconnect**, once the room's subscription is confirmed (what comes later arrives live), the script notes
+  the messages of the page, fetches the room page and makes the fetched list the page's: a noted message that the fetch
+  lacks is removed (deleted while the socket was away, the newest one and a room that was emptied included), an edited
+  one is replaced, and the ones that came are added in order. A noted message older than the fetched ones (the page shows
+  the newest 40) stays. A message that a stream brought or touched after the notes is left as the stream made it, because
+  the fetch may be older than the stream, and so is the composer. It then fetches `GET /users/me/sidebar` again and takes
+  the rooms and the unread marks from it (an unread notice that arrives during that request is lost with the old lists
+  until the next notice or load); if the first fetch of the sidebar had given up, this one also subscribes to its streams.
 - **The sidebar** (its signed names cost one extra `GET /users/me/sidebar` per page load, a read of the rooms and
   unreads of the person, and another after each reconnect; a failed fetch is tried again up to 8 times with the pause of
   the socket, which doubles up to 30 s) gets the rooms that are made, renamed and deleted, a new one in the order of the

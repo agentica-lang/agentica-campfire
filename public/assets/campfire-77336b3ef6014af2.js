@@ -291,6 +291,10 @@
   var catchRoom = false;
   var catchSidebar = false;
   var sidebarTries = 0;
+  var sidebarStreams = false;
+  // The catch-up in flight, if any: `seen` is the ids of the messages the page had when it started, and `touched` the
+  // ids that a live event (a stream) named since, which the fetched page may predate.
+  var catching = null;
 
   function visible() {
     return document.visibilityState !== "hidden";
@@ -458,6 +462,9 @@
     var target = document.getElementById(name);
     var template = stream.querySelector("template");
     var content = template ? template.content : document.createDocumentFragment();
+    if (catching) {
+      touch(name, content);
+    }
     if (!target && action === "append" && name === "direct_rooms") {
       target = directList();
     }
@@ -499,6 +506,15 @@
         target.after(content);
         break;
     }
+  }
+
+  // Notes that a live event named this id, and the ones it brings, so that the catch-up leaves them as the event made
+  // them.
+  function touch(name, content) {
+    catching.touched[name] = true;
+    Array.prototype.forEach.call(content.querySelectorAll("[id]"), function (item) {
+      catching.touched[item.id] = true;
+    });
   }
 
   // A room goes where the server's order puts it: by name without the case of ASCII letters (SQLite's `lower`), then
@@ -614,15 +630,24 @@
     }
   }
 
-  // After a reconnect the room page is fetched and its list of messages is made the list of the page: a message that was
-  // deleted while the socket was away goes, an edited one is replaced, and the ones that came are added, in the
-  // server's order. A message newer than the fetched ones (the answer of a post that is still going, or one that came
-  // live after the fetch was made) and one older than they are (the page shows the newest 40) are left alone. The
-  // composer is not touched.
+  // After a reconnect the room page is fetched and its list of messages is made the list of the page. Of the messages
+  // that the page had when the catch-up began, the ones the fetched page lacks are gone (deleted while the socket was
+  // away, the newest one included, or all of them when the room was emptied) unless they are older than the fetched
+  // ones (the page shows the newest 40); an edited one is replaced and the ones that came are added, in the server's
+  // order. What arrived live since the catch-up began (a message that is not in the first list, or one that a stream
+  // touched) stays as the stream made it, as the fetch may be older than the stream. The composer is not touched.
   function catchUp() {
     if (!list || !latest || !roomId) {
       return;
     }
+
+    var mine = { seen: {}, touched: {} };
+    Array.prototype.forEach.call(list.children, function (item) {
+      if (item.id) {
+        mine.seen[item.id] = true;
+      }
+    });
+    catching = mine;
 
     fetch(location.href, { credentials: "same-origin", headers: { Accept: "text/html" } })
       .then(function (response) {
@@ -630,12 +655,17 @@
       })
       .then(function (text) {
         var theirs = text ? new DOMParser().parseFromString(text, "text/html").getElementById(list.id) : null;
-        if (theirs && document.getElementById(list.id) === list) {
-          reconcile(theirs);
+        if (theirs && catching === mine && document.getElementById(list.id) === list) {
+          reconcile(theirs, mine);
         }
       })
       .catch(function () {
         // the next reconnect tries again
+      })
+      .then(function () {
+        if (catching === mine) {
+          catching = null;
+        }
       });
   }
 
@@ -643,40 +673,45 @@
     return parseInt(item.getAttribute("data-message-id"), 10) || 0;
   }
 
-  function reconcile(theirs) {
+  function reconcile(theirs, mine) {
     var wanted = {};
     var low = Infinity;
-    var high = 0;
     Array.prototype.forEach.call(theirs.children, function (item) {
       wanted[item.id] = true;
       low = Math.min(low, numberOf(item));
-      high = Math.max(high, numberOf(item));
     });
 
+    // With no fetched message every message of the first list is gone; otherwise only the ones from the oldest fetched
+    // on (older ones are on a page that the fetch did not cover).
+    var covered = theirs.children.length === 0 ? 0 : low;
     Array.prototype.slice.call(list.children).forEach(function (item) {
-      var n = numberOf(item);
-      if (item.id && !wanted[item.id] && n >= low && n <= high) {
+      if (item.id && mine.seen[item.id] && !wanted[item.id] && !mine.touched[item.id] && numberOf(item) >= covered) {
         item.remove();
       }
     });
 
     var previous = null;
     Array.prototype.forEach.call(theirs.children, function (item) {
+      if (mine.touched[item.id]) {
+        previous = document.getElementById(item.id) || previous;
+        return;
+      }
+
       var copy = document.importNode(item, true);
-      var mine = document.getElementById(item.id);
-      if (mine && mine.parentNode === list) {
-        if (mine.outerHTML !== copy.outerHTML) {
-          mine.replaceWith(copy);
-          mine = copy;
+      var here = document.getElementById(item.id);
+      if (here && here.parentNode === list) {
+        if (here.outerHTML !== copy.outerHTML) {
+          here.replaceWith(copy);
+          here = copy;
         }
       } else if (previous) {
         previous.after(copy);
-        mine = copy;
+        here = copy;
       } else {
         list.prepend(copy);
-        mine = copy;
+        here = copy;
       }
-      previous = mine;
+      previous = here;
     });
 
     var empty = document.querySelector(".thread .empty");
@@ -710,9 +745,15 @@
         var doc = new DOMParser().parseFromString(text, "text/html");
         if (again) {
           reconcileSidebar(doc);
+        }
+
+        // A reload after a reconnect subscribes too when the first load gave up; the flag keeps two loads in flight from
+        // subscribing twice.
+        if (sidebarStreams) {
           return;
         }
 
+        sidebarStreams = true;
         Array.prototype.forEach.call(doc.querySelectorAll("turbo-cable-stream-source"), function (source) {
           subscribe(
             { channel: source.getAttribute("channel"), signed_stream_name: source.getAttribute("signed-stream-name") },
@@ -741,6 +782,8 @@
       return;
     }
 
+    // A live unread mark that arrives between the fetch and this line is lost with the old lists (the next notice or
+    // reload brings it back); the window is the time of one request.
     mine.innerHTML = theirs.innerHTML;
     // The room that a visible tab shows is read, whatever the page of the sidebar said before the presence came.
     if (roomId && visible()) {

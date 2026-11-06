@@ -33,7 +33,7 @@ export STYLESHEET = "/assets/campfire-c882132af5b656e2.css"
 
 ## The script of the pages (the composer of the room page sends with `fetch`, and every page with the sidebar listens to
 ## `/cable`), fingerprinted like the stylesheet. The room page and the pages with the sidebar link it; they work without.
-export SCRIPT = "/assets/campfire-932d520cf80d337c.js"
+export SCRIPT = "/assets/campfire-77336b3ef6014af2.js"
 
 ## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
 ## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and
