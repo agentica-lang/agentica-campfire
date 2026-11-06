@@ -55,13 +55,15 @@ reference run `20261105-101743-7` on the same machine.
 | post_message | 88.5 | 1011.3 | 623.3 | 7.0x | 62% |
 
 Against run `20261106-200652-7` (Campfire c2cdc7d), the page cache of the sidebar and the search
-([#109](https://github.com/agentica-lang/agentica-campfire/issues/109)) took sidebar from 1835.3 to 3706.7 (+102%) and
-search from 877.0 to 3617.6 (+312%). The same change keeps the person of the session for each database version, so a
-cached page no longer looks the person up, and room_show (+13%) and messages_page (+16%) gained too. Every read route
-is now at 44-50% of Go. The cost that is left is about the same on all of them: the hops of the database layer.
-Next: native modules ([agentica#1149](https://github.com/agentica-lang/agentica/issues/1149)), and on them the
-statement cache and fewer per-row hops in agentica-db
-([agentica-db#60](https://github.com/agentica-lang/agentica-db/issues/60)).
+([#110](https://github.com/agentica-lang/agentica-campfire/pull/110)) took sidebar from 1835.3 to 3706.7 (+102%) and
+search from 877.0 to 3617.6 (+312%). The benchmark asks one search query, so both numbers measure cache hits. #110
+also keeps the signed-in person until the database changes, so a cached page does not look the person up again (the
+end of the session is kept with it since [#113](https://github.com/agentica-lang/agentica-campfire/pull/113)).
+room_show gained 13% and messages_page 16% in this run; the A/B in #110 measured about +5% and +6%, so part of that is
+run-to-run noise. Every read route is now at 44-50% of Go. The cost that is left is probably the thread hops of the
+database layer, as measured in [agentica-db#60](https://github.com/agentica-lang/agentica-db/issues/60). Next: native
+modules ([agentica#1149](https://github.com/agentica-lang/agentica/issues/1149)), and on them the statement cache and
+fewer per-row hops in agentica-db.
 
 To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
