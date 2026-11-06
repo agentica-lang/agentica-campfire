@@ -148,7 +148,11 @@ end
 ## and does not fail the post.
 export def message_created(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
   _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_stream(room, message, false))
-  _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
+  # With no socket open nobody can hear a notice or be looking at the room (`Presence` is made of open sockets), and
+  # the unread flag was stored by the post itself, so the task would only read the members to do nothing.
+  if Channels.stats(cable.hub).connections > 0
+    _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
+  end
 end
 
 ## A message was edited or deleted: the people who are looking at the room see it replaced or gone.

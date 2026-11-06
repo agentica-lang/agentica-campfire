@@ -1,7 +1,7 @@
 Feature: The cache of whole pages
-  The room page and the page of older messages are kept whole (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none),
+  The room page, the page of older messages, the sidebar and the search are kept whole (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none),
   as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept for one person, one room and
-  one `?before=`, and for one version of the database: any commit, by anybody, makes the next request build the page
+  one `?before=` (the sidebar for one person, the search for one query), and for one version of the database: any commit, by anybody, makes the next request build the page
   again. The form of a room page carries a `client_message_id` that is drawn when the page is made, so two answers
   with the same body are one page that was kept, and a page that is made again differs. The room is room 1, "All Talk",
   and the person is the first admin, user 1, "Ana"; Bea is user 2 and Cy is user 3.
@@ -107,3 +107,118 @@ Feature: The cache of whole pages
     When the request header "if-none-match" is the header "etag" of the answer
     And I get "/rooms/1/messages?before=45"
     Then the status is 304
+
+  Scenario: A new message, a new room, a change of members and an unread mark show in the sidebar and the search at once
+    When I sign in as "bea@example.com"
+    And I get "/users/me/sidebar"
+    And I get "/users/me/sidebar"
+    Then the status is 200
+    And the body contains "<a href=\"/rooms/1\">All Talk</a>"
+    And the body does not contain "Fireside"
+    And the body does not contain "class=\"unread\""
+    When I get "/searches?q=coffee"
+    And I get "/searches?q=coffee"
+    Then the body does not contain "Coffee time"
+    When a message "<p>Coffee time</p>" in the room 1 at "2026-03-01 09:05:00.000000"
+    And I get "/searches?q=coffee"
+    Then the body contains "<p>Coffee time</p>"
+    When I run the sql "update memberships set unread_at = '2026-03-01 09:05:00.000000' where room_id = 1 and user_id = 2"
+    And I get "/users/me/sidebar"
+    Then the body contains "<li id=\"room_1\" class=\"unread\">"
+    When a closed room "Fireside" with the members "ana@example.com,bea@example.com"
+    And I get "/users/me/sidebar"
+    Then the body contains "<a href=\"/rooms/2\">Fireside</a>"
+    When I run the sql "delete from memberships where room_id = 2 and user_id = 2"
+    And I get "/users/me/sidebar"
+    Then the body does not contain "Fireside"
+    When I run the sql "delete from memberships where room_id = 1 and user_id = 2"
+    And I get "/searches?q=coffee"
+    Then the body does not contain "Coffee time"
+    When I get "/searches"
+    And I post to "/searches" the form:
+      | q | tea |
+    And I get "/searches?q=coffee"
+    Then the body contains "<a href=\"/searches?q=tea\">tea</a>"
+
+  Scenario: Two people never share a sidebar or a search, and each query has its own page
+    Given a closed room "Secret" with the members "ana@example.com"
+    And a message "<p>Coffee talk</p>" in the room 2 at "2026-03-01 09:05:00.000000"
+    When I get "/users/me/sidebar"
+    And I get "/searches?q=coffee"
+    And I get "/searches?q=first"
+    Then the body contains "First words"
+    And the body does not contain "Coffee talk"
+    When I get "/searches?q=coffee"
+    Then the body contains "Coffee talk"
+    When I get "/users/me/sidebar"
+    Then the body contains "Secret"
+    When I sign in as "bea@example.com"
+    And I get "/users/me/sidebar"
+    Then the body does not contain "Secret"
+    And the body contains "Bea"
+    When I get "/searches?q=coffee"
+    Then the body does not contain "Coffee talk"
+
+  Scenario: A page that is kept has a tag, and the tag gives a 304 until something is committed
+    When I get "/users/me/sidebar"
+    Then the status is 200
+    And the header "etag" contains "W/\""
+    When the request header "if-none-match" is the header "etag" of the answer
+    And I get "/users/me/sidebar"
+    Then the status is 304
+    When I run the sql "update rooms set name = 'Fireside' where id = 1"
+    And I get "/users/me/sidebar"
+    Then the status is 200
+    And the body contains "Fireside"
+
+  Scenario: A person whose session was ended, who was deactivated or who was banned is turned away at once, with their pages kept
+    When I sign in as "bea@example.com"
+    And I get "/users/me/sidebar"
+    And I get "/users/me/sidebar"
+    And I get "/searches?q=first"
+    And I get "/searches?q=first"
+    And I get "/rooms/1"
+    And I get "/rooms/1"
+    Then the status is 200
+    When the browser saves a copy of its cookies
+    And I post nothing to "/sign_out"
+    And the browser restores its saved cookies
+    And I get "/users/me/sidebar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I get "/searches?q=first"
+    Then the status is 302
+    When I get "/rooms/1"
+    Then the status is 302
+    When I sign in as "cy@example.com"
+    And I get "/users/me/sidebar"
+    And I get "/searches?q=first"
+    And the browser saves a copy of its cookies
+    And I run the sql "update users set status = 1 where id = 3"
+    And I get "/users/me/sidebar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I get "/searches?q=first"
+    Then the status is 302
+    When I sign in as "bea@example.com"
+    And I get "/users/me/sidebar"
+    And I get "/users/me/sidebar"
+    And the browser saves a copy of its cookies
+    And I sign in as "ana@example.com"
+    And I post to "/users/2/ban" the form:
+      | x | y |
+    And the browser restores its saved cookies
+    And I get "/users/me/sidebar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I get "/searches?q=first"
+    Then the status is 302
+
+  Scenario: A rename shows in the sidebar that was kept
+    When I sign in as "bea@example.com"
+    And I get "/users/me/sidebar"
+    And I get "/users/me/sidebar"
+    Then the body contains "Signed in as Bea"
+    When I run the sql "update users set name = 'Beatrice' where id = 2"
+    And I get "/users/me/sidebar"
+    Then the body contains "Signed in as Beatrice"

@@ -8,6 +8,7 @@ import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
+import PageCache from "page_cache"
 import RoomsWeb from "rooms"
 import Routes from "routes"
 import Searches from "../campfire/searches"
@@ -15,32 +16,59 @@ import Views from "views"
 
 # What a handler makes of its request while its connection is open, answered after it is closed.
 enum Answer
-  Page(String)
   Redirect(String)
   SignedOut
 end
 
-## Adds the routes of the search to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in.
-export def add(app: Bond.App, pool: Database.Pool) -> Bond.App
+## Adds the routes of the search to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. The results
+## are kept whole in `pages` for one person, one query and one version of the database (`PageCache`).
+export def add(app: Bond.App, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Bond.App
   return (
     app
-    |> Bond.get(Routes.SEARCHES) do |conn| show(conn, pool) end
+    |> Bond.get(Routes.SEARCHES) do |conn| show(conn, pool, pages) end
     |> Bond.post(Routes.SEARCHES) do |conn| remember(conn, pool) end
   )
 end
 
-def show(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def show(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Bond.Conn]
   query = Searches.words(first(try Bond.query_all(conn, "q")))
-  answer = try Database.with_connection(pool) do |db| results_for(conn, db, query) end
-  return ok(respond(conn, answer))
-end
-
-def results_for(conn: Bond.Conn, db: Db.Connection, query: String) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return ok(Answer.Page(try results_page(db, person, query)))
+    none -> return ok(Bond.redirect(conn, Routes.SIGN_IN))
+    some(person) -> return shown(conn, pool, pages, person, query)
   end
+end
+
+# The version of the database is read before the page is made (`PageCache.search_spot`), so a page that is kept is
+# never older than its key. A query that no form of ours sends (too long) is answered and not kept.
+def shown(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  pages: Optional[PageCache.Pages],
+  person: Auth.User,
+  query: String,
+) -> Result[Bond.Conn]
+  spot: Optional[PageCache.Spot] = none
+  if query.length <= Searches.MAX_QUERY_LENGTH
+    spot = PageCache.search_spot(pages, PageCache.seen(conn), person, query)
+  end
+
+  kept = PageCache.lookup(spot)
+  case kept
+    some(page) -> return ok(PageCache.respond(conn, page))
+    none -> return made(conn, pool, spot, person, query)
+  end
+end
+
+def made(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  spot: Optional[PageCache.Spot],
+  person: Auth.User,
+  query: String,
+) -> Result[Bond.Conn]
+  html = try Database.with_connection(pool) do |db| results_page(db, person, query) end
+  return ok(PageCache.respond(conn, PageCache.keep(spot, html)))
 end
 
 def results_page(db: Db.Connection, person: Auth.User, query: String) -> Result[String]
@@ -87,7 +115,6 @@ end
 
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
-    Answer.Page(html) -> return Bond.html(conn, 200, html)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
   end

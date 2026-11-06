@@ -46,21 +46,52 @@ def spots_follow_the_person(observer: Database.Observer, writer: Db.Connection, 
   _ = writer
   _ = url
   pages = some(PageCache.Pages(store: Cache.memory(1_000_000), observer: observer))
-  here = PageCache.spot(pages, PageCache.ROOM, ana(), some(1), none)
+  here = PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), none)
   try Test.assert(here.some?, "no spot for a room page")
-  again = PageCache.spot(pages, PageCache.ROOM, ana(), some(1), none)
+  again = PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), none)
   try Test.eq(again.unwrap!.key, here.unwrap!.key)
   # What the sign-in filter read about the person is in the key, so a stale name or role is not kept under a
   # new version.
-  renamed = PageCache.spot(pages, PageCache.ROOM, ana().with(name: "Anna"), some(1), none)
+  renamed = PageCache.spot(pages, none, PageCache.ROOM, ana().with(name: "Anna"), some(1), none)
   try Test.assert(renamed.unwrap!.key != here.unwrap!.key, "a rename left the key as it was")
-  demoted = PageCache.spot(pages, PageCache.ROOM, ana().with(role: "administrator"), some(1), none)
+  demoted = PageCache.spot(pages, none, PageCache.ROOM, ana().with(role: "administrator"), some(1), none)
   try Test.assert(demoted.unwrap!.key != here.unwrap!.key, "a change of role left the key as it was")
   # One person must not fill the cache with a page for every number, and an unknown room is not kept.
-  try Test.assert(PageCache.spot(pages, PageCache.ROOM, ana(), some(1), some(5)).none?, "a room page with a cursor")
-  try Test.assert(PageCache.spot(pages, PageCache.ROOM, ana(), none, none).none?, "a room that is no number")
-  older = PageCache.spot(pages, PageCache.MESSAGES, ana(), some(1), some(5))
+  try Test.assert(
+    PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), some(5)).none?,
+    "a room page with a cursor",
+  )
+
+  try Test.assert(PageCache.spot(pages, none, PageCache.ROOM, ana(), none, none).none?, "a room that is no number")
+  older = PageCache.spot(pages, none, PageCache.MESSAGES, ana(), some(1), some(5))
   return Test.assert(older.some?, "no spot for older messages")
+end
+
+# The sidebar and the search are kept for their person (and the words), and the person of a session for one version.
+def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
+  _ = url
+  pages = some(PageCache.Pages(store: Cache.memory(1_000_000), observer: observer))
+  seen = some(try Database.version(observer))
+  sidebar = PageCache.sidebar_spot(pages, seen, ana())
+  try Test.assert(PageCache.lookup(sidebar).none?, "a sidebar before it is kept")
+  made = PageCache.keep(sidebar, "<p>rooms</p>")
+  kept = PageCache.lookup(sidebar)
+  try Test.eq(kept.unwrap!.body, "<p>rooms</p>")
+  try Test.eq(kept.unwrap!.etag, made.etag)
+  bea = ana().with(id: 2, name: "Bea")
+  try Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, seen, bea)).none?, "a sidebar of another person")
+  coffee = PageCache.search_spot(pages, seen, ana(), "coffee")
+  tea = PageCache.search_spot(pages, seen, ana(), "tea")
+  try Test.assert(coffee.unwrap!.key != tea.unwrap!.key, "two queries share a key")
+  try Test.assert(coffee.unwrap!.key != sidebar.unwrap!.key, "a search and a sidebar share a key")
+  PageCache.remember_user(pages, seen, "token", ana())
+  try Test.eq(PageCache.known_user(pages, seen, "token").unwrap!.name, "Ana")
+  try Test.assert(PageCache.known_user(pages, seen, "other").none?, "a person for another token")
+  try Test.assert(PageCache.known_user(pages, none, "token").none?, "a person without a version")
+  try Db.execute(writer, "insert into notes (body) values ('x')", [])
+  later = some(try Database.version(observer))
+  try Test.assert(PageCache.known_user(pages, later, "token").none?, "a person kept across a commit")
+  return Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, later, ana())).none?, "a sidebar across a commit")
 end
 
 # A version that cannot be read (the observer is closed or lost) makes no spot: the page is made and nothing is kept.
@@ -70,7 +101,7 @@ def failing_observer_keeps_nothing(observer: Database.Observer, writer: Db.Conne
   store = Cache.memory(1_000_000)
   pages = some(PageCache.Pages(store: store, observer: observer))
   Database.close_observer(observer)
-  spot = PageCache.spot(pages, PageCache.ROOM, ana(), some(1), none)
+  spot = PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), none)
   try Test.assert(spot.none?, "a spot from an observer that is closed")
   try Test.assert(PageCache.lookup(spot).none?, "a page without a spot")
   page = PageCache.keep(spot, "<p>made</p>")
@@ -96,6 +127,9 @@ def main() -> Void
     Test.test(
       "a spot has the person's name and role, and the room page with a cursor and an unknown room have none",
     ) do run_in_dir(&spots_follow_the_person) end,
+    Test.test("the sidebar, the search and the person of a session are kept for their version") do
+      run_in_dir(&sidebar_search_and_person_are_kept)
+    end,
     Test.test("an observer that fails gives no spot, so the page is made and nothing is kept") do
       run_in_dir(&failing_observer_keeps_nothing)
     end,

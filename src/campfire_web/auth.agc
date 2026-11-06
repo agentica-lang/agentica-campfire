@@ -14,6 +14,7 @@ import Database from "../campfire/repo/database"
 import Failure from "failure"
 import Hangup from "hangup"
 import Mailer from "../campfire/mail/mailer"
+import PageCache from "page_cache"
 import RateLimit from "../campfire/rate_limit"
 import Routes from "routes"
 import Slots from "../campfire/slots"
@@ -78,6 +79,7 @@ export def add(
   hub: Channels.Hub,
   slots: ATS[String, Int],
   bans: ATS[String, Int],
+  pages: Optional[PageCache.Pages] = none,
 ) -> Bond.App
   # `slots` bounds the hashing for everyone together (the profile shares it); `attempts` bounds the sign-in posts of
   # one address.
@@ -87,7 +89,7 @@ export def add(
     |> Bond.csrf()
     |> Bond.before() do |conn| reject_banned(conn, pool, bans) end
     |> Bond.sessions(session_options(config))
-    |> Bond.before() do |conn| require_sign_in(conn, pool) end
+    |> Bond.before() do |conn| require_sign_in(conn, pool, pages) end
     |> Bond.get(Routes.FIRST_RUN) do |conn| show_first_run(conn, pool) end
     |> Bond.post(Routes.FIRST_RUN) do |conn| create_first_run(conn, pool, slots) end
     |> Bond.get(Routes.JOIN) do |conn| show_join(conn, pool) end
@@ -188,16 +190,48 @@ def holds?(db: Db.Connection, bans: ATS[String, Int], address: String) -> Result
   return Bans.banned?(db, address)
 end
 
-def require_sign_in(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def require_sign_in(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Bond.Conn]
   if public?(conn.path)
     return ok(conn)
   end
 
-  user = try current_user(conn, pool)
-  case user
-    some(person) -> return ok(Bond.assign(conn, USER_KEY, person))
-    none -> return ok(Bond.redirect(conn, try entry_path(pool)))
+  # A read reads the version of the database first (`PageCache.watch`), so that the person of the session can be
+  # the one
+  # that was kept for that version, and the page cache of the handler does not read it again.
+  watched = conn
+  if conn.method == "GET" or conn.method == "HEAD"
+    watched = PageCache.watch(conn, pages)
   end
+
+  user = try session_user(watched, pool, pages)
+  case user
+    some(person) -> return ok(Bond.assign(watched, USER_KEY, person))
+    none -> return ok(Bond.redirect(watched, try entry_path(pool)))
+  end
+end
+
+# The person of the session: the one kept for the version of the database that the request was read at, else the
+# one the
+# database gives (which is then kept). No cookie is no person, with no lease of the pool.
+def session_user(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Optional[Auth.User]]
+  token = Bond.get_session(conn, TOKEN_KEY)
+  if not token.ok?
+    return ok(none)
+  end
+
+  seen = PageCache.seen(conn)
+  kept = PageCache.known_user(pages, seen, token.unwrap!)
+  if kept.some?
+    return ok(kept)
+  end
+
+  found = try current_user(conn, pool)
+  case found
+    some(person) -> PageCache.remember_user(pages, seen, token.unwrap!, person)
+    none -> return ok(none)
+  end
+
+  return ok(found)
 end
 
 def public?(path: String) -> Bool

@@ -851,7 +851,7 @@ def shown_room(
   id: Optional[Int],
   before: Optional[Int],
 ) -> Result[Bond.Conn]
-  spot = PageCache.spot(pages, PageCache.ROOM, person, id, before)
+  spot = PageCache.spot(pages, PageCache.seen(conn), PageCache.ROOM, person, id, before)
   kept = PageCache.lookup(spot)
   case kept
     some(page) -> return ok(respond_visit(conn, id, Answer.Cached(page), secure))
@@ -932,9 +932,9 @@ def older_page(
   # The two cursors are kept apart, so `?before=7` and `?after=7` are two pages.
   spot: Optional[PageCache.Spot] = none
   if before.none? and after.some?
-    spot = PageCache.spot(pages, PageCache.AFTER, person, id, after)
+    spot = PageCache.spot(pages, PageCache.seen(conn), PageCache.AFTER, person, id, after)
   else
-    spot = PageCache.spot(pages, PageCache.MESSAGES, person, id, before)
+    spot = PageCache.spot(pages, PageCache.seen(conn), PageCache.MESSAGES, person, id, before)
   end
 
   found = PageCache.lookup(spot)

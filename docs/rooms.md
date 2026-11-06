@@ -126,15 +126,20 @@ columns (`2026-03-01 09:00:00.123000`), and with `>=` where Rails has `>`: a cli
 a second message made in the same millisecond as the last one it saw would be skipped. The message that the client
 has comes again, and a Turbo Stream that appends or replaces an id that is in the page puts the new one in its place.
 
-The room page and the page of older messages are kept whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0
-for none), as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept for one person, one
-room and one `?before=`, so nobody is sent a page that was made for somebody else, and only a 200 is kept. It is valid
+The room page, the page of older messages, the sidebar page (`GET /users/me/sidebar`) and the search page are kept
+whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none); Rails Campfire keeps `rooms#show` and
+`messages#index`. A page is kept for one person and one room and `?before=` (the sidebar for one person, the search for
+one query of the length the form allows), so nobody is sent a page that was made for somebody else, and only a 200 is
+kept. It is valid
 for one version of the database: a connection of its own reads `PRAGMA data_version`, which changes whenever any
 connection or program commits (a new message, an edit, a delete, a change of members, a rename of the room or of a
 person), and the version is in the key, so the next request builds the page again. Every page has a weak `ETag` (a digest
 of its bytes) and `Cache-Control: max-age=0, private, must-revalidate`, and a request with `If-None-Match` of that tag is
 answered `304`. The `client_message_id` of the form is drawn when a page is made, so two loads at one version share it;
-the app stores it and does nothing else with it. The cache of messages (`CAMPFIRE_CACHE_MB`) is separate: it saves
+the app stores it and does nothing else with it. The same version also keeps the person of a session: a read request
+reads the version first and finds the person in the cache of the version, so a hit takes one connection (the
+observer's) and none of the pool. A sign-out, a deactivation, a ban, a rename and a change of role are commits, so the
+next read has a new version and looks the session up again. The cache of messages (`CAMPFIRE_CACHE_MB`) is separate: it saves
 rendering a message again when the page is built.
 
 The form of a message has the fields `message[body]` and `message[client_message_id]`, the names that Rails
