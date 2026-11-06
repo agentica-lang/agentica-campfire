@@ -14,6 +14,7 @@ import DataDir from "../src/campfire/data_dir"
 import Accounts from "../src/campfire/accounts"
 import Auth from "../src/campfire/auth"
 import Avatars from "../src/campfire/avatars"
+import Bans from "../src/campfire/bans"
 import Bcrypt from "../src/campfire/bcrypt"
 import Database from "../src/campfire/repo/database"
 import HtmlSanitizer from "../src/campfire/html_sanitizer"
@@ -119,6 +120,7 @@ def main() -> Void
     BDD.step("the session is opened", &session_is_opened),
     BDD.step("the change is refused", &change_is_refused),
     BDD.step("I run the sql {string}", &run_sql),
+    BDD.step("the messages of the user {int} are taken away as the removal task takes them", &run_removal),
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
     BDD.step("the query {string} gives {int}", &query_gives),
@@ -775,6 +777,22 @@ def has_tables(ctx: BDD.Context, args: List[String]) -> BDD.Context
   wanted = BDD.table(ctx).map do |row| row[0] end
   missing = wanted.select do |name| not names.include?(name) end
   return BDD.assert(ctx, missing.empty?, "the tables are missing: #{missing}, there are #{names}")
+end
+
+# Does what `ContentRemoval` does, in a given moment: `Bans.delete_next_message` until it has none to take.
+def run_removal(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| take_messages(conn, args[0].to_i.unwrap!) end
+  return BDD.assert(ctx, outcome.ok?, "the removal failed: #{outcome.message}")
+end
+
+def take_messages(conn: Db.Connection, user_id: Int) -> Result[Void]
+  more = true
+  while more
+    gone = try Bans.delete_next_message(conn, user_id)
+    more = gone.some?
+  end
+
+  return ok()
 end
 
 def run_sql(ctx: BDD.Context, args: List[String]) -> BDD.Context

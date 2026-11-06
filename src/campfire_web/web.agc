@@ -5,6 +5,7 @@ import Cache from "std/cache"
 import AccountsWeb from "accounts"
 import AuthWeb from "auth"
 import AvatarsWeb from "avatars"
+import BanFlag from "ban_flag"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import Failure from "failure"
@@ -46,12 +47,13 @@ export def build(
   pages: Optional[PageCache.Pages] = none,
 ) -> Bond.App
   slots = Slots.new()
+  bans = BanFlag.new()
   return (
     Bond.app()
-    |> AuthWeb.add(config, pool, mailer, cable.hub, slots)
+    |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans)
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
-    |> AccountsWeb.add(config, pool, cable.hub)
+    |> AccountsWeb.add(config, pool, cable, bans)
     |> SidebarsWeb.add(pool, cable)
     |> SearchesWeb.add(pool)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)

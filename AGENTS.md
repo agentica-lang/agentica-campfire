@@ -15,7 +15,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
-                page and the profile save, over SQL), auth.agc
+                page and the profile save, over SQL), bans.agc (ban and unban, the check of an address, over SQL),
+                auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
                 in memory), searches.agc (the words of a query, the
@@ -34,7 +35,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), profiles.agc (the user page and the profile),
                 rooms.agc (the routes
-                and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages), message_cache.agc
+                and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
+                content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
                 searches.agc and avatars.agc (the sidebar page, the search and the
                 avatar link), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
@@ -256,6 +258,12 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   written. Saving `mentions` keeps an `everything` or `nothing` row as it is; #57 and #81 bring those levels back.
   Membership is checked first (404), then the form. `invisible` is the only way out of a sidebar (the room stays
   reachable and the person a member), and `visible` and `receive` already skip it.
+- Bans: `Bans.ban`/`Bans.unban` (administrator only, never oneself, an active or banned person only) run in one
+  transaction that checks the actor again. A ban writes one `bans` row for each distinct public session address
+  (`Bans.public_address?`), ends the sessions and sets `status` banned; `ContentRemoval` then deletes the messages one by
+  one and tells the rooms, and `Hangup.user` closes the sockets. `AuthWeb.reject_banned` is a `before` filter after
+  `Bond.csrf`: a request that is not `GET` or `HEAD` from a banned address halts with 429 (`Bond.halt`: a plain
+  `Bond.text` does not stop the chain).
 - Search: a query is words, never FTS5 syntax. `Searches.words` turns everything that is not a letter, digit or `_` into
   a separator (as `SearchesController#query` does) and `Searches.match` puts each word in double quotes, so a query
   cannot make the index fail; never hand the text of a client to `MATCH` in any other way. A search reads the rooms the

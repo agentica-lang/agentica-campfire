@@ -1396,7 +1396,7 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
     Answer.Posted(room, message, _) -> CableWeb.message_created(cable, room, message)
     Answer.Deleted(room, members) -> CableWeb.room_deleted(cable, room, members)
     Answer.Edited(room, message) -> CableWeb.message_edited(cable, room, message)
-    Answer.Removed(room, message_id, _) -> CableWeb.message_removed(cable, room, message_id)
+    Answer.Removed(room, message_id, _) -> CableWeb.message_removed(cable, room.id, message_id)
     _ -> return respond(conn, answer)
   end
 

@@ -526,6 +526,12 @@ export def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, ac
   return Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
 end
 
+## Deletes the rows of a message (its body, search row and boosts, then the message) in the transaction `tx` that the
+## caller holds; `Bans` takes the messages of a banned person away this way.
+export def delete_message_rows_of(tx: Db.Connection, message_id: Int) -> Result[Void]
+  return delete_message_rows(tx, Db.Value.Int(message_id))
+end
+
 ## The choices of the sidebar page for the room: `mentions` (shown, the default level of Rails) and `invisible` (hidden:
 ## out of the sidebar, still reachable). A direct room has none, as in Rails (`DIRECT_INVOLVEMENT_ORDER` has no
 ## `invisible`): a hidden conversation would be one that its people cannot find again. The other levels of Rails
