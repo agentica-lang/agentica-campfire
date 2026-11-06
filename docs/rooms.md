@@ -98,7 +98,7 @@ page, and redirects to the results; a get does not remember anything. There is n
 `:avatar` (see [security.md](security.md)). The app makes no image. A user whose avatar Rails has
 processed (`active_storage_attachments` named `avatar`, a row of `active_storage_variant_records` for its
 blob, and the image attached to that variant record, a WebP) gets that file as it is on disk,
-`image/webp`, with `Cache-Control: private, max-age=1800, stale-while-revalidate=604800`. If Rails has not
+`image/webp`, with `Cache-Control: private, max-age=1800, stale-while-revalidate=604800` and the `ETag` and `Last-Modified` of the file (a request with `If-None-Match` gets `304`). Rails says `public` there; the route needs a sign-in, so this keeps `private` and a shared cache never hands the picture to someone who is not signed in. If Rails has not
 made the variant yet, the original image is sent with its own type (a plain `image/...`, never SVG):
 unlike the variant, it is not resized and keeps its metadata (such as EXIF). A
 user with no avatar at all gets an SVG with their initials, as Rails does for a person (a bot gets initials too, where
@@ -114,3 +114,5 @@ digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the na
 script of the composer, `campfire-DIGEST.js` (`Routes.COMPOSER_SCRIPT`), which only the room page links: with it a
 message is sent with `fetch` (the Turbo Stream answer above) and the page does not reload; without it the form posts
 and redirects as before.
+
+Bond sends each file with an `ETag` and `Last-Modified` (a request with `If-None-Match` or `If-Modified-Since` gets `304`), keeps the small ones in memory, and answers a client that takes gzip with the `.gz` file next to a text file when there is one that is not older. The Docker image writes one next to each stylesheet and script (`gzip -9 -k -n`); a run from the source folder has none and sends the plain file.

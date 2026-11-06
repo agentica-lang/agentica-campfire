@@ -36,7 +36,7 @@ docker compose up -d --build
 
 Local settings, such as a network or `CAMPFIRE_BASE_URL`, go in `docker-compose.override.yml`, which Compose reads on its own. Compose adds an override's `ports` to the base list, so use `ports: !override [...]` there to change the published address. Git ignores that file and `.env`.
 
-The image has the pinned Agentica release, the app and its packages (no network at run time) on Debian 13 slim. `docker/entrypoint.sh` maps the environment of the [Rails benchmark harness](https://github.com/basecamp/once-campfire-verification) to `CAMPFIRE_*` (the database is `/rails/storage/db/production.sqlite3`, the Active Storage files `/rails/storage/files`; `HTTP_PORT` is the port; the session secret comes from `SECRET_KEY_BASE`); a `CAMPFIRE_*` variable that you set wins. It listens on `127.0.0.1` unless `CAMPFIRE_HOST` says otherwise. The image is x86_64 only. In the benchmark harness, `bin/seed` writes `SECRET_KEY_BASE`.
+The image has the pinned Agentica release, the app and its packages (no network at run time) on Debian 13 slim, and a `.gz` copy next to each stylesheet and script, which Bond sends to a client that takes gzip. `docker/entrypoint.sh` maps the environment of the [Rails benchmark harness](https://github.com/basecamp/once-campfire-verification) to `CAMPFIRE_*` (the database is `/rails/storage/db/production.sqlite3`, the Active Storage files `/rails/storage/files`; `HTTP_PORT` is the port; the session secret comes from `SECRET_KEY_BASE`); a `CAMPFIRE_*` variable that you set wins. It listens on `127.0.0.1` unless `CAMPFIRE_HOST` says otherwise. The image is x86_64 only. In the benchmark harness, `bin/seed` writes `SECRET_KEY_BASE`.
 
 ## Develop
 
