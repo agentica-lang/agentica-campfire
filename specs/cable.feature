@@ -189,18 +189,27 @@ Feature: Live updates over /cable
     Then client "bea" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"
     And client "bea" is closed by the server with the code 1000
 
-  Scenario: A sign-out ends the sockets of the person, who may come back where they still have a session
-    When client "ana" connects with the cookies of the browser
-    And client "ana" subscribes to the channel "UnreadRoomsChannel"
-    Then client "ana" eventually receives a frame containing "confirm_subscription"
-    When I post to "/sign_out" the form:
+  Scenario: A sign-out ends the sockets of the person, who comes back where another session of theirs is still good
+    When client "first" connects with the cookies of the browser
+    And the browser saves a copy of its cookies
+    And I sign in as "ana@example.com"
+    And client "second" connects with the cookies of the browser
+    And I post to "/sign_out" the form:
       | x | y |
-    Then client "ana" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
-    And client "ana" is closed by the server with the code 1000
+    Then client "second" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
+    And client "second" is closed by the server with the code 1000
+    And client "first" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
+    And client "first" is closed by the server with the code 1000
     When client "again" connects with the cookies of the browser
     Then client "again" receives:
       """
       {"type":"disconnect","reason":"unauthorized","reconnect":false}
+      """
+    When the browser restores its saved cookies
+    And client "back" connects with the cookies of the browser
+    Then client "back" receives:
+      """
+      {"type":"welcome"}
       """
 
   Scenario: A person who is taken out of a closed room stops hearing it, and is refused when the client comes back
@@ -222,6 +231,9 @@ Feature: Live updates over /cable
     And client "back" connects with the cookies of the browser
     And client "back" subscribes to the streams of the remembered page
     Then client "back" eventually receives a frame containing "reject_subscription"
+    When I get "/rooms/1"
+    And client "back" subscribes to the streams of the last page
+    Then client "back" eventually receives a frame containing "confirm_subscription"
 
   Scenario: A socket whose session ended or ran out is closed at the next check
     When I sign in as "bea@example.com"

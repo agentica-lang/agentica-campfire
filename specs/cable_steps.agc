@@ -271,9 +271,27 @@ def eventually_receives(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, false, "#{args[0]} heard no frame with #{args[1]} in #{SKIPPED_FRAMES} frames")
 end
 
+# The Action Cable ping that the server sends every 3 s is not something the scenario waits for: a step that follows
+# a sign-in or a hash can start after one is due, so pings are skipped until the time is up.
 def receives_nothing(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  frame = next_frame(ctx, args[0], args[1].to_i!)
-  return BDD.assert(ctx, has?(frame, "timeout"), "#{args[0]} got #{frame}, expected nothing")
+  deadline = Time.monotonic_ms() + args[1].to_i!
+  while true
+    left = deadline - Time.monotonic_ms()
+    if left <= 0
+      return BDD.assert(ctx, true, "")
+    end
+
+    frame = next_frame(ctx, args[0], left)
+    if has?(frame, "timeout")
+      return BDD.assert(ctx, true, "")
+    end
+
+    if not text_of(frame, "text").include?("\"type\":\"ping\"")
+      return BDD.assert(ctx, false, "#{args[0]} got #{frame}, expected nothing")
+    end
+  end
+
+  return BDD.assert(ctx, true, "")
 end
 
 def closed_with(ctx: BDD.Context, args: List[String]) -> BDD.Context

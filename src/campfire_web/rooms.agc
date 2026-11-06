@@ -384,6 +384,7 @@ def change_settings(
     return ok(Answer.Page(422, page))
   end
 
+  before = try Rooms.member_ids(db, room.id)
   changed = try Rooms.update_closed(db, room.id, person.id, name, chosen, was)
   # The check before the form said they may; a refusal now is a change that happened meanwhile (they were taken out,
   # or lost the role), so they are told what a person who is not in the room is.
@@ -391,8 +392,11 @@ def change_settings(
     return ok(Answer.NotFound)
   end
 
-  # The people the form took out lose the stream of the room's messages, which was checked when they subscribed.
-  removed = was.select do |id| id != person.id and not chosen.include?(id) end
+  # The people whose membership the update really deleted lose the stream of the room's messages, which was
+  # checked when
+  # they subscribed. They are read from the database, not from the form: `was` is the client's.
+  after = try Rooms.member_ids(db, room.id)
+  removed = before.select do |id| not after.include?(id) end
   return ok(Answer.Made(room.id, person.id, true, removed))
 end
 

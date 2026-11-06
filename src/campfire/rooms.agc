@@ -333,6 +333,27 @@ export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
   return ok(rows.map do |row| Watcher(user_id: int_of(row, "user_id"), unread: int_of(row, "unread") == 1) end)
 end
 
+## The room is read for each of the people, in one statement: the same as `mark_read` for each. Nobody is a no-op.
+export def mark_read_all(conn: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
+  if user_ids.empty?
+    return ok()
+  end
+
+  marks = user_ids.map do |_| "?" end.join(", ")
+  params = [Db.Value.Int(room_id)]
+  for user_id in user_ids
+    params = params.push(Db.Value.Int(user_id))
+  end
+
+  try Db.execute(
+    conn,
+    "update memberships set unread_at = null where room_id = ? and user_id in (#{marks}) and unread_at is not null",
+    params,
+  )
+
+  return ok()
+end
+
 ## The room is read for the person: it is no longer unread. It does not touch `updated_at`, as `Membership#read` of
 ## Rails does not (`update_all`).
 export def mark_read(conn: Db.Connection, room_id: Int, user_id: Int) -> Result[Void]
