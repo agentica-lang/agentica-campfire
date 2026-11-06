@@ -25,10 +25,10 @@ Feature: Messages
     And the query "select count(*) from message_search_index where rowid = 1 and body = 'Hello team'" gives 1
     And the query "select count(*) from messages where created_at like '____-__-__ __:__:__.______' and updated_at = created_at" gives 1
 
-  Scenario: The time of a message is an ISO 8601 UTC instant in the page, whatever the form of the column
+  Scenario: The time of a message is the clock of an ISO 8601 UTC instant in the page, which datetime keeps whole, whatever the form of the column
     Given a message "Timed" in the room 1 at "2026-03-01 09:00:00.123456"
     When I get "/rooms/1"
-    Then the body contains "<time datetime=\"2026-03-01T09:00:00.123Z\">2026-03-01T09:00:00.123Z</time>"
+    Then the body contains "<time datetime=\"2026-03-01T09:00:00.123Z\">09:00</time>"
 
   Scenario: The room page has the form to post, which carries an id for the message
     When I get "/rooms/1"

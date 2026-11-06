@@ -23,9 +23,9 @@ def main() -> Void
       "a message without controls is the markup of the benchmark byte for byte, and with them it adds the link",
     ) do
       plain = (
-        "<div id=\"message_7\" data-message-id=\"7\">\n" +
+        "<div id=\"message_7\" data-message-id=\"7\" data-creator-id=\"2\">\n" +
         "  <h3><strong>Ana</strong>\n" +
-        "    <time datetime=\"2026-03-01T09:00:00.000Z\">2026-03-01T09:00:00.000Z</time></h3>\n" +
+        "    <time datetime=\"2026-03-01T09:00:00.000Z\">09:00</time></h3>\n" +
         "  <turbo-frame id=\"edit_message_7\"><div id=\"presentation_message_7\"><p>Hi</p></div></turbo-frame></div>"
       )
 

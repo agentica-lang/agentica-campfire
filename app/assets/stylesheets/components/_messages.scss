@@ -1,9 +1,114 @@
-// A message: one block per message. The markup is fixed by the benchmark, so there is no class; the parts are found by
-// element and attribute.
+// The messages. The markup is fixed by the benchmark, so there is no class; the parts are found by element and
+// attribute.
+//
+// In a room (`.thread`) a message is a bubble: the messages of other people on the left, neutral; the messages of the
+// person who looks on the right, in the accent colour. The HTML of a message is the same for everybody (the live stream
+// renders it once for all subscribers), so the side does not come from a class: each bubble reads the custom properties
+// `--bubble-bg`, `--bubble-fg`, `--bubble-meta`, `--bubble-link`, `--bubble-side` and `--bubble-name`, with the values of
+// "somebody else" as their defaults, and the room page carries one `<style>` rule that sets them for
+// `[data-creator-id="ME"]` (`Views.room`, `viewer_style`). Search results keep the flat list.
 
 @use "../settings/mixins";
 
-[data-message-id] {
+// The body of a message, in a bubble or in a list.
+[id^="presentation_message_"] {
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  blockquote {
+    margin: var(--s-2) 0;
+    padding-inline-start: var(--s-3);
+    border-inline-start: 3px solid currentcolor;
+    color: inherit;
+    opacity: 0.8;
+  }
+
+  pre {
+    margin: var(--s-2) 0;
+    padding: var(--s-2) var(--s-3);
+    overflow-x: auto;
+    border-radius: var(--r-sm);
+    color: inherit;
+    background: color-mix(in srgb, currentcolor 14%, transparent);
+  }
+
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+// The room: the list is a one-column grid, so that a bubble can sit at the start or the end of it.
+.thread [id^="messages_rooms_"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-2) 0;
+}
+
+.thread [data-message-id] {
+  display: grid;
+  justify-self: var(--bubble-side, start);
+  min-width: 0;
+  max-width: 75%;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-lg);
+  color: var(--bubble-fg, var(--bubble-other-fg));
+  background: var(--bubble-bg, var(--bubble-other-bg));
+
+  // The name (not of one's own messages), the time and the Edit link, in one small line.
+  h3 {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    justify-content: start;
+    align-items: baseline;
+    gap: 0 var(--s-2);
+    margin: 0 0 var(--s-1);
+    font-size: var(--fs-sm);
+
+    strong {
+      display: var(--bubble-name, inline);
+    }
+
+    time {
+      color: var(--bubble-meta, var(--muted));
+    }
+
+    a {
+      color: var(--bubble-link, var(--link));
+      font-size: var(--fs-xs);
+      font-weight: 400;
+    }
+  }
+
+  time {
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+  }
+
+  [id^="presentation_message_"] a {
+    color: var(--bubble-link, var(--link));
+  }
+}
+
+@include mixins.phone {
+  .thread [data-message-id] {
+    max-width: 85%;
+  }
+}
+
+// Search results: a flat list, a message under another.
+#search_results [data-message-id] {
   margin: 0 calc(-1 * var(--s-2));
   padding: var(--s-2);
   border-radius: var(--r-sm);
@@ -34,39 +139,5 @@
     &:hover {
       background: var(--hover);
     }
-  }
-}
-
-[id^="presentation_message_"] {
-  max-width: 70ch;
-  overflow-wrap: anywhere;
-
-  > :first-child {
-    margin-top: 0;
-  }
-
-  > :last-child {
-    margin-bottom: 0;
-  }
-
-  blockquote {
-    margin: var(--s-2) 0;
-    padding-inline-start: var(--s-3);
-    border-inline-start: 3px solid var(--line-strong);
-    color: var(--muted);
-  }
-
-  pre {
-    margin: var(--s-2) 0;
-    padding: var(--s-2) var(--s-3);
-    overflow-x: auto;
-    border-radius: var(--r-sm);
-    background: var(--bg-side);
-  }
-
-  table {
-    display: block;
-    max-width: 100%;
-    overflow-x: auto;
   }
 }
