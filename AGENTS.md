@@ -14,7 +14,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
-                accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
+                accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
+                page and the profile save, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
                 in memory), searches.agc (the words of a query, the
@@ -31,7 +32,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 the 503 of a failure), routes.agc
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
-                password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
+                password reset), accounts.agc (the people page and those posts), profiles.agc (the user page and the profile),
+                rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
                 searches.agc and avatars.agc (the sidebar page, the search and the

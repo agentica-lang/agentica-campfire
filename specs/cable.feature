@@ -213,6 +213,20 @@ Feature: Live updates over /cable
     Then the status is 403
     And client "ana" receives nothing for 500 milliseconds
 
+  Scenario: A new password ends the sockets of the other sessions of the person, who must sign in again
+    When I sign in as "bea@example.com"
+    And client "other" connects with the cookies of the browser
+    And client "other" subscribes to the channel "UnreadRoomsChannel"
+    Then client "other" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "bea@example.com"
+    And I post to "/users/me/profile" the form:
+      | _method                  | patch                 |
+      | user[password]           | a brand new password  |
+      | user[password_challenge] | another long password |
+    Then the status is 302
+    And client "other" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
+    And client "other" is closed by the server with the code 1000
+
   Scenario: A sign-out ends the sockets of the person, who comes back where another session of theirs is still good
     When client "first" connects with the cookies of the browser
     And the browser saves a copy of its cookies

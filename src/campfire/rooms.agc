@@ -221,6 +221,17 @@ export def visible(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
   return ok(rows.map do |row| room_of(row) end)
 end
 
+## Every room the person is in, hidden or not, by name: the list on their profile (`memberships.with_ordered_room`).
+export def memberships(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
+  rows = try Db.query(
+    conn,
+    "select * from (#{ROOM_COLUMNS}) order by lower(coalesce(name, others, '')), id",
+    [Db.Value.Int(user_id), Db.Value.Int(user_id)],
+  )
+
+  return ok(rows.map do |row| room_of(row) end)
+end
+
 ## The room, when the person is in it (any involvement), and `none` for a room that does not exist and for one that
 ## the person is not in.
 export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]

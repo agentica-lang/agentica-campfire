@@ -4,6 +4,8 @@
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
 import Accounts from "../campfire/accounts"
+import Profiles from "../campfire/profiles"
+import Rails from "../campfire/repo/rails"
 import Rooms from "../campfire/rooms"
 import Searches from "../campfire/searches"
 import Routes from "routes"
@@ -82,6 +84,7 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool,
           <li><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></li>
           <li><a href="<%= Routes.SEARCHES %>">Search</a></li>
           <li><a href="<%= Routes.USERS %>">People</a></li>
+          <li><a href="<%= Routes.profile_path() %>">Profile</a></li>
           <li><a href="<%= Routes.ACCOUNT_EDIT %>">Account</a></li>
         </ul>
       </div>
@@ -849,6 +852,112 @@ export def join(code: String, name: String, email: String, message: String) -> S
   return layout("Join #{NAME}", body)
 end
 
+## The page of a user, around the `sidebar` (`UsersController#show`). `profile` is the user and `me` the id of the person
+## who reads, `admin` whether they are an administrator (who sees the email of a person). A bot shows only a button to
+## write to it; a person who is not on the account any more shows only their name and that they are gone. `avatar` is
+## the path of their picture, "" when the app cannot sign one.
+export def user_page(sidebar: String, profile: Profiles.Detail, me: Int, admin: Bool, avatar: String) -> String
+  gone = profile.status == Rails.DEACTIVATED
+  bot = profile.role == Rails.BOT_NAME
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1><%= profile.name %></h1>
+    <% if not avatar.empty? %>
+      <p><img class="avatar" src="<%= avatar %>" alt="Profile avatar" width="120" height="120"></p>
+    <% end %>
+    <% if gone %>
+      <p><%= profile.name %> is no longer on this account</p>
+    <% else %>
+    <% if not bot %>
+    <% if admin and not profile.email.empty? %>
+      <p><a href="mailto:<%= profile.email %>"><%= profile.email %></a></p>
+    <% end %>
+    <% if not profile.bio.empty? %>
+      <p class="bio"><%= profile.bio %></p>
+    <% end %>
+    <% end %>
+    <% if profile.status == Rails.ACTIVE and profile.id != me %>
+      <form method="post" action="<%= Routes.DIRECT_ROOMS %>">
+        <input name="member" type="hidden" value="<%= profile.id %>">
+        <button type="submit">Write to <%= profile.name %></button>
+      </form>
+    <% end %>
+    <% end %>
+    <% if profile.id == me %>
+      <p><a href="<%= Routes.profile_path() %>">Edit my profile</a></p>
+    <% end %>
+    </main>
+  EAG
+  return layout(profile.name, body)
+end
+
+## The profile of the person who is signed in (`Users::ProfilesController#show`), around the `sidebar`: the form of the
+## name, the email address, the password (blank leaves it as it is) and the bio, which saves with a `PATCH` through the
+## `_method` field, and the rooms they are in, the shared ones first and then the direct messages, each with the link to
+## its sidebar setting when it has one. `typed` is the form as it was sent, for a refused save, and `note` says why. The
+## picture cannot be changed yet, so only `avatar` is shown.
+export def profile_page(
+  sidebar: String,
+  profile: Profiles.Detail,
+  rooms: List[Rooms.Room],
+  avatar: String,
+  note: String,
+) -> String
+  shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
+  direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1>Your profile</h1>
+    <% if not note.empty? %>
+      <p role="alert"><%= note %></p>
+    <% end %>
+    <% if not avatar.empty? %>
+      <p><img class="avatar" src="<%= avatar %>" alt="Profile avatar" width="120" height="120"></p>
+    <% end %>
+      <form method="post" action="<%= Routes.profile_path() %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <p>
+          <label>Name
+            <input name="user[name]" type="text" value="<%= profile.name %>" autocomplete="name"
+              maxlength="<%= Profiles.MAX_NAME_LENGTH %>" required></label>
+        </p>
+        <p>
+          <label>Email address
+            <input name="user[email_address]" type="email" value="<%= profile.email %>" autocomplete="username"></label>
+        </p>
+        <p>
+          <label>New password
+            <input name="user[password]" type="password" autocomplete="new-password" maxlength="72"></label>
+        </p>
+        <p>
+          <label>Current password (needed to set a new one)
+            <input name="user[password_challenge]" type="password" autocomplete="current-password" maxlength="72"></label>
+        </p>
+        <p>
+          <label>Bio
+            <textarea name="user[bio]" rows="3" maxlength="<%= Profiles.MAX_BIO_LENGTH %>"><%= profile.bio %></textarea></label>
+        </p>
+        <p><button type="submit">Save changes</button></p>
+      </form>
+      <h2>Your rooms</h2>
+      <ul class="memberships">
+    <% for room in shared %>
+        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a>
+          <a href="<%= Routes.room_involvement_path(room.id) %>">Sidebar</a></li>
+    <% end %>
+    <% for room in direct %>
+        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+    <% end %>
+      </ul>
+    </main>
+  EAG
+  return layout("Your profile", body)
+end
+
 ## The people page, around the `sidebar`. Everybody sees the names. For an administrator (`admin`) it also has the emails,
 ## the roles, the buttons that deactivate and reactivate (not for `me`, who may not deactivate themselves), and the join
 ## `link` with the button that makes a new one; `link` is "" for anybody else.
@@ -870,7 +979,7 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
       <ul class="people">
     <% for person in people %>
         <li>
-          <span class="name"><%= person.name %></span>
+          <span class="name"><a href="<%= Routes.user_path(person.id) %>"><%= person.name %></a></span>
     <% if admin %>
           <span class="meta"><%= person.email %></span>
     <% if person.role == Rooms.ADMINISTRATOR_ROLE_NAME %>
