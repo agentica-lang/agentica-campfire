@@ -8,7 +8,7 @@ This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is indepe
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.3 or later on `PATH` to run the app and its tests.
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.24.4 or later on `PATH` to run the app and its tests.
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by tag in agentica.toml) into deps/
