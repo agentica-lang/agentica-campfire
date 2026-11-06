@@ -162,9 +162,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   is inserted). The settings form carries `was`, the people in the room when it was drawn, and an update applies only
   its diff (the chosen that are not in `was` are added, `was` minus the chosen is taken out), so a stale form neither
   takes out someone added since nor brings back someone taken out; the sender is never offered. The settings of a room
-  exist for a closed room only, and for any other room the person is in they are the same 404. Only the maker and an
-  account administrator may change a closed room (`Rooms.editable?`): another member is answered 403, after the
-  membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
+  exist for an open and a closed room, and for a direct room the person is in they are the same 404 (a direct room never
+  converts). The form says what the room is to be (`type`; absent keeps it), and `Rooms.update_room` converts it: closed to
+  open grants every active person, open to closed applies the diff of the form. Only the maker and an
+  account administrator may change an open or closed room (`Rooms.editable?`): another member is answered 403, after the
+  membership check (a non-member is 404) and before the form is read; `Rooms.update_room` checks it again inside its
   transaction and fails, rolling back, when it no longer holds. The form sends plain text, stripped of the space around
   it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; every body that `Rooms`
   gives out is cleaned as it is read (`Rooms.clean`, called by `Rooms.message_of` for the search and by
