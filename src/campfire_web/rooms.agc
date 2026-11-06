@@ -15,6 +15,7 @@ import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Cache from "std/cache"
 import Cookie from "std/cookie"
+import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import CableWeb from "cable"
@@ -124,7 +125,18 @@ end
 ## The column at the side of a page for the person: their rooms that are not hidden and the ways to make one.
 export def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String]
   rooms = try Rooms.visible(db, person.id)
-  return ok(Views.sidebar(person.name, rooms))
+  return ok(Views.sidebar(person.name, rooms, try may_create_rooms?(db, person)))
+end
+
+# Whether the person may make an open or a closed room: an administrator always, anybody else unless the account
+# restricts it to administrators (`ensure_permission_to_create_rooms` of Rails). A direct message is never restricted.
+def may_create_rooms?(db: Db.Connection, person: Auth.User) -> Result[Bool]
+  if person.role == Rooms.ADMINISTRATOR_ROLE_NAME
+    return ok(true)
+  end
+
+  restricted = try Accounts.room_creation_restricted?(db)
+  return ok(not restricted)
 end
 
 def home_answer(conn: Bond.Conn, db: Db.Connection, wanted: Optional[Int]) -> Result[Answer]
@@ -197,21 +209,23 @@ def new_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
+    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
     some(person) -> return ok(Answer.Page(200, Views.new_room(try sidebar_of(db, person), "", "")))
   end
 end
 
 def create_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
-  name = (try Bond.form(conn, "name")).strip
-  answer = try Database.with_connection(pool) do |db| create_room_answer(conn, db, name) end
+  answer = try Database.with_connection(pool) do |db| create_room_answer(conn, db) end
   return ok(announced(conn, cable, answer))
 end
 
-def create_room_answer(conn: Bond.Conn, db: Db.Connection, name: String) -> Result[Answer]
+# The right to make a room is checked before the form is read, as the filter runs before the action in Rails.
+def create_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return made_room(db, person, name)
+    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
+    some(person) -> return made_room(db, person, (try Bond.form(conn, "name")).strip)
   end
 end
 
@@ -234,23 +248,29 @@ def new_closed_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
+    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
     some(person) -> return ok(Answer.Page(200, try closed_room_form(db, person, "", [], "")))
   end
 end
 
 def create_closed_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
-  name = (try Bond.form(conn, "name")).strip
-  ids = try ids_of(conn, "member")
-  answer = try Database.with_connection(pool) do |db| create_closed_answer(conn, db, name, ids) end
+  answer = try Database.with_connection(pool) do |db| create_closed_answer(conn, db) end
   return ok(announced(conn, cable, answer))
 end
 
-def create_closed_answer(conn: Bond.Conn, db: Db.Connection, name: String, ids: List[Int]) -> Result[Answer]
+def create_closed_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return made_closed_room(db, person, name, ids)
+    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
+    some(person) -> return created_closed(conn, db, person)
   end
+end
+
+def created_closed(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
+  name = (try Bond.form(conn, "name")).strip
+  ids = try ids_of(conn, "member")
+  return made_closed_room(db, person, name, ids)
 end
 
 def made_closed_room(db: Db.Connection, person: Auth.User, name: String, ids: List[Int]) -> Result[Answer]

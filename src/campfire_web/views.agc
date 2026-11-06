@@ -47,9 +47,10 @@ export def layout(title: String, content: String) -> String
 end
 
 ## The column at the side of every page of a person who is signed in: who they are, their rooms (the direct messages
-## apart, named after the other people) and the ways to make a room and to sign out. It is raw HTML that this file
-## made, for the pages below to put in.
-export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
+## apart, named after the other people) and the ways to make a room and to sign out. `can_create` is false for a member
+## when the account lets only administrators make a shared room: the two links to those forms are then left out. It is
+## raw HTML that this file made, for the pages below to put in.
+export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool) -> String
   shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
   direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
   return <<~EAG
@@ -73,8 +74,10 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
         </ul>
     <% end %>
         <ul class="actions" aria-label="Actions">
+    <% if can_create %>
           <li><a href="<%= Routes.ROOM_NEW %>">New room</a></li>
           <li><a href="<%= Routes.CLOSED_ROOM_NEW %>">New closed room</a></li>
+    <% end %>
           <li><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></li>
           <li><a href="<%= Routes.SEARCHES %>">Search</a></li>
           <li><a href="<%= Routes.USERS %>">People</a></li>
@@ -89,7 +92,8 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room]) -> String
 end
 
 ## The account settings page (`accounts/edit.html.erb`): the name of the account and, for an administrator, a form that
-## renames it (`name` is the box, `note` says why a save was refused), then the active people with the administrators
+## renames it (`name` is the box, `note` says why a save was refused) and a button that switches who may create rooms
+## (`restricted`, the setting of the account: only administrators, or everybody), then the active people with the administrators
 ## first, as Rails lists them. An administrator can make each person but themselves an administrator or a member, and
 ## remove them (deactivate, which an administrator undoes on the people page). Plain form posts with the `_method` of
 ## Rails' forms, so they work without a script.
@@ -99,6 +103,7 @@ export def account(
   people: List[Accounts.Person],
   me: Int,
   admin: Bool,
+  restricted: Bool,
   note: String,
 ) -> String
   administrators = people.select do |one| one.role == Rooms.ADMINISTRATOR_ROLE_NAME end
@@ -120,6 +125,19 @@ export def account(
               required></label>
         </p>
         <p><button type="submit">Save</button></p>
+      </form>
+      <form method="post" action="<%= Routes.ACCOUNT %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <input name="account[settings][restrict_room_creation_to_administrators]" type="hidden" value="<%= not restricted %>">
+        <p>
+    <% if restricted %>
+          Who can create rooms: <strong>administrators only</strong>
+          <button type="submit" class="quiet">Let everybody create rooms</button>
+    <% else %>
+          Who can create rooms: <strong>everybody</strong>
+          <button type="submit" class="quiet">Only administrators can create rooms</button>
+    <% end %>
+        </p>
       </form>
     <% else %>
       <h2><%= name %></h2>
