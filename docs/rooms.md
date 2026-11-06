@@ -14,7 +14,7 @@ The sidebar lists the rooms that a person is in. The first run makes the open ro
 
 ## Kinds
 
-- **Open**: `New room` (any member may make one) puts every active person in it. A person who
+- **Open**: `New room` (any member may make one, unless the account restricts it, see below) puts every active person in it. A person who
   joins gets every open room that exists; a reactivated person gets the open rooms made while
   they were away.
 - **Closed**: `New closed room` has a member picker (checkboxes of the active people). The maker is
@@ -23,8 +23,15 @@ The sidebar lists the rooms that a person is in. The first run makes the open ro
   open the direct message that exists instead of making a second one, even when forms arrive
   together. Each person sees it named after the others.
 
-Not yet: leaving a room, restricting who may make an open room to administrators, removing
-yourself.
+An administrator can let only administrators make a shared room (open or closed): the switch on the account page
+(`PATCH /account`, field `account[settings][restrict_room_creation_to_administrators]`, `true` or `false`) is kept in the
+JSON of `accounts.settings` as Rails keeps it, with the other keys left as they are. With it on, a member gets `403` on
+`/rooms/new`, `/closed_rooms/new` and the posts to `/rooms` and `/closed_rooms` (before the form is read, as the filter
+of Rails runs), and the sidebar leaves out the two links. A direct message is not restricted: Rails has no such filter
+on `Rooms::DirectsController`. An empty or invalid `settings` is the default, everybody. Administrators are never
+restricted.
+
+Not yet: removing yourself.
 
 ## Deleting a room
 
