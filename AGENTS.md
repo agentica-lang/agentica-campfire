@@ -142,10 +142,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a
   form that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code
   refuses a form that was open and two forms with one email make one person. Joining never reactivates a deactivated
-  person (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
+  person (a deactivation renames their address with `-deactivated-UUID`, as Rails does, so the address is free). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
   `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an
-  administrator cannot deactivate themselves; deactivating deletes the person's sessions and reset links, and
-  reactivating calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `status` itself
+  administrator cannot deactivate themselves; deactivating deletes the person's sessions, reset links, push subscriptions, searches and shared-room memberships
+  (`Rooms.leave_shared_rooms`) and renames the address, and reactivating restores the address (`Change.Taken` is a 409
+  when another account has it) and calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `status` itself
   (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive. The pages with
   the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an
   email answers the same for every address": it answers 422 for an email that has an account (why: `docs/security.md`).
@@ -232,6 +233,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   `refresh` compares `created_at`/`updated_at` as text against `INSTANT` of `rooms.agc` (the millisecond time written as the
   columns are), answers Turbo Stream whatever `Accept` says, reads `since` as `to_i` (its leading digits) and compares with `>=`, so a message in the
   same millisecond as the last one the client saw is not skipped.
+- Account settings: `/account/edit`, `PATCH /account` (name) and `PATCH`/`DELETE /account/users/:id` (role, removal =
+  `Accounts.deactivate`) are administrator-only writes: 403 for a member before the form is read, then 404 for a user
+  who is not an active person, then 400/422 for the form. `Accounts.set_role` and `Accounts.rename` check that the actor
+  is an active administrator again inside the transaction, and `set_role` refuses the actor's own row, so the account always
+  keeps an administrator. `AuthWeb.form_method` reads `_method` for every `POST` override.
 - Involvement: `/rooms/ID/involvement` reads and sets the person's own `memberships.involvement` (`Rooms.involvement`,
   `Rooms.set_involvement`); the levels a room offers are `Rooms.involvement_levels` (a direct room never offers
   `invisible`, as Rails), and anything else is 422 with nothing written. Membership is checked first (404), then the
