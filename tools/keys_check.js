@@ -5,8 +5,9 @@
 //   CAMPFIRE_SESSION_SECRET=... CAMPFIRE_PORT=3591 CAMPFIRE_DATA_DIR=/tmp/keys agentica campfire.agc
 //   BASE=http://127.0.0.1:3591 CHROMIUM=/usr/bin/chromium PLAYWRIGHT_CORE=playwright-core node tools/keys_check.js
 //
-// It needs a new database (it makes the first admin, "ana@example.com") and `playwright-core` with a Chromium; it adds a
-// few messages to room 1 and exits 1 when a check fails.
+// It needs a new database (it makes the first admin, "ana@example.com"), `playwright-core` (`npm install playwright-core`
+// in a folder of your own, and point PLAYWRIGHT_CORE at it if it is not on the module path) and a Chromium (CHROMIUM,
+// default /usr/bin/chromium). It adds a few messages to room 1 and exits 1 when a check fails.
 const { chromium } = require(process.env.PLAYWRIGHT_CORE || "playwright-core");
 const base = process.env.BASE || "http://127.0.0.1:3591";
 let failed = 0;
@@ -16,10 +17,10 @@ function check(name, ok, extra) { console.log((ok ? "PASS " : "FAIL ") + name + 
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || "/usr/bin/chromium", args: ["--no-sandbox"] });
   async function session(touch) {
     const ctx = await browser.newContext(touch ? { hasTouch: true, isMobile: true, viewport: { width: 390, height: 800 } } : {});
-    return { ctx, page: await ctx.newPage() };
+    return { page: await ctx.newPage() };
   }
   // First run, then sign in is automatic.
-  let { ctx, page } = await session(false);
+  let { page } = await session(false);
   await page.goto(base + "/");
   if (page.url().includes("first_run")) {
     await page.fill('input[name="name"]', "Ana");
@@ -84,6 +85,14 @@ function check(name, ok, extra) { console.log((ok ? "PASS " : "FAIL ") + name + 
   check("Esc goes back to the room", page.url() === base + "/rooms/1");
   check("Esc discards the change", (await page.locator(`#presentation_message_${id}`).innerText()).includes("edited with the keyboard"));
 
+  // Ctrl+Enter with the focus on the Delete button saves nothing.
+  await page.goto(base + `/rooms/1/messages/${id}/edit`);
+  await page.locator('turbo-frame form textarea').fill("typed but not saved");
+  await page.locator('button.danger').focus();
+  await page.keyboard.press("Control+Enter");
+  await page.waitForTimeout(400);
+  check("Ctrl+Enter from the Delete button saves nothing", page.url().endsWith("/edit"));
+
   // Esc with the focus on the Delete button also leaves.
   await page.goto(base + `/rooms/1/messages/${id}/edit`);
   await page.locator('button.danger').focus();
@@ -105,6 +114,10 @@ function check(name, ok, extra) { console.log((ok ? "PASS " : "FAIL ") + name + 
   await tbox.type("more");
   check("on a touch screen Enter is a new line", (await tbox.inputValue()) === "touch\nmore");
   check("on a touch screen Enter sends nothing", (await t.page.locator("[data-message-id]").count()) === before);
+  // Ctrl+Enter is a send on a touch screen with a keyboard.
+  await t.page.keyboard.press("Control+Enter");
+  await t.page.waitForFunction((n) => document.querySelectorAll("[data-message-id]").length === n + 1, before);
+  check("on a touch screen Ctrl+Enter sends", (await t.page.locator("[data-message-id]").count()) === before + 1);
 
   await browser.close();
   process.exit(failed ? 1 : 0);

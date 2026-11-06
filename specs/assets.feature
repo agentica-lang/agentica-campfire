@@ -2,8 +2,8 @@ Feature: The stylesheet and the script
   Every page links one fingerprinted stylesheet, `/assets/campfire-DIGEST.css`, where DIGEST is the start of the SHA-256
   of the file (`public/assets/`, `CAMPFIRE_ASSETS_DIR`). It is served as `text/css` with the same bytes every time and
   kept for a year by any cache, and it is public: the sign-in page has to look right before anyone is signed in. The
-  room page also links the one script of the app, `/assets/campfire-DIGEST.js`, which sends the composer without a
-  reload; no page that has no composer links it.
+  room page and the page that edits a message also link the one script of the app, `/assets/campfire-DIGEST.js`, which
+  sends the composer without a reload and has the keys of both; no other page links it.
 
   Background:
     Given a fresh database
@@ -23,7 +23,7 @@ Feature: The stylesheet and the script
     And I get the stylesheet that the page links
     Then the answer is the one that I remembered
 
-  Scenario: The room page links the script of the composer, served as it was written, and no other page does
+  Scenario: The room page links the script of the composer, served as it was written, and the people page does not
     When I get "/rooms/1"
     Then the body does not contain "autofocus"
     When I get the script that the page links

@@ -45,17 +45,21 @@
     });
   });
 
-  // A touch screen has no Shift key to ask for a new line, so there Enter stays one and only Send sends. The main pointer
-  // decides, not whether the device can be touched: a laptop with a touch screen is a keyboard first.
-  var touch = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+  // A touch screen has no Shift key to ask for a new line, so there a plain Enter stays one and only Send sends. The
+  // main pointer decides, not whether the device can be touched (a laptop with a touch screen is a keyboard first), and
+  // it is read at the key, since a tablet changes it when a keyboard is attached. Ctrl or Cmd+Enter is a send anywhere.
+  function touching() {
+    return !!window.matchMedia && matchMedia("(pointer: coarse)").matches;
+  }
 
   field.addEventListener("keydown", function (event) {
     // `isComposing` and 229 are an input method choosing a character with Enter, which is not a send.
-    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229 || touch) {
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) {
       return;
     }
 
-    if (event.ctrlKey || event.metaKey || !event.shiftKey) {
+    var chord = event.ctrlKey || event.metaKey;
+    if (chord || (!event.shiftKey && !touching())) {
       event.preventDefault();
       // A blank box sends nothing, and the browser's own "fill out this field" bubble would only get in the way.
       if (field.value.trim()) {
@@ -200,15 +204,28 @@
   // room with the change discarded (the link under the form, which is also what a person without the script clicks).
   function editKeys(target) {
     var back = document.querySelector("main > p > a[data-cancel]");
+    var saving = false;
+
+    // One save at a time: the page is about to be replaced by the answer, and a second post would save it twice.
+    target.addEventListener("submit", function (event) {
+      if (saving) {
+        event.preventDefault();
+      }
+      saving = true;
+    });
+
     // The frame, not the form, so Esc also works with the focus on the Delete button.
     target.parentNode.addEventListener("keydown", function (event) {
       if (event.isComposing || event.keyCode === 229) {
         return;
       }
 
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      // Only with the focus in the save form: from the Delete button a chord must not save what was typed.
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && target.contains(event.target)) {
         event.preventDefault();
-        submitForm(target);
+        if (!saving) {
+          submitForm(target);
+        }
       } else if (event.key === "Escape" && back) {
         event.preventDefault();
         location.assign(back.href);

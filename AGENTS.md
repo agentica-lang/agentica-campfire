@@ -238,8 +238,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.COMPOSER_SCRIPT`
   when it changes (`specs/assets.feature` checks). `/assets/` is public (`AuthWeb.public?`). There is no asset pipeline
   yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page and the edit page link it, every form works
-  without it, its keys follow Rails' composer (`DESIGN.md`, "Script"; `tools/keys_check.js` checks them in a browser, by hand), and it stays a few KB with no framework (`DESIGN.md`, "Script"). The composer textarea has no
-  `autofocus` (a phone would open its keyboard on each load).
+  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script", which also has its keys;
+  `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
+  open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that
   takes gzip.
 - A UI change follows `DESIGN.md` and updates it with the stylesheet. Markup that specs match byte for byte (links, headings,

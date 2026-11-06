@@ -23,9 +23,9 @@ export MISSING = "Not Found"
 export ASSETS = "/assets"
 export STYLESHEET = "/assets/campfire-65c285f24a690567.css"
 
-## The script of the room page (the composer sends with `fetch`), fingerprinted like the stylesheet. Only the room page
-## links it; the page works without it.
-export COMPOSER_SCRIPT = "/assets/campfire-f8920591173628d0.js"
+## The script of the room page (the composer sends with `fetch`) and of the page that edits a message (the keys),
+## fingerprinted like the stylesheet. Only those two link it; they work without it.
+export COMPOSER_SCRIPT = "/assets/campfire-17fc68f2137508ec.js"
 
 ## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
 ## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and
