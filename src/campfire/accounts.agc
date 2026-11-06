@@ -18,6 +18,9 @@ MAX_CODE_LENGTH = 64
 
 NOW = Rails.NOW
 
+## The longest name of the account, in characters.
+export MAX_NAME_LENGTH = 100
+
 ## A person of the account as the people page lists them. A bot is not a person, so it is never in the list.
 export struct Person
   id: Int
@@ -51,6 +54,52 @@ export def join_code(conn: Db.Connection) -> Result[String]
   end
 
   return ok(text_of(rows[0], "join_code"))
+end
+
+## The name of the account, or "" before the first run has made it.
+export def name(conn: Db.Connection) -> Result[String]
+  rows = try Db.query(conn, "select name from accounts order by id limit 1", [])
+  if rows.empty?
+    return ok("")
+  end
+
+  return ok(text_of(rows[0], "name"))
+end
+
+## What is wrong with an account name, or "". The caller strips it first. Rails has no check (the column only refuses
+## null); a blank name would leave the page with nothing to show, so it is refused here.
+export def name_problem(name: String) -> String
+  if name.empty? or name.length > MAX_NAME_LENGTH
+    return "Give the account a name of 1 to #{MAX_NAME_LENGTH} characters"
+  end
+
+  return ""
+end
+
+## Renames the account (`AccountsController#update`) and gives true. It gives false, with nothing changed, when
+## `actor_id` is not an active administrator.
+export def rename(conn: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
+  return Db.transaction(conn) do |tx| rename_in(tx, actor_id, name) end
+end
+
+## True when `user_id` is an active person of the account (not a bot), whom the role and the removal can name.
+export def active_person?(conn: Db.Connection, user_id: Int) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select count(*) as total from users where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok(int_of(rows[0], "total") > 0)
+end
+
+## Makes `user_id` an administrator, or a member with `administrator` false (`Accounts::UsersController#update`), for
+## `actor_id`. `Missing` is nobody active (a deactivated person, a bot, no such user). `Refused` is a person who asks
+## without being an active administrator, or who changes their own role: the page has no switch for oneself, and an
+## administrator who steps down alone could leave the account without one. Rails does not check either on the server;
+## here the actor stays an administrator, so the account always has one.
+export def set_role(conn: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
+  return Db.transaction(conn) do |tx| set_role_in(tx, actor_id, user_id, administrator) end
 end
 
 ## True when `code` is the code of the account now: the old code of a regenerated one is not.
@@ -119,6 +168,45 @@ def regenerate_in(tx: Db.Connection, actor_id: Int) -> Result[Bool]
   )
 
   return ok(true)
+end
+
+def rename_in(tx: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
+  allowed = try administrator?(tx, actor_id)
+  if not allowed
+    return ok(false)
+  end
+
+  try Db.execute(
+    tx,
+    "update accounts set name = ?, updated_at = #{NOW} where singleton_guard = 0",
+    [Db.Value.Text(name)],
+  )
+
+  return ok(true)
+end
+
+def set_role_in(tx: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
+  allowed = try administrator?(tx, actor_id)
+  if not allowed or actor_id == user_id
+    return ok(Change.Refused)
+  end
+
+  role = Rails.MEMBER
+  if administrator
+    role = Rails.ADMINISTRATOR
+  end
+
+  changed = try Db.execute(
+    tx,
+    "update users set role = ?, updated_at = #{NOW} where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
+    [Db.Value.Int(role), Db.Value.Int(user_id)],
+  )
+
+  if changed == 0
+    return ok(Change.Missing)
+  end
+
+  return ok(Change.Changed)
 end
 
 def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]

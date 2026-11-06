@@ -119,6 +119,17 @@ export def assigned_user(conn: Bond.Conn) -> Result[Optional[Auth.User]]
   return ok(some(user))
 end
 
+## The `_method` field of a form, lower case ("" when it has none), which is how Rails reads it
+## (`Rack::MethodOverride`): a browser form cannot send `PATCH`, `PUT` or `DELETE`, so it posts and names the method.
+export def form_method(conn: Bond.Conn) -> Result[String]
+  methods = try Bond.form_all(conn, "_method")
+  if methods.empty?
+    return ok("")
+  end
+
+  return ok(methods[0].downcase)
+end
+
 ## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it.
 export def private_page(conn: Bond.Conn) -> Bond.Conn
   return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "no-referrer")

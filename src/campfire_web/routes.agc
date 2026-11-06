@@ -103,6 +103,17 @@ export METHOD_PUT = "put"
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
 export JOIN = "/join/:code"
 
+## The account settings page (`/account/edit`), the save of its name (`PATCH /account`, or a `POST` with `_method` set
+## to `patch`, as Rails' forms send it) and the person under the account (`:id` is the user): `PATCH` sets the role,
+## `DELETE` removes the person (deactivates, as Rails' `User#deactivate` does), and a `POST` with `_method` does
+## either. Any other method is a 405 that lists the methods of the path (`ACCOUNT_ALLOW`, `ACCOUNT_USER_ALLOW`: Bond's
+## own lists).
+export ACCOUNT_EDIT = "/account/edit"
+export ACCOUNT = "/account"
+export ACCOUNT_ALLOW = "POST, PATCH"
+export ACCOUNT_USER = "/account/users/:id"
+export ACCOUNT_USER_ALLOW = "POST, PATCH, DELETE"
+
 ## The people page, the posts that deactivate and reactivate a person (`:id` is the id of the user), and the post that
 ## makes a new join code.
 export USERS = "/users"
@@ -169,6 +180,11 @@ end
 ## The path of the join page of this code, which is also where its form posts.
 export def join_path(code: String) -> String
   return "/join/#{code}"
+end
+
+## The path of a person under the account, which is where the forms of their role and of their removal post.
+export def account_user_path(user_id: Int) -> String
+  return "/account/users/#{user_id}"
 end
 
 ## The path that deactivates this user.
