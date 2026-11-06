@@ -259,7 +259,9 @@ end
 
 # An allowlist: only the global unicast space `2000::/3` can be public, and in it not the documentation prefix
 # `2001:db8::/32`, the benchmarking prefix `2001:2::/48` and the reserved `3fff::/20`. Everything else is a special
-# address (`::`, `::1`, unique local, link-local, multicast...) or not allocated yet.
+# address (`::`, `::1`, unique local, link-local, multicast...) or not allocated yet. The shape is checked first: at
+# most one `::`, groups of 1 to 4 hex digits with none empty but the one `::` makes, 8 groups without `::` and at most
+# 7 with it. Text that is not an address is not public.
 def public_v6?(text: String) -> Bool
   for index in 0..(text.length - 1)
     if not "0123456789abcdef:".include?(text.slice(index, 1))
@@ -267,22 +269,86 @@ def public_v6?(text: String) -> Bool
     end
   end
 
-  groups = text.split(":")
-  if not (text.include?("::") or groups.size == 8) or groups.empty?
+  groups = v6_groups(text)
+  if groups.size == 0 or hex_value(groups[0]).none?
     return false
   end
 
-  first = hex_value(groups[0])
-  if first.none? or first.unwrap! < 8192 or first.unwrap! > 16383
+  first = hex_value(groups[0]).unwrap!
+  if first < 8192 or first > 16383
     return false
   end
 
   second = group_value(groups, 1)
   third = group_value(groups, 2)
-  documentation = first.unwrap! == 8193 and second == 3512
-  benchmarking = first.unwrap! == 8193 and second == 2 and third == 0
-  reserved = first.unwrap! == 16383 and second < 4096
-  return second >= 0 and not documentation and not benchmarking and not reserved
+  documentation = first == 8193 and second == 3512
+  benchmarking = first == 8193 and second == 2 and third == 0
+  reserved = first == 16383 and second < 4096
+  return not documentation and not benchmarking and not reserved
+end
+
+# The groups before the `::` (all of them when there is none) of a well-formed IPv6 address, and an empty list for text
+# that is not one: the groups after the `::` count only to check that at most 7 are written.
+def v6_groups(text: String) -> List[String]
+  none_found: List[String] = []
+  starts_wrong = text.start_with?(":") and not text.start_with?("::")
+  ends_wrong = text.end_with?(":") and not text.end_with?("::")
+  if text.include?(":::") or starts_wrong or ends_wrong
+    return none_found
+  end
+
+  at = double_colon_at(text)
+  if at < 0
+    whole = text.split(":")
+    if whole.size == 8 and all_groups?(whole)
+      return whole
+    end
+
+    return none_found
+  end
+
+  rest = text.slice(at + 2, text.length - at - 2)
+  if rest.include?("::")
+    return none_found
+  end
+
+  left: List[String] = []
+  if at > 0
+    left = text.slice(0, at).split(":")
+  end
+
+  right: List[String] = []
+  if not rest.empty?
+    right = rest.split(":")
+  end
+
+  if left.size + right.size > 7 or not all_groups?(left) or not all_groups?(right)
+    return none_found
+  end
+
+  return left
+end
+
+# Where the first `::` starts, or -1.
+def double_colon_at(text: String) -> Int
+  for index in 0..(text.length - 2)
+    if text.slice(index, 2) == "::"
+      return index
+    end
+  end
+
+  return -1
+end
+
+# Every group is 1 to 4 hex digits.
+def all_groups?(groups: List[String]) -> Bool
+  for group in groups
+    if hex_value(group).none?
+      return false
+    end
+  end
+
+  return true
 end
 
 # The value of the group `index`: 0 for one that `::` leaves empty or that is not there, -1 for one that is no number.

@@ -124,19 +124,20 @@ a write costs no query when there is none; it is read from the table at the firs
 unban of the app.
 
 Behind a reverse proxy every request comes from the proxy. Only addresses of the open internet are written
-(`Bans.public_address?`; loopback, private, shared, documentation, multicast, reserved and link-local ranges are not), so
-a proxy on the same host, a LAN, Docker or Tailscale is safe: no ban holds its address and the IP ban does nothing there
-(the ban still ends the sessions, closes the sockets and removes the messages). A proxy on a **public** address is not
-safe. The app sees the proxy's address, `public_address?` accepts it, and one ban of a person whose session came
-through it writes it. After that every write from everybody gets `429`, the sign-in included, and so does the post that
-lifts the ban: anyone who shares a banned address, an administrator too, cannot unban from it. The only way out is to
-delete the row by hand (see below), so do not run the app behind a public proxy until it reads `X-Forwarded-For`
-from a trusted proxy.
+(`Bans.public_address?`: IPv4 outside the loopback, private, shared, documentation, multicast and reserved ranges, and
+IPv6 only inside `2000::/3`, as an allowlist, minus the documentation and reserved prefixes), so a proxy on the same
+host, a LAN, Docker or Tailscale is safe: no ban holds its address and the IP ban does nothing there (the ban still
+ends the sessions, closes the sockets and removes the messages). A proxy on a **public** address is not safe. The app
+sees the proxy's address, `public_address?` accepts it, and one ban of a person whose session came through it writes
+it. After that every write from everybody gets `429`, the sign-in included, and so does the post that lifts the ban:
+anyone who shares a banned address, an administrator too, cannot unban from it. The only way out is to delete the row
+by hand (see below), so do not run the app behind a public proxy until it reads `X-Forwarded-For` from a trusted
+proxy.
 
 A person who shares an address with someone who was banned (an office, a mobile network) gets `429` on every write.
 The way out is to lift the ban from the person's page (which deletes all of their rows) from another address, or to
-delete the row by hand, for example `delete from bans where ip_address = '198.51.100.7'`, which takes effect at once. A row added by hand while
-no ban exists is seen after a restart, when the flag is read again.
+delete the row by hand, for example `delete from bans where ip_address = '198.51.100.7'`, which takes effect at once.
+A row added by hand while no ban exists is seen after a restart, when the flag is read again.
 
 ## Deactivation and open requests
 

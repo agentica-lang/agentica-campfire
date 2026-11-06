@@ -39,8 +39,9 @@ export def mark(flag: ATS[String, Int], value: Bool) -> Void
 end
 
 ## Reads the table and sets the flag from it. A "no ban" that was read before a ban set the flag is not written: the
-## ban is newer than the read. What is left is a window of two memory operations between the check and the write,
-## which the `mark` that a ban makes after its commit closes.
+## ban is newer than the read. If a ban set it between the check and the write, the write is undone: the counter is read
+## again after it, and a move puts the flag back to true. The `mark` that a ban makes after its commit covers a ban whose
+## mark came before the whole `refresh`.
 export def refresh(flag: ATS[String, Int], conn: Db.Connection) -> Result[Bool]
   before = ATS.get(flag, CHANGES).unwrap_or(0)
   found = try Bans.any?(conn)
@@ -49,10 +50,15 @@ export def refresh(flag: ATS[String, Int], conn: Db.Connection) -> Result[Bool]
     return ok(true)
   end
 
-  if ATS.get(flag, CHANGES).unwrap_or(0) == before
-    mark(flag, false)
-    return ok(false)
+  if ATS.get(flag, CHANGES).unwrap_or(0) != before
+    return ok(true)
   end
 
-  return ok(true)
+  mark(flag, false)
+  if ATS.get(flag, CHANGES).unwrap_or(0) != before
+    mark(flag, true)
+    return ok(true)
+  end
+
+  return ok(false)
 end
