@@ -10,6 +10,14 @@ export SESSION = "/session"
 export SIGN_OUT = "/sign_out"
 export HEALTH = "/health"
 
+## The Action Cable WebSocket (the path that the Rails client and the benchmark connect to). It is public for the
+## sign-in filter, which would answer the handshake with a 302 (the client retries in a loop): the connection looks up
+## the session itself and refuses with a `disconnect`.
+export CABLE = "/cable"
+
+## The counts of the hub of `/cable`, as JSON, for an administrator.
+export CABLE_STATS = "/cable/stats"
+
 ## The page that Rails answers at `/up` (the check of its load balancers and of the benchmark harness): green.
 export UP = "/up"
 
@@ -43,8 +51,8 @@ export PASSWORD_RESET_EDIT = "/password_reset/edit"
 export PASSWORD_RESET_UPDATE = "/password_reset/confirm"
 
 ## The rooms: the form of a new one, the post that makes it, a room page (with `?before=ID` for the messages before
-## that one) and the messages of a room: a `GET` gives the fragment of the 40 before `?before=ID` (without the layout,
-## for the script that loads older messages) and a `POST` stores one. `:id` is the id of the room.
+## that one) and the messages of a room: a `GET` gives the fragment of the 40 before `?before=ID` (without the layout, for
+## the script that loads older messages) and a `POST` stores one. `:id` is the id of the room.
 export ROOMS = "/rooms"
 export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"

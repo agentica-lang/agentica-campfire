@@ -130,6 +130,12 @@ export struct Page
   at_latest: Bool
 end
 
+## One person of a room, and whether the room is unread for them (`unread_at` is set).
+export struct Watcher
+  user_id: Int
+  unread: Bool
+end
+
 ## What the page of a room has gained since a time (`Rooms::RefreshesController`, which a client calls to catch up after
 ## it lost its connection): `fresh` are the messages created since, oldest first, at most `PAGE_SIZE`; `changed` are the
 ## other messages edited since, the newest `PAGE_SIZE` of them, oldest first. A message created since but past the
@@ -231,6 +237,22 @@ export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optio
   return ok(some(room_of(rows[0])))
 end
 
+## The room as the person's sidebar lists it (`visible`), `none` when they are not in it or have hidden it: what a live
+## change to the sidebar shows them.
+export def visible_room(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
+  rows = try Db.query(
+    conn,
+    "#{ROOM_COLUMNS} and rooms.id = ? and memberships.involvement <> '#{Rails.INVISIBLE}'",
+    [Db.Value.Int(user_id), Db.Value.Int(user_id), Db.Value.Int(room_id)],
+  )
+
+  if rows.empty?
+    return ok(none)
+  end
+
+  return ok(some(room_of(rows[0])))
+end
+
 ## The room that the home page opens for the person (`last_room_visited` of Rails): `wanted` (the room that they were in
 ## last, from their cookie) when they are in it, else the oldest room that they are in (`Room.original`: by `created_at`,
 ## then id), any involvement and any kind. `none` when they are in no room, which is the welcome page. A `wanted` that
@@ -322,6 +344,50 @@ end
 export def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
   rows = try Db.query(conn, "select user_id from memberships where room_id = ?", [Db.Value.Int(room_id)])
   return ok(rows.map do |row| int_of(row, "user_id") end)
+end
+
+## Everyone in the room, with whether it is unread for them: who a live notice about the room may concern.
+export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
+  rows = try Db.query(
+    conn,
+    "select user_id, unread_at is not null as unread from memberships where room_id = ?",
+    [Db.Value.Int(room_id)],
+  )
+
+  return ok(rows.map do |row| Watcher(user_id: int_of(row, "user_id"), unread: int_of(row, "unread") == 1) end)
+end
+
+## The room is read for each of the people, in one statement: the same as `mark_read` for each. Nobody is a no-op.
+export def mark_read_all(conn: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
+  if user_ids.empty?
+    return ok()
+  end
+
+  marks = user_ids.map do |_| "?" end.join(", ")
+  params = [Db.Value.Int(room_id)]
+  for user_id in user_ids
+    params = params.push(Db.Value.Int(user_id))
+  end
+
+  try Db.execute(
+    conn,
+    "update memberships set unread_at = null where room_id = ? and user_id in (#{marks}) and unread_at is not null",
+    params,
+  )
+
+  return ok()
+end
+
+## The room is read for the person: it is no longer unread. It does not touch `updated_at`, as `Membership#read` of
+## Rails does not (`update_all`).
+export def mark_read(conn: Db.Connection, room_id: Int, user_id: Int) -> Result[Void]
+  try Db.execute(
+    conn,
+    "update memberships set unread_at = null where room_id = ? and user_id = ? and unread_at is not null",
+    [Db.Value.Int(room_id), Db.Value.Int(user_id)],
+  )
+
+  return ok()
 end
 
 ## Makes a closed room of `creator_id` with them and `members` in it, in one transaction, and gives its id. A member

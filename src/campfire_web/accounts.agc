@@ -6,11 +6,13 @@
 ## transaction. The page holds the join code, so it is kept out of caches and out of the `Referer` of the links on it.
 
 import Bond from "pkg/bond/bond"
+import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
+import Hangup from "hangup"
 import Rooms from "../campfire/rooms"
 import RoomsWeb from "rooms"
 import Routes from "routes"
@@ -40,19 +42,19 @@ enum Answer
 end
 
 ## Adds the routes of the people page to `app`.
-export def add(app: Bond.App, config: Config, pool: Database.Pool) -> Bond.App
+export def add(app: Bond.App, config: Config, pool: Database.Pool, hub: Channels.Hub) -> Bond.App
   return (
     app
     |> Bond.get(Routes.USERS) do |conn| show_users(conn, config, pool) end
-    |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, true) end
-    |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, false) end
+    |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, hub, true) end
+    |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, hub, false) end
     |> Bond.post(Routes.JOIN_CODE) do |conn| regenerate_code(conn, pool) end
     |> Bond.get(Routes.ACCOUNT_EDIT) do |conn| show_account(conn, pool) end
     |> Bond.post(Routes.ACCOUNT) do |conn| post_account(conn, pool) end
     |> Bond.patch(Routes.ACCOUNT) do |conn| rename_account(conn, pool) end
-    |> Bond.post(Routes.ACCOUNT_USER) do |conn| post_account_user(conn, pool) end
+    |> Bond.post(Routes.ACCOUNT_USER) do |conn| post_account_user(conn, pool, hub) end
     |> Bond.patch(Routes.ACCOUNT_USER) do |conn| set_role(conn, pool) end
-    |> Bond.delete(Routes.ACCOUNT_USER) do |conn| remove_person(conn, pool) end
+    |> Bond.delete(Routes.ACCOUNT_USER) do |conn| remove_person(conn, pool, hub) end
   )
 end
 
@@ -140,14 +142,14 @@ def renamed(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Ans
 end
 
 # A `POST` with `_method` set to `patch` saves a role and one set to `delete` removes the person; any other is a 405.
-def post_account_user(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def post_account_user(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   if method == Routes.METHOD_PATCH
     return set_role(conn, pool)
   end
 
   if method == Routes.METHOD_DELETE
-    return remove_person(conn, pool)
+    return remove_person(conn, pool, hub)
   end
 
   return ok(respond(conn, Answer.NotAllowed(Routes.ACCOUNT_USER_ALLOW)))
@@ -178,9 +180,8 @@ def roled(conn: Bond.Conn, db: Db.Connection, person: Auth.User, id: Optional[In
   end
 end
 
-# Rails takes anything but `administrator` for `member`; a value that is neither is refused here instead, so a
-# form that
-# is not ours cannot step a person down.
+# Rails takes anything but `administrator` for `member`; a value that is neither is refused here instead, so a form
+# that is not ours cannot step a person down.
 def roled_person(conn: Bond.Conn, db: Db.Connection, person: Auth.User, user_id: Int) -> Result[Answer]
   role = try Bond.form(conn, USER_ROLE)
   if role != Rooms.ADMINISTRATOR_ROLE_NAME and role != Rooms.MEMBER_ROLE_NAME
@@ -191,10 +192,29 @@ def roled_person(conn: Bond.Conn, db: Db.Connection, person: Auth.User, user_id:
   return answer_of(change, Routes.ACCOUNT_EDIT)
 end
 
-def remove_person(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+# Administrator first (403), then the person (404: nobody active, so a person who is deactivated already is not removed
+# twice), as Rails runs `User.active.find`. The sockets of a person who was removed are closed and told not to come
+# back (`Hangup`), as for the deactivation on the people page.
+def remove_person(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub) -> Result[Bond.Conn]
   id = user_id(conn)
-  answer = try Database.with_connection(pool) do |db| change_answer(conn, db, id, true, Routes.ACCOUNT_EDIT) end
+  answer = try Database.with_connection(pool) do |db| removal_answer(conn, db, id) end
+  case answer
+    Answer.Redirect(_) if id.some? -> Hangup.user(hub, id.unwrap!, false)
+    _ -> return ok(respond(conn, answer))
+  end
+
   return ok(respond(conn, answer))
+end
+
+def removal_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
+    some(_) if id.none? -> return ok(Answer.NotFound)
+    some(_) if not (try Accounts.active_person?(db, id.unwrap!)) -> return ok(Answer.NotFound)
+    some(person) -> return answer_of(try Accounts.deactivate(db, person.id, id.unwrap!), Routes.ACCOUNT_EDIT)
+  end
 end
 
 def show_users(conn: Bond.Conn, config: Config, pool: Database.Pool) -> Result[Bond.Conn]
@@ -228,9 +248,16 @@ def join_link(db: Db.Connection, config: Config) -> Result[String]
   return ok("#{config.base_url}#{Routes.join_path(code)}")
 end
 
-def change_user(conn: Bond.Conn, pool: Database.Pool, deactivating: Bool) -> Result[Bond.Conn]
+# A deactivated person has no session left, so their sockets are closed and told not to come back (`Hangup`). A repeat
+# of the click does it again, which costs nothing.
+def change_user(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub, deactivating: Bool) -> Result[Bond.Conn]
   id = user_id(conn)
   answer = try Database.with_connection(pool) do |db| change_answer(conn, db, id, deactivating, Routes.USERS) end
+  case answer
+    Answer.Redirect(_) if deactivating and id.some? -> Hangup.user(hub, id.unwrap!, false)
+    _ -> return ok(respond(conn, answer))
+  end
+
   return ok(respond(conn, answer))
 end
 

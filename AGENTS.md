@@ -16,7 +16,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
-                closed and direct rooms, memberships and messages over SQL), searches.agc (the words of a query, the
+                closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
+                in memory), searches.agc (the words of a query, the
                 FTS5 search of messages, the recent searches), avatars.agc (the Active Storage variant of an avatar
                 and its file; initials and colour), html_sanitizer.agc (an allowlist sanitizer for stored HTML
                 bodies; pure)
@@ -33,12 +34,15 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
-                searches.agc and avatars.agc (the sidebar page, the search and the avatar link)
+                searches.agc and avatars.agc (the sidebar page, the search and the
+                avatar link), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
+                broadcasts of the routes, on bond-channels)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
-                cookies), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
+                cookies), cable_steps.agc (WebSocket clients of `/cable` through fixtures/cable_peer.py, a raw-socket
+                peer that needs python3), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
                 the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
                 down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh),
@@ -49,7 +53,7 @@ tools/          keys_check.js: the by-hand browser check of the composer keys (p
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` comes with `db`, which pins it by commit), agentica.lock has their hashes
+agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-channels by commit (`pool` comes with `db`, which pins it by commit), agentica.lock has their hashes
 ```
 
 ## Commands
@@ -58,7 +62,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   `make run`.
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
-- Agentica 0.24.3 or later (`std/cache`; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
+- Agentica 0.24.4 or later (`std/cache`, bond-channels; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in `.github/workflows/ci.yml`).
 - To move Bond or agentica-db: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`), commit the lock.
   A new dependency is `agentica add NAME URL --tag TAG`.
@@ -208,6 +212,15 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag (`pool` com
   drawn when the page is made, so nothing may drop a message because its id was seen. The `I run the sql` steps write
   on another connection, so a spec that changes the database between two gets checks the invalidation:
   `specs/page_cache.feature`.
+- Live (`/cable`, `docs/cable.md`): the room page and `GET /users/me/sidebar` name their streams with
+  `<turbo-cable-stream-source channel="X" signed-stream-name="Y">`, that exact markup (the benchmark scrapes it).
+  `/cable` is in `PUBLIC_PATHS` (a 302 on the handshake makes the Rails client retry in a loop) and `CableWeb.connect`
+  looks the session up itself. A handler of a channel runs on the loop of its connection, so it does a database call
+  and nothing that waits. Authorization is done when a subscription is made (`RoomMessagesChannel` checks the
+  membership of the room in the verified stream name, and `Turbo::StreamsChannel` refuses those names). A route
+  broadcasts after its database connection is back in the pool (`announced` in `web/rooms.agc`), and the fan-out of a
+  notice to each member runs in a task of its own. Who is connected lives in memory (`Presence`), never in
+  `memberships.connected_at`. `CAMPFIRE_MAX_CONNECTIONS` must stay above the clients and the posters.
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an

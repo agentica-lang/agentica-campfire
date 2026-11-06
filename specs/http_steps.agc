@@ -124,6 +124,22 @@ export def steps() -> List[BDD.Step]
   ]
 end
 
+## The port that the app listens on.
+export def port_of(ctx: BDD.Context) -> Int
+  return JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
+end
+
+## The `Cookie` header of the browser as it is now, "" when it has no cookies: what a WebSocket of the same person sends.
+export def cookie_header(ctx: BDD.Context) -> String
+  state = browser(ctx)
+  return state.cookies.keys.map do |name| "#{name}=#{state.cookies.get(name, "")}" end.join("; ")
+end
+
+## The body of the answer that `I remember the answer` kept.
+export def remembered_body(ctx: BDD.Context) -> String
+  return JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!.body
+end
+
 ## The last answer of the app, for the steps that read its body.
 export def last_body(ctx: BDD.Context) -> String
   return last_reply(ctx).body
@@ -402,10 +418,6 @@ def perform(port: Int, state: Browser, method: String, path: String, body: Strin
   response = HTTP.request(client, method, "http://127.0.0.1:#{port}#{path}", body.bytes, headers)
   HTTP.close_client(client)
   return response
-end
-
-def port_of(ctx: BDD.Context) -> Int
-  return JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
 end
 
 # A `Set-Cookie` with an empty value, or `Max-Age=0`, deletes the cookie, as a browser does.
