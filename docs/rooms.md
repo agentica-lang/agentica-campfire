@@ -7,7 +7,7 @@ There are no live updates yet: a page shows what the database holds when it is a
 the room id for 20 years (`HttpOnly`, `SameSite=Lax`; it is not set again while it holds that room, and not by a `404`, the
 settings or the older messages). With no cookie, or one for a room the person is not in, which no longer exists or is not
 a number, home opens the oldest room they are in (by `created_at`, then id; any kind and any involvement). A person in no
-room gets the welcome page. The cookie only chooses among the person's own rooms, so a forged one reveals nothing.
+room gets the welcome page. The cookie is `Secure` when `CAMPFIRE_SECURE_COOKIES=true`, as the session cookie is. It only chooses among the person's own rooms, so a forged one reveals nothing. A client that never sends it (the load generator of the benchmark) gets one `Set-Cookie` on every room page, as with Rails.
 
 The sidebar lists the rooms that a person is in. The first run makes the open room "All Talk".
 

@@ -38,6 +38,17 @@ Feature: Home goes to the last room visited
     When I get "/"
     Then the header "location" is "/rooms/2"
 
+  Scenario: A page that is served from the cache, or answered 304, sets the cookie too
+    When I get "/rooms/1"
+    Then the status is 200
+    And the header "set-cookie" contains "last_room=1"
+    And the header "set-cookie" does not contain "Secure"
+    Given the request header "if-none-match" is the header "etag" of the answer
+    And the browser has the cookie "last_room" with the value ""
+    When I get "/rooms/1"
+    Then the status is 304
+    And the header "set-cookie" contains "last_room=1"
+
   Scenario: A room that is not found sets no cookie, and the older messages are not a visit
     Given a closed room "Secret" with the members "ana@example.com"
     And I sign in as "bea@example.com"
