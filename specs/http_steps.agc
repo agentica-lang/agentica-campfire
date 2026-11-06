@@ -326,7 +326,7 @@ def patch_message_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "PATCH", args[0], URI.encode_www_form([URI.Pair(name: "message[body]", value: text)]))
 end
 
-# PUT with the fields of the table, as the page of the notification settings is saved by a client that sends it.
+# PUT with the fields of the table, as the page of the sidebar setting is saved by a client that sends it.
 def put_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
   pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
   return send(ctx, "PUT", args[0], URI.encode_www_form(pairs))
