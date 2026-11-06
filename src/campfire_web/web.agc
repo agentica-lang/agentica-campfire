@@ -47,7 +47,7 @@ export def build(
     Bond.app()
     |> AuthWeb.add(config, pool, mailer, cable.hub)
     |> CableWeb.add(cable, config)
-    |> RoomsWeb.add(pool, cable, messages, pages)
+    |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
     |> AccountsWeb.add(config, pool, cable.hub)
     |> SidebarsWeb.add(pool, cable)
     |> SearchesWeb.add(pool)

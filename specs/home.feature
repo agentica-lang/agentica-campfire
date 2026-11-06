@@ -2,14 +2,16 @@ Feature: Home page and health check
   The app listens on the host and port of its config (the specs use 127.0.0.1 and port 0, a free port). `GET /` is the
   home page for a signed-in person, an HTML page made by an EAG template that escapes what it inserts (auth.feature has
   the visitor who is not signed in). `GET /health` says that the process serves, for a load balancer or a container
-  check, and needs no sign-in (database.feature checks the schema version it reports).
+  check, and needs no sign-in (database.feature checks the schema version it reports). A person who is in a room is sent
+  to one (last_room.feature), so the page is the welcome page of a person who is in none.
 
   Background:
     Given a fresh database
     And the app starts
 
-  Scenario: The home page is HTML with the name of the app and a way to sign out
+  Scenario: The home page of a person in no room is HTML with the name of the app and a way to sign out
     Given the first admin exists
+    And I run the sql "delete from memberships"
     When I get "/"
     Then the status is 200
     And the header "content-type" is "text/html; charset=utf-8"

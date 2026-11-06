@@ -14,11 +14,11 @@ Feature: What a session row records, and what keeps the table small
 
   Scenario: A request marks the session active only when the last mark is five minutes old
     When I run the sql "update sessions set last_active_at = strftime('%Y-%m-%d %H:%M:%f000', 'now', '-1 minutes')"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the status is 200
     And the query "select count(*) from sessions where last_active_at < strftime('%Y-%m-%d %H:%M:%f000', 'now', '-30 seconds')" gives 1
     When I run the sql "update sessions set last_active_at = strftime('%Y-%m-%d %H:%M:%f000', 'now', '-10 minutes')"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the status is 200
     And the query "select count(*) from sessions where last_active_at > strftime('%Y-%m-%d %H:%M:%f000', 'now', '-30 seconds')" gives 1
 

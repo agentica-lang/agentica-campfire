@@ -13,7 +13,7 @@ Feature: Direct messages
     And a user "Di" with the email "di@example.com", the role "member" and the status "deactivated" exists
 
   Scenario: The form of a direct message lists the active people but the person, and the sidebar has the way to it
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body contains "<a href=\"/direct_rooms/new\">New direct message</a>"
     When I get "/direct_rooms/new"
     Then the status is 200
@@ -31,19 +31,19 @@ Feature: Direct messages
     And the query "select count(*) from rooms where (id, type, creator_id) = (2, 'Rooms::Direct', 1) and name is null" gives 1
     And the query "select count(*) from memberships where room_id = 2 and user_id in (1, 2)" gives 2
     And the query "select count(*) from memberships where room_id = 2" gives 2
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/2\">Bea</a>"
     When I post to "/rooms/2/messages" the form:
       | message[body] | Hello Bea |
     And I sign in as "bea@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/2\">Ana</a>"
     When I get "/rooms/2"
     Then the status is 200
     And the body contains "<h1>Ana</h1>"
     And the body contains "Hello Bea"
     When I sign in as "cy@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body does not contain "Bea"
     When I get "/rooms/2"
     Then the status is 404
@@ -60,10 +60,10 @@ Feature: Direct messages
     Then the status is 302
     And the header "location" is "/rooms/2"
     And the query "select count(*) from memberships where room_id = 2" gives 3
-    When I get "/"
+    When I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/2\">Bea, Cy</a>"
     When I sign in as "cy@example.com"
-    And I get "/"
+    And I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/2\">Ana, Bea</a>"
 
   Scenario: The same people open the direct message that exists, whoever starts it and in whatever order

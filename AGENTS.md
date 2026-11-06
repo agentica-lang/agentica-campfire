@@ -186,6 +186,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   `Rooms.delete_message` check the right again inside their transaction, and an edit rewrites the three rows of a message
   as `post` wrote them. The Edit link is the one thing in `Views.message` that depends on the viewer (`controls`), so
   `MessageCache.list` takes the person and the key holds the flag; the markup without it is the benchmark's, unchanged.
+- Last room: `GET /` opens `Rooms.last_visited`: the room of the `last_room` cookie when the person has a membership in
+  it, else the oldest of their rooms, else the welcome page. `RoomsWeb.respond_visit` sets the cookie on a served room page
+  only (never from a handler that answers a 404), after the page cache, so a cached page sets it too. Specs that need the
+  sidebar get `/users/me/sidebar`, not `/`.
 - Message cache: the markup of each message of a room page and of the older messages (`Views.message`) is cached by
   `MessageCache` in one process-wide `std/cache` store (`CAMPFIRE_CACHE_MB`, 64 by default, 0 for none), under a key of
   the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial

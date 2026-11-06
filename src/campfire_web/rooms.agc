@@ -14,6 +14,7 @@
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Cache from "std/cache"
+import Cookie from "std/cookie"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import CableWeb from "cable"
@@ -32,6 +33,11 @@ MESSAGE_CLIENT_ID = "message[client_message_id]"
 
 # What a post that asks for a Turbo Stream sends in `Accept`, and what the answer is typed.
 TURBO_STREAM_TYPE = "text/vnd.turbo-stream.html"
+
+# The cookie that remembers the room that the person was in last (`cookies.permanent[:last_room]` of Rails), and how
+# long it lives: 20 years, as Rails' `permanent` is.
+LAST_ROOM_COOKIE = "last_room"
+LAST_ROOM_SECONDS = 20 * 365 * 24 * 60 * 60
 
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
@@ -63,19 +69,21 @@ end
 ## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
 ## where a new message and a room that is made or renamed are broadcast, and whose stream of a room the room page
 ## names. `cache` keeps the markup of the messages that a room page and the older messages write (`MessageCache`),
-## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache.
+## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache. `secure` makes the
+## cookie of the last room `Secure`, as `CAMPFIRE_SECURE_COOKIES` does the session cookie.
 export def add(
   app: Bond.App,
   pool: Database.Pool,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
+  secure: Bool,
 ) -> Bond.App
   return (
     app
     |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
     |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool, cable) end
-    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cable, cache, pages) end
+    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cable, cache, pages, secure) end
     |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache, pages) end
     |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cable, cache) end
     |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
@@ -93,9 +101,11 @@ export def add(
   )
 end
 
-## The home page of the person: their sidebar and nothing else yet.
+## The home page of the person: it sends them to the room they were in last, or the oldest one they are in (`Rooms.
+## last_visited`), and for a person in no room it is the welcome page, their sidebar and nothing else.
 export def home(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
-  answer = try Database.with_connection(pool) do |db| home_answer(conn, db) end
+  wanted = last_room_cookie(conn)
+  answer = try Database.with_connection(pool) do |db| home_answer(conn, db, wanted) end
   return ok(respond(conn, answer))
 end
 
@@ -105,12 +115,65 @@ export def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String]
   return ok(Views.sidebar(person.name, rooms))
 end
 
-def home_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
+def home_answer(conn: Bond.Conn, db: Db.Connection, wanted: Optional[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return ok(Answer.Page(200, Views.home(try sidebar_of(db, person))))
+    some(person) -> return home_of(db, person, wanted)
   end
+end
+
+def home_of(db: Db.Connection, person: Auth.User, wanted: Optional[Int]) -> Result[Answer]
+  room = try Rooms.last_visited(db, person.id, wanted)
+  case room
+    some(found) -> return ok(Answer.Redirect(Routes.room_path(found.id)))
+    none -> return ok(Answer.Page(200, Views.home(try sidebar_of(db, person))))
+  end
+end
+
+# The room in the cookie, `none` for no cookie and for one that is not a whole number (a client made it up).
+def last_room_cookie(conn: Bond.Conn) -> Optional[Int]
+  sent = Bond.cookie(conn, LAST_ROOM_COOKIE)
+  if not sent.ok?
+    return none
+  end
+
+  parsed = sent.unwrap!.to_i
+  if parsed.ok?
+    return some(parsed.unwrap!)
+  end
+
+  return none
+end
+
+# The answer, and for a room page that was served (a 200 or a 304) the cookie that makes it the person's last room, as
+# `remember_last_room_visited` does for `rooms#show` only. The cookie is written when it is not that room already, so a
+# person who stays in a room is not sent it again with every page. The room is the person's: a page is only served to a
+# member. The cookie is `Secure` when the session cookie is.
+def respond_visit(conn: Bond.Conn, id: Optional[Int], answer: Answer, secure: Bool) -> Bond.Conn
+  reply = respond(conn, answer)
+  served = false
+  case answer
+    Answer.Cached(_) -> served = true
+    Answer.Page(status, _) -> served = status == 200
+    _ -> served = false
+  end
+
+  if not served or id.none? or last_room_cookie(conn) == id
+    return reply
+  end
+
+  made = Cookie.Cookie(
+    name: LAST_ROOM_COOKIE,
+    value: "#{id.unwrap!}",
+    path: "/",
+    max_age: LAST_ROOM_SECONDS,
+    secure: secure,
+    http_only: true,
+    same_site: "Lax",
+  )
+
+  return Bond.set_cookie_with(reply, made).unwrap_or(reply)
 end
 
 def show_new_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
@@ -624,13 +687,14 @@ def show_room(
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
+  secure: Bool,
 ) -> Result[Bond.Conn]
   before = try cursor(conn)
   id = room_id(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(respond(conn, Answer.SignedOut))
-    some(person) -> return shown_room(conn, pool, cable, cache, pages, person, id, before)
+    some(person) -> return shown_room(conn, pool, cable, cache, pages, secure, person, id, before)
   end
 end
 
@@ -642,6 +706,7 @@ def shown_room(
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
+  secure: Bool,
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
@@ -649,8 +714,8 @@ def shown_room(
   spot = PageCache.spot(pages, PageCache.ROOM, person, id, before)
   kept = PageCache.lookup(spot)
   case kept
-    some(page) -> return ok(respond(conn, Answer.Cached(page)))
-    none -> return made_room_page(conn, pool, cable, cache, spot, person, id, before)
+    some(page) -> return ok(respond_visit(conn, id, Answer.Cached(page), secure))
+    none -> return made_room_page(conn, pool, cable, cache, spot, secure, person, id, before)
   end
 end
 
@@ -660,12 +725,13 @@ def made_room_page(
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   spot: Optional[PageCache.Spot],
+  secure: Bool,
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
 ) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| room_answer(db, cable, cache, person, id, before) end
-  return ok(respond(conn, kept(spot, answer)))
+  return ok(respond_visit(conn, id, kept(spot, answer), secure))
 end
 
 def room_answer(
