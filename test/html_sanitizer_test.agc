@@ -436,6 +436,23 @@ def main() -> Void
       try Test.eq(html, "&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;q&quot;<br>next<br>line")
       Test.eq(HtmlSanitizer.sanitize(html), html)
     end,
+    Test.test("the text of an edit form is what from_text wrote, so saving it again changes nothing") do
+      for text in [
+        "one", "a & b <i>x</i> \"q\" 'z'", "first\nsecond", "para\n\nnext\n\n\nlast", "&amp; stays literal", "",
+      ]
+        html = HtmlSanitizer.from_text(text)
+        try Test.eq(HtmlSanitizer.text_of_clean(html), text)
+        try Test.eq(HtmlSanitizer.from_text(HtmlSanitizer.text_of_clean(html)), html)
+      end
+
+      # A body that Rails wrote has markup: it gives its plain text, which keeps no blank line.
+      try Test.eq(
+        HtmlSanitizer.text_of_clean("<div>Hi <strong>there</strong></div><div>again</div>"),
+        "Hi there\nagain",
+      )
+
+      Test.eq(HtmlSanitizer.text_of_clean("a<br><br>b"), "a\n\nb")
+    end,
     Test.test("nesting is capped") do
       out = HtmlSanitizer.sanitize(List.repeat("<b>", 200).join("") + "x")
       try Test.eq(out.split("<b>").size, 65)

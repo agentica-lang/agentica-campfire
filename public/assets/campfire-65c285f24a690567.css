@@ -527,6 +527,12 @@ main.room > form textarea {
   font-variant-numeric: tabular-nums;
 }
 
+[data-message-id] h3 a {
+  margin-inline-start: auto;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+}
+
 [id^="presentation_message_"] {
   max-width: 70ch;
   overflow-wrap: anywhere;
