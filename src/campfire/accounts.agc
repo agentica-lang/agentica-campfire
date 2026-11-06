@@ -18,6 +18,9 @@ MAX_CODE_LENGTH = 64
 
 NOW = Rails.NOW
 
+# What a deactivation puts in the address, between the name and the `@` (`deactived_email_address` of Rails).
+MARKER = "-deactivated-"
+
 ## A person of the account as the people page lists them. A bot is not a person, so it is never in the list.
 export struct Person
   id: Int
@@ -30,11 +33,14 @@ end
 ## What a deactivation or reactivation did. `Unchanged` is a person who was in that state already (a double click).
 ## `Missing` is nobody that a person can be made of (no such user, or a bot). `Refused` is a person who asks without
 ## being an active administrator, or who deactivates themselves, which would leave an account without its way in.
+## `Taken` is a reactivation of a person whose address is another account's now: the address that a deactivation
+## frees (see `deactivate`) can be used to join again, and one address is one account.
 export enum Change
   Changed
   Unchanged
   Missing
   Refused
+  Taken
 end
 
 ## Three groups of four hex digits, `a1b2-c3d4-e5f6`, to type or read out.
@@ -94,14 +100,18 @@ export def people(conn: Db.Connection, everyone: Bool) -> Result[List[Person]]
   )
 end
 
-## Deactivates `user_id` for `actor_id`: they cannot sign in, and every session of theirs and every password reset
-## link ends in the same transaction. Their rooms and messages stay as they are.
+## Deactivates `user_id` for `actor_id` as Rails' `User#deactivate` does, in one transaction: they cannot sign in; every
+## session, password reset link, push subscription and search of theirs is deleted; they leave every room but the
+## direct messages (the memberships of the open and closed rooms are deleted); and their address becomes
+## `name-deactivated-UUID@domain`, which frees it for a new account. Their messages, and the rooms they made, stay.
 export def deactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
   return Db.transaction(conn) do |tx| deactivate_in(tx, actor_id, user_id) end
 end
 
-## Reactivates `user_id` for `actor_id` and puts them in the open rooms that were made while they were away
-## (`Rooms.grant_open_rooms`), in the same transaction.
+## Reactivates `user_id` for `actor_id`, in one transaction: they get their address back and every open room that exists
+## (`Rooms.grant_open_rooms`, as a new person does). The closed rooms they left are not given back, as Rails has no way
+## back at all. `Taken` when the address is another account's now, with nothing changed. A person who was deactivated
+## before the address was renamed keeps the address they have.
 export def reactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
   return Db.transaction(conn) do |tx| reactivate_in(tx, actor_id, user_id) end
 end
@@ -127,19 +137,28 @@ def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     return ok(Change.Refused)
   end
 
+  # The text before the `@` and the text from it are kept and the marker goes between them, as Rails' `gsub(/@/, ...)`
+  # does; an address with no `@` (a bot has none, and is not here) is left as it is.
   changed = try Db.execute(
     tx,
-    "update users set status = #{Rails.DEACTIVATED}, updated_at = #{NOW} where id = ? and " +
-    "status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
-    [Db.Value.Int(user_id)],
+    "update users set status = #{Rails.DEACTIVATED}, updated_at = #{NOW}, " +
+    "email_address = case when instr(email_address, '@') > 0 then " +
+    "substr(email_address, 1, instr(email_address, '@') - 1) || '#{MARKER}' || ? || " +
+    "substr(email_address, instr(email_address, '@')) else email_address end " +
+    "where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
+    [Db.Value.Text(new_uuid()), Db.Value.Int(user_id)],
   )
 
   if changed == 0
     return unchanged_or_missing(tx, user_id)
   end
 
-  try Db.execute(tx, "delete from sessions where user_id = ?", [Db.Value.Int(user_id)])
-  try Db.execute(tx, "delete from password_resets where user_id = ?", [Db.Value.Int(user_id)])
+  id = Db.Value.Int(user_id)
+  try Db.execute(tx, "delete from sessions where user_id = ?", [id])
+  try Db.execute(tx, "delete from password_resets where user_id = ?", [id])
+  try Db.execute(tx, "delete from push_subscriptions where user_id = ?", [id])
+  try Db.execute(tx, "delete from searches where user_id = ?", [id])
+  try Rooms.leave_shared_rooms(tx, user_id)
   return ok(Change.Changed)
 end
 
@@ -149,19 +168,47 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     return ok(Change.Refused)
   end
 
-  changed = try Db.execute(
+  # The address before the deactivation: what is before the marker, then the `@` and the rest. An address with
+  # no marker
+  # is its own (deactivated before the address was renamed).
+  rows = try Db.query(
     tx,
-    "update users set status = #{Rails.ACTIVE}, updated_at = #{NOW} where id = ? and " +
-    "status = #{Rails.DEACTIVATED} and role <> #{Rails.BOT}",
+    "select case when instr(email_address, '#{MARKER}') > 0 and instr(email_address, '@') > 0 then " +
+    "substr(email_address, 1, instr(email_address, '#{MARKER}') - 1) || substr(email_address, instr(email_address, '@')) " +
+    "else email_address end as original from users " +
+    "where id = ? and status = #{Rails.DEACTIVATED} and role <> #{Rails.BOT}",
     [Db.Value.Int(user_id)],
   )
 
-  if changed == 0
+  if rows.empty?
     return unchanged_or_missing(tx, user_id)
   end
 
+  original = text_of(rows[0], "original")
+  taken = try Db.query(
+    tx,
+    "select count(*) as total from users where id <> ? and lower(email_address) = lower(?)",
+    [Db.Value.Int(user_id), Db.Value.Text(original)],
+  )
+
+  if int_of(taken[0], "total") > 0
+    return ok(Change.Taken)
+  end
+
+  try Db.execute(
+    tx,
+    "update users set status = #{Rails.ACTIVE}, email_address = ?, updated_at = #{NOW} where id = ?",
+    [Db.Value.Text(original), Db.Value.Int(user_id)],
+  )
+
   try Rooms.grant_open_rooms(tx, user_id)
   return ok(Change.Changed)
+end
+
+# A random UUID as Rails writes one (`SecureRandom.uuid`): 8-4-4-4-12 hex digits.
+def new_uuid() -> String
+  hex = SecureRandom.hex(16)
+  return "#{hex.slice(0, 8)}-#{hex.slice(8, 4)}-#{hex.slice(12, 4)}-#{hex.slice(16, 4)}-#{hex.slice(20, 12)}"
 end
 
 # An update that changed nothing is a person who was in the state already, or nobody.
