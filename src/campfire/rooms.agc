@@ -221,6 +221,17 @@ export def visible(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
   return ok(rows.map do |row| room_of(row) end)
 end
 
+## Every room the person is in, hidden or not, by name: the list on their profile (`memberships.with_ordered_room`).
+export def memberships(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
+  rows = try Db.query(
+    conn,
+    "select * from (#{ROOM_COLUMNS}) order by lower(coalesce(name, others, '')), id",
+    [Db.Value.Int(user_id), Db.Value.Int(user_id)],
+  )
+
+  return ok(rows.map do |row| room_of(row) end)
+end
+
 ## The room, when the person is in it (any involvement), and `none` for a room that does not exist and for one that
 ## the person is not in.
 export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
@@ -346,6 +357,17 @@ export def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
   return ok(rows.map do |row| int_of(row, "user_id") end)
 end
 
+## The ids of the rooms that are unread for the person (`unread_at` is set): what the sidebar marks.
+export def unread_ids(conn: Db.Connection, user_id: Int) -> Result[List[Int]]
+  rows = try Db.query(
+    conn,
+    "select room_id from memberships where user_id = ? and unread_at is not null",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok(rows.map do |row| int_of(row, "room_id") end)
+end
+
 ## Everyone in the room, with whether it is unread for them: who a live notice about the room may concern.
 export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
   rows = try Db.query(
@@ -449,6 +471,18 @@ end
 ## after `destroy_later` goes with the room, as `dependent: :destroy` does in Rails.
 export def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
   return Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
+end
+
+## Takes the person out of every room but the direct messages, which is what a deactivation does
+## (`memberships.without_direct_rooms.delete_all` of Rails). It runs in the caller's transaction.
+export def leave_shared_rooms(tx: Db.Connection, user_id: Int) -> Result[Void]
+  try Db.execute(
+    tx,
+    "delete from memberships where user_id = ? and room_id in (select id from rooms where type <> '#{DIRECT}')",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok()
 end
 
 ## The message of the room, as it is stored, or `none` when the room has no such message (one of another room is none

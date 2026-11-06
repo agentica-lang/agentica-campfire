@@ -74,9 +74,10 @@ export def add(
   pool: Database.Pool,
   mailer: Mailer.Mailer,
   hub: Channels.Hub,
+  slots: ATS[String, Int],
 ) -> Bond.App
-  # `slots` bounds the hashing for everyone together; `attempts` bounds the sign-in posts of one address.
-  slots = Slots.new()
+  # `slots` bounds the hashing for everyone together (the profile shares it); `attempts` bounds the sign-in posts of
+  # one address.
   attempts = RateLimit.new()
   return (
     app

@@ -1,0 +1,89 @@
+// Forms: labels, fields, groups of checkboxes.
+
+@use "../settings/mixins";
+
+label {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+textarea {
+  display: block;
+  width: 100%;
+  margin-top: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  font: inherit;
+  font-size: var(--fs-md);
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg-field);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  border-color: var(--focus);
+  outline-offset: 0;
+}
+
+textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+form p:has(> button) {
+  margin-top: var(--s-5);
+}
+
+fieldset {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+
+  p {
+    margin: 0;
+  }
+}
+
+legend {
+  padding: 0 var(--s-1);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+// A checkbox and its text: two columns, the box at its size.
+label:has(> input[type="checkbox"]) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 2.25rem;
+  font-weight: 400;
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+}
+
+input[type="checkbox"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+@include mixins.phone {
+  label:has(> input[type="checkbox"]) {
+    min-height: 2.75rem;
+  }
+}

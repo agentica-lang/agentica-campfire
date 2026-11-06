@@ -2,8 +2,9 @@
 
 The app serves the Action Cable WebSocket (`actioncable-v1-json`) at `/cable`, built on the
 [`bond-channels`](https://github.com/agentica-lang/packages) package. The Rails clients
-(`@rails/actioncable`, `turbo-rails`) and the load generator of the benchmark connect to it unchanged. The page
-does not listen yet; the HTTP endpoints work as they did, and a `POST` that stores a message also broadcasts it.
+(`@rails/actioncable`, `turbo-rails`) and the load generator of the benchmark connect to it unchanged. The pages
+listen through their script (see "The pages" below); the HTTP endpoints work as they did, and a `POST` that stores a
+message also broadcasts it.
 
 ## Connecting
 
@@ -28,6 +29,45 @@ under a key derived from `SECRET_KEY_BASE`, or from `CAMPFIRE_SESSION_SECRET` wh
 | `UnreadRoomsChannel` | `user:ID:unreads` | `{"at":TIME,"roomId":ID}` for each new message of a room that the person has unread or is connected to. |
 | `PresenceChannel` | none (params `room_id`) | none. A member's subscription says a tab is looking at the room and marks it read; `refresh` (every 50 s) keeps the person connected for 60 s and checks the session; the end of the subscription removes the tab. A repeat of `present` or `absent` on one connection counts once. A person who is not in the room is rejected. |
 | `HeartbeatChannel` | none | none: it confirms, and any action (`check`) looks the session up again. |
+
+## The pages
+
+The script of the pages (`public/assets/campfire-DIGEST.js`, `Routes.SCRIPT`, built from `app/javascript/`) has two parts, `composer.js` and `live.js`. The second opens one
+WebSocket in every page that has the sidebar and applies what it hears; no page needs it to work. It is written by
+hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`, `remove`, `before` and `after`.
+
+- **The signed names** of the sidebar streams come from `GET /users/me/sidebar`, which the script fetches, not from the
+  page: the room page is kept whole per person and its markup is the benchmark's. The room page names only its own
+  stream.
+- **New messages** are appended to the room page when it shows the latest messages (not `?before=`); a message that is
+  there already (the sender's tab has the answer of its post) is not added twice, and the answer of the post wins over
+  the broadcast, which has no Edit link.
+- **After a reconnect**, once the room's subscription is confirmed (what comes later arrives live), the script notes
+  the messages of the page, fetches the room page and makes the fetched list the page's: a noted message that the fetch
+  lacks is removed (deleted while the socket was away, the newest one and a room that was emptied included; an empty room shows "No messages here yet." again, as it hides it when a message comes), an edited
+  one is replaced, and the ones that came are added in order. A noted message older than the fetched ones (the page shows
+  the newest 40) stays. A message that a stream brought or touched after the notes is left as the stream made it, because
+  the fetch may be older than the stream, and so is the composer. It then fetches `GET /users/me/sidebar` again and takes
+  the rooms and the unread marks from it (an unread notice that arrives during that request is lost with the old lists
+  until the next notice or load); if the first fetch of the sidebar had given up, this one also subscribes to its streams.
+- **The sidebar** (its signed names cost one extra `GET /users/me/sidebar` per page load, a read of the rooms and
+  unreads of the person, and another after each reconnect; a failed fetch is tried again up to 8 times with the pause of
+  the socket, which doubles up to 30 s) gets the rooms that are made, renamed and deleted, a new one in the order of the
+  server (by name, then id). A room that is read shows no mark; an unread one
+  is `<li class="unread">` with a hidden "(unread)", set by the server for the rooms with `unread_at` and by the notice
+  of `UnreadRoomsChannel` live. The room that a visible tab shows is not marked. The first direct message makes its
+  list.
+- **Presence**: a room page subscribes to `PresenceChannel` (the room is read), sends `refresh` every 50 s while it is
+  visible, `absent` when the tab is hidden and `present` (which reads the room again) when it is shown.
+- **A deleted room** replaces the room page of the people looking at it with a notice and the way home, and its entry
+  leaves the sidebars of the people who were in it.
+- **Every page** sends `HeartbeatChannel` `check` every 50 s, so a socket does not outlive its session.
+- A socket that hears no ping for 12 s is closed and opened again; the pause before each try doubles up to 30 s.
+- **An edited or deleted message** is replaced or removed on the pages that look at the room. Known limit: the copy
+  that replaces it is the one for everyone, without Edit or Delete, so the author's other tabs lose them until the
+  page is loaded again.
+- Not live yet: the members of a closed room (a person added or taken out) and a room that turns from open to closed
+  show in the sidebars at the next load.
 
 ## When a right is taken away
 

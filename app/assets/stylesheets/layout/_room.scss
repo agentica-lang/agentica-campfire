@@ -1,0 +1,117 @@
+// A room is a grid of rows: the header, the list that scrolls (the one row that takes what is left), then the notice of
+// a refused post, the line that the script fills and the composer, each as high as it is. The list inside is the one
+// flex box: column-reverse starts the scroll at the newest message with no script, and grid has no such start.
+
+@use "../settings/mixins";
+
+main.room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-auto-rows: auto;
+  padding: 0;
+}
+
+main.room > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+  border-bottom: 1px solid var(--line);
+
+  h1 {
+    margin: 0;
+    font-size: var(--fs-lg);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+}
+
+.scroller {
+  min-height: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.thread {
+  flex: none;
+  padding: var(--s-3) var(--s-5);
+}
+
+.thread .more,
+.empty {
+  margin-block: var(--s-4);
+  text-align: center;
+  color: var(--muted);
+}
+
+main.room > [role="alert"],
+main.room > p[aria-live]:not(:empty) {
+  margin: var(--s-3) var(--s-5) 0;
+}
+
+// The line that the script fills ("Not sent"): it is in the page empty, so that a screen reader announces the text.
+main.room > p[aria-live]:empty {
+  margin: 0;
+}
+
+// The composer: the text box takes the row, Send keeps its width, and both sit on the bottom line.
+main.room > form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-5);
+  padding-bottom: max(var(--s-3), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+
+  p,
+  p:has(> button) {
+    margin: 0;
+  }
+
+  p:has(textarea) {
+    min-width: 0;
+  }
+
+  textarea {
+    min-height: 2.5rem;
+    max-height: 40vh;
+    margin: 0;
+    resize: none;
+    field-sizing: content;
+  }
+}
+
+@include mixins.phone {
+  main.room > header,
+  .thread,
+  main.room > form {
+    padding-inline: var(--s-4);
+  }
+
+  main.room > [role="alert"],
+  main.room > p[aria-live]:not(:empty) {
+    margin-inline: var(--s-4);
+  }
+
+  // A thinner room header and composer on the shortest windows.
+  @include mixins.shorter {
+    main.room > header {
+      padding-block: var(--s-1);
+    }
+
+    main.room > form {
+      padding-block: var(--s-2);
+    }
+  }
+}

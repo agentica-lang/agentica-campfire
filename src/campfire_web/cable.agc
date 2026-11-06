@@ -76,6 +76,13 @@ struct RoomEvent
   renamed: Bool
 end
 
+# What the news of a deleted room needs: who was in it (the memberships are gone by now).
+struct Gone
+  cable: Cable
+  room: Rooms.Room
+  members: List[Int]
+end
+
 # A stream and the sidebar entry of the room that goes to it.
 struct Delivery
   stream: String
@@ -144,10 +151,26 @@ export def message_created(cable: Cable, room: Rooms.Room, message: Rooms.Messag
   _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
 end
 
+## A message was edited or deleted: the people who are looking at the room see it replaced or gone.
+export def message_edited(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_replaced_stream(message))
+end
+
+export def message_removed(cable: Cable, room: Rooms.Room, message_id: Int) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_removed(message_id))
+end
+
 ## A room was made (`renamed` false) or renamed: its entry goes to the sidebars that list it, in a task of its own.
 ## `actor_id` is the person who did it, who always sees the room.
 export def room_changed(cable: Cable, room_id: Int, actor_id: Int, renamed: Bool) -> Void
   _ = Task.spawn(&room_news, RoomEvent(cable: cable, room_id: room_id, actor_id: actor_id, renamed: renamed))
+end
+
+## A room was deleted: the people looking at it are shown that it is gone, and it leaves the sidebars that listed it
+## (an open room's entry goes to `rooms`, a closed or direct one to the people who were in it, as when it was made).
+## It runs in a task of its own, for the same reason as `room_changed`. `members` are the people who were in it.
+export def room_deleted(cable: Cable, room: Rooms.Room, members: List[Int]) -> Void
+  _ = Task.spawn(&room_news_gone, Gone(cable: cable, room: room, members: members))
 end
 
 ## Ends the sockets of the people who were taken out of a closed room, so that they reconnect and subscribe again only
@@ -384,7 +407,9 @@ def presence_action(cable: Cable, session: Channels.Session, params: Json, actio
     "refresh" ->
       try check_session(cable, session)
       Presence.refresh(cable.presence, room_id, person.id, session.connection, now)
-    "present" -> Presence.present(cable.presence, room_id, person.id, session.connection, now)
+    "present" ->
+      Presence.present(cable.presence, room_id, person.id, session.connection, now)
+      _ = Database.with_connection(cable.pool) do |db| Rooms.mark_read(db, room_id, person.id) end
     "absent" -> Presence.absent(cable.presence, room_id, person.id, session.connection, now)
     _ -> return ok([])
   end
@@ -420,6 +445,21 @@ def unread_notices(job: Unread) -> Result[Void]
   end
 
   return Database.with_connection(cable.pool) do |db| Rooms.mark_read_all(db, job.room_id, watching) end
+end
+
+def room_news_gone(job: Gone) -> Result[Void]
+  hub = job.cable.hub
+  _ = Channels.broadcast_text(hub, messages_stream(job.room.id), Views.room_gone_stream(job.room))
+  removal = Views.room_removed_stream(job.room)
+  if job.room.room_type == Rooms.CLOSED or job.room.room_type == Rooms.DIRECT
+    for user_id in job.members
+      _ = Channels.broadcast_text(hub, user_rooms_stream(user_id), removal)
+    end
+  else
+    _ = Channels.broadcast_text(hub, ROOMS_STREAM, removal)
+  end
+
+  return ok()
 end
 
 def room_news(job: RoomEvent) -> Result[Void]

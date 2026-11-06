@@ -2,6 +2,7 @@
 ## the same ones.
 
 import URI from "std/uri"
+import AssetNames from "asset_names"
 
 export HOME = "/"
 export FIRST_RUN = "/first_run"
@@ -26,14 +27,15 @@ export UP = "/up"
 export MISSING = "Not Found"
 
 ## The stylesheet that every page links, a fingerprinted file of `public/assets/` (the name has the first 16 hex digits
-## of the SHA-256 of the file: `specs/assets.feature` checks it, so a change to the file renames it and this). The
-## benchmark reads the link out of the room page (`/assets/....css`), and the folder is served under `ASSETS`.
+## of the SHA-256 of the file: `specs/assets.feature` checks it). `make assets` builds it from `app/assets/stylesheets/`
+## and writes the name to `asset_names.agc`, so nobody renames it by hand. The benchmark reads the link out of the room
+## page (`/assets/....css`), and the folder is served under `ASSETS`.
 export ASSETS = "/assets"
-export STYLESHEET = "/assets/campfire-65c285f24a690567.css"
+export STYLESHEET = AssetNames.STYLESHEET
 
-## The script of the room page (the composer sends with `fetch`) and of the page that edits a message (the keys),
-## fingerprinted like the stylesheet. Only those two link it; they work without it.
-export COMPOSER_SCRIPT = "/assets/campfire-17fc68f2137508ec.js"
+## The script of the pages (the composer of the room page sends with `fetch`, and every page with the sidebar listens to
+## `/cable`), fingerprinted like the stylesheet. The room page and the pages with the sidebar link it; they work without.
+export SCRIPT = AssetNames.SCRIPT
 
 ## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
 ## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and
@@ -98,6 +100,15 @@ export AT_PREFIX = "@"
 export ROOM_INVOLVEMENT = "/rooms/:id/involvement"
 export ROOM_INVOLVEMENT_ALLOW = "GET, HEAD, POST, PUT"
 export METHOD_PUT = "put"
+
+## The page of a user (`:id` is their id; any signed-in person may read it) and the profile of the person who is signed
+## in: the page that shows their form, and the save of it, a `PATCH` or a `PUT` or a `POST` with `_method` set to one
+## of the `METHOD_` names (as Rails' forms send it). `:id` is `me` in the links, as in Rails, and is the id of the
+## person too; the profile of another user is a 404 here, so it is only read on their page. Any other method is a 405
+## that lists `PROFILE_ALLOW`, which is Bond's own list for the path.
+export USER = "/users/:id"
+export PROFILE = "/users/:id/profile"
+export PROFILE_ALLOW = "GET, HEAD, POST, PATCH, PUT"
 
 ## The join link of the account: its page and the post of its form, which is the same path, with the join code as
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
@@ -185,6 +196,16 @@ end
 ## The path of a person under the account, which is where the forms of their role and of their removal post.
 export def account_user_path(user_id: Int) -> String
   return "/account/users/#{user_id}"
+end
+
+## The path of the page of a user.
+export def user_path(user_id: Int) -> String
+  return "/users/#{user_id}"
+end
+
+## The path of the profile of the person who is signed in, which is also where its form posts.
+export def profile_path() -> String
+  return "/users/me/profile"
 end
 
 ## The path that deactivates this user.

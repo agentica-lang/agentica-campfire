@@ -4,7 +4,7 @@
    The keys are those of Rails Campfire: Enter sends and Shift+Enter is a new line (not on a touch screen, where Enter is
    a new line), Ctrl or Cmd+Enter sends; on the page that edits a message, Ctrl or Cmd+Enter saves and Esc goes back to
    the room, discarding the change. */
-(function () {
+export function startComposer() {
   "use strict";
 
   var STREAM = "text/vnd.turbo-stream.html";
@@ -158,6 +158,14 @@
     }
 
     parts.forEach(function (part) {
+      // The broadcast of the same message may have come first, without the controls that this answer has: this copy
+      // replaces it, and is at the end, where the newest message goes.
+      Array.prototype.forEach.call(part[1].querySelectorAll("[id]"), function (item) {
+        var old = document.getElementById(item.id);
+        if (old) {
+          old.remove();
+        }
+      });
       part[0].append(part[1]);
     });
     return true;
@@ -232,4 +240,4 @@
       }
     });
   }
-})();
+}

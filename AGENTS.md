@@ -14,7 +14,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
-                accounts.agc (the join code and the people: deactivate and reactivate, over SQL), auth.agc
+                accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
+                page and the profile save, over SQL), auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
                 in memory), searches.agc (the words of a query, the
@@ -31,14 +32,18 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 the 503 of a failure), routes.agc
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
-                password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
+                password reset), accounts.agc (the people page and those posts), profiles.agc (the user page and the profile),
+                rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
                 searches.agc and avatars.agc (the sidebar page, the search and the
                 avatar link), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
                 broadcasts of the routes, on bond-channels)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
-public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+app/            the sources of the assets: `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,
+                components, utilities) and `javascript/` (ES modules, `application.js` the entry)
+tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files and `src/campfire_web/asset_names.agc`
+public/assets/  the built, fingerprinted stylesheet and script (composer, keys, live updates), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through fixtures/cable_peer.py, a raw-socket
@@ -142,13 +147,16 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a
   form that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code
   refuses a form that was open and two forms with one email make one person. Joining never reactivates a deactivated
-  person (their email counts as taken). Everything of `Accounts` that changes something (`deactivate`, `reactivate`,
-  `regenerate_join_code`) checks inside its transaction that the actor is an active administrator, and an
-  administrator cannot deactivate themselves; deactivating deletes the person's sessions and reset links, and
-  reactivating calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads `status` itself
-  (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive. The pages with
-  the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that asks for an
-  email answers the same for every address": it answers 422 for an email that has an account (why: `docs/security.md`).
+  person (a deactivation renames their address with `-deactivated-UUID`, as Rails does, so the address is free).
+  Everything of `Accounts` that changes something (`deactivate`, `reactivate`, `regenerate_join_code`) checks inside
+  its transaction that the actor is an active administrator, and an administrator cannot deactivate themselves;
+  deactivating deletes the person's sessions, reset links, push subscriptions, searches and shared-room memberships
+  (`Rooms.leave_shared_rooms`) and renames the address, and reactivating restores the address (`Change.Taken` is a 409
+  when another account has it) and calls `Rooms.grant_open_rooms`. A session is opened with one insert that reads
+  `status` itself (`open_session`), so a sign-in that races a deactivation leaves no row for a reactivation to revive.
+  The pages with the join code are `no-store` and `no-referrer`. Sign-up is the deliberate exception to "a page that
+  asks for an email answers the same for every address": it answers 422 for an email that has an account (why:
+  `docs/security.md`).
 - Email: the app never sends from a request: it calls `Mailer.enqueue`, which does not wait and does not fail. A
   link in an email starts with `config.base_url`, never with the `Host` of the request. A page that asks for an email
   answers the same for every address (no enumeration). A reset token is stored as a hash only. The write
@@ -258,11 +266,15 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   a key that is not 4 to 64 of `[0-9a-z]` is never made a path), else initials. The app makes no image. The router wants
   one name for the segment under `/users/`, so the token is `:id`. The Active Storage rows and files of the specs are
   made by Rails (`specs/fixtures/rails/make_avatar.sh`).
-- Assets: the CSS and the JS of `public/assets/` are named `campfire-DIGEST.css` and `campfire-DIGEST.js`, DIGEST the
-  first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.COMPOSER_SCRIPT`
-  when it changes (`specs/assets.feature` checks). `/assets/` is public (`AuthWeb.public?`). There is no asset pipeline
-  yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page and the edit page link it, every form works
-  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script", which also has its keys;
+- Assets: never edit `public/assets/` or `src/campfire_web/asset_names.agc`. Change `app/assets/stylesheets/` or
+  `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
+  and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`
+  (DIGEST the first 16 hex digits of the SHA-256 of the file) and the names that `Routes.STYLESHEET` and `Routes.SCRIPT` read.
+  The built files are committed, so `agentica test`, the benchmark and the Docker image need no Node; CI runs
+  `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). The SCSS layout
+  rule (grid first, flex only for one-dimensional bits) is at the top of `application.scss`. `/assets/` is public
+  (`AuthWeb.public?`). The script is progressive enhancement: the room page, the edit page and every page with the sidebar link it, every form works
+  without it, and it stays about 10 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
   `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
   open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that

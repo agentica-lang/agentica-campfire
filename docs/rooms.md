@@ -1,7 +1,7 @@
 # Rooms and messages
 
 A page shows what the database holds when it is asked for. The server also pushes what changes over `/cable`
-([cable.md](cable.md)); the page does not listen yet.
+([cable.md](cable.md)); the script of the page listens and applies it.
 
 `GET /` sends a person who is in a room to the one they were in last, as Rails does (`WelcomeController`,
 `TrackedRoomVisit`): a room page that is served (a `200` or a `304`, from the cache or not) sets the cookie `last_room` to
@@ -204,10 +204,10 @@ is missing are all the same `404`. The route needs a sign-in. Nothing in the app
 
 The folder `public/assets/` (`CAMPFIRE_ASSETS_DIR`) is served under `/assets/` without a sign-in. A name
 with a fingerprint (`campfire-DIGEST.css`, DIGEST the first 16 hex digits of the SHA-256 of the file) is
-sent with `Cache-Control: public, max-age=31536000, immutable`. When the CSS changes, rename it to its new
-digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the name is right. The same goes for the
-script of the composer, `campfire-DIGEST.js` (`Routes.COMPOSER_SCRIPT`), which the room page and the page that edits a
-message link: with it a message is sent with `fetch` (the Turbo Stream answer above) and the page does not reload,
-and the keys work (Enter, Shift+Enter, Ctrl or Cmd+Enter, Esc); without it the form posts and redirects as before.
+sent with `Cache-Control: public, max-age=31536000, immutable`. `make assets` builds the files from `app/` (Dart Sass and
+esbuild) and writes the names to `src/campfire_web/asset_names.agc`, which `Routes.STYLESHEET` and `Routes.SCRIPT` read;
+`specs/assets.feature` checks that each name has the digest of its file. The script of the composer, `campfire-DIGEST.js`, which the room page, the page that edits a message and the
+pages with the sidebar link: with it a message is sent with `fetch` (the Turbo Stream answer above) and the page does not
+reload, and the keys work (Enter, Shift+Enter, Ctrl or Cmd+Enter, Esc); without it the form posts and redirects as before.
 
 Bond sends each file with an `ETag` and `Last-Modified` (a request with `If-None-Match` or `If-Modified-Since` gets `304`), keeps the small ones in memory, and answers a client that takes gzip with the `.gz` file next to a text file when there is one that is not older. The Docker image writes one next to each stylesheet and script (`gzip -9 -k -n`); a run from the source folder has none and sends the plain file.

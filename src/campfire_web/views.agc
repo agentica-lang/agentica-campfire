@@ -4,6 +4,8 @@
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
 import Accounts from "../campfire/accounts"
+import Profiles from "../campfire/profiles"
+import Rails from "../campfire/repo/rails"
 import Rooms from "../campfire/rooms"
 import Searches from "../campfire/searches"
 import Routes from "routes"
@@ -48,9 +50,10 @@ end
 
 ## The column at the side of every page of a person who is signed in: who they are, their rooms (the direct messages
 ## apart, named after the other people) and the ways to make a room and to sign out. `can_create` is false for a member
-## when the account lets only administrators make a shared room: the two links to those forms are then left out. It is
-## raw HTML that this file made, for the pages below to put in.
-export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool) -> String
+## when the account lets only administrators make a shared room: the two links to those forms are then left out.
+## `unread` is the ids of the rooms with news, which are marked. It is raw HTML that this file made, for the pages
+## below to put in.
+export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool, unread: List[Int]) -> String
   shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
   direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
   return <<~EAG
@@ -62,14 +65,14 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool)
         <h2>Rooms</h2>
         <ul id="<%= SHARED_ROOMS_ID %>">
     <% for room in shared %>
-          <%== room_item(room) %>
+          <%== room_entry(room, unread.include?(room.id)) %>
     <% end %>
         </ul>
     <% if not direct.empty? %>
         <h2>Direct messages</h2>
         <ul id="<%= DIRECT_ROOMS_ID %>">
     <% for room in direct %>
-          <%== room_item(room) %>
+          <%== room_entry(room, unread.include?(room.id)) %>
     <% end %>
         </ul>
     <% end %>
@@ -81,6 +84,7 @@ export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool)
           <li><a href="<%= Routes.DIRECT_ROOM_NEW %>">New direct message</a></li>
           <li><a href="<%= Routes.SEARCHES %>">Search</a></li>
           <li><a href="<%= Routes.USERS %>">People</a></li>
+          <li><a href="<%= Routes.profile_path() %>">Profile</a></li>
           <li><a href="<%= Routes.ACCOUNT_EDIT %>">Account</a></li>
         </ul>
       </div>
@@ -154,7 +158,7 @@ export def account(
       <p><a href="<%= Routes.USERS %>">People and the join link</a></p>
     </main>
   EAG
-  return layout("Account settings", body)
+  return live_layout("Account settings", body)
 end
 
 ## The sidebar alone as a document, for `GET /users/me/sidebar`. `sources` is the markup of the live streams that the
@@ -165,6 +169,19 @@ end
 
 ## The entry of a room in the sidebar. A live change finds it by its id.
 export def room_item(room: Rooms.Room) -> String
+  return room_entry(room, false)
+end
+
+## The entry of a room, marked when the person has it unread: a class for the style and a word for a screen reader.
+## A room that is read has the markup that it always had.
+export def room_entry(room: Rooms.Room, unread: Bool) -> String
+  if unread
+    return <<~EAG.strip
+      <%@ escape &Bond.escape %>
+      <li id="<%= room_item_id(room) %>" class="unread"><a href="<%= Routes.room_path(room.id) %>"><%= room.name %><span class="sr-only"> (unread)</span></a></li>
+    EAG
+  end
+
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
     <li id="<%= room_item_id(room) %>"><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
@@ -187,6 +204,20 @@ export def room_renamed_stream(room: Rooms.Room) -> String
   EAG
 end
 
+## The Turbo Stream that takes a room out of the sidebar of the people who were in it.
+export def room_removed_stream(room: Rooms.Room) -> String
+  return "<turbo-stream action=\"remove\" target=\"#{room_item_id(room)}\"><template></template></turbo-stream>"
+end
+
+## The Turbo Stream that replaces the room page, for the people who are looking at a room that was deleted: the name of
+## the room as text, and the way home. Its `<main>` has no composer, so there is nothing to post to a room that is gone.
+export def room_gone_stream(room: Rooms.Room) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="replace" target="main"><template><main id="main"><h1><%= room.name %></h1><p role="status">This room was deleted.</p><p><a href="<%= Routes.HOME %>">Back to the home page</a></p></main></template></turbo-stream>
+  EAG
+end
+
 ## The home page of the person who is signed in, around their `sidebar`.
 export def home(sidebar: String) -> String
   body = <<~EAG
@@ -197,7 +228,7 @@ export def home(sidebar: String) -> String
       <p class="lead">Group chat, written in Agentica.</p>
     </main>
   EAG
-  return layout(NAME, body)
+  return live_layout(NAME, body)
 end
 
 ## The form that makes an open room. `name` fills the field again after a refusal, and `message` says why ("" shows
@@ -222,7 +253,7 @@ export def new_room(sidebar: String, name: String, message: String) -> String
       </form>
     </main>
   EAG
-  return layout("New room", body)
+  return live_layout("New room", body)
 end
 
 ## The people to pick, as checkboxes named `member` with their ids as values: the ones whose id is in `chosen` come
@@ -273,7 +304,7 @@ export def new_closed_room(
       </form>
     </main>
   EAG
-  return layout("New closed room", body)
+  return live_layout("New closed room", body)
 end
 
 ## The form that starts a direct message with the people that are picked. `message` says why the last try was refused
@@ -295,7 +326,7 @@ export def new_direct_room(sidebar: String, people: List[Rooms.Person], chosen: 
       </form>
     </main>
   EAG
-  return layout("New direct message", body)
+  return live_layout("New direct message", body)
 end
 
 ## The settings of an open or a closed room, drawn as the form of `kind` (`Routes.SETTINGS_OPEN` or `SETTINGS_CLOSED`),
@@ -352,7 +383,7 @@ export def room_settings(
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
     </main>
   EAG
-  return layout("Settings of #{room.name}", body)
+  return live_layout("Settings of #{room.name}", body)
 end
 
 ## The page where a person chooses whether a room is shown in their sidebar or hidden from it: a radio for each of the
@@ -396,7 +427,7 @@ export def involvement(
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
     </main>
   EAG
-  return layout("Sidebar for #{room.name}", body)
+  return live_layout("Sidebar for #{room.name}", body)
 end
 
 ## The form that deletes a room (the button of the settings page, as `button_to_delete_room` is in Rails). It is a plain
@@ -424,13 +455,16 @@ end
 ## `Rooms.post` has cleaned, the one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
 ## where a message ends (see specs/message_routes.feature). `controls` is for the person who may change the message
 ## (`Rooms.changeable?`): it adds the link to the edit page to the heading, after the time, and nothing else, so for
-## everybody else the markup is the benchmark's byte for byte.
+## everybody else the markup is the benchmark's byte for byte but for `data-creator-id`, which names the author so that
+## the page can put the messages of the person who looks on the other side (`viewer_style`): the markup is the same for
+## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC); the
+## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone.
 export def message(message: Rooms.Message, controls: Bool) -> String
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
-    <div id="message_<%= message.id %>" data-message-id="<%= message.id %>">
+    <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
       <h3><strong><%= message.author %></strong>
-        <time datetime="<%= message.created_at %>"><%= message.created_at %></time><%== edit_link(message, controls) %></h3>
+        <time datetime="<%= message.created_at %>" title="<%= message.created_at %>"><%= clock(message.created_at) %></time><%== edit_link(message, controls) %></h3>
       <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div></turbo-frame></div>
   EAG
 end
@@ -447,6 +481,15 @@ export def message_stream(room: Rooms.Room, one: Rooms.Message, controls: Bool) 
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== message(one, controls) %></template></turbo-stream>
+  EAG
+end
+
+## The Turbo Stream that shows an edited message in place of the old one, for the people who are looking at the room: no
+## controls, like the broadcast of a new message.
+export def message_replaced_stream(one: Rooms.Message) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="replace" target="message_<%= one.id %>"><template><%== message(one, false) %></template></turbo-stream>
   EAG
 end
 
@@ -501,7 +544,7 @@ export def edit_message(sidebar: String, room: Rooms.Room, one: Rooms.Message, t
         </form>
       </turbo-frame>
       <p><a href="<%= Routes.room_path(room.id) %>" data-cancel>Back to the room</a></p>
-      <script src="<%= Routes.COMPOSER_SCRIPT %>" defer></script>
+      <script src="<%= Routes.SCRIPT %>" defer></script>
     </main>
   EAG
   return layout("Edit message", body)
@@ -547,7 +590,7 @@ export def search(
       </div>
     </main>
   EAG
-  return layout("Search", body)
+  return live_layout("Search", body)
 end
 
 ## The avatar of a person with no picture: their `initials` in white on a circle of `color` (one of the fixed colours of
@@ -571,7 +614,8 @@ end
 ## the form that posts a message. `thread` is the markup of the messages of `page` (`MessageCache.list`, which is
 ## `messages_list` of them with their bodies cleaned), written with `<%== %>`. `can_edit` adds the link to the
 ## settings, for the people who may change the room. `sources` is the markup of the live stream of the room
-## (`CableWeb.room_sources`).
+## (`CableWeb.room_sources`). `me` is the id of the person who looks: the page is made for that person alone (the page
+## cache keys it by person), so it may carry the one rule that sets their messages apart (`viewer_style`).
 export def room(
   sidebar: String,
   room: Rooms.Room,
@@ -580,6 +624,7 @@ export def room(
   composer: Composer,
   can_edit: Bool,
   sources: String,
+  me: Int,
 ) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
@@ -623,7 +668,8 @@ export def room(
         </p>
         <p><button type="submit">Send</button></p>
       </form>
-      <script src="<%= Routes.COMPOSER_SCRIPT %>" defer></script>
+      <%== viewer_style(me) %>
+      <script src="<%= Routes.SCRIPT %>" defer></script>
     </main>
   EAG
   return layout(room.name, body)
@@ -806,6 +852,112 @@ export def join(code: String, name: String, email: String, message: String) -> S
   return layout("Join #{NAME}", body)
 end
 
+## The page of a user, around the `sidebar` (`UsersController#show`). `profile` is the user and `me` the id of the person
+## who reads, `admin` whether they are an administrator (who sees the email of a person). A bot shows only a button to
+## write to it; a person who is not on the account any more shows only their name and that they are gone. `avatar` is
+## the path of their picture, "" when the app cannot sign one.
+export def user_page(sidebar: String, profile: Profiles.Detail, me: Int, admin: Bool, avatar: String) -> String
+  gone = profile.status == Rails.DEACTIVATED
+  bot = profile.role == Rails.BOT_NAME
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1><%= profile.name %></h1>
+    <% if not avatar.empty? %>
+      <p><img class="avatar" src="<%= avatar %>" alt="Profile avatar" width="120" height="120"></p>
+    <% end %>
+    <% if gone %>
+      <p><%= profile.name %> is no longer on this account</p>
+    <% else %>
+    <% if not bot %>
+    <% if admin and not profile.email.empty? %>
+      <p><a href="mailto:<%= profile.email %>"><%= profile.email %></a></p>
+    <% end %>
+    <% if not profile.bio.empty? %>
+      <p class="bio"><%= profile.bio %></p>
+    <% end %>
+    <% end %>
+    <% if profile.status == Rails.ACTIVE and profile.id != me %>
+      <form method="post" action="<%= Routes.DIRECT_ROOMS %>">
+        <input name="member" type="hidden" value="<%= profile.id %>">
+        <button type="submit">Write to <%= profile.name %></button>
+      </form>
+    <% end %>
+    <% end %>
+    <% if profile.id == me %>
+      <p><a href="<%= Routes.profile_path() %>">Edit my profile</a></p>
+    <% end %>
+    </main>
+  EAG
+  return layout(profile.name, body)
+end
+
+## The profile of the person who is signed in (`Users::ProfilesController#show`), around the `sidebar`: the form of the
+## name, the email address, the password (blank leaves it as it is) and the bio, which saves with a `PATCH` through the
+## `_method` field, and the rooms they are in, the shared ones first and then the direct messages, each with the link to
+## its sidebar setting when it has one. `typed` is the form as it was sent, for a refused save, and `note` says why. The
+## picture cannot be changed yet, so only `avatar` is shown.
+export def profile_page(
+  sidebar: String,
+  profile: Profiles.Detail,
+  rooms: List[Rooms.Room],
+  avatar: String,
+  note: String,
+) -> String
+  shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
+  direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1>Your profile</h1>
+    <% if not note.empty? %>
+      <p role="alert"><%= note %></p>
+    <% end %>
+    <% if not avatar.empty? %>
+      <p><img class="avatar" src="<%= avatar %>" alt="Profile avatar" width="120" height="120"></p>
+    <% end %>
+      <form method="post" action="<%= Routes.profile_path() %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+        <p>
+          <label>Name
+            <input name="user[name]" type="text" value="<%= profile.name %>" autocomplete="name"
+              maxlength="<%= Profiles.MAX_NAME_LENGTH %>" required></label>
+        </p>
+        <p>
+          <label>Email address
+            <input name="user[email_address]" type="email" value="<%= profile.email %>" autocomplete="username"></label>
+        </p>
+        <p>
+          <label>New password
+            <input name="user[password]" type="password" autocomplete="new-password" maxlength="72"></label>
+        </p>
+        <p>
+          <label>Current password (needed to set a new one)
+            <input name="user[password_challenge]" type="password" autocomplete="current-password" maxlength="72"></label>
+        </p>
+        <p>
+          <label>Bio
+            <textarea name="user[bio]" rows="3" maxlength="<%= Profiles.MAX_BIO_LENGTH %>"><%= profile.bio %></textarea></label>
+        </p>
+        <p><button type="submit">Save changes</button></p>
+      </form>
+      <h2>Your rooms</h2>
+      <ul class="memberships">
+    <% for room in shared %>
+        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a>
+          <a href="<%= Routes.room_involvement_path(room.id) %>">Sidebar</a></li>
+    <% end %>
+    <% for room in direct %>
+        <li><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+    <% end %>
+      </ul>
+    </main>
+  EAG
+  return layout("Your profile", body)
+end
+
 ## The people page, around the `sidebar`. Everybody sees the names. For an administrator (`admin`) it also has the emails,
 ## the roles, the buttons that deactivate and reactivate (not for `me`, who may not deactivate themselves), and the join
 ## `link` with the button that makes a new one; `link` is "" for anybody else.
@@ -827,7 +979,7 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
       <ul class="people">
     <% for person in people %>
         <li>
-          <span class="name"><%= person.name %></span>
+          <span class="name"><a href="<%= Routes.user_path(person.id) %>"><%= person.name %></a></span>
     <% if admin %>
           <span class="meta"><%= person.email %></span>
     <% if person.role == Rooms.ADMINISTRATOR_ROLE_NAME %>
@@ -852,7 +1004,7 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
       </ul>
     </main>
   EAG
-  return layout("People", body)
+  return live_layout("People", body)
 end
 
 ## The page of a 503: `message` says that the server is busy.
@@ -891,6 +1043,12 @@ def edit_link(message: Rooms.Message, controls: Bool) -> String
     <%@ escape &Bond.escape %>
     <a href="<%= Routes.room_message_edit_path(message.room_id, message.id) %>">Edit</a>
   EAG
+end
+
+# The layout of a page with the sidebar, which also links the script that keeps it live (the rooms, the unread marks).
+# The room page links the same script inside its `<main>`, after the composer.
+def live_layout(title: String, content: String) -> String
+  return layout(title, content + "\n<script src=\"" + Routes.SCRIPT + "\" defer></script>")
 end
 
 # One person of the account page. The role switch offers the other role, and neither it nor the removal is drawn for
@@ -935,4 +1093,21 @@ def sidebar_choice(level: String) -> String
   end
 
   return "Shown in the sidebar"
+end
+
+# The messages of the person who looks sit on the other side, in the accent colour. The stylesheet reads six custom
+# properties (`components/messages`) with the other people's values as their defaults; this one rule sets them for the
+# messages of `me`. It
+# is in the page, not the stylesheet, because the stylesheet is the same for everybody and so is the HTML of a message:
+# the viewer is the only thing that differs, and a CSS rule can compare an attribute with a number only when it is
+# written out.
+def viewer_style(me: Int) -> String
+  return (
+    "<style>.thread [data-creator-id=\"#{me}\"]{--bubble-bg:var(--accent);--bubble-fg:var(--accent-fg);--bubble-meta:var(--accent-fg);--bubble-link:var(--accent-fg);--bubble-side:end;--bubble-name:none}</style>"
+  )
+end
+
+# `09:05` of `2026-03-01T09:05:00.000Z`.
+def clock(iso: String) -> String
+  return iso.slice(11, 5)
 end
