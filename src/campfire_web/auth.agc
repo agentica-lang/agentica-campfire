@@ -120,7 +120,7 @@ export def assigned_user(conn: Bond.Conn) -> Result[Optional[Auth.User]]
     return ok(none)
   end
 
-  user = try Bond.assigned(conn, USER_KEY, JSON.codec(Auth.User))
+  user = try Bond.assigned(conn, USER_KEY, Auth.User.codec)
   return ok(some(user))
 end
 

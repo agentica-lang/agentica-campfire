@@ -7,9 +7,9 @@ FROM debian:13-slim AS build
 
 # Change the version and the sha256 together, and the same pair in .github/workflows/ci.yml. The image is x86_64
 # only (the release archive of linux-x86_64).
-ARG AGENTICA_VERSION=0.24.4
+ARG AGENTICA_VERSION=0.25.0
 # From the SHA256SUMS of the release.
-ARG AGENTICA_SHA256=2397e67f89f4ad5f939d0d1f9ff5b5f8dd89f31629d1af8c4a6732e03467cac6
+ARG AGENTICA_SHA256=4ecf226a4a8c1ac2573bfe23674c387a40b0cc69f97ecbf408d9a7888ec9da3d
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git \
