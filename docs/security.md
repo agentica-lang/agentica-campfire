@@ -18,8 +18,8 @@ links too).
 
 A session row keeps the address of the client that made it and `last_active_at`, which is written at
 most every five minutes (a read of a page that the cache keeps does not write it, so on a quiet
-database it can be older). Starting a session deletes the rows older than the cookie life (30 days)
-and the rows of a deactivated person. The address is the peer of the connection: behind a proxy it
+database it can be older). A row older than the cookie life (30 days) is refused
+whatever the cookie says, and starting a session deletes it, with the rows of a deactivated person. The address is the peer of the connection: behind a proxy it
 is the proxy's, because the app does not trust `X-Forwarded-For`.
 
 Forms are protected against other sites with Bond's `Sec-Fetch-Site` and `Origin` check, with no

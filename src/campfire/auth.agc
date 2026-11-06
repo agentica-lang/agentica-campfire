@@ -27,7 +27,7 @@ export RESET_MINUTES = 30
 RESEND_SECONDS = 300
 
 # A session works for this long, as the cookie does (the web side takes its `max_age` from here): a row older than that
-# is dead whatever the cookie says, and `purge_sessions` removes it.
+# is dead whatever the cookie says (`user_for` refuses it, and `purge_sessions` removes it).
 export SESSION_SECONDS = 2_592_000
 
 # `last_active_at` is written at most this often per session, so a busy tab does not write on every request.
@@ -254,14 +254,15 @@ export def open_session(
   return ok(some(token))
 end
 
-## The user of the session with this token, or `none` when there is no such session or its user is deactivated. A
+## The user of the session with this token, or `none` when there is no such session, it is older than the cookie life
+## (`SESSION_SECONDS`, whether or not `purge_sessions` has removed it yet) or its user is deactivated. A
 ## session that was last active more than five minutes ago is marked active now; a request inside that time only reads.
 export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]]
   rows = try Db.query(
     conn,
     "select users.id, users.name, users.role, sessions.last_active_at < #{TOUCH_LIMIT} as stale " +
     "from sessions join users on users.id = sessions.user_id where sessions.token = ? and " +
-    "users.status = #{Rails.ACTIVE}",
+    "sessions.created_at >= #{SESSION_EXPIRY} and users.status = #{Rails.ACTIVE}",
     [Db.Value.Text(token)],
   )
 
