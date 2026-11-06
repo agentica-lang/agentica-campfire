@@ -8,9 +8,12 @@
 ## message, an edit, a delete, a change of members, a rename of the room or of a person, a session that is touched, a
 ## Rails app on the same file) gives the next request a new key, so the old pages are never read again and the cache
 ## drops them when it needs room. The version is read before the page is made, so a page is never older than the
-## version in its key. The person and the room are in the key, so a page is only sent to the person it was made for,
-## and only a 200 is kept: a room that is not the person's is a 404 that is looked up each time. The membership check
-## that comes with making a page needs no repeat on a hit, since a change of members is a commit and so a new version.
+## version in its key. The person (the id, and a digest of the name and the role, which the sign-in filter read before
+## the version) and the room are in the key, so a page is only sent to the person it was made for, and only a 200 is
+## kept: a room that is not the person's is a 404 that is looked up each time. A room page with `?before=` is not kept,
+## since one person could fill the cache with a page for every number. The membership check that comes with making a
+## page needs no repeat on a hit, since a change of members is a commit and so a new version. When the version cannot
+## be read the page is made and not kept.
 ##
 ## Every page has a weak `ETag` (a digest of its bytes, as `Rack::ETag` writes it) and `Cache-Control: max-age=0,
 ## private, must-revalidate`, as Rails sends, and a request whose `If-None-Match` has the tag is a 304. The form of a
@@ -19,6 +22,7 @@
 
 import Bond from "pkg/bond/bond"
 import Cache from "std/cache"
+import Auth from "../campfire/auth"
 import Database from "../campfire/repo/database"
 
 # What a megabyte of `CAMPFIRE_RESPONSE_CACHE_MB` is.
@@ -27,6 +31,13 @@ BYTES_PER_MB = 1024 * 1024
 # `W/"` and 32 hex digits and `"`: the tag has this length always, so the cached text is the tag followed by the page.
 ETAG_WIDTH = 36
 ETAG_DIGITS = 32
+
+# The kinds of page: the room page, and the fragment of the older messages.
+export ROOM = "room"
+export MESSAGES = "messages"
+
+# How much of the digest of the name and the role of the person goes in the key.
+SEEN_DIGITS = 16
 
 CACHE_CONTROL = "max-age=0, private, must-revalidate"
 
@@ -67,19 +78,22 @@ export def stop(pages: Optional[Pages]) -> Void
   end
 end
 
-## Where the page of `kind` ("room" or "messages") of the person `user_id` in the room `room_id` (`before` is the
-## cursor) goes, as the database is now: read this before the page is made. `none` when there is no cache, the room is
-## no number, or the version cannot be read (the page is then made and not kept).
+## Where the page of `kind` (`ROOM` or `MESSAGES`) of `person` in the room `room_id` (`before` is the cursor) goes, as
+## the database is now: read this before the page is made. `none` when there is no cache, the room is no number, the
+## room page has a cursor (a person could fill the cache with a page for every number), or the version cannot be read
+## (the page is then made and not kept). The name and the role of the person are in the key: the sign-in filter read
+## them before the version, so a rename or a change of role that was committed in between must not be kept under the
+## newer version.
 export def spot(
   pages: Optional[Pages],
   kind: String,
-  user_id: Int,
+  person: Auth.User,
   room_id: Optional[Int],
   before: Optional[Int],
 ) -> Optional[Spot]
   case pages
     none -> return none
-    some(found) -> return spot_of(found, kind, user_id, room_id, before)
+    some(found) -> return spot_of(found, kind, person, room_id, before)
   end
 end
 
@@ -112,8 +126,14 @@ export def respond(conn: Bond.Conn, page: Page) -> Bond.Conn
   return tagged(Bond.html(conn, 200, page.body), page)
 end
 
-def spot_of(pages: Pages, kind: String, user_id: Int, room_id: Optional[Int], before: Optional[Int]) -> Optional[Spot]
-  if room_id.none?
+def spot_of(
+  pages: Pages,
+  kind: String,
+  person: Auth.User,
+  room_id: Optional[Int],
+  before: Optional[Int],
+) -> Optional[Spot]
+  if room_id.none? or (kind == ROOM and before.some?)
     return none
   end
 
@@ -123,7 +143,8 @@ def spot_of(pages: Pages, kind: String, user_id: Int, room_id: Optional[Int], be
   end
 
   cursor = before.map do |id| id.to_s end.unwrap_or("")
-  key = "page:#{version.unwrap!}:#{kind}:#{user_id}:#{room_id.unwrap!}:#{cursor}"
+  seen = Digest.sha256_hexdigest("#{person.role}\n#{person.name}".bytes).slice(0, SEEN_DIGITS)
+  key = "page:#{version.unwrap!}:#{kind}:#{person.id}:#{seen}:#{room_id.unwrap!}:#{cursor}"
   return some(Spot(pages: pages, key: key))
 end
 

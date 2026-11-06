@@ -46,9 +46,8 @@ UNKNOWN_AUTHOR = "Unknown"
 # The form of a timestamp in `<time datetime>`: ISO 8601, UTC, with milliseconds.
 ISO = "%Y-%m-%dT%H:%M:%fZ"
 
-# The columns of a message as `stored_of` reads them and the tables they come from, for `MESSAGE_SELECT` and
-# for `page`,
-# which picks its rows first and then joins only those.
+# The columns of a message as `stored_of` reads them and the tables they come from, for `MESSAGE_SELECT` and for
+# `page`, which picks its rows first and then joins only those.
 MESSAGE_COLUMNS = (
   "messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
   "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +

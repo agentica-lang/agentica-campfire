@@ -354,7 +354,7 @@ def shown_room(
   id: Optional[Int],
   before: Optional[Int],
 ) -> Result[Bond.Conn]
-  spot = PageCache.spot(pages, "room", person.id, id, before)
+  spot = PageCache.spot(pages, PageCache.ROOM, person, id, before)
   kept = PageCache.lookup(spot)
   case kept
     some(page) -> return ok(respond(conn, Answer.Cached(page)))
@@ -424,7 +424,7 @@ def older_page(
   id: Optional[Int],
   before: Optional[Int],
 ) -> Result[Bond.Conn]
-  spot = PageCache.spot(pages, "messages", person.id, id, before)
+  spot = PageCache.spot(pages, PageCache.MESSAGES, person, id, before)
   found = PageCache.lookup(spot)
   case found
     some(page) -> return ok(respond(conn, Answer.Cached(page)))
@@ -558,6 +558,9 @@ def room_page(
   )
 end
 
+# The id of the form is drawn when a page is made, and a page that is kept (`PageCache`) is served to every load of
+# the person at that version of the database, so two tabs can post with the same `client_message_id`: nothing may
+# drop a message because its id was seen before.
 def composer(note: String, draft: String) -> Views.Composer
   return Views.Composer(note: note, draft: draft, message_id: SecureRandom.hex(CLIENT_ID_BYTES))
 end
