@@ -31,9 +31,9 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
-                and forms of rooms), message_cache.agc (the cache of rendered messages), page_cache.agc (the cache of
-                whole room pages), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and the
-                avatar link)
+                and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages), message_cache.agc
+                (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
+                searches.agc and avatars.agc (the sidebar page, the search and the avatar link)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
@@ -171,6 +171,11 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   `MessageCache` for a page of a room, which hands `Rooms.page`'s `Stored` messages), since a row that Rails wrote
   was never cleaned by this app; the cleaner leaves clean markup as it is, so what `Rooms.post` stored passes
   unchanged, and the view writes the body as it is given.
+  Deleting a room is for its maker and an account administrator, of any kind (`Rooms.administrable?`; another member is
+  answered 403, after the membership check): `Rooms.destroy_later` closes an open room and deletes its memberships in one
+  transaction (it checks the right again inside), then `RoomDeletion` (a task that the request starts, one connection of
+  the pool per message) calls `Rooms.delete_next_message` until none is left and then `Rooms.delete_room`. Never delete
+  the messages of a room in one transaction: it holds the write lock until the last.
 - Message cache: the markup of each message of a room page and of the older messages (`Views.message`) is cached by
   `MessageCache` in one process-wide `std/cache` store (`CAMPFIRE_CACHE_MB`, 64 by default, 0 for none), under a key of
   the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial

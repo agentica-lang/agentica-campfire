@@ -50,6 +50,10 @@ export ROOM_NEW = "/rooms/new"
 export ROOM = "/rooms/:id"
 export ROOM_MESSAGES = "/rooms/:id/messages"
 
+## `/rooms/:id` also takes the form that deletes a room: a `POST` with the field `_method` set to `delete`, as the forms
+## of Rails send it (a browser form cannot send `DELETE`), and a real `DELETE`.
+export ROOM_DELETE_METHOD = "delete"
+
 ## The forms of a closed room and of a direct message, and the posts that make them (each makes a room and goes to its
 ## page), and the settings of a closed room: its form and the post that saves it.
 export CLOSED_ROOM_NEW = "/closed_rooms/new"
