@@ -14,7 +14,7 @@ The sidebar lists the rooms that a person is in. The first run makes the open ro
 
 ## Kinds
 
-- **Open**: `New room` (any member may make one) puts every active person in it. A person who
+- **Open**: `New room` (any member may make one, unless the account restricts it, see below) puts every active person in it. A person who
   joins gets every open room that exists; a reactivated person gets the open rooms made while
   they were away.
 - **Closed**: `New closed room` has a member picker (checkboxes of the active people). The maker is
@@ -23,8 +23,15 @@ The sidebar lists the rooms that a person is in. The first run makes the open ro
   open the direct message that exists instead of making a second one, even when forms arrive
   together. Each person sees it named after the others.
 
-Not yet: leaving a room, restricting who may make an open room to administrators, removing
-yourself.
+An administrator can let only administrators make a shared room (open or closed): the switch on the account page
+(`PATCH /account`, field `account[settings][restrict_room_creation_to_administrators]`, `true` or `false`) is kept in the
+JSON of `accounts.settings` as Rails keeps it, with the other keys left as they are. With it on, a member gets `403` on
+`/rooms/new`, `/closed_rooms/new` and the posts to `/rooms` and `/closed_rooms` (before the form is read, as the filter
+of Rails runs), and the sidebar leaves out the two links. A direct message is not restricted: Rails has no such filter
+on `Rooms::DirectsController`. An empty or invalid `settings` is the default, everybody. Administrators are never
+restricted.
+
+Not yet: removing yourself.
 
 ## Deleting a room
 
@@ -61,16 +68,19 @@ someone added since nor brings back someone removed since. A person who is not a
 inside its transaction, that the room is not a direct one and that the person may still change it, and rolls back
 otherwise.
 
-## Notifications
+## The sidebar setting
 
-Every room page has a Notifications link to `/rooms/ID/involvement` (`Rooms::InvolvementsController`), which shows
-the levels of the person's own membership as radios and saves one with a `PUT` (a `POST` with `_method=put` from the
-form, in any case, or a real `PUT`) and the field `involvement`, then goes back to the page. An open or closed room
-offers `mentions` (the default), `everything`, `nothing` and `invisible`; the page says what each does, in Rails'
-words. A direct room offers only `everything` and `nothing` (as Rails' `DIRECT_INVOLVEMENT_ORDER`): it has no
-invisible level, so a conversation cannot be lost. A level the room does not offer is `422` with the page again and
-nothing changed; a save with no field is `400`. A room that the person is not in is `404`, checked first, and so is a
-save that finds the membership gone; any other method is `405` with Bond's `Allow` list.
+Every shared room page has a Sidebar link to `/rooms/ID/involvement` (`Rooms::InvolvementsController`), which shows
+two choices of the person's own membership as radios, "Shown in the sidebar" and "Hidden from the sidebar", and saves
+one with a `PUT` (a `POST` with `_method=put` from the form, in any case, or a real `PUT`) and the field `involvement`,
+then goes back to the page. The route and the field are Rails' for parity; the values are `mentions` (shown, the default
+level) and `invisible` (hidden). Notifications do not exist yet, so the other levels of Rails (`everything`,
+`nothing`) are not offered: saving shown on a room that is hidden writes `mentions`, and on a room that is shown
+already changes nothing, so a level that a Rails database holds is kept. The issues of push (#81) and mentions (#57)
+bring the levels back to this page. A direct room has no choice and no link, as in Rails (its levels have no
+`invisible`), so a conversation cannot be lost; its page says so. A value that the room does not offer is `422` with
+the page again and nothing changed; a save with no field is `400`. A room that the person is not in is `404`, checked
+first, and so is a save that finds the membership gone; any other method is `405` with Bond's `Allow` list.
 
 There is no action for leaving a room, as in Rails: `invisible` takes the room out of the sidebar, and out of the
 people that new messages notify, but its page is still reachable by URL and the person stays a member. Other members

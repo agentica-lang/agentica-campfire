@@ -44,7 +44,7 @@ hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`
   the broadcast, which has no Edit link.
 - **After a reconnect**, once the room's subscription is confirmed (what comes later arrives live), the script notes
   the messages of the page, fetches the room page and makes the fetched list the page's: a noted message that the fetch
-  lacks is removed (deleted while the socket was away, the newest one and a room that was emptied included), an edited
+  lacks is removed (deleted while the socket was away, the newest one and a room that was emptied included; an empty room shows "No messages here yet." again, as it hides it when a message comes), an edited
   one is replaced, and the ones that came are added in order. A noted message older than the fetched ones (the page shows
   the newest 40) stays. A message that a stream brought or touched after the notes is left as the stream made it, because
   the fetch may be older than the stream, and so is the composer. It then fetches `GET /users/me/sidebar` again and takes

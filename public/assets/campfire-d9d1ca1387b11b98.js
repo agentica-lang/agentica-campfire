@@ -498,6 +498,9 @@
         break;
       case "remove":
         target.remove();
+        if (list && latest && list.isConnected) {
+          syncEmpty();
+        }
         break;
       case "before":
         target.before(content);
@@ -714,9 +717,22 @@
       previous = here;
     });
 
+    syncEmpty();
+  }
+
+  // The notice of a room with no message is in the page when it was made empty and is not when it was not, so the
+  // script adds and removes it as the list fills and empties.
+  function syncEmpty() {
     var empty = document.querySelector(".thread .empty");
-    if (empty && list.children.length) {
-      empty.remove();
+    if (list.children.length) {
+      if (empty) {
+        empty.remove();
+      }
+    } else if (!empty) {
+      var notice = document.createElement("p");
+      notice.className = "empty";
+      notice.textContent = "No messages here yet.";
+      list.parentNode.insertBefore(notice, list);
     }
   }
 

@@ -21,6 +21,9 @@ NOW = Rails.NOW
 ## The longest name of the account, in characters.
 export MAX_NAME_LENGTH = 100
 
+# The key of the setting in the JSON of `accounts.settings`, the one Rails writes.
+RESTRICT_KEY = "restrict_room_creation_to_administrators"
+
 ## A person of the account as the people page lists them. A bot is not a person, so it is never in the list.
 export struct Person
   id: Int
@@ -76,10 +79,32 @@ export def name_problem(name: String) -> String
   return ""
 end
 
-## Renames the account (`AccountsController#update`) and gives true. It gives false, with nothing changed, when
-## `actor_id` is not an active administrator.
-export def rename(conn: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
-  return Db.transaction(conn) do |tx| rename_in(tx, actor_id, name) end
+## Saves what `AccountsController#update` takes of the form, in one transaction: the `name`, and whether only
+## administrators `restricted` the creation of rooms (the setting `restrict_room_creation_to_administrators`, which Rails
+## keeps in the JSON of `accounts.settings`; the other keys of that JSON stay as they are). A part that is `none` is left
+## alone. It gives false, with nothing changed, when `actor_id` is not an active administrator.
+export def save(conn: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
+  return Db.transaction(conn) do |tx| save_in(tx, actor_id, name, restricted) end
+end
+
+## True when the account lets only administrators make a shared room (open or closed): `Rooms::OpensController` and
+## `ClosedsController` answer 403 to anyone else. A direct message is not a room in that sense and is not restricted, as
+## in Rails. Only a real true (or the text `true`) restricts: a `settings` that is empty, is not JSON, or holds any other
+## value under the key (a string `"false"`, `0.0`, an object) is the default, not restricted.
+export def room_creation_restricted?(conn: Db.Connection) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select case when json_valid(settings) then " +
+    "coalesce(json_extract(settings, '$.#{RESTRICT_KEY}') in (1, 'true'), 0) else 0 end " +
+    "as restricted from accounts order by id limit 1",
+    [],
+  )
+
+  if rows.empty?
+    return ok(false)
+  end
+
+  return ok(int_of(rows[0], "restricted") != 0)
 end
 
 ## True when `user_id` is an active person of the account (not a bot), whom the role and the removal can name.
@@ -170,17 +195,37 @@ def regenerate_in(tx: Db.Connection, actor_id: Int) -> Result[Bool]
   return ok(true)
 end
 
-def rename_in(tx: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
+def save_in(tx: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
   allowed = try administrator?(tx, actor_id)
   if not allowed
     return ok(false)
   end
 
-  try Db.execute(
-    tx,
-    "update accounts set name = ?, updated_at = #{NOW} where singleton_guard = 0",
-    [Db.Value.Text(name)],
-  )
+  if name.some?
+    try Db.execute(
+      tx,
+      "update accounts set name = ?, updated_at = #{NOW} where singleton_guard = 0",
+      [Db.Value.Text(name.unwrap!)],
+    )
+  end
+
+  if restricted.some?
+    flag = "false"
+    if restricted.unwrap!
+      flag = "true"
+    end
+
+    # `json(?)` makes the text a JSON boolean, not a string; the other keys of the settings are kept. Settings that are
+    # not a JSON object (`[1]`, `null`, `5`, not JSON) would stay unchanged under `json_set`, so they start over
+    # as `{}`.
+    try Db.execute(
+      tx,
+      "update accounts set settings = json_set(case when json_valid(settings) then " +
+      "case when json_type(settings) = 'object' then settings else '{}' end else '{}' end, " +
+      "'$.#{RESTRICT_KEY}', json(?)), updated_at = #{NOW} where singleton_guard = 0",
+      [Db.Value.Text(flag)],
+    )
+  end
 
   return ok(true)
 end

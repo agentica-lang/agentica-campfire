@@ -76,7 +76,7 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - **Sidebar** (`nav`): `.who`, then `.lists` (`h2` group labels in small caps, `ul#shared_rooms`, direct messages,
   `ul.actions`), then the Sign out form. A long room name wraps to two lines and ends in an ellipsis.
 - **Room** (`main.room`): `header` with the `h1` (two lines at most) and, for those who may, the Settings link and the
-  Notifications link drawn as quiet buttons; `.scroller` > `.thread` with the "Older messages" and "Latest messages"
+  Sidebar link drawn as quiet buttons; `.scroller` > `.thread` with the "Older messages" and "Latest messages"
   links centred and muted; the composer form with a one-line textarea that grows to 40vh (`field-sizing`) and the Send button, with the safe-area inset below.
   The textarea has no `autofocus`: a phone would open its keyboard on every load. The script focuses it only on a
   device with a fine pointer (a mouse or a trackpad).

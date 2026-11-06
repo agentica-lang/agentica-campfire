@@ -22,6 +22,10 @@ import {Config} from "../campfire/config"
 # The names of the fields of Rails' forms (`params.require(:account)` and `params.require(:user)`).
 ACCOUNT_NAME = "account[name]"
 USER_ROLE = "user[role]"
+RESTRICT_FIELD = "account[settings][restrict_room_creation_to_administrators]"
+
+# What a save of the switch of who may make rooms with a value that is not `true` or `false` is told.
+RESTRICT_REFUSED = "Choose on or off"
 
 # What a save of a role that is neither is told.
 ROLE_REFUSED = "Choose member or administrator"
@@ -72,8 +76,14 @@ def account_page(db: Db.Connection, person: Auth.User, note: String, typed: Opti
   admin = person.role == Rooms.ADMINISTRATOR_ROLE_NAME
   name = try Accounts.name(db)
   people = try Accounts.people(db, false)
+  # Only an administrator sees the switch.
+  restricted = false
+  if admin
+    restricted = try Accounts.room_creation_restricted?(db)
+  end
+
   shown = typed.unwrap_or(name)
-  return ok(Views.account(try RoomsWeb.sidebar_of(db, person), shown, people, person.id, admin, note))
+  return ok(Views.account(try RoomsWeb.sidebar_of(db, person), shown, people, person.id, admin, restricted, note))
 end
 
 # A `POST` is the form of Rails with `_method` set to `patch`; any other is a 405 that lists the methods of the path.
@@ -101,14 +111,34 @@ def rename_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   end
 end
 
+# The form of the account page has two parts, the name and the switch of who may make rooms, and a request has either
+# or both (Rails permits `name` and `settings`). One with neither is a 400. A part is checked before anything is saved.
 def renamed(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
-  name = (try Bond.form(conn, ACCOUNT_NAME)).strip
-  problem = Accounts.name_problem(name)
-  if problem != ""
-    return ok(Answer.Refused(try account_page(db, person, problem, some(name))))
+  names = try Bond.form_all(conn, ACCOUNT_NAME)
+  flags = try Bond.form_all(conn, RESTRICT_FIELD)
+  if names.empty? and flags.empty?
+    return Bond.bad_request("#{ACCOUNT_NAME} is missing")
   end
 
-  done = try Accounts.rename(db, person.id, name)
+  name: Optional[String] = none
+  if not names.empty?
+    name = some(names[0].strip)
+    problem = Accounts.name_problem(name.unwrap!)
+    if problem != ""
+      return ok(Answer.Refused(try account_page(db, person, problem, name)))
+    end
+  end
+
+  restricted: Optional[Bool] = none
+  if not flags.empty?
+    if flags[0] != "true" and flags[0] != "false"
+      return ok(Answer.Refused(try account_page(db, person, RESTRICT_REFUSED, none)))
+    end
+
+    restricted = some(flags[0] == "true")
+  end
+
+  done = try Accounts.save(db, person.id, name, restricted)
   if not done
     return ok(Answer.Forbidden)
   end
