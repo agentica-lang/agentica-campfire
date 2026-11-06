@@ -402,6 +402,15 @@ export def message_stream(room: Rooms.Room, one: Rooms.Message, controls: Bool) 
   EAG
 end
 
+## The Turbo Stream that shows an edited message in place of the old one, for the people who are looking at the room: no
+## controls, like the broadcast of a new message.
+export def message_replaced_stream(one: Rooms.Message) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="replace" target="message_<%= one.id %>"><template><%== message(one, false) %></template></turbo-stream>
+  EAG
+end
+
 ## The Turbo Stream that takes a deleted message off the page (`destroy.turbo_stream.erb` of Rails).
 export def message_removed(message_id: Int) -> String
   return "<turbo-stream action=\"remove\" target=\"message_#{message_id}\"><template></template></turbo-stream>"

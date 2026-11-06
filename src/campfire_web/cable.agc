@@ -151,6 +151,15 @@ export def message_created(cable: Cable, room: Rooms.Room, message: Rooms.Messag
   _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
 end
 
+## A message was edited or deleted: the people who are looking at the room see it replaced or gone.
+export def message_edited(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_replaced_stream(message))
+end
+
+export def message_removed(cable: Cable, room: Rooms.Room, message_id: Int) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_removed(message_id))
+end
+
 ## A room was made (`renamed` false) or renamed: its entry goes to the sidebars that list it, in a task of its own.
 ## `actor_id` is the person who did it, who always sees the room.
 export def room_changed(cable: Cable, room_id: Int, actor_id: Int, renamed: Bool) -> Void

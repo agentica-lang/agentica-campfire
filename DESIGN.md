@@ -101,8 +101,9 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 
 ## Script
 
-`public/assets/campfire-DIGEST.js` is the only script, linked by the room page alone (`Views.room`), and the composer
-works without it (a plain post and a redirect). It sends the message with `fetch`, asking for the Turbo Stream that
+`public/assets/campfire-DIGEST.js` is the only script, linked by the room page (`Views.room`) and by every page with the
+sidebar (`live_layout`), and the pages work without it. Its second part keeps them live (`docs/cable.md`, "The
+pages"); a room with something new is `nav li.unread`, bold with a dot. The composer works without it (a plain post and a redirect). It sends the message with `fetch`, asking for the Turbo Stream that
 `POST /rooms/ID/messages` already answers, appends the message to the list, clears the box, gives the form a new
 `client_message_id`, scrolls to the newest message and keeps the focus in the box, so a phone keeps its keyboard open
 (Send takes no focus on `pointerdown`). A refusal (any non-2xx answer) is sent again as a plain post, so the page of

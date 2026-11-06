@@ -52,6 +52,8 @@ enum Answer
   Fragment(String)
   Made(Int, Int, Bool, List[Int])
   Posted(Rooms.Room, Rooms.Message, Bool)
+  Edited(Rooms.Room, Rooms.Message)
+  Removed(Rooms.Room, Int, Bool)
   TurboStream(String)
   NoContent
   Redirect(String)
@@ -101,9 +103,9 @@ export def add(
     |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool, cable) end
     |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool, cable) end
     |> Bond.get(Routes.ROOM_MESSAGE_EDIT) do |conn| edit_message(conn, pool) end
-    |> Bond.post(Routes.ROOM_MESSAGE) do |conn| post_message(conn, pool) end
-    |> Bond.patch(Routes.ROOM_MESSAGE) do |conn| update_message(conn, pool) end
-    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool) end
+    |> Bond.post(Routes.ROOM_MESSAGE) do |conn| post_message(conn, pool, cable) end
+    |> Bond.patch(Routes.ROOM_MESSAGE) do |conn| update_message(conn, pool, cable) end
+    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable) end
   )
 end
 
@@ -645,24 +647,24 @@ end
 
 # The form of Rails posts to the message with `_method` `patch` to save it and `delete` to delete it (in any case, as
 # Rails reads it); any other post is a 405 that says which methods the path takes, whatever the message.
-def post_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def post_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   method = try override_method(conn)
   if method == Routes.METHOD_PATCH
-    return update_message(conn, pool)
+    return update_message(conn, pool, cable)
   end
 
   if method == Routes.METHOD_DELETE
-    return delete_message(conn, pool)
+    return delete_message(conn, pool, cable)
   end
 
   return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_MESSAGE_ALLOW)))
 end
 
-def update_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def update_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   id = room_id(conn)
   message_id = message_id(conn)
   answer = try Database.with_connection(pool) do |db| update_answer(conn, db, id, message_id) end
-  return ok(respond(conn, answer))
+  return ok(announced(conn, cable, answer))
 end
 
 def update_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], message_id: Optional[Int]) -> Result[Answer]
@@ -710,15 +712,21 @@ def save_message(
     return ok(Answer.NotFound)
   end
 
-  return ok(Answer.Redirect(Routes.room_path(room.id)))
+  # The message as it is stored now, for the people who are looking at the room.
+  stored = try Rooms.find_message(db, room.id, message.id)
+  if stored.none?
+    return ok(Answer.Redirect(Routes.room_path(room.id)))
+  end
+
+  return ok(Answer.Edited(room, Rooms.clean(stored.unwrap!)))
 end
 
-def delete_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+def delete_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   id = room_id(conn)
   message_id = message_id(conn)
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db| delete_message_answer(conn, db, id, message_id, stream) end
-  return ok(respond(conn, answer))
+  return ok(announced(conn, cable, answer))
 end
 
 def delete_message_answer(
@@ -765,11 +773,7 @@ def gone_message(
     return ok(Answer.NotFound)
   end
 
-  if stream
-    return ok(Answer.TurboStream(Views.message_removed(message.id)))
-  end
-
-  return ok(Answer.Redirect(Routes.room_path(room.id)))
+  return ok(Answer.Removed(room, message.id, stream))
 end
 
 # The message that the path names, for a person who is in the room: `Missing` for a room that is not theirs and for a
@@ -1176,6 +1180,8 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
       CableWeb.room_changed(cable, room_id, actor_id, renamed)
     Answer.Posted(room, message, _) -> CableWeb.message_created(cable, room, message)
     Answer.Deleted(room, members) -> CableWeb.room_deleted(cable, room, members)
+    Answer.Edited(room, message) -> CableWeb.message_edited(cable, room, message)
+    Answer.Removed(room, message_id, _) -> CableWeb.message_removed(cable, room, message_id)
     _ -> return respond(conn, answer)
   end
 
@@ -1195,6 +1201,14 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
         TURBO_STREAM_TYPE + "; charset=utf-8",
       )
     Answer.Posted(room, _, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
+    Answer.Edited(room, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
+    Answer.Removed(_, message_id, stream) if stream ->
+      return Bond.header(
+        Bond.html(conn, 200, Views.message_removed(message_id)),
+        "content-type",
+        TURBO_STREAM_TYPE + "; charset=utf-8",
+      )
+    Answer.Removed(room, _, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
     Answer.TurboStream(html) ->
       return Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
     Answer.NoContent -> return Bond.status(conn, 204)

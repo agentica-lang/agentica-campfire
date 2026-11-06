@@ -241,7 +241,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   one name for the segment under `/users/`, so the token is `:id`. The Active Storage rows and files of the specs are
   made by Rails (`specs/fixtures/rails/make_avatar.sh`).
 - Assets: the CSS and the JS of `public/assets/` are named `campfire-DIGEST.css` and `campfire-DIGEST.js`, DIGEST the
-  first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.COMPOSER_SCRIPT`
+  first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.SCRIPT`
   when it changes (`specs/assets.feature` checks). `/assets/` is public (`AuthWeb.public?`). There is no asset pipeline
   yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page links it, every form works
   without it, and it stays a few KB with no framework (`DESIGN.md`, "Script"). The composer textarea has no
