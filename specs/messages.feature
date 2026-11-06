@@ -28,7 +28,7 @@ Feature: Messages
   Scenario: The time of a message is the clock of an ISO 8601 UTC instant in the page, which datetime keeps whole, whatever the form of the column
     Given a message "Timed" in the room 1 at "2026-03-01 09:00:00.123456"
     When I get "/rooms/1"
-    Then the body contains "<time datetime=\"2026-03-01T09:00:00.123Z\">09:00</time>"
+    Then the body contains "<time datetime=\"2026-03-01T09:00:00.123Z\" title=\"2026-03-01T09:00:00.123Z\">09:00</time>"
 
   Scenario: The room page has the form to post, which carries an id for the message
     When I get "/rooms/1"

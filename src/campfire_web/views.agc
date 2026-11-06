@@ -454,14 +454,14 @@ end
 ## (`Rooms.changeable?`): it adds the link to the edit page to the heading, after the time, and nothing else, so for
 ## everybody else the markup is the benchmark's byte for byte but for `data-creator-id`, which names the author so that
 ## the page can put the messages of the person who looks on the other side (`viewer_style`): the markup is the same for
-## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC), which
-## stays whole in `datetime`.
+## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC); the
+## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone.
 export def message(message: Rooms.Message, controls: Bool) -> String
   return <<~EAG.strip
     <%@ escape &Bond.escape %>
     <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
       <h3><strong><%= message.author %></strong>
-        <time datetime="<%= message.created_at %>"><%= clock(message.created_at) %></time><%== edit_link(message, controls) %></h3>
+        <time datetime="<%= message.created_at %>" title="<%= message.created_at %>"><%= clock(message.created_at) %></time><%== edit_link(message, controls) %></h3>
       <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div></turbo-frame></div>
   EAG
 end

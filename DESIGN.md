@@ -13,9 +13,11 @@ images: the page stays small, because the benchmark compares page throughput wit
   `.people`, `.badge`, `.quiet`, `.danger`); the composer and the search form are styled by `main.room > form` and
   `form[action="/searches"]`, since specs match their `<form>` tag.
 - Fixed markup of a message (`Views.message`) is the benchmark's contract: style it, never change it. The additions are
-  `data-creator-id` on the `<div>` (the author, for the side of the bubble) and the Edit link in the heading, after the time, for the person who may change the message (its author and an
-  administrator) and nobody else: the benchmark reads the id, the presentation `<div>` and the end of the message, none of
-  which moves; but for `data-creator-id` and the clock time in `<time>` (the `datetime` attribute is as before), the markup is the contract byte for byte.
+  `data-creator-id` on the `<div>` (the author, for the side of the bubble) and the Edit link in the heading, after the
+  time, for the person who may change the message (its author and an administrator) and nobody else: the benchmark reads
+  the id, the presentation `<div>` and the end of the message, none of which moves; but for `data-creator-id` and the
+  clock time in `<time>` (the whole instant is in `datetime`, as before, and in `title`), the markup is the contract
+  byte for byte.
 
 ## Colour tokens
 
@@ -80,7 +82,14 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
   links centred and muted; the composer form with a one-line textarea that grows to 40vh (`field-sizing`) and the Send button, with the safe-area inset below.
   The textarea has no `autofocus`: a phone would open its keyboard on every load. The script focuses it only on a
   device with a fine pointer (a mouse or a trackpad).
-- **Message** (`[data-message-id]`): in a room a bubble, with a rounded corner (`--r-lg`) and a width of at most 75% (85% on a phone). The messages of other people sit on the left on `--bubble-other-bg`, with the name in bold, the clock time (`HH:MM`, UTC; the whole instant is in `datetime`) and the Edit link (extra small) in one line, the body below. The messages of the person who looks sit on the right in the accent colour with no name. The side is not in the markup (the live HTML is the same for everybody): each bubble reads `--bubble-bg`, `--bubble-fg`, `--bubble-meta`, `--bubble-link`, `--bubble-side` and `--bubble-name` with the other people's values as defaults, and the room page has one `<style>` rule setting them for `[data-creator-id="ME"]` (`Views.room`). Search results keep the flat list. The body wraps anywhere; `pre` and tables scroll inside the bubble.
+- **Message** (`[data-message-id]`): in a room a bubble, with a rounded corner (`--r-lg`) and a width of at most 75%
+  (85% on a phone). The messages of other people sit on the left on `--bubble-other-bg`, with the name in bold, the
+  clock time (`HH:MM`, UTC; the whole instant is in `datetime` and `title`) and the Edit link (extra small) in one line,
+  the body below. The messages of the person who looks sit on the right in the accent colour with no name. The side is
+  not in the markup (the live HTML is the same for everybody): each bubble reads `--bubble-bg`, `--bubble-fg`,
+  `--bubble-meta`, `--bubble-link`, `--bubble-side` and `--bubble-name` with the other people's values as defaults, and
+  the room page has one `<style>` rule setting them for `[data-creator-id="ME"]` (`Views.room`). Search results keep the
+  flat list. The body wraps anywhere; `pre` and tables scroll inside the bubble.
 - **Buttons**: primary (accent fill) is the default; `.quiet` (outline, text colour) for secondary actions; `.danger`
   (outline in the accent) for Deactivate and Delete room. 2.5rem high; 2.75rem (44px) on a phone, for every button and the chips; 2rem
   in a dense list and the room header on a wide screen.
