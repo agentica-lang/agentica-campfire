@@ -24,6 +24,12 @@ export ROOM_DIRECT = "Rooms::Direct"
 ## nothing mentions everything ]` of Rails writes the names, as text).
 export INVISIBLE = "invisible"
 
+## The other levels of `memberships.involvement`: `nothing` (no notification, the room is in the sidebar), `mentions`
+## (the default) and `everything`.
+export NOTHING = "nothing"
+export MENTIONS = "mentions"
+export EVERYTHING = "everything"
+
 ## The `record_type` and `name` of the row of `action_text_rich_texts` that holds the body of a message.
 export MESSAGE_RECORD = "Message"
 export BODY_NAME = "body"
