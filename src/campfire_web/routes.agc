@@ -76,6 +76,14 @@ export DIRECT_ROOM_NEW = "/direct_rooms/new"
 export DIRECT_ROOMS = "/direct_rooms"
 export ROOM_SETTINGS = "/rooms/:id/settings"
 
+## `/rooms/:id/refresh?since=MILLISECONDS` gives the Turbo Streams of what a room gained since a time, and
+## `/rooms/:id/@MESSAGE` is the room page around a message. Bond's params are whole segments, so the second is the route
+## `ROOM_AT` that takes any segment after the room (a literal one, such as `messages`, is tried first), and the handler
+## checks that it is `AT_PREFIX` and a number.
+export ROOM_REFRESH = "/rooms/:id/refresh"
+export ROOM_AT = "/rooms/:id/:at"
+export AT_PREFIX = "@"
+
 ## The join link of the account: its page and the post of its form, which is the same path, with the join code as
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
 export JOIN = "/join/:code"
@@ -126,6 +134,16 @@ end
 ## that is saved says what the room is to be (`SETTINGS_OPEN`, `SETTINGS_CLOSED`).
 export def room_settings_kind_path(room_id: Int, kind: String) -> String
   return "/rooms/#{room_id}/settings?type=#{kind}"
+end
+
+## The path of the room page around a message.
+export def room_at_path(room_id: Int, message_id: Int) -> String
+  return "/rooms/#{room_id}/@#{message_id}"
+end
+
+## The path of the changes of a room since `millis`.
+export def room_refresh_path(room_id: Int, millis: Int) -> String
+  return "/rooms/#{room_id}/refresh?since=#{millis}"
 end
 
 ## The path of the join page of this code, which is also where its form posts.

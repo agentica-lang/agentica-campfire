@@ -32,9 +32,10 @@ BYTES_PER_MB = 1024 * 1024
 ETAG_WIDTH = 36
 ETAG_DIGITS = 32
 
-# The kinds of page: the room page, and the fragment of the older messages.
+# The kinds of page: the room page, the fragment of the older messages, and the one of the messages after a message.
 export ROOM = "room"
 export MESSAGES = "messages"
+export AFTER = "after"
 
 # How much of the digest of the name and the role of the person goes in the key.
 SEEN_DIGITS = 16

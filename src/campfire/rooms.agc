@@ -37,6 +37,10 @@ BODY_LONG = "A message is at most #{MAX_BODY_LENGTH} characters"
 NO_PEOPLE = "Choose at least one person"
 NO_NAME = "Direct message"
 
+# A time in milliseconds (two `?` of the same number) as the columns write it: the second, then three digits of
+# milliseconds and three zeros.
+INSTANT = "(strftime('%Y-%m-%d %H:%M:%S', ? / 1000, 'unixepoch') || printf('.%03d000', ? % 1000))"
+
 # What `updated_at` is set to when a room changes, in the form of the schema.
 NOW = Rails.NOW
 
@@ -123,6 +127,15 @@ export struct Page
   messages: List[Stored]
   older: Optional[Int]
   at_latest: Bool
+end
+
+## What the page of a room has gained since a time (`Rooms::RefreshesController`, which a client calls to catch up after
+## it lost its connection): `fresh` are the messages created since, oldest first, at most `PAGE_SIZE`; `changed` are the
+## other messages edited since, the newest `PAGE_SIZE` of them, oldest first. A message created since but past the
+## first `PAGE_SIZE` is in `changed`, as it is in Rails: the client has no such message to replace, so it ignores it.
+export struct Refresh
+  fresh: List[Stored]
+  changed: List[Stored]
 end
 
 ## What is wrong with a room name, or "". The caller strips it first.
@@ -453,6 +466,59 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
   return ok(Page(messages: shown.reverse, older: older, at_latest: before.none?))
 end
 
+## The `PAGE_SIZE` messages of the room that come after the message `after`, oldest first (`page_after` of Rails), by
+## `created_at` and then `id` as `page` does. An `after` that is no message of this room gives an empty list, as `page`
+## does for `before`.
+export def page_after(conn: Db.Connection, room_id: Int, after: Int) -> Result[List[Stored]]
+  return after_rows(conn, room_id, after, PAGE_SIZE)
+end
+
+## The page of the room around a message (`page_around` of Rails, which `/rooms/ID/@MESSAGE` shows): the `PAGE_SIZE`
+## messages before it, it, and the `PAGE_SIZE` after it. `none` when the room has no such message (one of another room
+## is none too); the caller then shows the newest page, as Rails does. `older` is the cursor of the page before the
+## window and `at_latest` is true when nothing comes after it.
+export def around(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Page]]
+  found = try find_message(conn, room_id, message_id)
+  case found
+    none -> return ok(none)
+    some(anchor) -> return ok(some(try window(conn, room_id, anchor)))
+  end
+end
+
+## The `Refresh` of the room since `millis`, in milliseconds since the epoch (what the client keeps). A time before the
+## epoch is the epoch. The instant is written as the columns are (`Rails.STAMP`, which has three zeros for the
+## microseconds that `%f` lacks), so the comparison is by text, as it is for the rows that Rails wrote; a message made in
+## the same millisecond as `millis` is therefore after it, as in Rails.
+export def since(conn: Db.Connection, room_id: Int, millis: Int) -> Result[Refresh]
+  at = millis
+  if at < 0
+    at = 0
+  end
+
+  from = Db.Value.Int(at)
+  fresh_rows = try Db.query(
+    conn,
+    "select #{MESSAGE_COLUMNS} from (select messages.id from messages where messages.room_id = ? " +
+    "and messages.created_at > #{INSTANT} order by messages.created_at, messages.id limit ?) picked " +
+    "join messages on messages.id = picked.id #{MESSAGE_JOINS} order by messages.created_at, messages.id",
+    [Db.Value.Int(room_id), from, from, Db.Value.Int(PAGE_SIZE)],
+  )
+
+  fresh = fresh_rows.map do |row| stored_of(row) end
+  ids = fresh.map do |one| Db.Value.Int(one.id) end
+  # `updated_at` has an index with the room, so the few edited rows are found first and only those are sorted.
+  changed_rows = try Db.query(
+    conn,
+    "select #{MESSAGE_COLUMNS} from (select messages.id from messages where messages.room_id = ? " +
+    "and messages.updated_at > #{INSTANT} and messages.id not in (#{placeholders(ids.size)}) " +
+    "order by messages.created_at desc, messages.id desc limit ?) picked " +
+    "join messages on messages.id = picked.id #{MESSAGE_JOINS} order by messages.created_at, messages.id",
+    [Db.Value.Int(room_id), from, from].concat(ids).push(Db.Value.Int(PAGE_SIZE)),
+  )
+
+  return ok(Refresh(fresh: fresh, changed: changed_rows.map do |row| stored_of(row) end))
+end
+
 ## Stores a message of the person in the room, which the caller has checked they are in, and gives it as it is stored
 ## (`some`), or `none` when the person is not active any more: the insert itself needs an active person, so a
 ## deactivation that came after the sign-in check (the request may have waited for a connection) stores nothing, and
@@ -475,6 +541,37 @@ export def post(
   body = HtmlSanitizer.sanitize(html)
   text = HtmlSanitizer.plain_text_of_clean(body)
   return Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text) end
+end
+
+# The `limit` messages that come after the message `after` of the room, oldest first.
+def after_rows(conn: Db.Connection, room_id: Int, after: Int, limit: Int) -> Result[List[Stored]]
+  rows = try Db.query(
+    conn,
+    "select #{MESSAGE_COLUMNS} from (select messages.id from messages where messages.room_id = ? " +
+    "and (messages.created_at, messages.id) > " +
+    "(select anchor.created_at, anchor.id from messages anchor where anchor.id = ? and anchor.room_id = messages.room_id) " +
+    "order by messages.created_at, messages.id limit ?) picked " +
+    "join messages on messages.id = picked.id #{MESSAGE_JOINS} order by messages.created_at, messages.id",
+    [Db.Value.Int(room_id), Db.Value.Int(after), Db.Value.Int(limit)],
+  )
+
+  return ok(rows.map do |row| stored_of(row) end)
+end
+
+def window(conn: Db.Connection, room_id: Int, anchor: Stored) -> Result[Page]
+  before = try page(conn, room_id, some(anchor.id))
+  later = try after_rows(conn, room_id, anchor.id, PAGE_SIZE + 1)
+  shown = before.messages.push(anchor).concat(later.take(PAGE_SIZE))
+  return ok(Page(messages: shown, older: before.older, at_latest: later.size <= PAGE_SIZE))
+end
+
+# `count` question marks for an `in (...)`, or `-1` for none: `in ()` is not SQL, and no row has that id.
+def placeholders(count: Int) -> String
+  if count == 0
+    return "-1"
+  end
+
+  return List.repeat("?", count).join(", ")
 end
 
 def post_in(
