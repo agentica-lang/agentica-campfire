@@ -84,6 +84,8 @@ export def steps() -> List[BDD.Step]
     BDD.step("the first admin exists", &first_admin),
     BDD.step("I remember the answer", &remember_answer),
     BDD.step("the answer is the one that I remembered", &answer_is_remembered),
+    BDD.step("the answer is not the one that I remembered", &answer_is_not_remembered),
+    BDD.step("the request header {string} is the header {string} of the answer", &send_header_of_answer),
     BDD.step("I remember the messages of the page", &remember_thread),
     BDD.step("the messages of the page are the ones that I remembered", &thread_is_remembered),
     BDD.step("the body contains the message of the answer that I remembered", &body_has_remembered_message),
@@ -459,6 +461,22 @@ def answer_is_remembered(ctx: BDD.Context, args: List[String]) -> BDD.Context
   before = JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!
   now = last_reply(ctx)
   return BDD.assert(ctx, before.status == now.status and before.body == now.body, "the answers differ: #{now.body}")
+end
+
+# A page that is made again draws a new id for its form, so a page that was kept and one that was made differ.
+def answer_is_not_remembered(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  before = JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!
+  return BDD.assert(ctx, before.body != last_reply(ctx).body, "the answer is the one that was remembered")
+end
+
+# What a browser does with a validator: it sends the `ETag` of the answer back as `If-None-Match`.
+def send_header_of_answer(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  value = last_reply(ctx).headers.get(args[1].downcase, "")
+  if value.empty?
+    return BDD.assert(ctx, false, "the answer has no header #{args[1]}: #{last_reply(ctx).headers}")
+  end
+
+  return set_header(ctx, [args[0], value])
 end
 
 # The Turbo Stream that a post answered carries the message in its `<template>`; the page that reads the same message

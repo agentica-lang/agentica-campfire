@@ -31,8 +31,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), rooms.agc (the routes
-                and forms of rooms), message_cache.agc (the cache of rendered messages), sidebars.agc, searches.agc
-                and avatars.agc (the sidebar page, the search and the avatar link)
+                and forms of rooms), message_cache.agc (the cache of rendered messages), page_cache.agc (the cache of
+                whole room pages), sidebars.agc, searches.agc and avatars.agc (the sidebar page, the search and the avatar link)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (README, "Docker"): the Rails-style environment to `CAMPFIRE_*`
 public/assets/  the fingerprinted stylesheet and the script of the composer, served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
@@ -175,6 +175,17 @@ agentica.toml   the manifest; Bond is pinned by tag, agentica-db by commit (`poo
   the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial
   does. Whatever `Views.message` starts to show must go in `MessageCache.key`. The pages must be the same bytes with the
   cache on and off (`specs/message_cache.feature`).
+- Page cache: the room page and the page of older messages are kept whole by `PageCache` (`CAMPFIRE_RESPONSE_CACHE_MB`, 64
+  by default, 0 for none; Rails' name and default), as Rails' `CachedResponses` does. The key holds the version of the
+  database (`Database.version`: `PRAGMA data_version` of a connection of its own, the observer, plus a random epoch of that
+  connection), the kind of page, the person, the room and `before`, so any commit by anybody means a new key and nothing
+  has to be dropped by hand; the version is read before the page is made, so a kept page is never older than its key.
+  Only a 200 is kept (a 404 looks the membership up each time), and a hit skips the room lookup because a change of
+  members is a commit. A page that starts to depend on something that no commit changes (the time, a request header, a
+  file) must not use this cache or must put that in the key. Pages carry a weak `ETag` and answer `If-None-Match` with
+  a 304; the `client_message_id` of the form is drawn when the page is made. Every spec that changes the database
+  between two gets (the `I run the sql` steps use another connection) is a check of the invalidation:
+  `specs/page_cache.feature`.
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an

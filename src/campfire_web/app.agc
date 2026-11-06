@@ -4,6 +4,7 @@ import Bond from "pkg/bond/bond"
 import Database from "../campfire/repo/database"
 import Mailer from "../campfire/mail/mailer"
 import MessageCache from "message_cache"
+import PageCache from "page_cache"
 import Web from "web"
 import {Config, plain_link?} from "../campfire/config"
 
@@ -12,6 +13,7 @@ export struct Running
   server: HttpServer
   mailer: Mailer.Mailer
   pool: Database.Pool
+  pages: Optional[PageCache.Pages]
 end
 
 ## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
@@ -66,6 +68,7 @@ end
 export def stop(running: Running) -> Void
   Bond.stop(running.server)
   Mailer.stop(running.mailer)
+  PageCache.stop(running.pages)
   Database.close_pool(running.pool)
 end
 
@@ -74,6 +77,7 @@ export def run(config: Config) -> Result[Void]
   running = try start(config)
   waited = Bond.wait(running.server)
   Mailer.stop(running.mailer)
+  PageCache.stop(running.pages)
   Database.close_pool(running.pool)
   return waited
 end
@@ -88,9 +92,19 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
 
   mailer = try Mailer.start(config.smtp, config.mail_queue)
   messages = MessageCache.start(config.cache_mb)
-  started = Bond.start(Web.build(config, pool, schema_version, mailer, messages), config.host, config.port)
+  watched = PageCache.start(config.response_cache_mb, config.database_url, config.db_checkout_ms)
+  if not watched.ok?
+    Mailer.stop(mailer)
+    return error(
+      "cannot open the database connection that watches for changes (CAMPFIRE_DATABASE_URL): #{watched.message}",
+    )
+  end
+
+  pages = watched.unwrap!
+  started = Bond.start(Web.build(config, pool, schema_version, mailer, messages, pages), config.host, config.port)
   if not started.ok?
     Mailer.stop(mailer)
+    PageCache.stop(pages)
     # The system's message names the host and the port, not the variables that a person has to change.
     return error("cannot listen on #{config.host}:#{config.port} (CAMPFIRE_HOST, CAMPFIRE_PORT): #{started.message}")
   end
@@ -98,7 +112,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  return ok(Running(server: server, mailer: mailer, pool: pool))
+  return ok(Running(server: server, mailer: mailer, pool: pool, pages: pages))
 end
 
 # A cookie without `Secure` travels over plain HTTP, so the line tells a person who forgot the setting behind HTTPS.

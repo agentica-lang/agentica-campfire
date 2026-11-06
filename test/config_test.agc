@@ -105,6 +105,31 @@ def cache_of(megabytes: String) -> Result[Config.Config]
   )
 end
 
+# `parse` with this size of the cache of whole pages.
+def pages_of(megabytes: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    Config.DEFAULT_ASSETS_DIR,
+    "",
+    megabytes,
+  )
+end
+
 def main() -> Void
   Test.run([
     Test.test("a host and a port make a config, and the database is a file of the data folder by default") do
@@ -395,6 +420,14 @@ def main() -> Void
       try Test.error?(cache_of("-1"))
       try Test.error?(cache_of("#{Config.MAX_CACHE_MB + 1}"))
       Test.error?(cache_of("a lot"))
+    end,
+    Test.test("the cache of pages has a default size, 0 turns it off, and the most is the same as for messages") do
+      try Test.eq(cache_of("").unwrap!.response_cache_mb, Config.DEFAULT_RESPONSE_CACHE_MB)
+      try Test.eq(pages_of(" 8 ").unwrap!.response_cache_mb, 8)
+      try Test.eq(pages_of("0").unwrap!.response_cache_mb, 0)
+      try Test.error?(pages_of("-1"))
+      try Test.error?(pages_of("#{Config.MAX_RESPONSE_CACHE_MB + 1}"))
+      Test.error?(pages_of("a lot"))
     end,
     Test.test(
       "the bcrypt library is empty (the default of the system) unless the environment names one, and is never checked",
