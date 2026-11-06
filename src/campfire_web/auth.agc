@@ -161,7 +161,11 @@ def user_of_session(conn: Bond.Conn, db: Db.Connection) -> Result[Optional[Auth.
     return ok(none)
   end
 
-  return Auth.user_for(db, token.unwrap!)
+  found = try Auth.user_for(db, token.unwrap!)
+  case found
+    some(session) -> return ok(some(session.user))
+    none -> return ok(none)
+  end
 end
 
 # A visitor goes to the first run while there is no account, and to the sign-in page after that.
@@ -232,11 +236,11 @@ def session_user(
 
   found = try Database.with_connection(pool) do |db| Auth.user_for(db, token) end
   case found
-    some(person) -> PageCache.remember_user(pages, seen, token, person)
+    some(session) ->
+      PageCache.remember_user(pages, seen, token, session)
+      return ok(some(session.user))
     none -> return ok(none)
   end
-
-  return ok(found)
 end
 
 def public?(path: String) -> Bool

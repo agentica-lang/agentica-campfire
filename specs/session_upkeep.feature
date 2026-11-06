@@ -1,9 +1,9 @@
 Feature: What a session row records, and what keeps the table small
   A session row holds the address of the client that signed in. Its `last_active_at` is written at most once every five
   minutes, not on every request. Starting a session removes the rows that no cookie can use any more: those older than
-  the cookie life (30 days) and those of a deactivated person. A row that old is refused at once, without waiting for that
-  removal. Sign-in is limited to 10 attempts per address in 3
-  minutes. The first admin is Ana, user 1, and Bea is user 2.
+  the cookie life (30 days) and those of a deactivated person. A row that old is refused at once, without waiting for
+  that removal. Sign-in is limited to 10 attempts per address in 3 minutes. The first admin is Ana, user 1, and Bea is
+  user 2.
 
   Background:
     Given a fresh database

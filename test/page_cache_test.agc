@@ -6,9 +6,15 @@ import PageCache from "../src/campfire_web/page_cache"
 
 CHECKOUT_MS = 1_000
 SLOTS = 8
+HOUR_MS = 3_600_000
 
 def ana() -> Auth.User
   return Auth.User(id: 1, name: "Ana", role: "member")
+end
+
+# The session of `person` that ends `ms` from now.
+def lasting(person: Auth.User, ms: Int) -> Auth.Session
+  return Auth.Session(user: person, ends_at_ms: Time.now_ms() + ms)
 end
 
 # The text after the last `:` of a version, which is the random epoch of the connection that read it.
@@ -101,14 +107,17 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   tea = PageCache.search_spot(pages, seen, ana(), "tea")
   try Test.assert(coffee.unwrap!.key != tea.unwrap!.key, "two queries share a key")
   try Test.assert(coffee.unwrap!.key != sidebar.unwrap!.key, "a search and a sidebar share a key")
-  PageCache.remember_user(pages, seen, "token", ana())
+  PageCache.remember_user(pages, seen, "token", lasting(ana(), HOUR_MS))
   try Test.eq(PageCache.known_user(pages, seen, "token").unwrap!.name, "Ana")
+  # No commit announces that a session grew too old, so the person is refused once the session has ended.
+  PageCache.remember_user(pages, seen, "ended", lasting(ana(), -HOUR_MS))
+  try Test.assert(PageCache.known_user(pages, seen, "ended").none?, "a person past the end of the session")
   try Test.assert(PageCache.known_user(pages, seen, "other").none?, "a person for another token")
   try Test.assert(PageCache.known_user(pages, none, "token").none?, "a person without a version")
   # A version that the filter could not read is kept as empty: nothing is kept or found under it, and the observer is
   # not asked again.
   try Test.assert(PageCache.known_user(pages, some(""), "token").none?, "a person under an unreadable version")
-  PageCache.remember_user(pages, some(""), "ghost", ana())
+  PageCache.remember_user(pages, some(""), "ghost", lasting(ana(), HOUR_MS))
   try Test.assert(PageCache.known_user(pages, seen, "ghost").none?, "a person kept under an unreadable version")
   try Test.assert(PageCache.known_user(pages, some(""), "ghost").none?, "a person found under an unreadable version")
   try Test.assert(PageCache.sidebar_spot(pages, some(""), ana()).none?, "a sidebar under an unreadable version")

@@ -41,6 +41,8 @@ NOW = Rails.NOW
 RESET_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '+#{RESET_MINUTES} minutes')"
 RESEND_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{RESEND_SECONDS} seconds')"
 SESSION_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '-#{SESSION_SECONDS} seconds')"
+# The second at which a session row stops working (Unix seconds): `user_for` and `seconds_left` both count from it.
+SESSION_ENDS = "cast(strftime('%s', sessions.created_at) as integer) + #{SESSION_SECONDS}"
 TOUCH_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{TOUCH_SECONDS} seconds')"
 
 ## A person who is signed in.
@@ -48,6 +50,13 @@ export struct User
   id: Int
   name: String
   role: String
+end
+
+## A person who is signed in, and when their session stops working (Unix ms), which a copy of the person must not
+## outlive.
+export struct Session
+  user: User
+  ends_at_ms: Int
 end
 
 ## What the email of a password reset needs: the name and the address of the person, and the token that goes in the
@@ -254,13 +263,14 @@ export def open_session(
   return ok(some(token))
 end
 
-## The user of the session with this token, or `none` when there is no such session, it is older than the cookie life
-## (`SESSION_SECONDS`, whether or not `purge_sessions` has removed it yet) or its user is deactivated. A
-## session that was last active more than five minutes ago is marked active now; a request inside that time only reads.
-export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]]
+## The session with this token and its user, or `none` when there is no such session, it is older than the cookie life
+## (`SESSION_SECONDS`, whether or not `purge_sessions` has removed it yet) or its user is deactivated. A session that
+## was last active more than five minutes ago is marked active now; a request inside that time only reads.
+export def user_for(conn: Db.Connection, token: String) -> Result[Optional[Session]]
   rows = try Db.query(
     conn,
-    "select users.id, users.name, users.role, sessions.last_active_at < #{TOUCH_LIMIT} as stale " +
+    "select users.id, users.name, users.role, #{SESSION_ENDS} * 1000 as ends_at_ms, " +
+    "sessions.last_active_at < #{TOUCH_LIMIT} as stale " +
     "from sessions join users on users.id = sessions.user_id where sessions.token = ? and " +
     "sessions.created_at >= #{SESSION_EXPIRY} and users.status = #{Rails.ACTIVE}",
     [Db.Value.Text(token)],
@@ -274,21 +284,24 @@ export def user_for(conn: Db.Connection, token: String) -> Result[Optional[User]
     touch_session(conn, token)
   end
 
-  return ok(
-    some(
-      User(id: int_of(rows[0], "id"), name: text_of(rows[0], "name"), role: Rails.role_name(int_of(rows[0], "role"))),
-    ),
+  person = User(
+    id: int_of(rows[0], "id"),
+    name: text_of(rows[0], "name"),
+    role: Rails.role_name(int_of(rows[0], "role")),
   )
+
+  return ok(some(Session(user: person, ends_at_ms: int_of(rows[0], "ends_at_ms"))))
 end
 
 ## How many seconds the session with this token has before it is as old as a cookie lives (`SESSION_SECONDS`): the
-## time after which `purge_sessions` removes it. 0 for a session that is not there or is older. A socket that holds the
-## session is closed at the next check that finds 0 (`CableWeb`), not at that time.
+## time after which `purge_sessions` removes it. 0 for a session that is not there, is older, or is of a deactivated
+## person. A socket that holds the session is closed at the next check that finds 0 (`CableWeb`), not at that time.
 export def seconds_left(conn: Db.Connection, token: String) -> Result[Int]
   rows = try Db.query(
     conn,
-    "select cast(strftime('%s', created_at) as integer) + #{SESSION_SECONDS} - cast(strftime('%s', 'now') as integer) " +
-    "as remaining from sessions where token = ?",
+    "select #{SESSION_ENDS} - cast(strftime('%s', 'now') as integer) as remaining " +
+    "from sessions join users on users.id = sessions.user_id where sessions.token = ? and " +
+    "users.status = #{Rails.ACTIVE}",
     [Db.Value.Text(token)],
   )
 
