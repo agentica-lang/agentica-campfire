@@ -10,11 +10,13 @@ import Database from "../campfire/repo/database"
 import Failure from "failure"
 import Mailer from "../campfire/mail/mailer"
 import PageCache from "page_cache"
+import ProfilesWeb from "profiles"
 import Routes from "routes"
 import RoomsWeb from "rooms"
 import SearchesWeb from "searches"
 import SidebarsWeb from "sidebars"
 import SignedId from "../campfire/signed_id"
+import Slots from "../campfire/slots"
 import {Config} from "../campfire/config"
 
 UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>"
@@ -29,7 +31,7 @@ end
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
-## `AccountsWeb`, the sidebar, the search, the avatars (checked with the key of `SECRET_KEY_BASE`) and the folder of the
+## `AccountsWeb`, the user page and the profile, the sidebar, the search, the avatars (checked with the key of `SECRET_KEY_BASE`) and the folder of the
 ## stylesheet, and `/cable`, the live WebSocket (`CableWeb`), which the routes that change a room broadcast through
 ## `cable`. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered
 ## messages for the room pages (`MessageCache.start`); without it every message is rendered each time. `pages` keeps
@@ -43,15 +45,17 @@ export def build(
   messages: Optional[Cache.Store] = none,
   pages: Optional[PageCache.Pages] = none,
 ) -> Bond.App
+  slots = Slots.new()
   return (
     Bond.app()
-    |> AuthWeb.add(config, pool, mailer, cable.hub)
+    |> AuthWeb.add(config, pool, mailer, cable.hub, slots)
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
     |> AccountsWeb.add(config, pool, cable.hub)
     |> SidebarsWeb.add(pool, cable)
     |> SearchesWeb.add(pool)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)
+    |> ProfilesWeb.add(pool, slots, avatar_key(config))
     |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)
     |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, pool) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end

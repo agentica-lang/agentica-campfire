@@ -99,6 +99,15 @@ export ROOM_INVOLVEMENT = "/rooms/:id/involvement"
 export ROOM_INVOLVEMENT_ALLOW = "GET, HEAD, POST, PUT"
 export METHOD_PUT = "put"
 
+## The page of a user (`:id` is their id; any signed-in person may read it) and the profile of the person who is signed
+## in: the page that shows their form, and the save of it, a `PATCH` or a `PUT` or a `POST` with `_method` set to one of
+## the `METHOD_` names (as Rails' forms send it). `:id` is `me` in the links, as in Rails, and is the id of the person
+## too; the profile of another user is a 404 here, so it is only read on their page. Any other method is a 405 that lists
+## `PROFILE_ALLOW`, which is Bond's own list for the path.
+export USER = "/users/:id"
+export PROFILE = "/users/:id/profile"
+export PROFILE_ALLOW = "GET, HEAD, POST, PATCH, PUT"
+
 ## The join link of the account: its page and the post of its form, which is the same path, with the join code as
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
 export JOIN = "/join/:code"
@@ -185,6 +194,16 @@ end
 ## The path of a person under the account, which is where the forms of their role and of their removal post.
 export def account_user_path(user_id: Int) -> String
   return "/account/users/#{user_id}"
+end
+
+## The path of the page of a user.
+export def user_path(user_id: Int) -> String
+  return "/users/#{user_id}"
+end
+
+## The path of the profile of the person who is signed in, which is also where its form posts.
+export def profile_path() -> String
+  return "/users/me/profile"
 end
 
 ## The path that deactivates this user.

@@ -49,6 +49,25 @@ it for `member`); and an administrator cannot change or remove themselves on the
 controls), so the account always keeps an administrator. Any other method on the two paths is a `405` that lists their
 methods.
 
+## The user page and the profile
+
+`GET /users/ID` (`UsersController#show`) is open to anybody who is signed in, for a user in any status: the name, the bio,
+the email address for an administrator only, and a button that opens a direct message with an active user. A bot has
+only the button, and a deactivated person only their name and "is no longer on this account". A user that does not exist
+(or an id that is not a number, or `me`) is `404`. Banning and the sign-in transfer link of Rails are not here yet.
+
+`/users/me/profile` (`Users::ProfilesController`) is the person's own form for the name, the email address, the password
+and the bio (`user[name]`, `user[email_address]`, `user[password]`, `user[bio]`), saved with a `PATCH` (a real one, a
+`PUT`, or a `POST` with `_method` `patch` or `put`; any other method is `405` with the `Allow` list) and a redirect back.
+The page also lists the rooms the person is in, with the link to the sidebar setting of each shared one. The picture is
+shown but cannot be changed yet. Where this differs from Rails: `:id` is `me` or the person's own id and another user's
+profile is `404` (Rails ignores the id and edits the signed-in person); a blank name, an invalid or taken address (in any
+case, among all accounts), a bio over 200 characters and a password under 8 characters are `422` with the form again
+(Rails saves anything and fails on the unique index); a blank email or password leaves the old one (Rails would save a
+blank email); the address is stored in lower case like the join form's. A password change is hashed under the same limit
+of two hashes at a time as sign-in (`503` with `Retry-After` past it) and does not end the person's sessions, as in Rails.
+A save with none of the four fields is `400`.
+
 ## The tables
 
 The people and the account live in the tables of a Rails Campfire, with Rails' columns and types

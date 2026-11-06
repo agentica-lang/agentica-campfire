@@ -385,22 +385,9 @@ export def reset_password(
   return ok(ResetOutcome.Gone)
 end
 
-# What is wrong with the first-run form, or "".
-def form_problem(name: String, email: String, password: String) -> String
-  if name.strip.empty? or name.strip.length > MAX_NAME_LENGTH
-    return "Enter your name"
-  end
-
-  if not valid_email?(normal(email))
-    return "Enter a valid email address"
-  end
-
-  return Passwords.problem(password)
-end
-
-# A single `@` between a name and a domain with a dot, and no space: enough to catch a typo. Only a mail sent to the
-# address proves that it works.
-def valid_email?(email: String) -> Bool
+## True when `email` (in the `normal` form) is a single `@` between a name and a domain with a dot, with no space and not
+## too long: enough to catch a typo. Only a mail sent to the address proves that it works.
+export def valid_email?(email: String) -> Bool
   parts = email.split("@")
   if parts.size != 2 or email.length > MAX_EMAIL_LENGTH or email.include?(" ")
     return false
@@ -414,14 +401,39 @@ def valid_email?(email: String) -> Bool
   )
 end
 
-# Emails compare without case and without the spaces around them. The unique index of `email_address` compares bytes
-# (it is Rails' own, and Rails stores an address as it was typed), so the app stores this form and looks an address up
-# by it first, which the index serves. Only when no row has it does the lookup fall back to `lower(email_address)`,
-# which scans `users`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and is not
-# made twice by a join. Where two rows differ only in case (the index lets Rails make them), the one that is already
-# lower case is the person, and among the others the oldest.
-def normal(email: String) -> String
+## Emails compare without case and without the spaces around them. The unique index of `email_address` compares bytes
+## (it is Rails' own, and Rails stores an address as it was typed), so the app stores this form and looks an address up
+## by it first, which the index serves. Only when no row has it does the lookup fall back to `lower(email_address)`,
+## which scans `users`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and is not
+## made twice by a join. Where two rows differ only in case (the index lets Rails make them), the one that is already
+## lower case is the person, and among the others the oldest.
+export def normal(email: String) -> String
   return email.strip.downcase
+end
+
+## True when an account has `email` (in the `normal` form), in any status: the unique index compares bytes, so the
+## lookup falls back to `lower(email_address)`, which finds a row that Rails made with capitals.
+def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
+  exact = try Db.query(conn, "select 1 from users where email_address = ? limit 1", [Db.Value.Text(email)])
+  if not exact.empty?
+    return ok(true)
+  end
+
+  rows = try Db.query(conn, "select 1 from users where lower(email_address) = ? limit 1", [Db.Value.Text(email)])
+  return ok(not rows.empty?)
+end
+
+# What is wrong with the first-run form, or "".
+def form_problem(name: String, email: String, password: String) -> String
+  if name.strip.empty? or name.strip.length > MAX_NAME_LENGTH
+    return "Enter your name"
+  end
+
+  if not valid_email?(normal(email))
+    return "Enter a valid email address"
+  end
+
+  return Passwords.problem(password)
 end
 
 # The rows (at most one) of the active person, not a bot, whose email is `email` in the normal form, with `columns`.
@@ -605,16 +617,6 @@ def make_member(
   try Rooms.grant_open_rooms(tx, user_id)
   try insert_session(tx, user_id, token, client)
   return ok(JoinOutcome.Joined(token))
-end
-
-def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
-  exact = try Db.query(conn, "select 1 from users where email_address = ? limit 1", [Db.Value.Text(email)])
-  if not exact.empty?
-    return ok(true)
-  end
-
-  rows = try Db.query(conn, "select 1 from users where lower(email_address) = ? limit 1", [Db.Value.Text(email)])
-  return ok(not rows.empty?)
 end
 
 def insert_session(conn: Db.Connection, user_id: Int, token: String, client: Client) -> Result[Int]
