@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation; change this file and
-the stylesheet together. One stylesheet, one script of about 5 KB (2.2 KB gzipped) that the room page and the edit page load, no web fonts, no
+the stylesheet together. One stylesheet, one script of about 25 KB (7.7 KB gzipped) that the room page, the edit page and the pages with the sidebar load, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -101,8 +101,10 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 
 ## Script
 
-`public/assets/campfire-DIGEST.js` is the only script, linked by the room page (`Views.room`) and the page that edits a
-message (`Views.edit_message`), and both work without it (a plain post and a redirect). It sends the message with `fetch`, asking for the Turbo Stream that
+`public/assets/campfire-DIGEST.js` is the only script, linked by the room page (`Views.room`), the page that edits a
+message (`Views.edit_message`) and every page with the sidebar (`live_layout`), and the pages work without it. Its second
+part keeps them live (`docs/cable.md`, "The pages"); a room with something new is `nav li.unread`, bold with a dot. The
+composer works without it (a plain post and a redirect), and has the keys of the composer and of the edit form. It sends the message with `fetch`, asking for the Turbo Stream that
 `POST /rooms/ID/messages` already answers, appends the message to the list, clears the box, gives the form a new
 `client_message_id`, scrolls to the newest message and keeps the focus in the box, so a phone keeps its keyboard open
 (Send takes no focus on `pointerdown`). A refusal (any non-2xx answer) is sent again as a plain post, so the page of

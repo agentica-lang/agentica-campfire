@@ -346,6 +346,17 @@ export def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
   return ok(rows.map do |row| int_of(row, "user_id") end)
 end
 
+## The ids of the rooms that are unread for the person (`unread_at` is set): what the sidebar marks.
+export def unread_ids(conn: Db.Connection, user_id: Int) -> Result[List[Int]]
+  rows = try Db.query(
+    conn,
+    "select room_id from memberships where user_id = ? and unread_at is not null",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok(rows.map do |row| int_of(row, "room_id") end)
+end
+
 ## Everyone in the room, with whether it is unread for them: who a live notice about the room may concern.
 export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
   rows = try Db.query(

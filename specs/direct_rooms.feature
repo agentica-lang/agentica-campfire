@@ -37,7 +37,7 @@ Feature: Direct messages
       | message[body] | Hello Bea |
     And I sign in as "bea@example.com"
     And I get "/users/me/sidebar"
-    Then the body contains "<a href=\"/rooms/2\">Ana</a>"
+    Then the body contains "<li id=\"room_2\" class=\"unread\"><a href=\"/rooms/2\">Ana<span class=\"sr-only\"> (unread)</span></a></li>"
     When I get "/rooms/2"
     Then the status is 200
     And the body contains "<h1>Ana</h1>"

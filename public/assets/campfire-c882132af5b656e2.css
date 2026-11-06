@@ -229,6 +229,21 @@ nav li a:hover {
   text-decoration: underline;
 }
 
+/* A room with something new: bold, and a dot (the word for a screen reader is in the markup). */
+nav li.unread a {
+  font-weight: 700;
+}
+
+nav li.unread a::before {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-inline-end: var(--s-1);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 nav .actions a {
   font-size: var(--fs-sm);
   color: var(--muted);
