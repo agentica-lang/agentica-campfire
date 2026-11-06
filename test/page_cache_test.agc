@@ -6,9 +6,15 @@ import PageCache from "../src/campfire_web/page_cache"
 
 CHECKOUT_MS = 1_000
 SLOTS = 8
+HOUR_MS = 3_600_000
 
 def ana() -> Auth.User
   return Auth.User(id: 1, name: "Ana", role: "member")
+end
+
+# The session of `person` that ends `ms` from now.
+def lasting(person: Auth.User, ms: Int) -> Auth.Session
+  return Auth.Session(user: person, ends_at_ms: Time.now_ms() + ms)
 end
 
 # The text after the last `:` of a version, which is the random epoch of the connection that read it.
@@ -101,14 +107,17 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   tea = PageCache.search_spot(pages, seen, ana(), "tea")
   try Test.assert(coffee.unwrap!.key != tea.unwrap!.key, "two queries share a key")
   try Test.assert(coffee.unwrap!.key != sidebar.unwrap!.key, "a search and a sidebar share a key")
-  PageCache.remember_user(pages, seen, "token", ana())
+  PageCache.remember_user(pages, seen, "token", lasting(ana(), HOUR_MS))
   try Test.eq(PageCache.known_user(pages, seen, "token").unwrap!.name, "Ana")
+  # No commit announces that a session grew too old, so the person is refused once the session has ended.
+  PageCache.remember_user(pages, seen, "ended", lasting(ana(), -HOUR_MS))
+  try Test.assert(PageCache.known_user(pages, seen, "ended").none?, "a person past the end of the session")
   try Test.assert(PageCache.known_user(pages, seen, "other").none?, "a person for another token")
   try Test.assert(PageCache.known_user(pages, none, "token").none?, "a person without a version")
   # A version that the filter could not read is kept as empty: nothing is kept or found under it, and the observer is
   # not asked again.
   try Test.assert(PageCache.known_user(pages, some(""), "token").none?, "a person under an unreadable version")
-  PageCache.remember_user(pages, some(""), "ghost", ana())
+  PageCache.remember_user(pages, some(""), "ghost", lasting(ana(), HOUR_MS))
   try Test.assert(PageCache.known_user(pages, seen, "ghost").none?, "a person kept under an unreadable version")
   try Test.assert(PageCache.known_user(pages, some(""), "ghost").none?, "a person found under an unreadable version")
   try Test.assert(PageCache.sidebar_spot(pages, some(""), ana()).none?, "a sidebar under an unreadable version")
@@ -117,6 +126,41 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   later = some(try Database.version(observer))
   try Test.assert(PageCache.known_user(pages, later, "token").none?, "a person kept across a commit")
   return Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, later, ana())).none?, "a sidebar across a commit")
+end
+
+# The session that `Auth.user_for` reads from a row is kept as it is and found again. Its end is in Unix ms, which
+# guards the `* 1000` of the query (it once multiplied only the seconds of the cookie life), and is `SESSION_SECONDS`
+# after the row was made.
+def fresh_session_is_kept_and_found(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
+  _ = try Database.migrate(url)
+  stamp = "'2026-03-01 09:00:00.000000'"
+  try Db.execute(
+    writer,
+    "insert into users (name, email_address, password_digest, role, created_at, updated_at) " +
+    "values ('Ana', 'ana@example.com', 'x', 1, #{stamp}, #{stamp})",
+    [],
+  )
+
+  opened = try Auth.open_session(writer, 1, "", "")
+  token = opened.unwrap_or("")
+  try Test.assert(not token.empty?, "no session was opened")
+  found = try Auth.user_for(writer, token)
+  try Test.assert(found.some?, "a fresh session was refused")
+  session = found.unwrap!
+  expected = Time.now_ms() + Auth.SESSION_SECONDS * 1000
+  try Test.assert((session.ends_at_ms - expected).abs < 10_000, "the end of the session is not 30 days from now")
+  pages = some(
+    PageCache.Pages(
+      store: Cache.memory(1_000_000),
+      people: Cache.memory(100_000),
+      search_slots: SLOTS,
+      observer: observer,
+    ),
+  )
+
+  seen = some(try Database.version(observer))
+  PageCache.remember_user(pages, seen, token, session)
+  return Test.eq(PageCache.known_user(pages, seen, token).unwrap!.name, "Ana")
 end
 
 # A person has `search_slots` places for search pages whatever they type: the pages of more queries write over each
@@ -214,6 +258,9 @@ def main() -> Void
     ) do run_in_dir(&spots_follow_the_person) end,
     Test.test("the sidebar, the search and the person of a session are kept for their version") do
       run_in_dir(&sidebar_search_and_person_are_kept)
+    end,
+    Test.test("the session that user_for reads from a row is kept and found, and ends 30 days after it began") do
+      run_in_dir(&fresh_session_is_kept_and_found)
     end,
     Test.test("a person keeps a bounded number of search pages, each for its words, version and person") do
       run_in_dir(&searches_are_bounded_per_person)

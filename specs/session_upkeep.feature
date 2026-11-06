@@ -1,8 +1,9 @@
 Feature: What a session row records, and what keeps the table small
   A session row holds the address of the client that signed in. Its `last_active_at` is written at most once every five
   minutes, not on every request. Starting a session removes the rows that no cookie can use any more: those older than
-  the cookie life (30 days) and those of a deactivated person. Sign-in is limited to 10 attempts per address in 3
-  minutes. The first admin is Ana, user 1, and Bea is user 2.
+  the cookie life (30 days) and those of a deactivated person. A row that old is refused at once, without waiting for
+  that removal. Sign-in is limited to 10 attempts per address in 3 minutes. The first admin is Ana, user 1, and Bea is
+  user 2.
 
   Background:
     Given a fresh database
@@ -32,6 +33,15 @@ Feature: What a session row records, and what keeps the table small
     Then the query "select count(*) from sessions where token in ('old', 'gone')" gives 0
     And the query "select count(*) from sessions where token = 'recent'" gives 1
     And the query "select count(*) from sessions" gives 3
+
+  Scenario: A session row past the cookie life is refused even when no one has signed in since
+    When I run the sql "update sessions set created_at = datetime('now', '-31 days')"
+    And I get "/users/me/sidebar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I run the sql "update sessions set created_at = datetime('now', '-29 days')"
+    And I get "/users/me/sidebar"
+    Then the status is 200
 
   Scenario: The 11th sign-in attempt from one address in the window is refused with a 429
     Given the browser has no cookies

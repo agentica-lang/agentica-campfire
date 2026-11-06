@@ -32,7 +32,8 @@
 ## person up, and keeps it for the handler (`seen`), so a hit costs one lease of the observer and none of the pool:
 ## the person of a session is kept for one version of the database too (`known_user`, `remember_user`; a hit does not
 ## touch the session, see `Auth.user_for`, so on a quiet database `last_active_at` can be older than its five-minute
-## refresh), in a store of its own (`CAMPFIRE_SESSION_CACHE_MB`) so that the churn of pages cannot push a session out.
+## refresh; and it is refused once the session is older than the cookie life, which no commit announces), in a store of
+## its own (`CAMPFIRE_SESSION_CACHE_MB`) so that the churn of pages cannot push a session out.
 ## A sign-out, a deactivation, a ban, a rename or a change of role is a commit, so the next read has a new version and
 ## looks the session up again. The person is looked up after the version was read, so what is kept under a version is
 ## that of the database at that version or later.
@@ -239,8 +240,8 @@ export def seen(conn: Bond.Conn) -> Optional[String]
   return some(version.unwrap!.text)
 end
 
-## The person of the session with `token`, if the database is at the version that `watch` read and the person was kept
-## at it (`remember_user`).
+## The person of the session with `token`, if the database is at the version that `watch` read, the person was kept at
+## it (`remember_user`) and the session has not ended since.
 export def known_user(pages: Optional[Pages], seen: Optional[String], token: String) -> Optional[Auth.User]
   case pages
     none -> return none
@@ -248,16 +249,17 @@ export def known_user(pages: Optional[Pages], seen: Optional[String], token: Str
   end
 end
 
-## Keeps the person of the session with `token` for the version `seen`. A session that is ended, or a person who is
-## deactivated, banned, renamed or changed, is a commit, so it is another version.
-export def remember_user(pages: Optional[Pages], seen: Optional[String], token: String, person: Auth.User) -> Void
+## Keeps the session with `token` for the version `seen`. A session that is ended, or a person who is deactivated,
+## banned, renamed or changed, is a commit, so it is another version; a session that grows too old is not (no one has to
+## commit), so the time it ends at is kept with the person, and `known_user` refuses the person after it.
+export def remember_user(pages: Optional[Pages], seen: Optional[String], token: String, session: Auth.Session) -> Void
   case pages
     none -> return
     some(found) ->
       case seen
         none -> return
         some(version) if not version.empty? ->
-          Cache.put(found.people, user_key(version, token), Auth.User.codec.encode(person))
+          Cache.put(found.people, user_key(version, token), Auth.Session.codec.encode(session))
         _ -> return
       end
   end
@@ -358,12 +360,12 @@ def recalled(pages: Pages, seen: Optional[String], token: String) -> Optional[Au
         return none
       end
 
-      person = Auth.User.codec.decode(kept.unwrap!)
-      if not person.ok?
+      session = Auth.Session.codec.decode(kept.unwrap!)
+      if not session.ok? or session.unwrap!.ends_at_ms <= Time.now_ms()
         return none
       end
 
-      return some(person.unwrap!)
+      return some(session.unwrap!.user)
   end
 end
 

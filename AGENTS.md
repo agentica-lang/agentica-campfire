@@ -143,8 +143,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   path-matching filter, since the router also takes `/session/` there: 10 posts in 3 minutes, then 429 with
   `Retry-After`, before the form is read; an IPv6 client counts by its /64); the address is `Conn.remote_addr`, which Bond
   does not take from `X-Forwarded-For`. A session row keeps it (`ip_address`); `last_active_at` is written at most
-  every 5 minutes, in `Auth.user_for`, and starting a session purges the rows past the cookie life and those of a
-  deactivated person (`purge_sessions`).
+  every 5 minutes, in `Auth.user_for`, which refuses a row past the cookie life; the person that `PageCache` keeps for a
+  version carries the end of the session (`Auth.Session`) and is refused after it, since no commit announces it.
+  Starting a session purges those rows and those of a deactivated person (`purge_sessions`).
 - Invitation: `Auth.join` makes a member for `/join/CODE` (the form's own path) and calls `Rooms.grant_open_rooms` in
   the transaction that makes the user; the code, the form and the email are checked before a hashing slot is taken (a
   form that cannot work takes no slot), and the code and the email again inside the transaction, so a regenerated code
@@ -227,7 +228,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   The sign-in filter reads the version first for a `GET` or `HEAD` of a page that is kept (`PageCache.cached?`,
   `PageCache.watch`, kept for the handler with `PageCache.seen`) and looks the person up after it: the person of a
   session is kept under the version too (`known_user`, `remember_user`), so a hit costs one lease of the observer and
-  none of the pool, and a sign-out, a deactivation, a ban or a rename is a commit and so a miss. A hit does not touch
+  none of the pool; it is valid for that version and until the session ends (`Auth.Session`), and a sign-out, a
+  deactivation, a ban or a rename is a commit and so a miss. A hit does not touch
   the session (`Auth.user_for`), so `last_active_at` can be older than its five-minute refresh on a quiet database;
   only Rails reads it. Never keep a person under a key that has no version. A page that starts to depend on something
   that no commit changes (the time, a request header, a file) must not use this cache or must put that in the key.
