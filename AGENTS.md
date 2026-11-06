@@ -262,11 +262,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   one name for the segment under `/users/`, so the token is `:id`. The Active Storage rows and files of the specs are
   made by Rails (`specs/fixtures/rails/make_avatar.sh`).
 - Assets: never edit `public/assets/` or `src/campfire_web/asset_names.agc`. Change `app/assets/stylesheets/` or
-  `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later; esbuild and sass are pinned in `package.json`
+  `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
   and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`
   (DIGEST the first 16 hex digits of the SHA-256 of the file) and the names that `Routes.STYLESHEET` and `Routes.SCRIPT` read.
   The built files are committed, so `agentica test`, the benchmark and the Docker image need no Node; CI runs
-  `make assets` and fails if `git diff` shows a change (`specs/assets.feature` checks the names). The SCSS layout
+  `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). The SCSS layout
   rule (grid first, flex only for one-dimensional bits) is at the top of `application.scss`. `/assets/` is public
   (`AuthWeb.public?`). The script is progressive enhancement: the room page, the edit page and every page with the sidebar link it, every form works
   without it, and it stays about 10 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;

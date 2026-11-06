@@ -33,14 +33,8 @@ jobs:
       - name: Assets are up to date
         run: |
           node --version
-          npm ci --ignore-scripts
-          make assets
-          changed="$(git status --porcelain -- public/assets src/campfire_web/asset_names.agc)"
-          if [ -n "$changed" ]; then
-            echo "make assets changed the built files; commit them:" >&2
-            echo "$changed" >&2
-            exit 1
-          fi
+          npm ci
+          make assets-check
 
       # The locked packages (Bond), checked against the hashes of agentica.lock.
       - name: Install the packages
