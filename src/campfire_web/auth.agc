@@ -8,6 +8,7 @@ import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
+import BanFlag from "ban_flag"
 import Bans from "../campfire/bans"
 import Database from "../campfire/repo/database"
 import Failure from "failure"
@@ -76,6 +77,7 @@ export def add(
   mailer: Mailer.Mailer,
   hub: Channels.Hub,
   slots: ATS[String, Int],
+  bans: ATS[String, Int],
 ) -> Bond.App
   # `slots` bounds the hashing for everyone together (the profile shares it); `attempts` bounds the sign-in posts of
   # one address.
@@ -83,7 +85,7 @@ export def add(
   return (
     app
     |> Bond.csrf()
-    |> Bond.before() do |conn| reject_banned(conn, pool) end
+    |> Bond.before() do |conn| reject_banned(conn, pool, bans) end
     |> Bond.sessions(session_options(config))
     |> Bond.before() do |conn| require_sign_in(conn, pool) end
     |> Bond.get(Routes.FIRST_RUN) do |conn| show_first_run(conn, pool) end
@@ -164,17 +166,26 @@ end
 # A request that changes something and comes from an address that a ban holds is refused with 429 before anything else
 # is looked at (`BlockBannedRequests`): a banned person cannot sign in again from where they were, nor post. Reading
 # stays open, as in Rails. The address is the peer of the connection, as for the sign-in limit.
-def reject_banned(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
-  if conn.method == "GET" or conn.method == "HEAD"
+def reject_banned(conn: Bond.Conn, pool: Database.Pool, bans: ATS[String, Int]) -> Result[Bond.Conn]
+  if conn.method == "GET" or conn.method == "HEAD" or not BanFlag.any?(bans)
     return ok(conn)
   end
 
-  banned = try Database.with_connection(pool) do |db| Bans.banned?(db, conn.remote_addr) end
+  banned = try Database.with_connection(pool) do |db| holds?(db, bans, conn.remote_addr) end
   if banned
     return ok(Bond.halt(conn, 429, "Too Many Requests"))
   end
 
   return ok(conn)
+end
+
+# The flag says there may be a ban (or is not known yet, and is read now). The table is asked only then.
+def holds?(db: Db.Connection, bans: ATS[String, Int], address: String) -> Result[Bool]
+  if not BanFlag.known?(bans) and not try BanFlag.refresh(bans, db)
+    return ok(false)
+  end
+
+  return Bans.banned?(db, address)
 end
 
 def require_sign_in(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]

@@ -10,6 +10,7 @@ import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
+import BanFlag from "ban_flag"
 import Bans from "../campfire/bans"
 import CableWeb from "cable"
 import ContentRemoval from "content_removal"
@@ -50,15 +51,21 @@ enum Answer
 end
 
 ## Adds the routes of the people page to `app`.
-export def add(app: Bond.App, config: Config, pool: Database.Pool, cable: CableWeb.Cable) -> Bond.App
+export def add(
+  app: Bond.App,
+  config: Config,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  bans: ATS[String, Int],
+) -> Bond.App
   hub = cable.hub
   return (
     app
     |> Bond.get(Routes.USERS) do |conn| show_users(conn, config, pool) end
     |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, hub, true) end
     |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, hub, false) end
-    |> Bond.post(Routes.USER_BAN) do |conn| post_ban(conn, pool, cable) end
-    |> Bond.delete(Routes.USER_BAN) do |conn| change_ban(conn, pool, cable, false) end
+    |> Bond.post(Routes.USER_BAN) do |conn| post_ban(conn, pool, cable, bans) end
+    |> Bond.delete(Routes.USER_BAN) do |conn| change_ban(conn, pool, cable, bans, false) end
     |> Bond.post(Routes.JOIN_CODE) do |conn| regenerate_code(conn, pool) end
     |> Bond.get(Routes.ACCOUNT_EDIT) do |conn| show_account(conn, pool) end
     |> Bond.post(Routes.ACCOUNT) do |conn| post_account(conn, pool) end
@@ -72,14 +79,14 @@ end
 # A `POST` with no `_method` is the ban button of Rails and one with `_method` set to `delete` is the button that
 # lifts it;
 # any other is a 405 that lists the methods of the path.
-def post_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+def post_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, bans: ATS[String, Int]) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   if method == ""
-    return change_ban(conn, pool, cable, true)
+    return change_ban(conn, pool, cable, bans, true)
   end
 
   if method == Routes.METHOD_DELETE
-    return change_ban(conn, pool, cable, false)
+    return change_ban(conn, pool, cable, bans, false)
   end
 
   return ok(respond(conn, Answer.NotAllowed(Routes.USER_BAN_ALLOW)))
@@ -88,9 +95,15 @@ end
 # A banned person has no session left, so their sockets are closed and told not to come back, and their messages are
 # taken away by a task, which tells the rooms (`RemoveBannedContentJob`). Only a ban that changed something
 # does either.
-def change_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, banning: Bool) -> Result[Bond.Conn]
+def change_ban(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  bans: ATS[String, Int],
+  banning: Bool,
+) -> Result[Bond.Conn]
   id = user_id(conn)
-  answer = try Database.with_connection(pool) do |db| ban_answer(conn, db, id, banning) end
+  answer = try Database.with_connection(pool) do |db| ban_answer(conn, db, id, bans, banning) end
   case answer
     Answer.Banned(banned_id) ->
       Hangup.user(cable.hub, banned_id, false)
@@ -102,26 +115,46 @@ def change_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, bann
 end
 
 # Administrator first (403), then the person (404), as the other administrator-only posts.
-def ban_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], banning: Bool) -> Result[Answer]
+def ban_answer(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  id: Optional[Int],
+  bans: ATS[String, Int],
+  banning: Bool,
+) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
     some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
     some(_) if id.none? -> return ok(Answer.NotFound)
-    some(person) -> return banned_answer(db, person, id.unwrap!, banning)
+    some(person) -> return banned_answer(db, person, id.unwrap!, bans, banning)
   end
 end
 
-def banned_answer(db: Db.Connection, person: Auth.User, user_id: Int, banning: Bool) -> Result[Answer]
+# The flag of the bans is set before a ban is written, so a request from the address cannot slip in between, and read
+# again after a ban is lifted.
+def banned_answer(
+  db: Db.Connection,
+  person: Auth.User,
+  user_id: Int,
+  bans: ATS[String, Int],
+  banning: Bool,
+) -> Result[Answer]
   if banning
+    BanFlag.mark(bans, true)
     change = try Bans.ban(db, person.id, user_id)
     case change
-      Accounts.Change.Changed -> return ok(Answer.Banned(user_id))
+      Accounts.Change.Changed ->
+        # Again after the commit: a lifting that read the table in between would have cleared it.
+        BanFlag.mark(bans, true)
+        return ok(Answer.Banned(user_id))
       _ -> return answer_of(change, Routes.user_path(user_id))
     end
   end
 
-  return answer_of(try Bans.unban(db, person.id, user_id), Routes.user_path(user_id))
+  lifted = try Bans.unban(db, person.id, user_id)
+  _ = try BanFlag.refresh(bans, db)
+  return answer_of(lifted, Routes.user_path(user_id))
 end
 
 def show_account(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]

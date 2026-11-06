@@ -93,11 +93,14 @@ would make them active, which skips the reactivation). Repeating either is a red
 is `405` with `Allow: POST, DELETE`.
 
 A ban (`User#ban`): the person's status becomes banned, their sessions and password-reset links end, their sockets are
-told not to come back, and there is one `bans` row for each distinct address their sessions came from. Only public
-addresses count: Rails refuses a private, loopback or link-local one with an error that undoes the whole ban, while
-here such an address is left out, since banning it would lock out everyone behind it. A task takes the person's
-messages away one by one and tells the rooms (`RemoveBannedContentJob`); a restart in the middle leaves what is left,
-as for a deleted room. Lifting the ban (`User#unban`) deletes the person's `bans` and makes them active; the messages
+told not to come back, and there is one `bans` row for each distinct address their sessions came from. Only addresses
+of the open internet count: Rails refuses a private, loopback or link-local one with an error that undoes the whole
+ban, while here such an address is left out, and so are the shared (100.64.0.0/10), documentation, multicast, reserved
+and other special ranges, which Rails would accept. The app bans the peer of the connection, and a reverse proxy on
+any of those addresses would otherwise make one ban refuse every write of everybody. A task takes the person's
+messages away one by one and tells the rooms (`RemoveBannedContentJob`); it stops when the person is not banned any
+more, so what they write after a ban is lifted stays, and a restart in the middle leaves what is left, as for a
+deleted room. Lifting the ban (`User#unban`) deletes the person's `bans` and makes them active; the messages
 do not come back. The memberships are not touched by either. Unlike Rails, an administrator cannot ban or unban
 themselves (`403`), so the account keeps one.
 

@@ -119,9 +119,20 @@ can ask.
 
 A request that is not a `GET` or a `HEAD` from an address that a ban holds gets `429` before the sign-in check, so a
 banned person cannot sign in again from where they were, and cannot post. The address is the peer of the connection
-(`Conn.remote_addr`), not `X-Forwarded-For`, which a client chooses. Behind a proxy every request comes from the
-proxy, so a ban there would refuse everybody; loopback, private and link-local addresses are never written, which
-covers a proxy on the same host or the same network, but not a public one.
+(`Conn.remote_addr`), not `X-Forwarded-For`, which a client chooses. A flag in memory says whether any ban exists, so
+a write costs no query when there is none; it is read from the table at the first write and kept by the ban and the
+unban of the app.
+
+Behind a reverse proxy every request comes from the proxy, so a ban of its address would refuse everybody. Only
+addresses of the open internet are written (`Bans.public_address?`; loopback, private, shared, documentation,
+multicast, reserved and link-local ranges are not), which covers a proxy on the same host, a LAN, Docker or Tailscale.
+A proxy on a public address is not covered, and an IP ban does nothing there: every request has the proxy's address
+and no session address is banned, so the ban still ends the sessions, closes the sockets and removes the messages.
+
+A person who shares an address with someone who was banned (an office, a mobile network) gets `429` on every write.
+The way out is to lift the ban from the person's page (which deletes all of their rows), or to delete the row by hand,
+for example `delete from bans where ip_address = '198.51.100.7'`, which takes effect at once. A row added by hand while
+no ban exists is seen after a restart, when the flag is read again.
 
 ## Deactivation and open requests
 

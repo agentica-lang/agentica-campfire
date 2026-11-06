@@ -14,7 +14,7 @@ Feature: Bans
     And a member "Cy" with the email "cy@example.com" exists
     And a user "Di" with the email "di@example.com", the role "member" and the status "deactivated" exists
     And a bot "Robo" with the token "robo-token" exists
-    And I run the sql "insert into sessions (user_id, token, ip_address, user_agent, last_active_at, created_at, updated_at) values (2, 't1', '203.0.113.9', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't2', '203.0.113.9', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't3', '198.51.100.7', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't4', '10.0.0.5', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't5', '', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (3, 't6', '192.0.2.44', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'))"
+    And I run the sql "insert into sessions (user_id, token, ip_address, user_agent, last_active_at, created_at, updated_at) values (2, 't1', '8.8.8.8', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't2', '8.8.8.8', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't3', '1.1.1.1', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't4', '10.0.0.5', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (2, 't5', '', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now')), (3, 't6', '9.9.9.9', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'))"
     And I run the sql "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) values (1, 2, 'm1', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000'), (1, 2, 'm2', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000'), (1, 3, 'm3', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
     And I sign in as "bea@example.com"
     And I sign in as "ana@example.com"
@@ -44,7 +44,7 @@ Feature: Bans
     And the query "select count(*) from sessions where user_id = 2" gives 0
     And the query "select count(*) from sessions where user_id = 3" gives 1
     And the query "select count(*) from bans where user_id = 2" gives 2
-    And the query "select count(*) from bans where user_id = 2 and ip_address in ('203.0.113.9', '198.51.100.7')" gives 2
+    And the query "select count(*) from bans where user_id = 2 and ip_address in ('8.8.8.8', '1.1.1.1')" gives 2
     And the query "select count(*) from messages where creator_id = 2" gives 0 within 5000 milliseconds
     And the query "select count(*) from messages where creator_id = 3" gives 1
     And the query "select count(*) from users where id = 2" gives 1
@@ -101,7 +101,7 @@ Feature: Bans
     Then the status is 302
     And the query "select count(*) from users where id = 2 and status = 0" gives 1
 
-  Scenario Outline: Only a real address is held by a ban, not a local one
+  Scenario Outline: Only an address of the open internet is held by a ban, not a local, shared, documentation or reserved one
     Given I run the sql "delete from sessions where user_id = 3"
     And I run the sql "insert into sessions (user_id, token, ip_address, user_agent, last_active_at, created_at, updated_at) values (3, 'x', '<address>', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'))"
     When I post to "/users/3/ban" the form:
@@ -112,22 +112,46 @@ Feature: Bans
     Examples:
       | address         | bans |
       | 8.8.8.8         | 1    |
-      | 2001:db8::1     | 1    |
+      | 2606:4700::1111 | 1    |
+      | ::ffff:8.8.8.8  | 1    |
+      | ::ffff:808:808  | 1    |
+      | 100.128.0.1     | 1    |
+      | 172.32.0.1      | 1    |
+      | 198.20.0.1      | 1    |
       | 127.0.0.1       | 0    |
       | 10.1.2.3        | 0    |
       | 172.16.0.1      | 0    |
-      | 172.32.0.1      | 1    |
       | 192.168.1.1     | 0    |
       | 169.254.1.1     | 0    |
+      | 100.64.0.1      | 0    |
+      | 100.127.255.254 | 0    |
+      | 0.0.0.0         | 0    |
+      | 192.0.0.8       | 0    |
+      | 192.0.2.1       | 0    |
+      | 198.18.0.1      | 0    |
+      | 198.19.255.1    | 0    |
+      | 198.51.100.7    | 0    |
+      | 203.0.113.9     | 0    |
+      | 224.0.0.1       | 0    |
+      | 240.0.0.1       | 0    |
+      | 255.255.255.255 | 0    |
       | ::1             | 0    |
+      | ::              | 0    |
       | fe80::1         | 0    |
+      | fec0::1         | 0    |
       | fd00::1         | 0    |
+      | ff02::1         | 0    |
+      | 2001:db8::1     | 0    |
+      | ::ffff:7f00:1   | 0    |
+      | ::ffff:a00:1    | 0    |
       | ::ffff:10.0.0.1 | 0    |
+      | ::ffff:6440:1   | 0    |
       | not an address  | 0    |
       | 999.1.1.1       | 0    |
 
   Scenario: A request that changes something from a banned address gets 429 and a read is served
     Given I run the sql "insert into bans (ip_address, user_id, created_at, updated_at) values ('127.0.0.1', 3, '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
+    And the app restarts
     When I get "/rooms/1"
     Then the status is 200
     When I post to "/rooms/1/messages" the form:
@@ -141,10 +165,35 @@ Feature: Bans
     Then the status is 429
     And the query "select count(*) from messages where room_id = 1" gives 3
     When I run the sql "delete from bans"
+    And the app restarts
     And I post to "/session" the form:
       | email_address | ana@example.com       |
       | password      | correct horse battery |
     Then the status is 302
+
+  Scenario: The removal of the messages stops when the person is not banned any more
+    Given I run the sql "update users set status = 0 where id = 2"
+    When the messages of the user 2 are taken away as the removal task takes them
+    Then the query "select count(*) from messages where creator_id = 2" gives 2
+    When I run the sql "update users set status = 2 where id = 2"
+    And the messages of the user 2 are taken away as the removal task takes them
+    Then the query "select count(*) from messages where creator_id = 2" gives 0
+    And the query "select count(*) from messages where creator_id = 3" gives 1
+
+  Scenario: A person who was unbanned can be banned again, and writes after the unban stay until then
+    When I post to "/users/2/ban" the form:
+      | x | y |
+    And I post to "/users/2/ban" the form:
+      | _method | delete |
+    And I run the sql "insert into messages (room_id, creator_id, client_message_id, created_at, updated_at) values (1, 2, 'm9', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
+    And I run the sql "insert into sessions (user_id, token, ip_address, user_agent, last_active_at, created_at, updated_at) values (2, 'u1', '4.4.4.4', 'a', strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'), strftime('%Y-%m-%d %H:%M:%f000', 'now'))"
+    Then the query "select count(*) from messages where creator_id = 2 and client_message_id = 'm9'" gives 1
+    When I post to "/users/2/ban" the form:
+      | x | y |
+    Then the status is 302
+    And the query "select count(*) from users where id = 2 and status = 2" gives 1
+    And the query "select count(*) from bans where user_id = 2 and ip_address = '4.4.4.4'" gives 1
+    And the query "select count(*) from messages where creator_id = 2" gives 0 within 5000 milliseconds
 
   Scenario Outline: Only an administrator bans, not oneself, and only an active person
     When I sign in as "<actor>"
