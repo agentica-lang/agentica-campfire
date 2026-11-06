@@ -6,7 +6,8 @@
 ## A room that the person is not in is answered 404 with the same body as a room that was never made, before anything
 ## about the room (or the form posted to it) is looked at, so no answer tells that a room exists. The settings are
 ## only for a closed room: for a room of another kind the person is in, they are the same 404. In a closed room only its
-## maker and an account administrator may change it, and another member is answered 403.
+## maker and an account administrator may change it, and another member is answered 403. The same two people may delete
+## a room of any kind, and another member is answered 403 there too.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
@@ -17,6 +18,7 @@ import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
 import MessageCache from "message_cache"
 import PageCache from "page_cache"
+import RoomDeletion from "room_deletion"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
@@ -40,7 +42,9 @@ enum Answer
   NoContent
   Redirect(String)
   NotFound
+  NotAllowed(String)
   Forbidden
+  Deleted(Int)
   SignedOut
 end
 
@@ -66,6 +70,8 @@ export def add(
     |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, pool) end
     |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, pool) end
     |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool) end
+    |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool) end
+    |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool) end
   )
 end
 
@@ -328,6 +334,57 @@ def settings_form(
   return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
 end
 
+# The form of Rails posts to the room with `_method=delete`; any other post is what a `POST` to the path was before the
+# form existed (the router's own answer), a 405 that says which methods the path takes, whatever the room.
+def post_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  methods = try Bond.form_all(conn, "_method")
+  if methods.empty? or methods[0] != Routes.ROOM_DELETE_METHOD
+    return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW)))
+  end
+
+  return delete_room(conn, pool)
+end
+
+# The task that deletes the messages starts after the connection is given back, from the task of the request.
+def delete_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  id = room_id(conn)
+  answer = try Database.with_connection(pool) do |db| delete_answer(conn, db, id) end
+  case answer
+    Answer.Deleted(deleted) ->
+      RoomDeletion.start(pool, deleted)
+      return ok(respond(conn, answer))
+    _ -> return ok(respond(conn, answer))
+  end
+end
+
+def delete_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return deleted_room(db, person, id)
+  end
+end
+
+# Membership first, as everywhere: a person who is not in the room is told what a room that does not exist is told.
+# `destroy_later` checks the right again inside its transaction; a refusal there is a change that happened meanwhile.
+def deleted_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
+  room = try member_room(db, person, id)
+  case room
+    none -> return ok(Answer.NotFound)
+    some(found) if not Rooms.administrable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
+    some(found) -> return taken_away(db, person, found)
+  end
+end
+
+def taken_away(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
+  done = try Rooms.destroy_later(db, room.id, person.id)
+  if not done
+    return ok(Answer.NotFound)
+  end
+
+  return ok(Answer.Deleted(room.id))
+end
+
 def show_room(
   conn: Bond.Conn,
   pool: Database.Pool,
@@ -533,12 +590,21 @@ def post_to(
     return ok(Answer.Page(422, page))
   end
 
-  # The person may have been deactivated since the filter looked them up: the insert stores nothing for them.
+  # The insert stores nothing for a person who was deactivated since the filter looked them up, nor in a room that was
+  # deleted since the membership check (which also took the person out of it): looking the room up again tells which.
   stored = try Rooms.post(db, room.id, person.id, sent_id, HtmlSanitizer.from_text(body))
   case stored
-    none -> return ok(Answer.SignedOut)
+    none -> return ok(try refused_post(db, person, room))
     some(message) if stream -> return ok(Answer.TurboStream(Views.message_stream(room, message)))
     some(_) -> return ok(Answer.Redirect(Routes.room_path(room.id)))
+  end
+end
+
+def refused_post(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
+  still = try member_room(db, person, some(room.id))
+  case still
+    none -> return ok(Answer.NotFound)
+    some(_) -> return ok(Answer.SignedOut)
   end
 end
 
@@ -656,7 +722,9 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.NoContent -> return Bond.status(conn, 204)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
+    Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
     Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
+    Answer.Deleted(_) -> return Bond.redirect(conn, Routes.HOME)
     Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
   end
 end

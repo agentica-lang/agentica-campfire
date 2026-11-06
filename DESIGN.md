@@ -80,7 +80,7 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - **Message** (`[data-message-id]`): author in bold with the time beside it (small, muted, tabular numbers); the body below,
   wrapping anywhere, `pre` and tables scroll inside the message. Hover tints the row.
 - **Buttons**: primary (accent fill) is the default; `.quiet` (outline, text colour) for secondary actions; `.danger`
-  (outline in the accent) for Deactivate. 2.5rem high; 2.75rem (44px) on a phone, for every button and the chips; 2rem
+  (outline in the accent) for Deactivate and Delete room. 2.5rem high; 2.75rem (44px) on a phone, for every button and the chips; 2rem
   in a dense list and the room header on a wide screen.
 - **Forms**: a block label (600, sm) above a full-width field, 1px `--line-strong` border, `--r-sm`. People and members are
   a `fieldset` of checkbox rows, 2.25rem high, with the accent for the box. Hints are muted and small.
