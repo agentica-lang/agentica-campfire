@@ -41,19 +41,40 @@ locked`) is tried again up to five times with a growing pause; if it still fails
 task logs it and stops, and so does a restart of the app in the middle. What is left of the room (closed, with nobody in
 it, and the rest of its messages) stays in the database: nothing sweeps it. A post to a room that was deleted meanwhile
 stores nothing and is a `404`. A `POST /rooms/ID` without `_method=delete` is a `405` with `Allow: GET, HEAD, POST, DELETE`, as is any other method.
-The settings pages of open and direct rooms, which would hold the button there, do not exist yet.
 
 ## Settings
 
-`/rooms/ID/settings` exists for closed rooms only. The maker and an account administrator can
-rename the room and add or remove people. Another member is answered `403` and sees no Settings
-link; a person who is not in the room gets `404`, checked first. For a room of another type, the
-settings are the same `404`, before the form is read.
+`/rooms/ID/settings` exists for open and closed rooms. The maker and an account administrator can rename the room; for a
+closed room they can also add and remove people. Another member is answered `403` and sees no Settings link; a person who
+is not in the room gets `404`, checked first. A direct room has no settings: it is the same `404`, before the form is
+read, and it never converts.
 
-The form never takes out the person who sends it. Saving applies only its own changes, so a stale
-form neither removes someone added since nor brings back someone removed since. A person who is not
-active stays in. The update checks again, inside its transaction, that the room is still closed and
-that the person may still change it, and rolls back otherwise.
+A room converts the way Rails does it (`Rooms::OpensController#update`, `ClosedsController#update`): the form that is
+saved says what the room is to be (the field `type`, `open` or `closed`; without it, or with another value, the room stays
+what it is), and a link on the page draws the form of the other kind (`?type=closed` or `?type=open`). An open room saved
+as closed keeps the people that the form does not take out (the page draws everyone checked); a closed room saved as open
+gets every active person in it, and the ones who were in already keep their involvement. Both pages end with the button
+that deletes the room.
+
+The form never takes out the person who sends it. Saving applies only its own changes, so a stale form neither removes
+someone added since nor brings back someone removed since. A person who is not active stays in. The update checks again,
+inside its transaction, that the room is not a direct one and that the person may still change it, and rolls back
+otherwise.
+
+## Notifications
+
+Every room page has a Notifications link to `/rooms/ID/involvement` (`Rooms::InvolvementsController`), which shows
+the levels of the person's own membership as radios and saves one with a `PUT` (a `POST` with `_method=put` from the
+form, in any case, or a real `PUT`) and the field `involvement`, then goes back to the page. An open or closed room
+offers `mentions` (the default), `everything`, `nothing` and `invisible`; the page says what each does, in Rails'
+words. A direct room offers only `everything` and `nothing` (as Rails' `DIRECT_INVOLVEMENT_ORDER`): it has no
+invisible level, so a conversation cannot be lost. A level the room does not offer is `422` with the page again and
+nothing changed; a save with no field is `400`. A room that the person is not in is `404`, checked first, and so is a
+save that finds the membership gone; any other method is `405` with Bond's `Allow` list.
+
+There is no action for leaving a room, as in Rails: `invisible` takes the room out of the sidebar, and out of the
+people that new messages notify, but its page is still reachable by URL and the person stays a member. Other members
+are not affected.
 
 ## Messages
 

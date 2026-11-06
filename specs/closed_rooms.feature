@@ -318,7 +318,6 @@ Feature: Closed rooms
       | /rooms/2/settings                    |
       | /rooms/3/settings                    |
       | /rooms/4/settings                    |
-      | /rooms/1/settings                    |
       | /rooms/99/settings                   |
       | /rooms/0/settings                    |
       | /rooms/abc/settings                  |
@@ -335,7 +334,6 @@ Feature: Closed rooms
       | path                |
       | /rooms/2/settings   |
       | /rooms/3/settings   |
-      | /rooms/1/settings   |
       | /rooms/99/settings  |
       | /rooms/abc/settings |
 
@@ -362,7 +360,7 @@ Feature: Closed rooms
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
     And a closed room "Mine" with the members "bea@example.com"
     And a direct room with the members "ana@example.com, bea@example.com"
-    When "<editor>" asks Rooms.update_closed to rename the room <room> and swap its members
+    When "<editor>" asks Rooms.update_room to rename the room <room> and swap its members
     Then the update is refused
     And the query "select count(*) from rooms where name in ('All Talk', 'Secret', 'Mine')" gives 3
     And the query "select count(*) from rooms where name = 'Renamed'" gives 0
@@ -374,4 +372,3 @@ Feature: Closed rooms
       | 3    | cy@example.com  | a person who is not in the room                 |
       | 3    | ana@example.com | an administrator who is not in the room         |
       | 4    | ana@example.com | a direct room                                   |
-      | 1    | ana@example.com | an open room                                    |

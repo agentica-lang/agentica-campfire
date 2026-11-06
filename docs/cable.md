@@ -39,11 +39,13 @@ person with `Channels.disconnect` (`src/campfire_web/hangup.agc`), which sends `
 | --- | --- | --- |
 | an administrator deactivates the person | false | no session of theirs is left |
 | the person signs out | true | their other sessions are welcomed again at once; the browser that signed out has no cookie and is refused |
-| the person is taken out of a closed room (the settings form) | true | the client reconnects and subscribes again; the stream of that room is now rejected |
+| the person is taken out of a closed room (the settings form) | true | the client reconnects and subscribes again; the stream of that room is now rejected. Only the memberships that the update deleted count, read from the database, not from the form |
+| the person sets a new password with a reset link | true | the reset ended all their sessions, so the sockets are refused when they come back |
 | a check finds the session gone or older than `Auth.SESSION_SECONDS` | true | the same as a sign-out |
 
 The check is `PresenceChannel` `refresh` and `HeartbeatChannel` `check`, which a page sends every 50 s: one read of the
-`sessions` table each. A password reset ends all the sessions of the person and is caught by that check, not at once.
+`sessions` table each. If the hub's inbox is full when a hang-up is asked, it is asked again 3 times before it is only logged; the check
+above is the net.
 A membership that cannot be read (no connection of the pool in time) is tried 3 times; if it still fails, the person's
 sockets are told to reconnect and the subscription is rejected, so a burst of reconnects does not leave a member
 without their stream for good.

@@ -435,15 +435,7 @@ def unread_notices(job: Unread) -> Result[Void]
     return ok()
   end
 
-  return Database.with_connection(cable.pool) do |db| mark_watchers_read(db, job.room_id, watching) end
-end
-
-def mark_watchers_read(db: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
-  for user_id in user_ids
-    try Rooms.mark_read(db, room_id, user_id)
-  end
-
-  return ok()
+  return Database.with_connection(cable.pool) do |db| Rooms.mark_read_all(db, job.room_id, watching) end
 end
 
 def room_news_gone(job: Gone) -> Result[Void]

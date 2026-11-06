@@ -166,9 +166,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   is inserted). The settings form carries `was`, the people in the room when it was drawn, and an update applies only
   its diff (the chosen that are not in `was` are added, `was` minus the chosen is taken out), so a stale form neither
   takes out someone added since nor brings back someone taken out; the sender is never offered. The settings of a room
-  exist for a closed room only, and for any other room the person is in they are the same 404. Only the maker and an
-  account administrator may change a closed room (`Rooms.editable?`): another member is answered 403, after the
-  membership check (a non-member is 404) and before the form is read; `Rooms.update_closed` checks it again inside its
+  exist for an open and a closed room, and for a direct room the person is in they are the same 404 (a direct room never
+  converts). The form says what the room is to be (`type`; absent keeps it), and `Rooms.update_room` converts it: closed to
+  open grants every active person, open to closed applies the diff of the form. Only the maker and an
+  account administrator may change an open or closed room (`Rooms.editable?`): another member is answered 403, after the
+  membership check (a non-member is 404) and before the form is read; `Rooms.update_room` checks it again inside its
   transaction and fails, rolling back, when it no longer holds. The form sends plain text, stripped of the space around
   it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; every body that `Rooms`
   gives out is cleaned as it is read (`Rooms.clean`, called by `Rooms.message_of` for the search and by
@@ -223,6 +225,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an
   attribute or a script. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
   tag or attribute.
+- Involvement: `/rooms/ID/involvement` reads and sets the person's own `memberships.involvement` (`Rooms.involvement`,
+  `Rooms.set_involvement`); the levels a room offers are `Rooms.involvement_levels` (a direct room never offers
+  `invisible`, as Rails), and anything else is 422 with nothing written. Membership is checked first (404), then the
+  form. `invisible` is the only way out of a sidebar (the room stays reachable and the person a member), and `visible`
+  and `receive` already skip it.
 - Search: a query is words, never FTS5 syntax. `Searches.words` turns everything that is not a letter, digit or `_` into
   a separator (as `SearchesController#query` does) and `Searches.match` puts each word in double quotes, so a query
   cannot make the index fail; never hand the text of a client to `MATCH` in any other way. A search reads the rooms the

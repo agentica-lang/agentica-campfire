@@ -78,6 +78,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("I send a PATCH to {string} the form:", &patch_form),
     BDD.step("I send a PATCH to {string} a message of {int} characters", &patch_message_of_length),
     BDD.step("I send a PUT to {string}", &put_to),
+    BDD.step("I send a PUT to {string} the form:", &put_form),
     BDD.step("I submit the form of the page that posts to {string}", &submit_page_form),
     BDD.step("I submit the join form of the page with:", &submit_join_form),
     BDD.step("I remember the join link", &remember_join_link),
@@ -325,6 +326,12 @@ def patch_message_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "PATCH", args[0], URI.encode_www_form([URI.Pair(name: "message[body]", value: text)]))
 end
 
+# PUT with the fields of the table, as the page of the notification settings is saved by a client that sends it.
+def put_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
+  return send(ctx, "PUT", args[0], URI.encode_www_form(pairs))
+end
+
 # A method that the path does not take, with no body.
 def put_to(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "PUT", args[0], "")
@@ -403,7 +410,7 @@ def perform(port: Int, state: Browser, method: String, path: String, body: Strin
     headers = headers.push(Header(name: "cookie", value: pairs.join("; ")))
   end
 
-  if method == "POST" or method == "PATCH"
+  if method == "POST" or method == "PATCH" or method == "PUT"
     headers = headers.push(Header(name: "content-type", value: FORM_TYPE))
   end
 

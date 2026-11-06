@@ -93,7 +93,7 @@ export def add(
     |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
     |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, pool, mailer) end
     |> Bond.get(Routes.PASSWORD_RESET_EDIT) do |conn| show_reset_password(conn, pool) end
-    |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, pool, slots) end
+    |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, pool, slots, hub) end
   )
 end
 
@@ -432,7 +432,12 @@ def show_reset_password(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Con
   return ok(private_page(Bond.html(conn, 200, Views.reset_password(token, ""))))
 end
 
-def update_password(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, Int]) -> Result[Bond.Conn]
+def update_password(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  slots: ATS[String, Int],
+  hub: Channels.Hub,
+) -> Result[Bond.Conn]
   token = try Bond.form(conn, "token")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
@@ -455,7 +460,10 @@ def update_password(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, Int
   Slots.release(slots)
   outcome = try changed
   case outcome
-    Auth.ResetOutcome.SignedIn(session) -> return ok(signed_in(conn, session))
+    Auth.ResetOutcome.SignedIn(session, user_id) ->
+      # The reset ended every session of the person: their sockets are told to reconnect, and are refused.
+      Hangup.user(hub, user_id, true)
+      return ok(signed_in(conn, session))
     Auth.ResetOutcome.Gone -> return ok(link_gone(conn))
     Auth.ResetOutcome.Invalid(message) ->
       return ok(private_page(Bond.html(conn, 422, Views.reset_password(token, message))))
