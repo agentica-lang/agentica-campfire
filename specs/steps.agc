@@ -569,6 +569,7 @@ def change_name(change: Accounts.Change) -> String
     Accounts.Change.Unchanged -> return "Unchanged"
     Accounts.Change.Missing -> return "Missing"
     Accounts.Change.Refused -> return "Refused"
+    Accounts.Change.Taken -> return "Taken"
   end
 end
 

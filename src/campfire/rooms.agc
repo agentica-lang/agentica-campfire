@@ -462,6 +462,18 @@ export def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
   return Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
 end
 
+## Takes the person out of every room but the direct messages, which is what a deactivation does
+## (`memberships.without_direct_rooms.delete_all` of Rails). It runs in the caller's transaction.
+export def leave_shared_rooms(tx: Db.Connection, user_id: Int) -> Result[Void]
+  try Db.execute(
+    tx,
+    "delete from memberships where user_id = ? and room_id in (select id from rooms where type <> '#{DIRECT}')",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok()
+end
+
 ## The message of the room, as it is stored, or `none` when the room has no such message (one of another room is none
 ## too, so a room's path cannot reach into another). The caller has checked that the person is in the room.
 export def find_message(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Stored]]
