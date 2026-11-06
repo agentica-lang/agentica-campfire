@@ -362,7 +362,7 @@ Feature: Closed rooms
     Given a closed room "Secret" with the members "ana@example.com, bea@example.com"
     And a closed room "Mine" with the members "bea@example.com"
     And a direct room with the members "ana@example.com, bea@example.com"
-    When "<editor>" asks Rooms.update_closed to rename the room <room> and swap its members
+    When "<editor>" asks Rooms.update_room to rename the room <room> and swap its members
     Then the update is refused
     And the query "select count(*) from rooms where name in ('All Talk', 'Secret', 'Mine')" gives 3
     And the query "select count(*) from rooms where name = 'Renamed'" gives 0

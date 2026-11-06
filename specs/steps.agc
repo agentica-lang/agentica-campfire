@@ -94,7 +94,7 @@ def main() -> Void
     BDD.step("the room {int} has {int} messages", &room_has_messages),
     BDD.step("a message {string} in the room {int} at {string}", &message_at),
     BDD.step("an orphan message {string} in the room {int}", &orphan_message),
-    BDD.step("{string} asks Rooms.update_closed to rename the room {int} and swap its members", &ask_update_closed),
+    BDD.step("{string} asks Rooms.update_room to rename the room {int} and swap its members", &ask_update_closed),
     BDD.step("the update is refused", &update_is_refused),
     BDD.step("{string} asks Rooms.post to post {string} in the room {int}", &ask_post),
     BDD.step("{string} asks Accounts to {string} the user {int}", &ask_accounts),
@@ -487,13 +487,13 @@ def pad(number: Int) -> String
   return List.repeat("0", 3 - text.length).join("") + text
 end
 
-# `Rooms.update_closed` straight, as the person with that email: it renames the room, takes out the first two people
+# `Rooms.update_room` straight, as the person with that email: it renames the room, takes out the first two people
 # and puts in the third. The pages check who may edit before they call it, so only a call that skips them reaches the
 # check inside the transaction.
 def ask_update_closed(ctx: BDD.Context, args: List[String]) -> BDD.Context
   outcome = with_database(ctx) do |conn| update_as(conn, args[0], args[1].to_i!) end
   if not outcome.ok?
-    return BDD.assert(ctx, false, "Rooms.update_closed failed: #{outcome.message}")
+    return BDD.assert(ctx, false, "Rooms.update_room failed: #{outcome.message}")
   end
 
   return BDD.set(ctx, UPDATED, JSON.from("#{outcome.unwrap!}"))
@@ -502,7 +502,7 @@ end
 def update_as(conn: Db.Connection, email: String, room_id: Int) -> Result[Bool]
   rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
   editor_id = value_int(rows[0].get("id", Db.Value.Null))
-  return Rooms.update_closed(conn, room_id, editor_id, "Renamed", [3], [1, 2])
+  return Rooms.update_room(conn, room_id, editor_id, "Renamed", false, [3], [1, 2])
 end
 
 # `Rooms.post` straight, as a person whose session the sign-in check let through before they were deactivated. The
