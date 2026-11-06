@@ -425,6 +425,71 @@ export def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, ac
   return Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
 end
 
+## The levels of involvement that a person can choose for the room, in the order that Rails offers them
+## (`SHARED_INVOLVEMENT_ORDER` and `DIRECT_INVOLVEMENT_ORDER` of its helper): an open or closed room can be made
+## invisible (out of the sidebar, still reachable), a direct room is only on or off, since a hidden conversation
+## would be one that its people cannot find again.
+export def involvement_levels(room: Room) -> List[String]
+  if room.room_type == DIRECT
+    return [Rails.EVERYTHING, Rails.NOTHING]
+  end
+
+  return [Rails.MENTIONS, Rails.EVERYTHING, Rails.NOTHING, Rails.INVISIBLE]
+end
+
+## What the page of the notification settings says for a level (`HUMANIZE_INVOLVEMENT` of Rails' helper); a level that
+## is not one of them reads as the last.
+export def involvement_label(level: String) -> String
+  if level == Rails.MENTIONS
+    return "Notifying about @ mentions"
+  end
+
+  if level == Rails.EVERYTHING
+    return "Notifying about all messages"
+  end
+
+  if level == Rails.NOTHING
+    return "Notifications are off"
+  end
+
+  return "Notifications are off and room invisible in sidebar"
+end
+
+## The level that the person has in the room, or `none` when they are not in it. A row with no level (a database that
+## Rails seeded) is the default, `mentions`.
+export def involvement(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[String]]
+  rows = try Db.query(
+    conn,
+    "select coalesce(involvement, '#{Rails.MENTIONS}') as involvement from memberships " +
+    "where room_id = ? and user_id = ?",
+    [Db.Value.Int(room_id), Db.Value.Int(user_id)],
+  )
+
+  if rows.empty?
+    return ok(none)
+  end
+
+  return ok(some(text_of(rows[0], "involvement")))
+end
+
+## Sets the level of the person's membership of the room (`Rooms::InvolvementsController#update`), which touches the
+## membership as `update!` does. It gives false, and changes nothing, when `level` is not one of the
+## `involvement_levels` of the room, or the person is not in it. It sets no `unread_at`: a room made invisible keeps
+## what it had.
+export def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level: String) -> Result[Bool]
+  if not involvement_levels(room).include?(level)
+    return ok(false)
+  end
+
+  changed = try Db.execute(
+    conn,
+    "update memberships set involvement = ?, updated_at = #{NOW} where room_id = ? and user_id = ?",
+    [Db.Value.Text(level), Db.Value.Int(room.id), Db.Value.Int(user_id)],
+  )
+
+  return ok(changed == 1)
+end
+
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
 ## first, by `created_at` as Rails does: the rows of a database that Rails seeded are not in the order of their time,
 ## so the id says nothing about it. Messages that share an instant go by `id`, so a page and the one before it neither
