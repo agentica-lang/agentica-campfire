@@ -1,0 +1,33 @@
+// The stylesheet of the app, the work of this project (the CSS of upstream Campfire, MIT, 37signals, is not used yet, and
+// its notice comes with the first file that is copied). DESIGN.md is the reference. `make assets` compiles this file
+// with Dart Sass into public/assets/campfire-DIGEST.css; this file only does @use, in the order of the cascade.
+//
+// How the styles are organised:
+//   settings/    the design tokens (CSS custom properties on :root) and the build-time mixins; no rule that selects an element
+//   base/        the reset, the type and the links: element selectors only
+//   layout/      the shell of the page and of a room: grid
+//   components/  one file per piece of the page; the phone rules of a piece are in its file
+//   utilities/   helpers that name no component
+//
+// Layout rule: use grid, and prefer it wherever it works (the shell, rows with a column for the field and one for the
+// button, a label and its checkbox). Use flex only for what is one-dimensional and where grid is awkward: a row of small
+// buttons, inline wrapping, and the list that starts its scroll at the newest message (column-reverse). Values come from
+// the tokens (var(--s-3), var(--accent)), never a literal colour or length that a token already names.
+//
+// The markup that specs/ match byte for byte (links, headings, forms, messages) takes no class, so those parts are
+// styled by element and attribute.
+
+@use "settings/tokens";
+@use "base/reset";
+@use "base/typography";
+@use "layout/shell";
+@use "layout/room";
+@use "components/sidebar";
+@use "components/buttons";
+@use "components/forms";
+@use "components/flash";
+@use "components/messages";
+@use "components/search";
+@use "components/people";
+@use "utilities/accessibility";
+@use "utilities/motion";

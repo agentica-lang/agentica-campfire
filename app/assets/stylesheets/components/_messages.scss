@@ -1,0 +1,72 @@
+// A message: one block per message. The markup is fixed by the benchmark, so there is no class; the parts are found by
+// element and attribute.
+
+@use "../settings/mixins";
+
+[data-message-id] {
+  margin: 0 calc(-1 * var(--s-2));
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+
+  h3 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--s-2);
+    margin: 0;
+    font-size: var(--fs-sm);
+
+    a {
+      margin-inline-start: auto;
+      font-size: var(--fs-xs);
+      font-weight: 400;
+    }
+  }
+
+  time {
+    color: var(--muted);
+    font-size: var(--fs-xs);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @include mixins.can-hover {
+    &:hover {
+      background: var(--hover);
+    }
+  }
+}
+
+[id^="presentation_message_"] {
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  blockquote {
+    margin: var(--s-2) 0;
+    padding-inline-start: var(--s-3);
+    border-inline-start: 3px solid var(--line-strong);
+    color: var(--muted);
+  }
+
+  pre {
+    margin: var(--s-2) 0;
+    padding: var(--s-2) var(--s-3);
+    overflow-x: auto;
+    border-radius: var(--r-sm);
+    background: var(--bg-side);
+  }
+
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}

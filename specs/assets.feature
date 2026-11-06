@@ -17,6 +17,8 @@ Feature: The stylesheet and the script
     And the header "content-type" contains "text/css"
     And the header "cache-control" contains "immutable"
     And the body contains "{"
+    And the body contains "--accent:"
+    And the body does not contain "@use"
     And the body has the SHA-256 that starts with the digest in the name of the file
     When I remember the answer
     And I get "/rooms/1"

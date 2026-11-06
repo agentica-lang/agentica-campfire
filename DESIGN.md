@@ -1,7 +1,7 @@
 # Design
 
-The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation; change this file and
-the stylesheet together. One stylesheet, one script of about 25 KB (7.7 KB gzipped) that the room page, the edit page and the pages with the sidebar load, no web fonts, no
+The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation, built from `app/assets/stylesheets/` by `make assets`;
+change this file and the stylesheet together. One stylesheet, one script of about 10 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -142,7 +142,7 @@ keys in a real browser; run it by hand after a change to the script. No framewor
 1. Look at it in a browser (sign in, a room with long messages, People) at 1280px and 390px, light and dark, and
    in a room at 390x450 (a phone with its keyboard open).
 2. Keep to the tokens; add a token before adding a literal.
-3. Rename the stylesheet to its new digest and `Routes.STYLESHEET` (see AGENTS.md, "Assets").
+3. Run `make assets` (see AGENTS.md, "Assets"): it names the stylesheet by its digest.
 4. Keep markup changes small and check `specs/` for what they match.
 
 ## Known gaps
