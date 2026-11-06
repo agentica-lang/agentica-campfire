@@ -40,7 +40,7 @@ The tests are BDD first and take under a minute. Rules for contributors and agen
 
 ## Benchmark
 
-Requests per second (higher is better), median of 3 rounds, from the
+Requests per second (higher is better), median of 3 rounds with 16 clients, from the
 [Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) at ec02deb, with the server on
 CPUs 4-7 and the client on CPUs 0-3. Go and Agentica are run `20261106-200652-7` (2026-11-06): Campfire c2cdc7d on
 Agentica 0.25.0, and [once-campfire-go](https://github.com/basecamp/once-campfire-go) c4ab53d. Rails is the
@@ -54,11 +54,12 @@ reference run `20261105-101743-7` on the same machine.
 | search | 970.8 | 8321.5 | 877.0 | 0.90x | 11% |
 | post_message | 88.5 | 979.6 | 583.8 | 6.6x | 60% |
 
-Since the run at c6147de (before live updates, chat bubbles, bans and the rest of #83 group 2), sidebar fell from
+Against run `20261106-130459-7` (Campfire c6147de on Agentica master 7ec41cb, before live updates, chat bubbles,
+bans and the rest of [#83](https://github.com/agentica-lang/agentica-campfire/issues/83) group 2), sidebar fell from
 2279.3 to 1835.3 (-19%), search from 1038.7 to 877.0 (-16%, now below Rails) and post_message from 665.1 to 583.8
-(-12%). Those, then search and sidebar against Go, are the next things to improve.
+(-12%). Next: win back these three, then close the gap to Go on search and sidebar.
 
-To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
+To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Documentation
 
