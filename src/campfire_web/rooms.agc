@@ -38,6 +38,9 @@ TURBO_STREAM_TYPE = "text/vnd.turbo-stream.html"
 LAST_ROOM_COOKIE = "last_room"
 LAST_ROOM_SECONDS = 20 * 365 * 24 * 60 * 60
 
+# What a save of a level that the room does not offer is told.
+INVOLVEMENT_REFUSED = "That is not a choice for this room"
+
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
 
@@ -87,6 +90,9 @@ export def add(
     |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, pool) end
     |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, pool) end
     |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool) end
+    |> Bond.get(Routes.ROOM_INVOLVEMENT) do |conn| show_involvement(conn, pool) end
+    |> Bond.post(Routes.ROOM_INVOLVEMENT) do |conn| post_involvement(conn, pool) end
+    |> Bond.put(Routes.ROOM_INVOLVEMENT) do |conn| save_involvement(conn, pool) end
     |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool) end
     |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool) end
     |> Bond.get(Routes.ROOM_MESSAGE_EDIT) do |conn| edit_message(conn, pool) end
@@ -419,6 +425,74 @@ def override_method(conn: Bond.Conn) -> Result[String]
   end
 
   return ok(methods[0].downcase)
+end
+
+def show_involvement(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  id = room_id(conn)
+  answer = try Database.with_connection(pool) do |db| involvement_answer(conn, db, id, false) end
+  return ok(respond(conn, answer))
+end
+
+# The form of Rails posts to the involvement with `_method=put` (in any case, as Rails reads it); any other post is a
+# 405 that says which methods the path takes, whatever the room.
+def post_involvement(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  method = try override_method(conn)
+  if method != Routes.METHOD_PUT
+    return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_INVOLVEMENT_ALLOW)))
+  end
+
+  return save_involvement(conn, pool)
+end
+
+def save_involvement(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  id = room_id(conn)
+  answer = try Database.with_connection(pool) do |db| involvement_answer(conn, db, id, true) end
+  return ok(respond(conn, answer))
+end
+
+def involvement_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], save: Bool) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) -> return involvement_of(conn, db, person, id, save)
+  end
+end
+
+# Membership first, as everywhere, so that the field is read (and refused with a 400) only for a person who is in the
+# room. Any kind of room has the page, since the person is in it; what differs is the levels it offers.
+def involvement_of(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  person: Auth.User,
+  id: Optional[Int],
+  save: Bool,
+) -> Result[Answer]
+  room = try member_room(db, person, id)
+  case room
+    none -> return ok(Answer.NotFound)
+    some(found) if save -> return saved_involvement(conn, db, person, found)
+    some(found) -> return ok(Answer.Page(200, try involvement_page(db, person, found, "")))
+  end
+end
+
+# A level that the room does not offer (an invisible direct room, or one made up) is a 422 with the page again and the
+# level that the person has, so nothing is changed. A save ends at the page, as Rails' `redirect_to` does.
+def saved_involvement(conn: Bond.Conn, db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
+  level = try Bond.form(conn, "involvement")
+  changed = try Rooms.set_involvement(db, person.id, room, level)
+  if not changed
+    page = try involvement_page(db, person, room, INVOLVEMENT_REFUSED)
+    return ok(Answer.Page(422, page))
+  end
+
+  return ok(Answer.Redirect(Routes.room_involvement_path(room.id)))
+end
+
+def involvement_page(db: Db.Connection, person: Auth.User, room: Rooms.Room, message: String) -> Result[String]
+  level = try Rooms.involvement(db, person.id, room.id)
+  return ok(
+    Views.involvement(try sidebar_of(db, person), room, Rooms.involvement_levels(room), level.unwrap_or(""), message),
+  )
 end
 
 # The form of Rails posts to the room with `_method=delete` (in any case, as Rails reads it); any other post is what a

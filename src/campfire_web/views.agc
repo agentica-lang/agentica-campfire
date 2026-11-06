@@ -241,6 +241,45 @@ export def room_settings(
   return layout("Settings of #{room.name}", body)
 end
 
+## The page where a person sets how much a room notifies them: a radio for each of the `levels` that the room offers,
+## the `current` one checked, and a plain form post with the `_method` field of Rails' forms, so it works without a script.
+## `message` says why a save was refused.
+export def involvement(
+  sidebar: String,
+  room: Rooms.Room,
+  levels: List[String],
+  current: String,
+  message: String,
+) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1>Notifications for <%= room.name %></h1>
+    <% if not message.empty? %>
+      <p role="alert"><%= message %></p>
+    <% end %>
+      <form method="post" action="<%= Routes.room_involvement_path(room.id) %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PUT %>">
+    <% for level in levels %>
+        <p>
+    <% if level == current %>
+          <label><input name="involvement" type="radio" value="<%= level %>" checked>
+            <%= Rooms.involvement_label(level) %></label>
+    <% else %>
+          <label><input name="involvement" type="radio" value="<%= level %>">
+            <%= Rooms.involvement_label(level) %></label>
+    <% end %>
+        </p>
+    <% end %>
+        <p><button type="submit">Save</button></p>
+      </form>
+      <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
+    </main>
+  EAG
+  return layout("Notifications for #{room.name}", body)
+end
+
 ## The form that deletes a room (the button of the settings page, as `button_to_delete_room` is in Rails). It is a plain
 ## form post with the `_method` field that Rails' forms send, so it works without a script; the `onsubmit` asks first
 ## and a script-less browser skips the question, as the form of Rails does without Turbo.
@@ -412,6 +451,7 @@ export def room(
     <% if can_edit %>
         <a href="<%= Routes.room_settings_path(room.id) %>">Settings</a>
     <% end %>
+        <a href="<%= Routes.room_involvement_path(room.id) %>">Notifications</a>
       </header>
       <div class="scroller">
         <div class="thread">

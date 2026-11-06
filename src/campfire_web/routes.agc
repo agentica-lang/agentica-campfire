@@ -73,6 +73,13 @@ export DIRECT_ROOM_NEW = "/direct_rooms/new"
 export DIRECT_ROOMS = "/direct_rooms"
 export ROOM_SETTINGS = "/rooms/:id/settings"
 
+## The notification settings of a person for a room (`:id` is the room): the page that shows the level and its form, and
+## the save, a `PUT` or a `POST` with `_method` set to `METHOD_PUT` (as Rails' forms send it), with the field
+## `involvement`. Any other method is a 405 that lists `ROOM_INVOLVEMENT_ALLOW`, which is Bond's own list for the path.
+export ROOM_INVOLVEMENT = "/rooms/:id/involvement"
+export ROOM_INVOLVEMENT_ALLOW = "GET, HEAD, POST, PUT"
+export METHOD_PUT = "put"
+
 ## The join link of the account: its page and the post of its form, which is the same path, with the join code as
 ## `:code`. It is the one page besides the sign-in ones that needs no session (see `AuthWeb.public?`).
 export JOIN = "/join/:code"
@@ -117,6 +124,11 @@ end
 ## The path of the settings of a closed room, which is also where its form posts.
 export def room_settings_path(room_id: Int) -> String
   return "/rooms/#{room_id}/settings"
+end
+
+## The path of the notification settings of a room, which is also where their form posts.
+export def room_involvement_path(room_id: Int) -> String
+  return "/rooms/#{room_id}/involvement"
 end
 
 ## The path of the join page of this code, which is also where its form posts.
