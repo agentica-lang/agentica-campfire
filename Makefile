@@ -1,5 +1,5 @@
-# Needs Agentica 0.24.4 or later on PATH (`agentica test --jobs` is new in 0.24.1, `std/cache` in 0.24.3, and bond-channels
-# wants 0.24.4).
+# Needs Agentica 0.25.0 or later on PATH (`agentica test --jobs` is new in 0.24.1, `std/cache` in 0.24.3, bond-channels
+# wants 0.24.4, and `T.codec` and the Bond 0.8.0 and agentica-db 0.5.0 packages want 0.25.0).
 # AGENTICA=/path/to/agentica works for the targets, but the mail specs start their SMTP peer with the `agentica` on
 # PATH.
 AGENTICA ?= agentica
