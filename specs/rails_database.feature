@@ -10,7 +10,7 @@ Feature: A database that Rails made
 
   Background:
     Given bcrypt digests can be checked on this system
-    And a fresh database
+    And an empty database
     And a database made by Rails
     And the app starts
     And the browser has no cookies

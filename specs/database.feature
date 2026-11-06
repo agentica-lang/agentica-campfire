@@ -4,7 +4,7 @@ Feature: The database and its migrations
   database stops with a message that names the variable.
 
   Scenario: The first start on a new database runs every migration
-    Given a fresh database
+    Given an empty database
     When the app starts
     Then the start applied every migration
     And the health check reports the latest schema version
@@ -27,8 +27,32 @@ Feature: The database and its migrations
       | message_search_index       |
       | agentica_schema_migrations |
 
-  Scenario: A second start does not run the migrations again
+  Scenario: A fresh database is already migrated, as a first start leaves it
     Given a fresh database
+    When the app starts
+    Then the start applied no migration
+    And the health check reports the latest schema version
+    And the database has the tables:
+      | accounts                   |
+      | users                      |
+      | sessions                   |
+      | rooms                      |
+      | memberships                |
+      | messages                   |
+      | boosts                     |
+      | action_text_rich_texts     |
+      | active_storage_blobs       |
+      | active_storage_attachments |
+      | bans                       |
+      | searches                   |
+      | push_subscriptions         |
+      | webhooks                   |
+      | password_resets            |
+      | message_search_index       |
+      | agentica_schema_migrations |
+
+  Scenario: A second start does not run the migrations again
+    Given an empty database
     When the app starts
     And the app restarts
     Then the start applied no migration
