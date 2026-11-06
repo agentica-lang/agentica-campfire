@@ -22,11 +22,16 @@ Feature: What deactivating and reactivating a person does
 
   Scenario: Deactivating deletes what Rails deletes and keeps the rest
     Given I sign in as "bea@example.com"
+    And the browser saves a copy of its cookies
     And I sign in as "ana@example.com"
     When I post to "/users/2/deactivate" the form:
       | x | y |
     Then the status is 302
     And the query "select count(*) from users where id = 2 and status = 1" gives 1
+    When the browser restores its saved cookies
+    And I get "/rooms/1"
+    Then the status is 302
+    And the header "location" is "/session/new"
     And the query "select count(*) from sessions where user_id = 2" gives 0
     And the query "select count(*) from searches where user_id = 2" gives 0
     And the query "select count(*) from push_subscriptions where user_id = 2" gives 0
@@ -91,9 +96,23 @@ Feature: What deactivating and reactivating a person does
     And the query "select count(*) from users where id = 4 and status = 0 and email_address = '<after>'" gives 1
 
     Examples:
-      | stored                                                   | after                |
-      | di-deactivated-00000000-0000-4000-8000-000000000000@example.com | di@example.com |
-      | di@example.com                                           | di@example.com       |
+      | stored                                                          | after                                                           |
+      | di-deactivated-00000000-0000-4000-8000-000000000000@example.com | di@example.com                                                  |
+      | di@example.com                                                  | di@example.com                                                  |
+      | di-deactivated-x@example.com                                    | di-deactivated-x@example.com                                    |
+      | a@x-deactivated-y.com                                           | a@x-deactivated-y.com                                           |
+      | di-deactivated-00000000-0000-4000-8000-00000000000g@example.com | di-deactivated-00000000-0000-4000-8000-00000000000g@example.com |
+      | di-deactivated-00000000-0000-4000-8000-000000000000@a@b.com     | di-deactivated-00000000-0000-4000-8000-000000000000@a@b.com     |
+
+  Scenario: An address that has the marker by its owner's choice comes back as it was typed
+    Given a member "Xe" with the email "x-deactivated-1@example.com" exists
+    When I post to "/users/4/deactivate" the form:
+      | x | y |
+    Then the query "select count(*) from users where id = 4 and email_address glob 'x-deactivated-1-deactivated-*@example.com' and length(email_address) = 76" gives 1
+    When I post to "/users/4/reactivate" the form:
+      | x | y |
+    Then the status is 302
+    And the query "select count(*) from users where id = 4 and status = 0 and email_address = 'x-deactivated-1@example.com'" gives 1
 
   Scenario: Deactivating twice and reactivating twice change nothing the second time
     When I post to "/users/2/deactivate" the form:

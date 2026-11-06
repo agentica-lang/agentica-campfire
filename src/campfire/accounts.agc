@@ -20,6 +20,7 @@ NOW = Rails.NOW
 
 # What a deactivation puts in the address, between the name and the `@` (`deactived_email_address` of Rails).
 MARKER = "-deactivated-"
+UUID_LENGTH = 36
 
 ## The longest name of the account, in characters.
 export MAX_NAME_LENGTH = 100
@@ -234,7 +235,7 @@ def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     "substr(email_address, 1, instr(email_address, '@') - 1) || '#{MARKER}' || ? || " +
     "substr(email_address, instr(email_address, '@')) else email_address end " +
     "where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
-    [Db.Value.Text(new_uuid()), Db.Value.Int(user_id)],
+    [Db.Value.Text(SecureRandom.uuid()), Db.Value.Int(user_id)],
   )
 
   if changed == 0
@@ -256,15 +257,10 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     return ok(Change.Refused)
   end
 
-  # The address before the deactivation: what is before the marker, then the `@` and the rest. An address with
-  # no marker
-  # is its own (deactivated before the address was renamed).
+  # The address before the deactivation, which `original_address` finds in the stored one.
   rows = try Db.query(
     tx,
-    "select case when instr(email_address, '#{MARKER}') > 0 and instr(email_address, '@') > 0 then " +
-    "substr(email_address, 1, instr(email_address, '#{MARKER}') - 1) || substr(email_address, instr(email_address, '@')) " +
-    "else email_address end as original from users " +
-    "where id = ? and status = #{Rails.DEACTIVATED} and role <> #{Rails.BOT}",
+    "select email_address from users where id = ? and status = #{Rails.DEACTIVATED} and role <> #{Rails.BOT}",
     [Db.Value.Int(user_id)],
   )
 
@@ -272,7 +268,7 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     return unchanged_or_missing(tx, user_id)
   end
 
-  original = text_of(rows[0], "original")
+  original = original_address(text_of(rows[0], "email_address"))
   taken = try Db.query(
     tx,
     "select count(*) as total from users where id <> ? and lower(email_address) = lower(?)",
@@ -293,10 +289,46 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
   return ok(Change.Changed)
 end
 
-# A random UUID as Rails writes one (`SecureRandom.uuid`): 8-4-4-4-12 hex digits.
-def new_uuid() -> String
-  hex = SecureRandom.hex(16)
-  return "#{hex.slice(0, 8)}-#{hex.slice(8, 4)}-#{hex.slice(12, 4)}-#{hex.slice(16, 4)}-#{hex.slice(20, 12)}"
+# The address before a deactivation of this app or of Rails: the marker and a UUID (8-4-4-4-12 hex digits) right before
+# the one `@`, taken away. Anything else is its own address: one that has the marker without the UUID, or in the
+# domain, was typed that way by its owner (or deactivated before the rename) and must not be changed.
+def original_address(address: String) -> String
+  parts = address.split("@")
+  if parts.size != 2
+    return address
+  end
+
+  local = parts[0]
+  tail = MARKER.length + UUID_LENGTH
+  if local.length <= tail
+    return address
+  end
+
+  cut = local.length - tail
+  if local.slice(cut, MARKER.length) != MARKER or not uuid_shape?(local.slice(cut + MARKER.length, UUID_LENGTH))
+    return address
+  end
+
+  return "#{local.slice(0, cut)}@#{parts[1]}"
+end
+
+def uuid_shape?(text: String) -> Bool
+  if text.length != UUID_LENGTH
+    return false
+  end
+
+  for index in 0..(UUID_LENGTH - 1)
+    digit = text.slice(index, 1)
+    if index == 8 or index == 13 or index == 18 or index == 23
+      if digit != "-"
+        return false
+      end
+    elsif not "0123456789abcdef".include?(digit)
+      return false
+    end
+  end
+
+  return true
 end
 
 # An update that changed nothing is a person who was in the state already, or nobody.
