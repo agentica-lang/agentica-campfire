@@ -19,8 +19,8 @@ hash = "sha256:ea207faeae1e22863e210dcc3c7c3c64bd2a59b606ffab6199d6a5ea8af3c409"
 name = "db"
 git = "https://github.com/agentica-lang/agentica-db"
 subdir = "src/db"
-ref = "dc55a4c2d5276093590df0b174e8c20c27948e0c"
-commit = "dc55a4c2d5276093590df0b174e8c20c27948e0c"
+tag = "0.4.0"
+commit = "28fd2bfdbc9ed8583128bd4e56ebf45d89b6b055"
 hash = "sha256:c521642b5491878576b067be6dd917b8ae92e5f1b7ce96a76b1f74f5d50dfd31"
 
 [[package]]
