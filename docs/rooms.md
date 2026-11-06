@@ -97,6 +97,25 @@ the same markup without the layout or the sidebar: the 40 messages before `?befo
 it), `204` when there are none, `404` for a room that is not the person's. Every page links one fingerprinted
 stylesheet, `/assets/campfire-DIGEST.css` (see [Assets](#assets)).
 
+`?after=ID` on the same route is the 40 messages after message ID, oldest first, `204` when there are none; with both
+cursors, `before` wins, as in Rails. A cursor that is not a number is `400`; one that names no message of the room gives
+nothing (`204`).
+`/rooms/ID/@MESSAGE` is the room page around a message (`page_around`): the 40 before it, it, and the 40 after, with
+`Older messages` and `Latest messages` links where the window does not reach the first or the last message. A message
+that the room does not have shows the newest page, as in Rails; a segment that is not `@` and a number is `404`. Bond's
+route params are whole segments, so the route is `/rooms/:id/:at` (a literal segment such as `messages` wins), which
+also makes `POST` to another path under a room a `405` where it was a `404`. That page, like the room page with
+`?before=`, is not kept in the cache, since there is one for every message; `?after=` is kept like `?before=`.
+
+`GET /rooms/ID/refresh?since=MILLISECONDS` is how a client catches up after a lost connection: Turbo Streams that
+append the messages created after that time (the first 40, oldest first) to the list, and a replace for each other
+message edited after it (the newest 40). A message created since but past the first 40 is a replace too (the client has
+nothing to replace, so it ignores it), as in Rails. `since` is read as Ruby's `to_i` reads it (`12abc` is 12, `1.5e3`
+is 1): none, or no digits at the start, or a time before the epoch, is the epoch. The time is compared as text with the
+columns (`2026-03-01 09:00:00.123000`), and with `>=` where Rails has `>`: a client keeps the time in milliseconds, so
+a second message made in the same millisecond as the last one it saw would be skipped. The message that the client
+has comes again, and a Turbo Stream that appends or replaces an id that is in the page puts the new one in its place.
+
 The room page and the page of older messages are kept whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0
 for none), as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept for one person, one
 room and one `?before=`, so nobody is sent a page that was made for somebody else, and only a 200 is kept. It is valid
@@ -177,8 +196,8 @@ The folder `public/assets/` (`CAMPFIRE_ASSETS_DIR`) is served under `/assets/` w
 with a fingerprint (`campfire-DIGEST.css`, DIGEST the first 16 hex digits of the SHA-256 of the file) is
 sent with `Cache-Control: public, max-age=31536000, immutable`. When the CSS changes, rename it to its new
 digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the name is right. The same goes for the
-script of the composer, `campfire-DIGEST.js` (`Routes.SCRIPT`), which the room page and the pages with the sidebar link: with it a
-message is sent with `fetch` (the Turbo Stream answer above) and the page does not reload; without it the form posts
-and redirects as before.
+script of the composer, `campfire-DIGEST.js` (`Routes.SCRIPT`), which the room page, the page that edits a message and the
+pages with the sidebar link: with it a message is sent with `fetch` (the Turbo Stream answer above) and the page does not
+reload, and the keys work (Enter, Shift+Enter, Ctrl or Cmd+Enter, Esc); without it the form posts and redirects as before.
 
 Bond sends each file with an `ETag` and `Last-Modified` (a request with `If-None-Match` or `If-Modified-Since` gets `304`), keeps the small ones in memory, and answers a client that takes gzip with the `.gz` file next to a text file when there is one that is not older. The Docker image writes one next to each stylesheet and script (`gzip -9 -k -n`); a run from the source folder has none and sends the plain file.

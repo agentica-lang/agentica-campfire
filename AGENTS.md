@@ -49,6 +49,7 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
                 `make.sh` makes it again in a ruby container)
 test/           unit tests (*_test.agc)
+tools/          keys_check.js: the by-hand browser check of the composer keys (playwright-core, not in CI)
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
@@ -225,6 +226,12 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an
   attribute or a script. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
   tag or attribute.
+- Message windows: `Rooms.page` (before), `Rooms.page_after`, `Rooms.around` and `Rooms.since` read by `created_at` then
+  `id`, never by id alone. `/rooms/:id/:at` serves `@MESSAGE` because Bond params are whole segments (the handler
+  404s any other segment); it is not kept in `PageCache` (a cursor per message), `?after=` is (kind `AFTER`).
+  `refresh` compares `created_at`/`updated_at` as text against `INSTANT` of `rooms.agc` (the millisecond time written as the
+  columns are), answers Turbo Stream whatever `Accept` says, reads `since` as `to_i` (its leading digits) and compares with `>=`, so a message in the
+  same millisecond as the last one the client saw is not skipped.
 - Involvement: `/rooms/ID/involvement` reads and sets the person's own `memberships.involvement` (`Rooms.involvement`,
   `Rooms.set_involvement`); the levels a room offers are `Rooms.involvement_levels` (a direct room never offers
   `invisible`, as Rails), and anything else is 422 with nothing written. Membership is checked first (404), then the
@@ -243,9 +250,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
 - Assets: the CSS and the JS of `public/assets/` are named `campfire-DIGEST.css` and `campfire-DIGEST.js`, DIGEST the
   first 16 hex digits of the SHA-256 of the file; rename the file and `Routes.STYLESHEET` or `Routes.SCRIPT`
   when it changes (`specs/assets.feature` checks). `/assets/` is public (`AuthWeb.public?`). There is no asset pipeline
-  yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page links it, every form works
-  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script"). The composer textarea has no
-  `autofocus` (a phone would open its keyboard on each load).
+  yet (`docs/plan.md` phase 2). The script is progressive enhancement: only the room page and the edit page link it, every form works
+  without it, and it stays a few KB with no framework (`DESIGN.md`, "Script", which also has its keys;
+  `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
+  open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that
   takes gzip.
 - A UI change follows `DESIGN.md` and updates it with the stylesheet. Markup that specs match byte for byte (links, headings,

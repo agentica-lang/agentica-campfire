@@ -42,6 +42,10 @@ LAST_ROOM_SECONDS = 20 * 365 * 24 * 60 * 60
 # What a save of a level that the room does not offer is told.
 INVOLVEMENT_REFUSED = "That is not a choice for this room"
 
+# The most digits of a `since` that is read as it is; one with more is `SINCE_FAR`, a time that no message is after.
+SINCE_DIGITS = 15
+SINCE_FAR = 1_000_000_000_000_000
+
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
 
@@ -90,6 +94,8 @@ export def add(
     |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool, cable) end
     |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cable, cache, pages, secure) end
     |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache, pages) end
+    |> Bond.get(Routes.ROOM_REFRESH) do |conn| show_refresh(conn, pool, cache) end
+    |> Bond.get(Routes.ROOM_AT) do |conn| show_at(conn, pool, cable, cache, secure) end
     |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cable, cache) end
     |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
     |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool, cable) end
@@ -814,7 +820,7 @@ def show_room(
   pages: Optional[PageCache.Pages],
   secure: Bool,
 ) -> Result[Bond.Conn]
-  before = try cursor(conn)
+  before = try cursor(conn, "before")
   id = room_id(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
@@ -885,20 +891,22 @@ def kept(spot: Optional[PageCache.Spot], answer: Answer) -> Answer
   end
 end
 
-# The messages that come before `?before=ID` (the newest 40 without it), as the fragment that the script of the page
-# puts in the list: no layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
+# The messages that come before `?before=ID` (the newest 40 without it) or, with `?after=ID` and no `before`, the 40
+# that come after it (Rails reads `before` first too), as the fragment that the script of the page puts in the list:
+# no layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
 def older_messages(
   conn: Bond.Conn,
   pool: Database.Pool,
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
 ) -> Result[Bond.Conn]
-  before = try cursor(conn)
+  before = try cursor(conn, "before")
+  after = try cursor(conn, "after")
   id = room_id(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(respond(conn, Answer.SignedOut))
-    some(person) -> return older_page(conn, pool, cache, pages, person, id, before)
+    some(person) -> return older_page(conn, pool, cache, pages, person, id, before, after)
   end
 end
 
@@ -910,12 +918,20 @@ def older_page(
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
+  after: Optional[Int],
 ) -> Result[Bond.Conn]
-  spot = PageCache.spot(pages, PageCache.MESSAGES, person, id, before)
+  # The two cursors are kept apart, so `?before=7` and `?after=7` are two pages.
+  spot: Optional[PageCache.Spot] = none
+  if before.none? and after.some?
+    spot = PageCache.spot(pages, PageCache.AFTER, person, id, after)
+  else
+    spot = PageCache.spot(pages, PageCache.MESSAGES, person, id, before)
+  end
+
   found = PageCache.lookup(spot)
   case found
     some(page) -> return ok(respond(conn, Answer.Cached(page)))
-    none -> return made_older_page(conn, pool, cache, spot, person, id, before)
+    none -> return made_older_page(conn, pool, cache, spot, person, id, before, after)
   end
 end
 
@@ -927,8 +943,9 @@ def made_older_page(
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
+  after: Optional[Int],
 ) -> Result[Bond.Conn]
-  answer = try Database.with_connection(pool) do |db| older_fragment(db, cache, person, id, before) end
+  answer = try Database.with_connection(pool) do |db| older_fragment(db, cache, person, id, before, after) end
   return ok(respond(conn, kept(spot, answer)))
 end
 
@@ -938,20 +955,140 @@ def older_fragment(
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
+  after: Optional[Int],
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return ok(fragment_of(cache, person, try Rooms.page(db, found.id, before)))
+    some(found) -> return ok(fragment_of(cache, person, try older_messages_of(db, found, before, after)))
   end
 end
 
-def fragment_of(cache: Optional[Cache.Store], person: Auth.User, page: Rooms.Page) -> Answer
-  if page.messages.empty?
+def older_messages_of(
+  db: Db.Connection,
+  room: Rooms.Room,
+  before: Optional[Int],
+  after: Optional[Int],
+) -> Result[List[Rooms.Stored]]
+  case after
+    some(anchor) if before.none? -> return Rooms.page_after(db, room.id, anchor)
+    _ -> return ok((try Rooms.page(db, room.id, before)).messages)
+  end
+end
+
+def fragment_of(cache: Optional[Cache.Store], person: Auth.User, messages: List[Rooms.Stored]) -> Answer
+  if messages.empty?
     return Answer.NoContent
   end
 
-  return Answer.Fragment(MessageCache.list(cache, page.messages, person.id, person.role))
+  return Answer.Fragment(MessageCache.list(cache, messages, person.id, person.role))
+end
+
+# `/rooms/ID/@MESSAGE`: the room page around a message (Rails routes `@:message_id` to `rooms#show`, and `page_around`
+# gives 40 before it, it, and 40 after). A message that the room does not have gives the newest page, as in Rails. Bond
+# params are whole segments, so the route takes any segment after the room and this handler answers 404 for one that
+# is not `@` and a number. The page is not kept (`PageCache`): there is one for every message, and a person could fill
+# the cache with them, as with `?before=` on the room page. It is a room page, so it sets the last room.
+def show_at(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  cache: Optional[Cache.Store],
+  secure: Bool,
+) -> Result[Bond.Conn]
+  id = room_id(conn)
+  at = at_message(conn)
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(respond(conn, Answer.SignedOut))
+    some(person) ->
+      answer = try Database.with_connection(pool) do |db| at_answer(db, cable, cache, person, id, at) end
+      return ok(respond_visit(conn, id, answer, secure))
+  end
+end
+
+def at_answer(
+  db: Db.Connection,
+  cable: CableWeb.Cable,
+  cache: Optional[Cache.Store],
+  person: Auth.User,
+  id: Optional[Int],
+  at: Optional[Int],
+) -> Result[Answer]
+  room = try member_room(db, person, id)
+  case room
+    none -> return ok(Answer.NotFound)
+    some(_) if at.none? -> return ok(Answer.NotFound)
+    some(found) -> return ok(Answer.Page(200, try around_page(db, cable, cache, person, found, at.unwrap!)))
+  end
+end
+
+def around_page(
+  db: Db.Connection,
+  cable: CableWeb.Cable,
+  cache: Optional[Cache.Store],
+  person: Auth.User,
+  room: Rooms.Room,
+  message_id: Int,
+) -> Result[String]
+  around = try Rooms.around(db, room.id, message_id)
+  page = Rooms.Page(messages: [], older: none, at_latest: true)
+  case around
+    some(found) -> page = found
+    none -> page = try Rooms.page(db, room.id, none)
+  end
+
+  return page_view(db, cable, cache, person, room, page, composer("", ""))
+end
+
+# `/rooms/ID/refresh?since=MILLISECONDS`: what a client missed since a time, as Turbo Streams (the live client calls it
+# to catch up after a lost connection): the new messages appended to the list, and a replace for each message that
+# was edited. Rails reads `since` with `to_i`, so no value, or one that is no number, is the epoch (every message,
+# the first 40). It answers Turbo Stream whatever `Accept` says, and an empty body when nothing changed.
+def show_refresh(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
+  id = room_id(conn)
+  since = try since_of(conn)
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(respond(conn, Answer.SignedOut))
+    some(person) ->
+      answer = try Database.with_connection(pool) do |db| refresh_answer(db, cache, person, id, since) end
+      return ok(respond(conn, answer))
+  end
+end
+
+def refresh_answer(
+  db: Db.Connection,
+  cache: Optional[Cache.Store],
+  person: Auth.User,
+  id: Optional[Int],
+  since: Int,
+) -> Result[Answer]
+  room = try member_room(db, person, id)
+  case room
+    none -> return ok(Answer.NotFound)
+    some(found) -> return refreshed(db, cache, person, found, since)
+  end
+end
+
+def refreshed(
+  db: Db.Connection,
+  cache: Optional[Cache.Store],
+  person: Auth.User,
+  room: Rooms.Room,
+  since: Int,
+) -> Result[Answer]
+  gained = try Rooms.since(db, room.id, since)
+  appended = ""
+  if not gained.fresh.empty?
+    appended = Views.messages_appended(room, MessageCache.list(cache, gained.fresh, person.id, person.role))
+  end
+
+  replaced = gained.changed.map do |one|
+    Views.message_replaced(one.id, MessageCache.list(cache, [one], person.id, person.role))
+  end
+
+  return ok(Answer.TurboStream([appended].concat(replaced).select do |part| not part.empty? end.join("\n")))
 end
 
 def create_message(
@@ -1059,6 +1196,18 @@ def room_page(
   form: Views.Composer,
 ) -> Result[String]
   page = try Rooms.page(db, room.id, before)
+  return page_view(db, cable, cache, person, room, page, form)
+end
+
+def page_view(
+  db: Db.Connection,
+  cable: CableWeb.Cable,
+  cache: Optional[Cache.Store],
+  person: Auth.User,
+  room: Rooms.Room,
+  page: Rooms.Page,
+  form: Views.Composer,
+) -> Result[String]
   thread = MessageCache.list(cache, page.messages, person.id, person.role)
   return ok(
     Views.room(
@@ -1141,19 +1290,75 @@ def message_id(conn: Bond.Conn) -> Optional[Int]
   return none
 end
 
-# `?before=ID`, the message that the page shows the ones before. A value that is not a number is a 400.
-def cursor(conn: Bond.Conn) -> Result[Optional[Int]]
-  values = try Bond.query_all(conn, "before")
+# `?before=ID` or `?after=ID`, the message that the page shows the ones before (or after). A value that is not a number
+# is a 400.
+def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
+  values = try Bond.query_all(conn, name)
   if values.empty?
     return ok(none)
   end
 
   parsed = values[0].to_i
   if not parsed.ok?
-    return Bond.bad_request("before must be a whole number")
+    return Bond.bad_request("#{name} must be a whole number")
   end
 
   return ok(some(parsed.unwrap!))
+end
+
+# `?since=`, as Ruby's `to_i` reads it: the whitespace, the sign and the digits at the start, and nothing after them
+# (`12abc` is 12, `1.5e3` is 1), so a value with no digits is 0. More digits than any time has are as far in the future
+# as one can write, which no message is after.
+def since_of(conn: Bond.Conn) -> Result[Int]
+  values = try Bond.query_all(conn, "since")
+  if values.empty?
+    return ok(0)
+  end
+
+  text = values[0].strip
+  negative = text.start_with?("-")
+  if negative or text.start_with?("+")
+    text = text.slice(1, text.length - 1)
+  end
+
+  digits = ""
+  for ch in text.split("")
+    if not "0123456789".include?(ch)
+      break
+    end
+
+    digits = digits + ch
+  end
+
+  if digits.empty?
+    return ok(0)
+  end
+
+  if digits.length > SINCE_DIGITS
+    return ok(SINCE_FAR)
+  end
+
+  value = digits.to_i.unwrap_or(0)
+  if negative
+    return ok(0 - value)
+  end
+
+  return ok(value)
+end
+
+# The message of `/rooms/ID/@MESSAGE`: `none` for a segment that is not `@` and a whole number.
+def at_message(conn: Bond.Conn) -> Optional[Int]
+  text = Bond.param(conn, "at").unwrap_or("")
+  if not text.start_with?(Routes.AT_PREFIX)
+    return none
+  end
+
+  parsed = text.slice(1, text.length - 1).to_i
+  if parsed.ok?
+    return some(parsed.unwrap!)
+  end
+
+  return none
 end
 
 # The id that the form carries for its message, or a new one for a post that has none (a tool, not our page). Too

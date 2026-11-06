@@ -212,6 +212,22 @@ Feature: Live updates over /cable
       {"type":"welcome"}
       """
 
+  Scenario: A password reset ends the sockets of the person, who is welcomed again with the new session
+    When client "old" connects with the cookies of the browser
+    And the browser has no cookies
+    And I run the sql "insert into password_resets (user_id, token_digest, expires_at) values (1, 'b0d63107a0f0c2528f66e10deb3fcd8590fa25045c5a57cca13f6909a1be5619', strftime('%Y-%m-%d %H:%M:%f000', 'now', '+30 minutes'))"
+    And I post to "/password_reset/confirm" the form:
+      | token    | resettoken           |
+      | password | a brand new password |
+    Then the status is 302
+    And client "old" eventually receives a frame containing "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":true}"
+    And client "old" is closed by the server with the code 1000
+    When client "new" connects with the cookies of the browser
+    Then client "new" receives:
+      """
+      {"type":"welcome"}
+      """
+
   Scenario: A person who is taken out of a closed room stops hearing it, and is refused when the client comes back
     When I post to "/closed_rooms" the form:
       | name   | Council |
