@@ -31,9 +31,9 @@ export MISSING = "Not Found"
 export ASSETS = "/assets"
 export STYLESHEET = "/assets/campfire-65c285f24a690567.css"
 
-## The script of the room page (the composer sends with `fetch`), fingerprinted like the stylesheet. Only the room page
-## links it; the page works without it.
-export COMPOSER_SCRIPT = "/assets/campfire-e3dc16d0562d5461.js"
+## The script of the room page (the composer sends with `fetch`) and of the page that edits a message (the keys),
+## fingerprinted like the stylesheet. Only those two link it; they work without it.
+export COMPOSER_SCRIPT = "/assets/campfire-17fc68f2137508ec.js"
 
 ## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
 ## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and
@@ -83,6 +83,14 @@ export CLOSED_ROOMS = "/closed_rooms"
 export DIRECT_ROOM_NEW = "/direct_rooms/new"
 export DIRECT_ROOMS = "/direct_rooms"
 export ROOM_SETTINGS = "/rooms/:id/settings"
+
+## `/rooms/:id/refresh?since=MILLISECONDS` gives the Turbo Streams of what a room gained since a time, and
+## `/rooms/:id/@MESSAGE` is the room page around a message. Bond's params are whole segments, so the second is the route
+## `ROOM_AT` that takes any segment after the room (a literal one, such as `messages`, is tried first), and the handler
+## checks that it is `AT_PREFIX` and a number.
+export ROOM_REFRESH = "/rooms/:id/refresh"
+export ROOM_AT = "/rooms/:id/:at"
+export AT_PREFIX = "@"
 
 ## The notification settings of a person for a room (`:id` is the room): the page that shows the level and its form, and
 ## the save, a `PUT` or a `POST` with `_method` set to `METHOD_PUT` (as Rails' forms send it), with the field
@@ -146,6 +154,16 @@ end
 ## that is saved says what the room is to be (`SETTINGS_OPEN`, `SETTINGS_CLOSED`).
 export def room_settings_kind_path(room_id: Int, kind: String) -> String
   return "/rooms/#{room_id}/settings?type=#{kind}"
+end
+
+## The path of the room page around a message.
+export def room_at_path(room_id: Int, message_id: Int) -> String
+  return "/rooms/#{room_id}/@#{message_id}"
+end
+
+## The path of the changes of a room since `millis`.
+export def room_refresh_path(room_id: Int, millis: Int) -> String
+  return "/rooms/#{room_id}/refresh?since=#{millis}"
 end
 
 ## The path of the join page of this code, which is also where its form posts.

@@ -375,6 +375,23 @@ export def message_stream(room: Rooms.Room, one: Rooms.Message, controls: Bool) 
   EAG
 end
 
+## The Turbo Stream that appends messages (`list`, the markup of `MessageCache.list`) to the list of the room, which
+## the refresh answers for the messages that came since.
+export def messages_appended(room: Rooms.Room, list: String) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== list %></template></turbo-stream>
+  EAG
+end
+
+## The Turbo Stream that replaces a message that was edited with its new markup (`one`, from `MessageCache.list`).
+export def message_replaced(message_id: Int, one: String) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="replace" target="message_<%= message_id %>"><template><%== one %></template></turbo-stream>
+  EAG
+end
+
 ## The Turbo Stream that takes a deleted message off the page (`destroy.turbo_stream.erb` of Rails).
 export def message_removed(message_id: Int) -> String
   return "<turbo-stream action=\"remove\" target=\"message_#{message_id}\"><template></template></turbo-stream>"
@@ -408,7 +425,8 @@ export def edit_message(sidebar: String, room: Rooms.Room, one: Rooms.Message, t
           <p><button type="submit" class="danger">Delete message</button></p>
         </form>
       </turbo-frame>
-      <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
+      <p><a href="<%= Routes.room_path(room.id) %>" data-cancel>Back to the room</a></p>
+      <script src="<%= Routes.COMPOSER_SCRIPT %>" defer></script>
     </main>
   EAG
   return layout("Edit message", body)
