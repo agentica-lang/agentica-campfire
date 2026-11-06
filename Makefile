@@ -15,6 +15,7 @@ help:
 	@echo "           CAMPFIRE_DATA_DIR, CAMPFIRE_DATABASE_URL: ./data and a SQLite file in it;"
 	@echo "           CAMPFIRE_DB_POOL_SIZE, CAMPFIRE_DB_CHECKOUT_MS: 0 (the size of the database, 4 for SQLite; else 3 or more) and 3000;"
 	@echo "           CAMPFIRE_CACHE_MB: the cache of rendered messages, 64 by default, 0 for none;"
+	@echo "           CAMPFIRE_RESPONSE_CACHE_MB: the cache of whole room pages, 64 by default, 0 for none;"
 	@echo "           CAMPFIRE_BCRYPT_LIBRARY: a libxcrypt (path or name) for bcrypt digests; libcrypt.so.1 on Linux by default;"
 	@echo "           SECRET_KEY_BASE: the secret of a Rails Campfire, which checks avatar links (unset: they are 404);"
 	@echo "           CAMPFIRE_STORAGE_DIR: the Active Storage files, DATA_DIR/files by default;"

@@ -16,6 +16,7 @@ import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
 import MessageCache from "message_cache"
+import PageCache from "page_cache"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
@@ -33,6 +34,7 @@ CLIENT_ID_BYTES = 16
 # What a handler makes of its request, decided while its connection is open and answered after it is closed.
 enum Answer
   Page(Int, String)
+  Cached(PageCache.Page)
   Fragment(String)
   TurboStream(String)
   NoContent
@@ -43,14 +45,20 @@ enum Answer
 end
 
 ## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cache` keeps
-## the markup of the messages that a room page and the older messages write (`MessageCache`), `none` for no cache.
-export def add(app: Bond.App, pool: Database.Pool, cache: Optional[Cache.Store]) -> Bond.App
+## the markup of the messages that a room page and the older messages write (`MessageCache`), `none` for no cache, and
+## `pages` keeps those two pages whole (`PageCache`), `none` for no cache.
+export def add(
+  app: Bond.App,
+  pool: Database.Pool,
+  cache: Optional[Cache.Store],
+  pages: Optional[PageCache.Pages],
+) -> Bond.App
   return (
     app
     |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
     |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool) end
-    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cache) end
-    |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache) end
+    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cache, pages) end
+    |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache, pages) end
     |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cache) end
     |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
     |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool) end
@@ -320,28 +328,54 @@ def settings_form(
   return ok(Views.room_settings(try sidebar_of(db, person), room, name, people, chosen, was, message))
 end
 
-def show_room(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
+def show_room(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cache: Optional[Cache.Store],
+  pages: Optional[PageCache.Pages],
+) -> Result[Bond.Conn]
   before = try cursor(conn)
   id = room_id(conn)
-  answer = try Database.with_connection(pool) do |db| room_answer(conn, db, cache, id, before) end
-  return ok(respond(conn, answer))
-end
-
-def room_answer(
-  conn: Bond.Conn,
-  db: Db.Connection,
-  cache: Optional[Cache.Store],
-  id: Optional[Int],
-  before: Optional[Int],
-) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return shown_room(db, cache, person, id, before)
+    none -> return ok(respond(conn, Answer.SignedOut))
+    some(person) -> return shown_room(conn, pool, cache, pages, person, id, before)
   end
 end
 
+# The version of the database is read before the page is made (`PageCache.spot`), so a page that is kept is never older
+# than its key; on a hit the room is not looked up at all (see the top of `page_cache.agc`).
 def shown_room(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cache: Optional[Cache.Store],
+  pages: Optional[PageCache.Pages],
+  person: Auth.User,
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Bond.Conn]
+  spot = PageCache.spot(pages, PageCache.ROOM, person, id, before)
+  kept = PageCache.lookup(spot)
+  case kept
+    some(page) -> return ok(respond(conn, Answer.Cached(page)))
+    none -> return made_room_page(conn, pool, cache, spot, person, id, before)
+  end
+end
+
+def made_room_page(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cache: Optional[Cache.Store],
+  spot: Optional[PageCache.Spot],
+  person: Auth.User,
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| room_answer(db, cache, person, id, before) end
+  return ok(respond(conn, kept(spot, answer)))
+end
+
+def room_answer(
   db: Db.Connection,
   cache: Optional[Cache.Store],
   person: Auth.User,
@@ -355,27 +389,60 @@ def shown_room(
   end
 end
 
-# The messages that come before `?before=ID` (the newest 40 without it), as the fragment that the script of the page
-# puts in the list: no layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
-def older_messages(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Store]) -> Result[Bond.Conn]
-  before = try cursor(conn)
-  id = room_id(conn)
-  answer = try Database.with_connection(pool) do |db| older_answer(conn, db, cache, id, before) end
-  return ok(respond(conn, answer))
+# A page that was made (a 200) is kept at `spot` and answered with its tag; any other answer is as it is.
+def kept(spot: Optional[PageCache.Spot], answer: Answer) -> Answer
+  case answer
+    Answer.Page(status, html) if status == 200 -> return Answer.Cached(PageCache.keep(spot, html))
+    Answer.Fragment(html) -> return Answer.Cached(PageCache.keep(spot, html))
+    _ -> return answer
+  end
 end
 
-def older_answer(
+# The messages that come before `?before=ID` (the newest 40 without it), as the fragment that the script of the page
+# puts in the list: no layout, no sidebar. Rails answers 204 when there is nothing to add, and so does this.
+def older_messages(
   conn: Bond.Conn,
-  db: Db.Connection,
+  pool: Database.Pool,
   cache: Optional[Cache.Store],
-  id: Optional[Int],
-  before: Optional[Int],
-) -> Result[Answer]
+  pages: Optional[PageCache.Pages],
+) -> Result[Bond.Conn]
+  before = try cursor(conn)
+  id = room_id(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return older_fragment(db, cache, person, id, before)
+    none -> return ok(respond(conn, Answer.SignedOut))
+    some(person) -> return older_page(conn, pool, cache, pages, person, id, before)
   end
+end
+
+def older_page(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cache: Optional[Cache.Store],
+  pages: Optional[PageCache.Pages],
+  person: Auth.User,
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Bond.Conn]
+  spot = PageCache.spot(pages, PageCache.MESSAGES, person, id, before)
+  found = PageCache.lookup(spot)
+  case found
+    some(page) -> return ok(respond(conn, Answer.Cached(page)))
+    none -> return made_older_page(conn, pool, cache, spot, person, id, before)
+  end
+end
+
+def made_older_page(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cache: Optional[Cache.Store],
+  spot: Optional[PageCache.Spot],
+  person: Auth.User,
+  id: Optional[Int],
+  before: Optional[Int],
+) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| older_fragment(db, cache, person, id, before) end
+  return ok(respond(conn, kept(spot, answer)))
 end
 
 def older_fragment(
@@ -491,6 +558,9 @@ def room_page(
   )
 end
 
+# The id of the form is drawn when a page is made, and a page that is kept (`PageCache`) is served to every load of
+# the person at that version of the database, so two tabs can post with the same `client_message_id`: nothing may
+# drop a message because its id was seen before.
 def composer(note: String, draft: String) -> Views.Composer
   return Views.Composer(note: note, draft: draft, message_id: SecureRandom.hex(CLIENT_ID_BYTES))
 end
@@ -579,6 +649,7 @@ end
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Page(status, html) -> return Bond.html(conn, status, html)
+    Answer.Cached(page) -> return PageCache.respond(conn, page)
     Answer.Fragment(html) -> return Bond.html(conn, 200, html)
     Answer.TurboStream(html) ->
       return Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")

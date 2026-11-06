@@ -47,6 +47,14 @@ export DEFAULT_CACHE_MB = 64
 ## The most that `CAMPFIRE_CACHE_MB` may ask for (4 GiB).
 export MAX_CACHE_MB = 4096
 
+## The megabytes of the cache of whole pages (the room page and the older messages) when `CAMPFIRE_RESPONSE_CACHE_MB`
+## is not set, the name and the default of the Rails Campfire setting; 0 turns the cache off. A page of a room is about
+## 16 KB, so this holds a few thousand.
+export DEFAULT_RESPONSE_CACHE_MB = 64
+
+## The most that `CAMPFIRE_RESPONSE_CACHE_MB` may ask for (4 GiB).
+export MAX_RESPONSE_CACHE_MB = 4096
+
 ## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set.
 export DEFAULT_MAIL_QUEUE = 32
 
@@ -78,7 +86,7 @@ SMTP_URL_FORM = (
 ## (not set) makes every avatar link a 404; it is as secret as the session secret. `storage_dir` is the folder of the
 ## files of Active Storage (`xx/yy/KEY` inside it, as Rails' Disk service writes them), `DATA_DIR/files` when it is
 ## not set, and `assets_dir` the folder of the stylesheet. `cache_mb` is the size of the cache of rendered messages in
-## megabytes, 0 for none.
+## megabytes, 0 for none, and `response_cache_mb` the size of the cache of whole pages, 0 for none.
 export struct Config
   host: String
   port: Int
@@ -97,6 +105,7 @@ export struct Config
   storage_dir: String = ""
   assets_dir: String = DEFAULT_ASSETS_DIR
   cache_mb: Int = DEFAULT_CACHE_MB
+  response_cache_mb: Int = DEFAULT_RESPONSE_CACHE_MB
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -118,8 +127,8 @@ end
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`, `CAMPFIRE_SMTP_FROM`,
 ## `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`, `CAMPFIRE_STORAGE_DIR` and
-## `CAMPFIRE_ASSETS_DIR` and `CAMPFIRE_CACHE_MB`, with the defaults for a variable that is not set (the secret has none,
-## and without the smtp url there is no email). An `error` says which value is wrong.
+## `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB` and `CAMPFIRE_RESPONSE_CACHE_MB`, with the defaults for a variable that
+## is not set (the secret has none, and without the smtp url there is no email). An `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
@@ -139,6 +148,7 @@ export def load() -> Result[Config]
   storage_dir = System.env("CAMPFIRE_STORAGE_DIR").unwrap_or("")
   assets_dir = System.env("CAMPFIRE_ASSETS_DIR").unwrap_or(DEFAULT_ASSETS_DIR)
   cache_mb = System.env("CAMPFIRE_CACHE_MB").unwrap_or("")
+  response_cache_mb = System.env("CAMPFIRE_RESPONSE_CACHE_MB").unwrap_or("")
   return parse(
     host,
     port,
@@ -158,6 +168,7 @@ export def load() -> Result[Config]
     storage_dir,
     assets_dir,
     cache_mb,
+    response_cache_mb,
   )
 end
 
@@ -182,7 +193,8 @@ end
 ## uses `libcrypt.so.1`. `secret_key_base` (`SECRET_KEY_BASE`) is kept as it is; `storage_dir`
 ## (`CAMPFIRE_STORAGE_DIR`) is `DATA_DIR/files` when left out, and `assets_dir` (`CAMPFIRE_ASSETS_DIR`) must not be
 ## empty. `cache_mb` (`CAMPFIRE_CACHE_MB`) is the size of the cache of rendered messages, 0 to `MAX_CACHE_MB`
-## (`DEFAULT_CACHE_MB` when left out); 0 turns the cache off.
+## (`DEFAULT_CACHE_MB` when left out); 0 turns the cache off. `response_cache_mb` (`CAMPFIRE_RESPONSE_CACHE_MB`) is the
+## same for the cache of whole pages, 0 to `MAX_RESPONSE_CACHE_MB` (`DEFAULT_RESPONSE_CACHE_MB` when left out).
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -202,6 +214,7 @@ export def parse(
   storage_dir: String = "",
   assets_dir: String = DEFAULT_ASSETS_DIR,
   cache_mb: String = "",
+  response_cache_mb: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -260,6 +273,13 @@ export def parse(
   )
 
   cache = try parse_db_number("CAMPFIRE_CACHE_MB", cache_mb, DEFAULT_CACHE_MB, 0, MAX_CACHE_MB)
+  pages = try parse_db_number(
+    "CAMPFIRE_RESPONSE_CACHE_MB",
+    response_cache_mb,
+    DEFAULT_RESPONSE_CACHE_MB,
+    0,
+    MAX_RESPONSE_CACHE_MB,
+  )
 
   if assets_dir.strip.empty?
     return error("CAMPFIRE_ASSETS_DIR is empty")
@@ -295,6 +315,7 @@ export def parse(
       storage_dir: files,
       assets_dir: assets_dir.strip,
       cache_mb: cache,
+      response_cache_mb: pages,
     ),
   )
 end

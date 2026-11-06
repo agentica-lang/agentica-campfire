@@ -16,11 +16,16 @@ Feature: Avatars
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the status is 200
     And the header "content-type" is "image/webp"
-    And the header "cache-control" contains "private"
+    And the header "cache-control" is "private, max-age=1800, stale-while-revalidate=604800"
     And the body is a WebP image
     And the body is the stored variant of the avatar of the user 1
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the body is the stored variant of the avatar of the user 1
+    When the request header "if-none-match" is the header "etag" of the answer
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 304
+    And the body is ""
+    And the header "cache-control" is "private, max-age=1800, stale-while-revalidate=604800"
 
   Scenario: A person without an avatar gets their initials
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"

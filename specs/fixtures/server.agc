@@ -27,6 +27,9 @@ def serve(config: Config.Config, running: App.Running) -> Void
   elsif line.unwrap! == "restart without cache"
     App.stop(running)
     serve(config, start(config.with(cache_mb: 0)))
+  elsif line.unwrap! == "restart without page cache"
+    App.stop(running)
+    serve(config, start(config.with(response_cache_mb: 0)))
   end
 end
 

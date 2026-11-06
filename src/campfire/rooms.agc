@@ -46,18 +46,24 @@ UNKNOWN_AUTHOR = "Unknown"
 # The form of a timestamp in `<time datetime>`: ISO 8601, UTC, with milliseconds.
 ISO = "%Y-%m-%dT%H:%M:%fZ"
 
-## The select of a message as `stored_of` reads it, up to its tables and with no `where`: the author (or
-## `UNKNOWN_AUTHOR`), the body that `action_text_rich_texts` holds, the time in the ISO form and `updated_at` as the
-## column holds it. A page of a room and the search read their messages through it, so both show a message the same
-## way.
-export MESSAGE_SELECT = (
-  "select messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
+# The columns of a message as `stored_of` reads them and the tables they come from, for `MESSAGE_SELECT` and for
+# `page`, which picks its rows first and then joins only those.
+MESSAGE_COLUMNS = (
+  "messages.id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
   "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +
-  "messages.updated_at as updated_at " +
-  "from messages left join users on users.id = messages.creator_id " +
+  "messages.updated_at as updated_at"
+)
+
+MESSAGE_JOINS = (
+  "left join users on users.id = messages.creator_id " +
   "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
   "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}'"
 )
+
+## The select of a message as `stored_of` reads it, up to its tables and with no `where`: the author (or
+## `UNKNOWN_AUTHOR`), the body that `action_text_rich_texts` holds, the time in the ISO form and `updated_at` as the
+## column holds it. The search reads its messages through it, so it shows a message as a page of a room does.
+export MESSAGE_SELECT = "select #{MESSAGE_COLUMNS} from messages #{MESSAGE_JOINS}"
 
 # A room as a person sees it. A direct room has no name, so it is called after the other people in it (the column is
 # `others`, looked up only for a direct room, so an open room costs no subquery), and `memberships.involvement` is
@@ -146,7 +152,7 @@ export def body_problem(body: String) -> String
   return ""
 end
 
-## A message from a row of `MESSAGE_SELECT`, as it is stored.
+## A message from a row of `MESSAGE_SELECT` (or of the page query, which has the same columns), as it is stored.
 export def stored_of(row: Db.Row) -> Stored
   return Stored(
     id: int_of(row, "id"),
@@ -312,10 +318,15 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
     none -> cursor = ""
   end
 
+  # The ids come first (`created_at` has no index, so the room is sorted), and the author and the body are joined for
+  # those rows only, not for every message of the room before the sort. The outer `order by` is for the order of the
+  # result, which a join does not promise to keep.
   rows = try Db.query(
     conn,
-    "#{MESSAGE_SELECT} where messages.room_id = ? #{cursor} " +
-    "order by messages.created_at desc, messages.id desc limit ?",
+    "select #{MESSAGE_COLUMNS} from (select messages.id from messages where messages.room_id = ? #{cursor} " +
+    "order by messages.created_at desc, messages.id desc limit ?) picked " +
+    "join messages on messages.id = picked.id #{MESSAGE_JOINS} " +
+    "order by messages.created_at desc, messages.id desc",
     params.push(Db.Value.Int(PAGE_SIZE + 1)),
   )
 

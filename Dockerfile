@@ -30,6 +30,11 @@ RUN /opt/agentica/bin/agentica install
 COPY campfire.agc ./
 COPY src ./src
 COPY public ./public
+# A compressed copy next to each stylesheet and script: Bond sends it to a client that takes gzip (and does not
+# compress at run time). `-n` keeps the name and time out of the file so the build is the same each time, and `-k`
+# keeps the original, which a client that does not take gzip gets. `gzip` keeps the time of change of the original, and
+# Bond ignores a `.gz` that is older.
+RUN find public/assets -type f \( -name '*.css' -o -name '*.js' \) -exec gzip -9 -k -n {} +
 
 # Stage 2: the binary and the app. libsqlite3 is the database (agentica-db opens the system one) and libcrypt1
 # (already in the base) checks the bcrypt digests of a Rails Campfire.

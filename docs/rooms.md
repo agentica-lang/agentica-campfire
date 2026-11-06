@@ -51,6 +51,17 @@ the same markup without the layout or the sidebar: the 40 messages before `?befo
 it), `204` when there are none, `404` for a room that is not the person's. Every page links one fingerprinted
 stylesheet, `/assets/campfire-DIGEST.css` (see [Assets](#assets)).
 
+The room page and the page of older messages are kept whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0
+for none), as Rails Campfire keeps the answer of `rooms#show` and `messages#index`. A page is kept for one person, one
+room and one `?before=`, so nobody is sent a page that was made for somebody else, and only a 200 is kept. It is valid
+for one version of the database: a connection of its own reads `PRAGMA data_version`, which changes whenever any
+connection or program commits (a new message, an edit, a delete, a change of members, a rename of the room or of a
+person), and the version is in the key, so the next request builds the page again. Every page has a weak `ETag` (a digest
+of its bytes) and `Cache-Control: max-age=0, private, must-revalidate`, and a request with `If-None-Match` of that tag is
+answered `304`. The `client_message_id` of the form is drawn when a page is made, so two loads at one version share it;
+the app stores it and does nothing else with it. The cache of messages (`CAMPFIRE_CACHE_MB`) is separate: it saves
+rendering a message again when the page is built.
+
 The form of a message has the fields `message[body]` and `message[client_message_id]`, the names that Rails
 uses. A post that sends `Accept: text/vnd.turbo-stream.html` is answered `200` with a Turbo Stream that appends
 the new message to the list of the room (`<turbo-stream action="append" target="messages_rooms_open_ID">`); any
@@ -87,7 +98,7 @@ page, and redirects to the results; a get does not remember anything. There is n
 `:avatar` (see [security.md](security.md)). The app makes no image. A user whose avatar Rails has
 processed (`active_storage_attachments` named `avatar`, a row of `active_storage_variant_records` for its
 blob, and the image attached to that variant record, a WebP) gets that file as it is on disk,
-`image/webp`, with `Cache-Control: private, max-age=1800, stale-while-revalidate=604800`. If Rails has not
+`image/webp`, with `Cache-Control: private, max-age=1800, stale-while-revalidate=604800` and the `ETag` and `Last-Modified` of the file (a request with `If-None-Match` gets `304`). Rails says `public` there; the route needs a sign-in, so this keeps `private` and a shared cache never hands the picture to someone who is not signed in. If Rails has not
 made the variant yet, the original image is sent with its own type (a plain `image/...`, never SVG):
 unlike the variant, it is not resized and keeps its metadata (such as EXIF). A
 user with no avatar at all gets an SVG with their initials, as Rails does for a person (a bot gets initials too, where
@@ -103,3 +114,5 @@ digest and change `Routes.STYLESHEET`; `specs/assets.feature` fails until the na
 script of the composer, `campfire-DIGEST.js` (`Routes.COMPOSER_SCRIPT`), which only the room page links: with it a
 message is sent with `fetch` (the Turbo Stream answer above) and the page does not reload; without it the form posts
 and redirects as before.
+
+Bond sends each file with an `ETag` and `Last-Modified` (a request with `If-None-Match` or `If-Modified-Since` gets `304`), keeps the small ones in memory, and answers a client that takes gzip with the `.gz` file next to a text file when there is one that is not older. The Docker image writes one next to each stylesheet and script (`gzip -9 -k -n`); a run from the source folder has none and sends the plain file.

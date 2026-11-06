@@ -8,6 +8,7 @@ import AvatarsWeb from "avatars"
 import Database from "../campfire/repo/database"
 import Failure from "failure"
 import Mailer from "../campfire/mail/mailer"
+import PageCache from "page_cache"
 import Routes from "routes"
 import RoomsWeb from "rooms"
 import SearchesWeb from "searches"
@@ -29,18 +30,20 @@ end
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
 ## `AccountsWeb`, the sidebar, the search, the avatars (checked with the key of `SECRET_KEY_BASE`) and the folder of the
 ## stylesheet. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered
-## messages for the room pages (`MessageCache.start`); without it every message is rendered each time.
+## messages for the room pages (`MessageCache.start`); without it every message is rendered each time. `pages` keeps
+## the room page and the older messages whole (`PageCache.start`); without it each is made for every request.
 export def build(
   config: Config,
   pool: Database.Pool,
   schema_version: Int,
   mailer: Mailer.Mailer,
   messages: Optional[Cache.Store] = none,
+  pages: Optional[PageCache.Pages] = none,
 ) -> Bond.App
   return (
     Bond.app()
     |> AuthWeb.add(config, pool, mailer)
-    |> RoomsWeb.add(pool, messages)
+    |> RoomsWeb.add(pool, messages, pages)
     |> AccountsWeb.add(config, pool)
     |> SidebarsWeb.add(pool)
     |> SearchesWeb.add(pool)
