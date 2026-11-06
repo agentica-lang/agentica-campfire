@@ -12,7 +12,10 @@ images: the page stays small, because the benchmark compares page throughput wit
   class, so it is styled by element and attribute. A class is for a part that no spec reads (`.lists`, `.scroller`,
   `.people`, `.badge`, `.quiet`, `.danger`); the composer and the search form are styled by `main.room > form` and
   `form[action="/searches"]`, since specs match their `<form>` tag.
-- Fixed markup of a message (`Views.message`) is the benchmark's contract: style it, never change it.
+- Fixed markup of a message (`Views.message`) is the benchmark's contract: style it, never change it. The one addition is
+  the Edit link in the heading, after the time, for the person who may change the message (its author and an
+  administrator) and nobody else: the benchmark reads the id, the presentation `<div>` and the end of the message, none of
+  which moves, and for every other person the markup is the contract byte for byte.
 
 ## Colour tokens
 
@@ -77,7 +80,7 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
   with a one-line textarea that grows to 40vh (`field-sizing`) and the Send button, with the safe-area inset below.
   The textarea has no `autofocus`: a phone would open its keyboard on every load. The script focuses it only on a
   device with a fine pointer (a mouse or a trackpad).
-- **Message** (`[data-message-id]`): author in bold with the time beside it (small, muted, tabular numbers); the body below,
+- **Message** (`[data-message-id]`): author in bold with the time beside it (small, muted, tabular numbers) and, at the end of the heading, the Edit link (extra small, pushed to the end); the body below,
   wrapping anywhere, `pre` and tables scroll inside the message. Hover tints the row.
 - **Buttons**: primary (accent fill) is the default; `.quiet` (outline, text colour) for secondary actions; `.danger`
   (outline in the accent) for Deactivate and Delete room. 2.5rem high; 2.75rem (44px) on a phone, for every button and the chips; 2rem

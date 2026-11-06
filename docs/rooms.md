@@ -99,6 +99,26 @@ there is no unique index on it, so posting it twice (a double click) stores two 
 gap: a double click or a retry after a lost answer posts twice, until the client checks `client_message_id`
 (the app does not).
 
+## Editing and deleting a message
+
+The person who wrote a message and an account administrator can edit and delete it (`User#can_administer?` of Rails);
+nobody else, even in a room that they are in. The heading of a message has an `Edit` link to
+`/rooms/ID/messages/MID/edit` for those two people only, and the message is the same markup for everybody else. That page
+holds the form in `<turbo-frame id="edit_message_MID">`: a textarea with the text of the message, a Save button
+(`POST /rooms/ID/messages/MID` with `_method=patch`, or a real `PATCH`) and a Delete button that asks first
+(`_method=delete`, or a real `DELETE`). A post to the message with any other `_method` is a `405` with
+`Allow: POST, PATCH, DELETE`.
+
+The text in the form is the plain text of the body: a body that this app stored (plain text made HTML) comes back exactly,
+blank lines included; a body that Rails wrote with markup comes back as its plain text, without its formatting and blank
+lines, and saving it stores that text. A save is cleaned and stored as a new message is (limits `Write something to send`
+and 10000 characters, `422` with the form again), rewrites the body in `action_text_rich_texts` and the row of
+`message_search_index`, and sets `updated_at` of the message and the room; it does not make the room unread. It redirects to the room
+page. A delete removes the message with its body, its search row and its boosts in one transaction, and answers a Turbo
+Stream that removes the message when `Accept` asks for one, else redirects to the room page. A person who is not in the
+room, a message of another room, and a message that does not exist are all `404`, checked before the `403`. There are no
+live updates yet (#52): other people see the change when they load the page.
+
 Who may see a room, and why a non-member gets `404`: [security.md](security.md).
 
 ## Sidebar and search
