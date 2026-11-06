@@ -43,6 +43,7 @@ enum Answer
   Fragment(String)
   Made(Int, Int, Bool, List[Int])
   Posted(Rooms.Room, Rooms.Message, Bool)
+  TurboStream(String)
   NoContent
   Redirect(String)
   NotFound
@@ -1007,6 +1008,8 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
         TURBO_STREAM_TYPE + "; charset=utf-8",
       )
     Answer.Posted(room, _, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
+    Answer.TurboStream(html) ->
+      return Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
     Answer.NoContent -> return Bond.status(conn, 204)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
