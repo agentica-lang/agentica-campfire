@@ -133,7 +133,8 @@ for one query), so nobody is sent a page that was made for somebody else, and on
 search are the person's to choose, so a person keeps at most `CAMPFIRE_SEARCH_PAGES` search pages (8 by default; the
 words choose the place, and a query of another place or version is written over), and words longer than the form
 allows are not kept. The `?before=` and `?after=` pages of older messages are also keyed by a number that the person
-chooses and are not bounded yet (follow-up issue #111). The people of the sessions are in a store of their own
+chooses, so a person keeps at most `CAMPFIRE_CURSOR_PAGES` pages of each of the two (16 by default; the room and the
+cursor choose the place, and a page of another cursor, room or version is written over). The people of the sessions are in a store of their own
 (`CAMPFIRE_SESSION_CACHE_MB`, 4 by default), so that no number of pages pushes a session out. A kept person is valid
 for one version of the database and until their session ends (30 days after it began, which no commit announces). A
 page is valid for one version of the database: a connection of its own reads `PRAGMA data_version`, which changes

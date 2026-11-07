@@ -224,7 +224,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   a person holds at most that many search pages whatever they type, and words longer than `Searches.MAX_QUERY_LENGTH`
   are not kept. The people of the sessions live in a store of their own (`CAMPFIRE_SESSION_CACHE_MB`, 4 by default),
   so that the churn of pages cannot push a session out. The `?before=` and `?after=` pages of older messages are keyed
-  by a number the client chooses too, and nothing bounds them yet (follow-up issue #111).
+  by a number the client chooses too, so they relax "a key per version" the same way: a person has `cursor_slots`
+  places for each of the kinds `MESSAGES` and `AFTER` (`CAMPFIRE_CURSOR_PAGES`, 16 by default), chosen by the hash of the
+  room and the cursor, each kept with the version, the person's state, the room and the cursor, so a person holds at
+  most that many pages of each kind and a flood of cursors writes over the pages of the one who sends it.
   The sign-in filter reads the version first for a `GET` or `HEAD` of a page that is kept (`PageCache.cached?`,
   `PageCache.watch`, kept for the handler with `PageCache.seen`) and looks the person up after it: the person of a
   session is kept under the version too (`known_user`, `remember_user`), so a hit costs one lease of the observer and

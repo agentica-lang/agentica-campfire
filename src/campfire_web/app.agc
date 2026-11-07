@@ -102,6 +102,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   watched = PageCache.start(
     config.response_cache_mb,
     config.search_pages,
+    config.cursor_pages,
     config.session_cache_mb,
     config.database_url,
     config.db_checkout_ms,

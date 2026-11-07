@@ -158,6 +158,35 @@ def places_of(search_pages: String, session_cache_mb: String) -> Result[Config.C
   )
 end
 
+# `parse` with this number of pages of older messages for each person and kind.
+def cursors_of(cursor_pages: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    Config.DEFAULT_ASSETS_DIR,
+    "",
+    "",
+    "",
+    "",
+    "",
+    cursor_pages,
+  )
+end
+
 def connections_of(text: String) -> Result[Config.Config]
   return Config.parse(
     Config.DEFAULT_HOST,
@@ -495,6 +524,15 @@ def main() -> Void
       try Test.error?(places_of("", "0"))
       try Test.error?(places_of("", "#{Config.MAX_SESSION_CACHE_MB + 1}"))
       Test.error?(places_of("", "a lot"))
+    end,
+    Test.test("the pages of older messages of a person have a default and a lowest and a highest") do
+      try Test.eq(cursors_of("").unwrap!.cursor_pages, Config.DEFAULT_CURSOR_PAGES)
+      try Test.eq(cursors_of(" 3 ").unwrap!.cursor_pages, 3)
+      try Test.ok?(cursors_of("#{Config.MIN_CURSOR_PAGES}"))
+      try Test.ok?(cursors_of("#{Config.MAX_CURSOR_PAGES}"))
+      try Test.error?(cursors_of("0"))
+      try Test.error?(cursors_of("#{Config.MAX_CURSOR_PAGES + 1}"))
+      Test.error?(cursors_of("many"))
     end,
     Test.test("the connections have a default, and the environment may name from the fewest to the most") do
       try Test.eq(connections_of("").unwrap!.max_connections, Config.DEFAULT_MAX_CONNECTIONS)
