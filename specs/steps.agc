@@ -16,6 +16,7 @@ import Auth from "../src/campfire/auth"
 import Avatars from "../src/campfire/avatars"
 import Bans from "../src/campfire/bans"
 import Bcrypt from "../src/campfire/bcrypt"
+import Bots from "../src/campfire/bots"
 import Database from "../src/campfire/repo/database"
 import HtmlSanitizer from "../src/campfire/html_sanitizer"
 import Migrations from "../src/campfire/repo/migrations"
@@ -113,6 +114,7 @@ def main() -> Void
     BDD.step("the update is refused", &update_is_refused),
     BDD.step("{string} asks Rooms.post to post {string} in the room {int}", &ask_post),
     BDD.step("{string} asks Accounts to {string} the user {int}", &ask_accounts),
+    BDD.step("{string} asks Bots to {string} the bot {int}", &ask_bots),
     BDD.step("{string} asks Auth.join_hashed to sign up with the code {string}", &ask_join_hashed),
     BDD.step("the join is {string}", &join_is),
     BDD.step("Auth.open_session is asked for the user {int}", &ask_open_session),
@@ -672,6 +674,40 @@ def accounts_as(conn: Db.Connection, email: String, action: String, user_id: Int
   end
 
   return ok(change_name(try Accounts.reactivate(conn, actor_id, user_id)))
+end
+
+# `Bots` straight, which looks at the actor again inside its transaction: `action` is `create`, `rename`,
+# `reset_key` or
+# `deactivate` (`create` takes no bot). The outcome is kept as the `Accounts.Change` names it, as for `ask_accounts`.
+def ask_bots(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  outcome = with_database(ctx) do |conn| bots_as(conn, args[0], args[1], args[2].to_i!) end
+  if not outcome.ok?
+    return BDD.assert(ctx, false, "Bots.#{args[1]} failed: #{outcome.message}")
+  end
+
+  return BDD.set(ctx, CHANGED, JSON.from(outcome.unwrap!))
+end
+
+def bots_as(conn: Db.Connection, email: String, action: String, bot_id: Int) -> Result[String]
+  rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
+  actor_id = value_int(rows[0].get("id", Db.Value.Null))
+  if action == "create"
+    if try Bots.create(conn, actor_id, "Late")
+      return ok("Changed")
+    end
+
+    return ok("Refused")
+  end
+
+  if action == "rename"
+    return ok(change_name(try Bots.rename(conn, actor_id, bot_id, "Late")))
+  end
+
+  if action == "reset_key"
+    return ok(change_name(try Bots.reset_key(conn, actor_id, bot_id)))
+  end
+
+  return ok(change_name(try Bots.deactivate(conn, actor_id, bot_id)))
 end
 
 def change_name(change: Accounts.Change) -> String

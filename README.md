@@ -73,7 +73,7 @@ To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`
 - [docs/security.md](docs/security.md): sessions, passwords, CSRF, public pages, known gaps.
 - [docs/rooms.md](docs/rooms.md): open, closed and direct rooms, settings, messages.
 - [docs/cable.md](docs/cable.md): the `/cable` WebSocket (Action Cable): streams, channels and what is broadcast.
-- [docs/people.md](docs/people.md): the join link and the people page.
+- [docs/people.md](docs/people.md): the join link, the people page and the chat bots.
 - [docs/mail.md](docs/mail.md): password reset, SMTP and the mailer.
 - [docs/docker.md](docs/docker.md): the image, Compose and the benchmark environment.
 - [docs/benchmarks.md](docs/benchmarks.md): how the benchmark is run; [bench/README.md](bench/README.md) has the harness steps.

@@ -4,6 +4,7 @@
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
 import Accounts from "../campfire/accounts"
+import Bots from "../campfire/bots"
 import Profiles from "../campfire/profiles"
 import Rails from "../campfire/repo/rails"
 import Rooms from "../campfire/rooms"
@@ -156,9 +157,90 @@ export def account(
     <% end %>
       </ul>
       <p><a href="<%= Routes.USERS %>">People and the join link</a></p>
+    <% if admin %>
+      <p><a href="<%= Routes.BOTS %>">Chat bots</a></p>
+    <% end %>
     </main>
   EAG
   return live_layout("Account settings", body)
+end
+
+## The chat bots page (`accounts/bots/index.html.erb`, for administrators): each active bot with its key and a link to
+## its edit page, and the link that adds one. The key is the secret of the bot, so the page is kept out of caches.
+export def bots(sidebar: String, list: List[Bots.Bot]) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1>Chat bots</h1>
+      <p>Each chat bot has a key. A new key stops the old one from working.</p>
+      <p><a href="<%= Routes.BOT_NEW %>">Add a chat bot</a></p>
+    <% if list.empty? %>
+      <p>There are no chat bots yet.</p>
+    <% else %>
+      <ul class="people">
+    <% for bot in list %>
+        <li>
+          <span class="name"><%= bot.name %></span>
+          <code class="meta"><%= bot.key %></code>
+          <a href="<%= Routes.bot_edit_path(bot.id) %>">Edit<span class="sr-only"> <%= bot.name %></span></a>
+        </li>
+    <% end %>
+      </ul>
+    <% end %>
+      <p><a href="<%= Routes.ACCOUNT_EDIT %>">Back to the account</a></p>
+    </main>
+  EAG
+  return live_layout("Chat bots", body)
+end
+
+## The form of a new chat bot (`bot` is `none`) or the page that edits one: the name (`name` is the box, `note` says why
+## a save was refused), and for an existing bot its key, a button that makes a new key and one that removes the bot,
+## each after a question. The webhook URL and the avatar of Rails' form are left out until the app can use them.
+export def bot_form(sidebar: String, bot: Optional[Bots.Bot], name: String, note: String) -> String
+  title = "New chat bot"
+  action = Routes.BOTS
+  if bot.some?
+    title = "Edit chat bot"
+    action = Routes.bot_path(bot.unwrap!.id)
+  end
+
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <%== sidebar %>
+    <main id="main">
+      <h1><%= title %></h1>
+    <% if not note.empty? %>
+      <p role="alert"><%= note %></p>
+    <% end %>
+      <form method="post" action="<%= action %>">
+    <% if bot.some? %>
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">
+    <% end %>
+        <p>
+          <label>Name of the bot
+            <input name="user[name]" type="text" value="<%= name %>" maxlength="<%= Bots.MAX_NAME_LENGTH %>" required
+              autofocus></label>
+        </p>
+        <p><button type="submit">Save</button></p>
+      </form>
+    <% if bot.some? %>
+      <p>Key: <code><%= bot.unwrap!.key %></code></p>
+      <form method="post" action="<%= Routes.bot_key_path(bot.unwrap!.id) %>"
+        onsubmit="return confirm('Are you sure you want to change the bot key? All usage of this bot must be updated.')">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PUT %>">
+        <p><button type="submit" class="danger">Generate a new key</button></p>
+      </form>
+      <form method="post" action="<%= action %>"
+        onsubmit="return confirm('Are you sure you want to remove this bot from the account? This cannot be undone.')">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
+        <p><button type="submit" class="danger">Remove bot</button></p>
+      </form>
+    <% end %>
+      <p><a href="<%= Routes.BOTS %>">Back to the chat bots</a></p>
+    </main>
+  EAG
+  return live_layout(title, body)
 end
 
 ## The sidebar alone as a document, for `GET /users/me/sidebar`. `sources` is the markup of the live streams that the

@@ -130,6 +130,19 @@ export ACCOUNT_ALLOW = "POST, PATCH"
 export ACCOUNT_USER = "/account/users/:id"
 export ACCOUNT_USER_ALLOW = "POST, PATCH, DELETE"
 
+## The chat bots of the account, for administrators (`Accounts::BotsController`): the list and the post that makes a bot,
+## the form of a new one, a bot (`:id`; a `PATCH` or `PUT` renames it, a `DELETE` deactivates it, and a `POST` with
+## `_method` set to one of the `METHOD_` names does the same, as Rails' forms send it), the page that edits it, and its
+## key (`Accounts::Bots::KeysController`: a `PUT`, or a `POST` with `_method` `put`, makes a new one). Any other method
+## on a bot or its key is a 405 that lists `BOT_ALLOW` or `BOT_KEY_ALLOW`, which are Bond's own lists for the paths.
+export BOTS = "/account/bots"
+export BOT_NEW = "/account/bots/new"
+export BOT = "/account/bots/:id"
+export BOT_EDIT = "/account/bots/:id/edit"
+export BOT_KEY = "/account/bots/:id/key"
+export BOT_ALLOW = "POST, PATCH, PUT, DELETE"
+export BOT_KEY_ALLOW = "POST, PUT"
+
 ## The people page, the posts that deactivate and reactivate a person (`:id` is the id of the user), and the post that
 ## makes a new join code.
 export USERS = "/users"
@@ -201,6 +214,21 @@ end
 ## The path of a person under the account, which is where the forms of their role and of their removal post.
 export def account_user_path(user_id: Int) -> String
   return "/account/users/#{user_id}"
+end
+
+## The path of a bot, which is where its forms post, and of the page that edits it and of its key.
+export def bot_path(bot_id: Int) -> String
+  return "/account/bots/#{bot_id}"
+end
+
+## The path of the page that edits a bot.
+export def bot_edit_path(bot_id: Int) -> String
+  return "/account/bots/#{bot_id}/edit"
+end
+
+## The path that makes a new key for a bot.
+export def bot_key_path(bot_id: Int) -> String
+  return "/account/bots/#{bot_id}/key"
 end
 
 ## The path of the page of a user.

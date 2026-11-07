@@ -54,6 +54,24 @@ it for `member`); and an administrator cannot change or remove themselves on the
 controls), so the account always keeps an administrator. Any other method on the two paths is a `405` that lists their
 methods.
 
+## Chat bots
+
+`Chat bots` on the account settings page (`/account/bots`, `Accounts::BotsController`) is for administrators; a
+member is `403` on every path of it. A bot is a user with the role `bot`, a name, a `bot_token` of 12 letters and
+digits (`SecureRandom.alphanumeric(12)` in Rails; the same alphabet here) and no email or password, so it cannot sign
+in. Its key is `ID-TOKEN`; the list and the edit page show it. The paths are `GET /account/bots` and
+`POST /account/bots` (the field is `user[name]`), `GET /account/bots/new`, `GET /account/bots/ID/edit`,
+`PATCH` or `PUT /account/bots/ID` to rename (a `POST` with `_method` `patch` or `put` from the form), `DELETE
+/account/bots/ID` (or `_method=delete`) to deactivate, and `PUT /account/bots/ID/key` (or `_method=put`) to give the
+bot a new token: the old key then names nobody. A new bot joins the open rooms, as a new person does. Deactivating
+(`User#deactivate`) takes it out of the open and closed rooms and from the list; its messages stay, and its key names
+nobody, since a key finds only an active bot. Any other method on a bot or its key is `405` with the `Allow` list.
+
+The checks come in the order of Rails' filters: no session redirects to sign-in, a member is `403`, then the bot (`404`
+for a user that does not exist, is a person or is not active), then the form (`400` for a missing field). A name that is
+blank or over 100 characters is `422` with the form again (Rails saves anything). Left out for now: the webhook URL and
+the avatar of Rails' form, and the curl lines of the list, which need the webhooks and the messages API.
+
 ## The user page and the profile
 
 `GET /users/ID` (`UsersController#show`) is open to anybody who is signed in, for a user in any status: the name, the

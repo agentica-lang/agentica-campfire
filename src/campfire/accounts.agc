@@ -127,6 +127,18 @@ export def active_person?(conn: Db.Connection, user_id: Int) -> Result[Bool]
   return ok(int_of(rows[0], "total") > 0)
 end
 
+## True when `user_id` is an active administrator. The changes of the account (and of its bots) ask it again inside their
+## transaction.
+export def administrator?(tx: Db.Connection, user_id: Int) -> Result[Bool]
+  rows = try Db.query(
+    tx,
+    "select count(*) as total from users where id = ? and role = ? and status = #{Rails.ACTIVE}",
+    [Db.Value.Int(user_id), Db.Value.Int(Rails.ADMINISTRATOR)],
+  )
+
+  return ok(int_of(rows[0], "total") > 0)
+end
+
 ## Makes `user_id` an administrator, or a member with `administrator` false (`Accounts::UsersController#update`), for
 ## `actor_id`. `Missing` is nobody active (a deactivated person, a bot, no such user). `Refused` is a person who asks
 ## without being an active administrator, or who changes their own role: the page has no switch for oneself, and an
@@ -390,14 +402,4 @@ def unchanged_or_missing(tx: Db.Connection, user_id: Int) -> Result[Change]
   end
 
   return ok(Change.Missing)
-end
-
-def administrator?(tx: Db.Connection, user_id: Int) -> Result[Bool]
-  rows = try Db.query(
-    tx,
-    "select count(*) as total from users where id = ? and role = ? and status = #{Rails.ACTIVE}",
-    [Db.Value.Int(user_id), Db.Value.Int(Rails.ADMINISTRATOR)],
-  )
-
-  return ok(int_of(rows[0], "total") > 0)
 end

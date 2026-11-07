@@ -15,7 +15,7 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
-                page and the profile save, over SQL), bans.agc (ban and unban, the check of an address, over SQL),
+                page and the profile save, over SQL), bots.agc (the chat bots: make, rename, new key, deactivate, over SQL), bans.agc (ban and unban, the check of an address, over SQL),
                 auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
@@ -33,7 +33,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 the 503 of a failure), routes.agc
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
-                password reset), accounts.agc (the people page and those posts), profiles.agc (the user page and the profile),
+                password reset), accounts.agc (the people page and those posts), bots.agc (the chat bots pages and posts), profiles.agc (the user page and the profile),
                 rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
@@ -270,6 +270,12 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   who is not an active person, then 400/422 for the form. `Accounts.set_role` and `Accounts.rename` check that the actor
   is an active administrator again inside the transaction, and `set_role` refuses the actor's own row, so the account always
   keeps an administrator. `AuthWeb.form_method` reads `_method` for every `POST` override.
+- Bots: `/account/bots` and its paths are administrator-only writes and pages (403 for a member before the bot or the
+  form is read, then 404 for a bot that is not an active one, then 400/422). `Bots.*` check the actor again inside their
+  transaction. A key is `ID-TOKEN` with a 12-character `[A-Za-z0-9]` token (`Bots.new_token`, bytes from 248 on skipped
+  so each character is as likely), and only an active bot has a key that names it; a new token or a deactivation ends
+  the old key. The pages hold keys, so they are `no-store`. The webhook URL, the avatar and the curl lines of Rails'
+  list wait for #78, #73 and #77.
 - Who may create rooms: `Accounts.room_creation_restricted?` reads the key `restrict_room_creation_to_administrators`
   of `accounts.settings` with `json_extract`, guarded by `json_valid`. `RoomsWeb.may_create_rooms?` is the one check,
   used by the four open and closed create routes (403 before the form is read) and by `sidebar_of` (the links). A
