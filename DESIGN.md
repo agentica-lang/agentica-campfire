@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation, built from `app/assets/stylesheets/` by `make assets`;
-change this file and the stylesheet together. One stylesheet, one script of about 12 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
+change this file and the stylesheet together. One stylesheet, one script of about 18 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -125,8 +125,8 @@ composer works without it (a plain post and a redirect), and has the keys of the
 `POST /rooms/ID/messages` already answers, appends the message to the list, clears the box, gives the form a new
 `client_message_id`, scrolls to the newest message and keeps the focus in the box, so a phone keeps its keyboard open
 (Send takes no focus on `pointerdown`). A refusal (any non-2xx answer) is sent again as a plain post, so the page of
-the refusal shows its reason; a lost connection leaves the text and shows a line. A page of older messages (`?before=`)
-uses the plain post, since the latest message does not belong at the end of that page. What was typed while the post
+the refusal shows its reason; a lost connection leaves the text and shows a line. A page that does not end at the newest
+message (`?before=`, `/rooms/ID/@MESSAGE`) uses the plain post, since the latest message does not belong at the end of it. What was typed while the post
 was in flight stays in the box; only the text that was sent is cleared. The "Not sent" line is an empty
 `<p aria-live="polite">` in the page that the script fills, so a screen reader announces it. The `client_message_id`
 is new after each send, but the server does not use it to drop a repeat (as in Rails: `docs/rooms.md`), so a retry
@@ -136,6 +136,28 @@ sends nothing; on a touch screen (`(pointer: coarse)`, the main pointer, not whe
 stays a new line. A blank box sends nothing and shows no validation bubble. On the edit page, Ctrl or Cmd+Enter saves
 and Esc goes to the room, discarding the change (it follows the `data-cancel` link). `tools/keys_check.js` checks the
 keys in a real browser; run it by hand after a change to the script. No framework, no CDN.
+
+The room page has three more parts, all progressive. **Scroll paging** (`message_pager.js`): the "Older messages" link
+loads the 40 messages before the first one when it comes within 300px of the top of the list (`GET
+/rooms/ID/messages?before=ID`), and on a page at a cursor the "Latest messages" link loads the 40 after the last one
+(`?after=ID`) the same way near the bottom; a 204 takes the link away, and at the newest message the page is the latest
+one (a message that is sent or heard is appended again, and the live part fetches the room's latest page once, for what was
+created while the pager walked down). An answer that is a redirect (a signed-out session), a page with no message that the
+list lacks, or a refusal is not inserted; a lost connection, a 5xx or a 429 is tried again 3 times with a growing pause (a
+`Retry-After` is honoured, up to 30 s), and after that the pager sleeps until the browser is online again or the reader
+scrolls with the link in reach; the link stays all the while. A 204 is not the end at once: the room answers 204 for a message it does not have (one that was
+deleted), so the pager asks again from the neighbour of the cursor, and only a page with no news ends the walk. The live
+catch-up decides what the fetched page covers by position, not by id (an id does not follow time in a database that Rails
+seeded), and a fetched page with nothing in common with the list (40 or more messages came while the socket was away)
+becomes the list, with a link to the messages before it. The links stay in the markup as the way of a browser without the
+script, and the server markup of a message is not touched. **Scroll keeping** (`scroll_keeper.js`): the list is a
+column-reverse box, so the scroll starts at the newest message with no script and older messages added above never move
+it. For everything else that changes the thread (a message heard or sent, an edit, a boost, a link that goes away) the script remembers one
+message of the view and puts it back where it was, with the browser's own anchoring off (`overflow-anchor`); a reader
+within 100px of the newest message of a latest page stays at it. **Local time** (`local_time.js`): each
+`<time datetime>` is written in the viewer's zone and language (the clock, `10:35 PM`; with the date, `Nov 6, 2026, 10:35
+PM`, when it is not today) with the whole date and time as the title; the server text is the UTC clock, the fallback.
+`tools/room_check.js` checks the three in a real browser, by hand.
 
 ## Accessibility
 

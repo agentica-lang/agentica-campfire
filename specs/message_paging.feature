@@ -34,6 +34,20 @@ Feature: Messages after a message, around a message, and since a time
     And the body contains "message 006"
     And the body does not contain "message 050"
 
+  Scenario: A client that walks the room by scrolling gets every message once, from the page at a cursor to the newest
+    Given the room 1 has 100 messages
+    When I get "/rooms/1/messages?before=21"
+    Then the body shows "message 001" before "message 020"
+    And the body does not contain "message 021"
+    When I get "/rooms/1/messages?after=20"
+    Then the body shows "message 021" before "message 060"
+    And the body does not contain "message 020"
+    And the body does not contain "message 061"
+    When I get "/rooms/1/messages?after=60"
+    Then the body shows "message 061" before "message 100"
+    When I get "/rooms/1/messages?after=100"
+    Then the status is 204
+
   Scenario: The messages after a message are the same for the same database, and change with it
     Given the room 1 has 60 messages
     When I get "/rooms/1/messages?after=50"

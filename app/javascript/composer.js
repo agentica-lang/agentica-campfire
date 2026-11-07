@@ -1,3 +1,5 @@
+import { atLatest } from "./room_page.js";
+
 /* The composer of a room, as an enhancement: the form works without this file (a post and a redirect). With it, a message
    is sent with fetch, the text box keeps its focus (so a phone keeps its keyboard open) and the page does not reload.
    The post asks for a Turbo Stream, which the app already answers with the message to append (`create_message`).
@@ -74,8 +76,9 @@ export function startComposer() {
       return;
     }
 
-    // A page of older messages (`?before=`) is not the end of the room: the plain post goes to the latest page.
-    if (location.search) {
+    // A page that does not end at the newest message (`?before=`, `/rooms/ID/@MESSAGE`) is not where a new one belongs: the
+    // plain post goes to the latest page.
+    if (!atLatest(document.querySelector('main.room [id^="messages_rooms_"]'))) {
       return;
     }
 

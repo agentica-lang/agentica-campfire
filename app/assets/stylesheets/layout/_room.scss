@@ -39,6 +39,9 @@ main.room > header {
   flex-direction: column-reverse;
   overflow-y: auto;
   overscroll-behavior: contain;
+  // The script keeps the place of the reader when the list changes (`scroll_keeper.js`); the browser's own anchoring
+  // would move the scroll too.
+  overflow-anchor: none;
 }
 
 .thread {

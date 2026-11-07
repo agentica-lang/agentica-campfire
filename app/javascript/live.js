@@ -1,3 +1,6 @@
+import { localize } from "./local_time.js";
+import { atLatest, LATEST_EVENT, WINDOW_EVENT } from "./room_page.js";
+
 /* The live part: one WebSocket to `/cable` (Action Cable, `actioncable-v1-json`), opened by every page with the sidebar.
    What it hears is a Turbo Stream, which it applies itself (append, prepend, replace, update, remove, before, after;
    no Turbo library), or a notice that a room has something new.
@@ -24,8 +27,11 @@ export function startLive() {
   var list = main ? main.querySelector('[id^="messages_rooms_"]') : null;
   var match = list ? /_(\d+)$/.exec(list.id) : null;
   var roomId = match ? parseInt(match[1], 10) : null;
-  // A page of older messages (`?before=`) is not the end of the room: the newest message does not belong in it.
-  var latest = !location.search;
+  // A page of older messages (`?before=`, `/rooms/ID/@MESSAGE`) is not the end of the room: the newest message does not
+  // belong in it, until the pager has reached the end.
+  function latest() {
+    return atLatest(list);
+  }
 
   var subscriptions = [];
   var socket = null;
@@ -131,7 +137,7 @@ export function startLive() {
           one.rejected = false;
           send({ command: "subscribe", identifier: one.id });
         });
-        catchRoom = everWelcomed && roomSub !== null && latest;
+        catchRoom = everWelcomed && roomSub !== null && latest();
         catchSidebar = everWelcomed;
         everWelcomed = true;
         return;
@@ -251,7 +257,7 @@ export function startLive() {
         break;
       case "remove":
         target.remove();
-        if (list && latest && list.isConnected) {
+        if (list && latest() && list.isConnected) {
           syncEmpty();
         }
         break;
@@ -393,7 +399,7 @@ export function startLive() {
   // order. What arrived live since the catch-up began (a message that is not in the first list, or one that a stream
   // touched) stays as the stream made it, as the fetch may be older than the stream. The composer is not touched.
   function catchUp() {
-    if (!list || !latest || !roomId) {
+    if (!list || !latest() || !roomId) {
       return;
     }
 
@@ -405,9 +411,11 @@ export function startLive() {
     });
     catching = mine;
 
-    fetch(location.href, { credentials: "same-origin", headers: { Accept: "text/html" } })
+    // The room's own page, not `location.href`: a page at a cursor that the pager has taken to the end is the latest page
+    // now, and its address is still the window of the cursor, which lacks the messages after it.
+    fetch("/rooms/" + roomId, { credentials: "same-origin", headers: { Accept: "text/html" } })
       .then(function (response) {
-        return response.ok ? response.text() : "";
+        return response.ok && !response.redirected ? response.text() : "";
       })
       .then(function (text) {
         var theirs = text ? new DOMParser().parseFromString(text, "text/html").getElementById(list.id) : null;
@@ -425,23 +433,33 @@ export function startLive() {
       });
   }
 
-  function numberOf(item) {
-    return parseInt(item.getAttribute("data-message-id"), 10) || 0;
-  }
-
   function reconcile(theirs, mine) {
     var wanted = {};
-    var low = Infinity;
+    var boundary = null;
     Array.prototype.forEach.call(theirs.children, function (item) {
       wanted[item.id] = true;
-      low = Math.min(low, numberOf(item));
+      var here = document.getElementById(item.id);
+      if (!boundary && here && here.parentNode === list) {
+        boundary = here;
+      }
     });
 
-    // With no fetched message every message of the first list is gone; otherwise only the ones from the oldest fetched
-    // on (older ones are on a page that the fetch did not cover).
-    var covered = theirs.children.length === 0 ? 0 : low;
+    // What the fetch covers is told by position, not by id: the page is in the server's order (time, then id), and in a
+    // database that Rails seeded an id does not follow time. With no fetched message every message of the first list is
+    // gone; otherwise only the ones from the oldest fetched one that the list has on (the ones before it are on pages that
+    // the fetch did not cover, the older messages that the pager loaded).
+    var empty = theirs.children.length === 0;
+    // A fetched page that has no message of the list in common (40 or more were made while the socket was away) leaves a
+    // gap that no position can fill: the list is made the fetched page, with a link to the messages before it.
+    var gap =
+      !boundary &&
+      !empty &&
+      Array.prototype.some.call(list.children, function (item) {
+        return item.id && mine.seen[item.id];
+      });
     Array.prototype.slice.call(list.children).forEach(function (item) {
-      if (item.id && mine.seen[item.id] && !wanted[item.id] && !mine.touched[item.id] && numberOf(item) >= covered) {
+      var covered = gap || empty || (boundary && (item === boundary || boundary.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING));
+      if (item.id && mine.seen[item.id] && !wanted[item.id] && !mine.touched[item.id] && covered) {
         item.remove();
       }
     });
@@ -454,6 +472,8 @@ export function startLive() {
       }
 
       var copy = document.importNode(item, true);
+      // The page in the list has its times in the viewer's zone, so the copy is compared in it too.
+      localize(copy);
       var here = document.getElementById(item.id);
       if (here && here.parentNode === list) {
         if (here.outerHTML !== copy.outerHTML) {
@@ -463,6 +483,10 @@ export function startLive() {
       } else if (previous) {
         previous.after(copy);
         here = copy;
+      } else if (boundary) {
+        // A message that the list lacks, before the first one that it has: it goes there, not at the top of the list.
+        boundary.before(copy);
+        here = copy;
       } else {
         list.prepend(copy);
         here = copy;
@@ -470,7 +494,30 @@ export function startLive() {
       previous = here;
     });
 
+    if (gap) {
+      linkOlder();
+    }
     syncEmpty();
+  }
+
+  // The "Older messages" link above a list that was made a new page: it points before the first message, and the pager is
+  // told, since it watched the link that was there (or none).
+  function linkOlder() {
+    var first = list.querySelector("[data-message-id]");
+    if (!first) {
+      return;
+    }
+
+    var notice = list.previousElementSibling;
+    if (!notice || !notice.classList.contains("more")) {
+      notice = document.createElement("p");
+      notice.className = "more";
+      notice.append(document.createElement("a"));
+      notice.firstChild.textContent = "Older messages";
+      list.parentNode.insertBefore(notice, list);
+    }
+    notice.firstChild.setAttribute("href", "/rooms/" + roomId + "?before=" + first.getAttribute("data-message-id"));
+    document.dispatchEvent(new Event(WINDOW_EVENT));
   }
 
   // The notice of a room with no message is in the page when it was made empty and is not when it was not, so the
@@ -490,7 +537,7 @@ export function startLive() {
   }
 
   function room(html) {
-    if (typeof html !== "string" || !latest) {
+    if (typeof html !== "string" || !latest()) {
       return;
     }
 
@@ -559,6 +606,9 @@ export function startLive() {
       unmark(roomId);
     }
   }
+
+  // The pager reached the end of a page at a cursor: what was created while it walked down is fetched once.
+  document.addEventListener(LATEST_EVENT, catchUp);
 
   heartbeat = subscribe({ channel: "HeartbeatChannel" }, null);
   unreadSub = subscribe({ channel: "UnreadRoomsChannel" }, unread);
