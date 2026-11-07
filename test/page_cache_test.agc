@@ -1,4 +1,7 @@
 import Cache from "std/cache"
+import HTTP from "std/http"
+import Bond from "pkg/bond/bond"
+import Testing from "pkg/bond/testing"
 import Db from "pkg/db/db"
 import Auth from "../src/campfire/auth"
 import Database from "../src/campfire/repo/database"
@@ -9,9 +12,15 @@ READERS = 6
 READS = 2_000
 COMMITS = 50
 HOUR_MS = 3_600_000
+PAGE = "é<p>café 日本</p>"
 
 def ana() -> Auth.User
   return Auth.User(id: 1, name: "Ana", role: "member")
+end
+
+# The body of a kept page as text; the bodies of the tests hold non-ASCII text, which `unpack` must cut out by bytes.
+def text_of(body: Bytes) -> String
+  return body.decode("utf-8").unwrap!
 end
 
 # The session of `person` that ends `ms` from now.
@@ -172,9 +181,9 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   seen = some(try Database.version(observer))
   sidebar = PageCache.sidebar_spot(pages, seen, ana())
   try Test.assert(PageCache.lookup(sidebar).none?, "a sidebar before it is kept")
-  made = PageCache.keep(sidebar, "<p>rooms</p>")
+  made = PageCache.keep(sidebar, "é<p>rooms é</p>")
   kept = PageCache.lookup(sidebar)
-  try Test.eq(kept.unwrap!.body, "<p>rooms</p>")
+  try Test.eq(text_of(kept.unwrap!.body), "é<p>rooms é</p>")
   try Test.eq(kept.unwrap!.etag, made.etag)
   bea = ana().with(id: 2, name: "Bea")
   try Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, seen, bea)).none?, "a sidebar of another person")
@@ -275,9 +284,13 @@ def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Conn
   try Test.assert(held.size <= SLOTS, "a person holds more search pages than they have places")
   try Test.assert(held.size > 0, "no search page is kept")
   other = PageCache.lookup(PageCache.search_spot(pages, seen, bea, "coffee", none))
-  try Test.eq(other.unwrap!.body, "<p>Bea</p>")
+  try Test.eq(text_of(other.unwrap!.body), "<p>Bea</p>")
   last = queries.last
-  try Test.eq(PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last, none)).unwrap!.body, "<p>#{last}</p>")
+  try Test.eq(
+    text_of(PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last, none)).unwrap!.body),
+    "<p>#{last}</p>",
+  )
+
   try Test.assert(
     PageCache.lookup(PageCache.search_spot(pages, seen, ana().with(name: "Anna"), last, none)).none?,
     "a search page of another state of the person",
@@ -342,9 +355,9 @@ def cursor_pages_are_bounded_per_person(
   try Test.assert(held_after.size <= SLOTS, "a person holds more pages after a cursor than they have places")
   try Test.assert(held_after.size > 0, "no page after a cursor is kept")
   other = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, bea, some(1), some(7)))
-  try Test.eq(other.unwrap!.body, "<p>Bea before</p>")
+  try Test.eq(text_of(other.unwrap!.body), "<p>Bea before</p>")
   after = PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, bea, some(1), some(7)))
-  return Test.eq(after.unwrap!.body, "<p>Bea after</p>")
+  return Test.eq(text_of(after.unwrap!.body), "<p>Bea after</p>")
 end
 
 # A page in a place of the person is a miss for any other stamp (the version, the state of the person, the room, the
@@ -363,9 +376,17 @@ def cursor_stamp_mismatch_is_a_miss(observer: Database.Observer, writer: Db.Conn
   )
 
   seen = some(try Database.version(observer))
-  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "<p>five</p>")
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "<p>fivé</p>")
   found = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)))
-  try Test.eq(found.unwrap!.body, "<p>five</p>")
+  try Test.eq(text_of(found.unwrap!.body), "<p>fivé</p>")
+  # A body that starts with multi-byte characters is cut right after the stamp and the tag, and so is an empty one.
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "日本🔥é")
+  wide = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)))
+  try Test.eq(text_of(wide.unwrap!.body), "日本🔥é")
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "")
+  empty = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)))
+  try Test.assert(empty.unwrap!.body.empty?, "an empty page is kept empty")
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "<p>fivé</p>")
   # With one place all the cursors share it, so these differ in the stamp alone.
   try Test.assert(
     PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6))).none?,
@@ -403,7 +424,7 @@ def cursor_stamp_mismatch_is_a_miss(observer: Database.Observer, writer: Db.Conn
   )
 
   six = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6)))
-  return Test.eq(six.unwrap!.body, "<p>six</p>")
+  return Test.eq(text_of(six.unwrap!.body), "<p>six</p>")
 end
 
 # Only the pages that the cache keeps make the sign-in filter read the version.
@@ -441,8 +462,41 @@ def failing_observer_keeps_nothing(observer: Database.Observer, writer: Db.Conne
   try Test.assert(spot.none?, "a spot from an observer that is closed")
   try Test.assert(PageCache.lookup(spot).none?, "a page without a spot")
   page = PageCache.keep(spot, "<p>made</p>")
-  try Test.eq(page.body, "<p>made</p>")
+  try Test.eq(text_of(page.body), "<p>made</p>")
   return Test.eq(Cache.bytes(store), 0)
+end
+
+def sent_page(conn: Bond.Conn) -> Result[Bond.Conn]
+  return ok(PageCache.respond(conn, PageCache.keep(none, PAGE)))
+end
+
+# What the page cache sent before the body was `Bytes`: `Bond.html` and the two headers.
+def html_page(conn: Bond.Conn) -> Result[Bond.Conn]
+  tag = PageCache.keep(none, PAGE).etag
+  html = Bond.html(conn, 200, PAGE)
+  return ok(Bond.header(Bond.header(html, "etag", tag), "cache-control", "max-age=0, private, must-revalidate"))
+end
+
+# `respond` answers with the status, headers and bytes of `Bond.html`, and a 304 without a body for the tag it sent.
+def respond_matches_html() -> Result[Void]
+  app = (
+    Bond.app()
+    |> Bond.get("/sent", &sent_page)
+    |> Bond.get("/html", &html_page)
+  )
+
+  sent = Testing.request(app, "GET", "/sent")
+  html = Testing.request(app, "GET", "/html")
+  try Test.eq(sent.status, 200)
+  try Test.eq(sent.headers, html.headers)
+  try Test.eq(sent.body, html.body)
+  try Test.eq(sent.body, PAGE.bytes)
+  try Test.eq(HTTP.header_values(sent.headers, "content-type"), ["text/html; charset=utf-8"])
+  tag = HTTP.header_values(sent.headers, "etag")[0]
+  same = Testing.request(app, "GET", "/sent", [Header(name: "if-none-match", value: tag)])
+  try Test.eq(same.status, 304)
+  try Test.assert(same.body.empty?, "a 304 has no body")
+  return Test.eq(HTTP.header_values(same.headers, "etag"), [tag])
 end
 
 def run_in_dir(body: Fn[Database.Observer, Db.Connection, String, Result[Void]]) -> Result[Void]
@@ -491,6 +545,9 @@ def main() -> Void
     Test.test("only a room page, the older messages, the sidebar and the search are read at their version") do
       cached_paths()
     end,
+    Test.test(
+      "a page is answered with the status, headers and bytes of Bond.html, and a repeat of its tag is a 304",
+    ) do respond_matches_html() end,
     Test.test("an observer that fails gives no spot, so the page is made and nothing is kept") do
       run_in_dir(&failing_observer_keeps_nothing)
     end,

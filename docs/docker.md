@@ -42,6 +42,9 @@ Compose reads on its own. Compose adds an override's `ports` to the base list, s
 - `HTTP_PORT` is the port;
 - the session secret comes from `SECRET_KEY_BASE`.
 
+The image sets `GC_INITIAL_HEAP_SIZE=33554432` (a 32 MB start heap for the garbage collector,
+which cuts its pauses under load); `-e GC_INITIAL_HEAP_SIZE=...` overrides it.
+
 A `CAMPFIRE_*` variable that you set wins. The app listens on `127.0.0.1` unless `CAMPFIRE_HOST`
 says otherwise. In the benchmark harness, `bin/seed` writes `SECRET_KEY_BASE`. For the harness
 itself, see [bench/README.md](../bench/README.md). The other variables are in

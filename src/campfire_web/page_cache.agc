@@ -70,6 +70,9 @@ export AFTER = "after"
 export SIDEBAR = "sidebar"
 export SEARCH = "search"
 
+# The content type that `Bond.html` sets, for a page answered as bytes.
+HTML_TYPE = "text/html; charset=utf-8"
+
 # Where the sign-in filter keeps the version of the database for the handler (`Bond.assign`).
 VERSION_KEY = "database_version"
 
@@ -98,10 +101,11 @@ export struct Pages
   observer: Database.Observer
 end
 
-## A page and its tag.
+## A page and its tag. The body is `Bytes`: the page is sent as bytes, and a cached page is cut out of the cached text
+## by bytes (`unpack`), since `String.slice` walks every character of a text that has a non-ASCII one.
 export struct Page
   etag: String
-  body: String
+  body: Bytes
 end
 
 ## Where a page of a request is kept: the cache and the key. A `stamp` that is not empty is what a page at a key that
@@ -286,7 +290,7 @@ end
 export def lookup(spot: Optional[Spot]) -> Optional[Page]
   case spot
     none -> return none
-    some(found) -> return unpack(without_stamp(found, Cache.get(found.pages.store, found.key)))
+    some(found) -> return unpack(found, Cache.get(found.pages.store, found.key))
   end
 end
 
@@ -295,11 +299,11 @@ export def keep(spot: Optional[Spot], html: String) -> Page
   digest = Digest.sha256_hexdigest(html.bytes).slice(0, ETAG_DIGITS)
   etag = "W/\"#{digest}\""
   case spot
-    none -> return Page(etag: etag, body: html)
+    none -> return Page(etag: etag, body: html.bytes)
     some(found) -> Cache.put(found.pages.store, found.key, stamped(found) + etag + html)
   end
 
-  return Page(etag: etag, body: html)
+  return Page(etag: etag, body: html.bytes)
 end
 
 ## The answer for `page`: a 304 when `If-None-Match` of the request names its tag, else a 200 with the page.
@@ -308,7 +312,7 @@ export def respond(conn: Bond.Conn, page: Page) -> Bond.Conn
     return tagged(Bond.status(conn, 304), page)
   end
 
-  return tagged(Bond.html(conn, 200, page.body), page)
+  return tagged(Bond.header(Bond.bytes(conn, 200, page.body), "content-type", HTML_TYPE), page)
 end
 
 # The place of the older messages of `kind` that the hash of the room and the cursor chooses among the `cursor_slots`
@@ -375,20 +379,6 @@ def stamped(spot: Spot) -> String
   return spot.stamp + "\n"
 end
 
-# The cached text without its stamp, or `none` when it was kept with another stamp.
-def without_stamp(spot: Spot, kept: Optional[String]) -> Optional[String]
-  if kept.none? or spot.stamp.empty?
-    return kept
-  end
-
-  prefix = stamped(spot)
-  if not kept.unwrap!.start_with?(prefix)
-    return none
-  end
-
-  return some(kept.unwrap!.slice(prefix.length, kept.unwrap!.length - prefix.length))
-end
-
 def version_of(pages: Pages, seen: Optional[String]) -> Result[String]
   case seen
     some(version) if version.empty? -> return error("database error: the version could not be read")
@@ -420,11 +410,22 @@ def user_key(version: String, token: String) -> String
   return "user:#{version}:#{token}"
 end
 
-def unpack(kept: Optional[String]) -> Optional[Page]
+# The page in the cached text `kept` at `spot`, or `none` when there is none or it was kept with another stamp. The
+# tag is
+# a short slice, but the body is taken by bytes: `String.slice` to the end of a text with a non-ASCII character costs a
+# walk over all of it. The tag is ASCII, so it follows the stamp at `prefix.length` characters and `prefix.bytesize`
+# bytes.
+def unpack(spot: Spot, kept: Optional[String]) -> Optional[Page]
   case kept
     none -> return none
     some(text) ->
-      return some(Page(etag: text.slice(0, ETAG_WIDTH), body: text.slice(ETAG_WIDTH, text.length - ETAG_WIDTH)))
+      prefix = stamped(spot)
+      if not prefix.empty? and not text.start_with?(prefix)
+        return none
+      end
+
+      etag = text.slice(prefix.length, ETAG_WIDTH)
+      return some(Page(etag: etag, body: text.bytes.drop(prefix.bytesize + ETAG_WIDTH)))
   end
 end
 
