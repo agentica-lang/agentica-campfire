@@ -15,11 +15,17 @@
 ##   built with).
 ## - A statement that has stepped keeps a read transaction open until it is reset, and a second statement stepped
 ##   meanwhile would share that old snapshot and could give the number from before a commit that was already
-##   finished. The turn keeps one reader at a time between the step and the reset. It is a token in a channel of one
-##   place: taking it is a `recv`, giving it back a `send`, and a reader that finds none waits as a task (the
-##   scheduler runs others), so nothing parks a thread. It is not a `Native.mutex`: a mutex that parks the waiting
-##   scheduler cost 15 to 25 percent of the throughput in measurements. A spin on a table entry was tried first and
-##   burned the CPU of a machine with fewer cores than schedulers while the holder waited for its turn on one.
+##   finished (or none at all). The turn keeps one reader at a time between the step and the reset. It is a token in a
+##   channel of one place: taking it is a `recv`, giving it back a `send`, and a reader that finds none waits as a
+##   task (the scheduler runs others), so nothing parks a thread. It is not a `Native.mutex`: a mutex that parks the
+##   waiting scheduler cost 15 to 25 percent of the throughput in measurements. A spin on a table entry was tried
+##   first and burned the CPU of a machine with fewer cores than schedulers while the holder waited for its turn.
+##
+## The token is never made again. Between `take` and `give_back` there is no wait of any kind (a step, a read and a
+## reset, then a `send` with no wait), so a task is not stopped there by a cancel, which takes effect at a wait. If a
+## token were lost anyway, or a holder stalled, every later read would time out into an `error` and the pages would be
+## made and not kept: slow, never stale. Putting a second token in would let two readers share the statement, which is
+## the stale page that the turn exists to prevent.
 
 import SqliteUrl from "pkg/db/sqlite/url"
 
@@ -30,9 +36,8 @@ OPEN_FLAGS = 65_601
 NUL_TERMINATED = -1
 SQL = "PRAGMA data_version"
 SCHEME = "sqlite:"
-# A holder keeps the token for microseconds, unless its scheduler is starved of CPU. A waiter that has waited this
-# long gives up (the page is made and not kept) and puts a token back, in case the holder is gone (a task cancelled
-# between taking and giving it back), so that the app does not stop reading versions with it.
+# A holder keeps the token for microseconds, unless its thread is starved of CPU. A waiter that has waited this long
+# gives up with an error, and the page is made and not kept.
 TURN_MS = 1_000
 
 extern "sqlite3"
@@ -57,11 +62,26 @@ end
 ## after a `?` do not matter here) and prepares the statement. The connection belongs to the task that calls this,
 ## which must live as long as the app does. An `error` says what failed.
 export def open(url: String) -> Result[Reader]
+  # The same refusals as `Db.open`, and the in-memory databases: each connection has a private one, so this connection
+  # would never see a commit of another and the pages would never change. Errors name no more of the url than the
+  # scheme, which can hold a password.
+  if url.start_with?("sqlite://")
+    return error("version reader: unsupported database url with scheme sqlite://: write sqlite:PATH, without //")
+  end
+
   if not url.start_with?(SCHEME)
-    return error("version reader: the database url must be sqlite:PATH, not #{url}")
+    return error("version reader: the database url must be sqlite:PATH")
   end
 
   target = try SqliteUrl.parse(url.slice(SCHEME.length, url.length - SCHEME.length))
+  if target.path.empty?
+    return error("version reader: the path of the database url is empty")
+  end
+
+  if in_memory?(target.path)
+    return error("version reader: an in-memory database is private to its connection, so it cannot be watched")
+  end
+
   try Native.load("sqlite3")
   opened = sqlite3_open_v2(target.path, OPEN_FLAGS, Native.pointer(0))
   if opened.result != 0
@@ -80,8 +100,9 @@ export def open(url: String) -> Result[Reader]
   return ok(Reader(db: opened.db, stmt: made.stmt, turn: turn))
 end
 
-## Closes the connection, once the last reader is done: the app calls it after the server has stopped. A read after
-## it is an `error`.
+## Closes the connection after the reader that holds the turn is done: a read after it is an `error`. The app calls
+## it after the server has stopped. When the turn does not come in `TURN_MS` the connection is left open (it is closed
+## with the task that owns it, at the end of the run): closing it under a reader would be worse.
 export def close(reader: Reader) -> Void
   if take(reader.turn)
     Native.close(reader.stmt)
@@ -94,21 +115,26 @@ end
 ## is busy, the reader is closed or the turn did not come) means that nothing is known, so the caller must not trust
 ## or keep anything it saw before.
 export def version(reader: Reader) -> Result[String]
+  if Native.closed?(reader.stmt)
+    return error("database error: the version reader is closed")
+  end
+
   if not take(reader.turn)
     return error("database error: the version reader is busy")
   end
 
   value = current(reader)
   give_back(reader.turn)
-  if value < 0
+  if value <= 0
     return error("database error: PRAGMA data_version could not be read")
   end
 
   return ok(value.to_s)
 end
 
-# The counter, or -1. The one statement ends in `reset`, which closes its read transaction, so the next call sees the
-# commits that were made since.
+# The counter, or -1 for no row or an error of SQLite (the counter of a database that is open is never 0, and a 0 must
+# not become a key). The one statement ends in `reset`, which closes its read transaction, so the next call sees the
+# commits that were made since. Nothing here waits: see the top of the file.
 def current(reader: Reader) -> Int
   if Native.closed?(reader.stmt)
     return -1
@@ -123,17 +149,15 @@ def current(reader: Reader) -> Int
   return value
 end
 
-# True when the token is ours. When it did not come in `TURN_MS` the holder is lost: a new token is put in so that the
-# next readers are not stuck behind it too.
+# True when the token is ours. It is not made again when it does not come: see the top of the file.
 def take(turn: Channel[Bool]) -> Bool
-  if turn.recv(TURN_MS).ok?
-    return true
-  end
-
-  _ = turn.send(true, 0)
-  return false
+  return turn.recv(TURN_MS).ok?
 end
 
 def give_back(turn: Channel[Bool]) -> Void
   _ = turn.send(true, 0)
+end
+
+def in_memory?(path: String) -> Bool
+  return path == ":memory:" or path.include?("mode=memory") or path.start_with?("file::memory:")
 end

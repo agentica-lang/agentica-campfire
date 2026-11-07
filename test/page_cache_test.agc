@@ -73,6 +73,55 @@ def readers_share_the_connection(observer: Database.Observer, writer: Db.Connect
   return ok()
 end
 
+# A holder that has the turn and does not give it back (here the test itself) makes a reader time out into an error,
+# and the timeout does not make a second token, which would let two readers share the statement.
+def a_stalled_holder_makes_no_second_token(
+  observer: Database.Observer,
+  writer: Db.Connection,
+  url: String,
+) -> Result[Void]
+  _ = writer
+  _ = url
+  try observer.turn.recv(0)
+  try Test.error?(Database.version(observer))
+  try Test.assert(not observer.turn.recv(0).ok?, "a reader that timed out put a token back")
+  try observer.turn.send(true, 0)
+  return Test.assert(Database.version(observer).ok?, "no version once the holder gave the turn back")
+end
+
+def read_until_closed(observer: Database.Observer) -> Result[Void]
+  for _ in 1..READS
+    _ = Database.version(observer)
+  end
+
+  return ok()
+end
+
+# A close while readers are at work: each read answers or is refused, none hangs or stops a task, and a read after
+# the close is refused at once (it does not wait for the turn).
+def close_with_readers_waiting(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
+  _ = writer
+  _ = url
+  readers = (1..READERS).to_a.map do |_| Task.spawn do read_until_closed(observer) end end
+  Task.sleep(2)
+  Database.close_observer(observer)
+  for reader in readers
+    try Task.await(reader)
+  end
+
+  started = Time.now_ms()
+  try Test.error?(Database.version(observer))
+  return Test.assert(Time.now_ms() - started < 500, "a read after the close waited for the turn")
+end
+
+def refuses_urls_that_cannot_be_watched() -> Result[Void]
+  for url in ["sqlite:", "sqlite://app.db", "sqlite::memory:", "postgres://localhost/app", "app.db"]
+    try Test.error?(Database.open_observer(url))
+  end
+
+  return ok()
+end
+
 def spots_follow_the_person(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
   _ = writer
   _ = url
@@ -412,6 +461,15 @@ def main() -> Void
     Test.test("tasks that read the version at once all get an answer, and a read after a commit sees the commit") do
       run_in_dir(&readers_share_the_connection)
     end,
+    Test.test("a reader that times out for a stalled holder makes no second token") do
+      run_in_dir(&a_stalled_holder_makes_no_second_token)
+    end,
+    Test.test("a close while readers are at work leaves no reader stuck and refuses the reads after it") do
+      run_in_dir(&close_with_readers_waiting)
+    end,
+    Test.test(
+      "an observer is refused for a url that is empty, has // or is in memory, and for one that is not sqlite",
+    ) do refuses_urls_that_cannot_be_watched() end,
     Test.test(
       "a spot has the person's name and role, and the room page with a cursor and an unknown room have none",
     ) do run_in_dir(&spots_follow_the_person) end,

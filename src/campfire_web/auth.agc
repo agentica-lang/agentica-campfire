@@ -261,7 +261,7 @@ def require_sign_in(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCa
   end
 end
 
-# The person of the session with `token` ("" for no cookie, which is no person and leases nothing): the one kept for
+# The person of the session with `token` ("" for no cookie, which is no person and reads nothing): the one kept for
 # the version of the database that the request was read at, else the one the database gives, which is then kept.
 def session_user(
   conn: Bond.Conn,
