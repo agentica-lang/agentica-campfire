@@ -35,5 +35,16 @@ def main() -> Void
       try Test.assert(not AuthWeb.bot_api?("/account/1/key/messages"), "another prefix")
       Test.assert(not AuthWeb.bot_api?("/"), "the home page")
     end,
+    Test.test("only the post of a message of a room is left to its handler, however the router reads the path") do
+      try Test.assert(AuthWeb.message_post?("POST", "/rooms/1/messages"), "the route")
+      try Test.assert(AuthWeb.message_post?("POST", "/rooms/1/messages/"), "a trailing slash")
+      try Test.assert(AuthWeb.message_post?("POST", "//rooms/1//messages"), "double slashes")
+      try Test.assert(not AuthWeb.message_post?("GET", "/rooms/1/messages"), "the older messages")
+      try Test.assert(not AuthWeb.message_post?("HEAD", "/rooms/1/messages"), "a head")
+      try Test.assert(not AuthWeb.message_post?("POST", "/rooms/1/3-aaaaBBBB1111/messages"), "the API of the bots")
+      try Test.assert(not AuthWeb.message_post?("POST", "/rooms/1/messages/5"), "a message")
+      try Test.assert(not AuthWeb.message_post?("POST", "/rooms/1"), "the room")
+      Test.assert(not AuthWeb.message_post?("POST", "/rooms/1/refresh"), "another resource of the room")
+    end,
   ])
 end

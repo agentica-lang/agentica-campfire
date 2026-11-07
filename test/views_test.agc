@@ -37,6 +37,20 @@ def main() -> Void
       try Test.assert(linked.include?("</time><a href=\"/rooms/3/messages/7/edit\">Edit</a></h3>"), linked)
       Test.eq(linked.replace("<a href=\"/rooms/3/messages/7/edit\">Edit</a>", ""), plain)
     end,
+    Test.test("the streams of a new message are those of message_stream, with and without the controls") do
+      room = Rooms.Room(id: 3, name: "Lobby", room_type: "Rooms::Open", creator_id: 2)
+      streams = Views.message_streams(room, message())
+      try Test.eq(streams.broadcast, Views.message_stream(room, message(), false))
+      try Test.eq(streams.own, Views.message_stream(room, message(), true))
+      # Written out once, so that the helpers cannot drift together: the stream is the message in a turbo-stream.
+      expected = (
+        "<turbo-stream action=\"append\" target=\"messages_rooms_open_3\"><template>" +
+        Views.message(message(), false) +
+        "</template></turbo-stream>"
+      )
+
+      Test.eq(streams.broadcast, expected)
+    end,
     Test.test("a boost is written as text, with the form that takes it away, before the link that adds one") do
       one = Boosts.Boost(id: 5, booster_id: 2, booster: "Bea <b>", content: "<3 & more", created_at: "")
       html = Views.message(message().with(boosts: [one]), false)

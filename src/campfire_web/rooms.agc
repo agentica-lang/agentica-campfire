@@ -80,6 +80,14 @@ struct Sent
   html: Bool
 end
 
+# The fields of the form of a new message as they were read, each of which may be a 400 that only a signed-in person is
+# told of.
+struct Form
+  body: Result[String]
+  formats: Result[List[String]]
+  sent_id: Result[String]
+end
+
 # Where a request for a message of a room ends up, once the room and the message are looked up for the person.
 enum Located
   Missing
@@ -1145,16 +1153,19 @@ def create_message(
   cache: Optional[Cache.Store],
   max_length: Int,
 ) -> Result[Bond.Conn]
-  # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
-  # whatever the room: nothing here depends on the room.
-  body = (try Bond.form(conn, MESSAGE_BODY)).strip
-  formats = try Bond.form_all(conn, MESSAGE_FORMAT)
-  sent = Sent(text: body, html: formats.any? do |format| format == HTML_FORMAT end)
-  sent_id = try client_id(conn)
+  # The person is looked up in the connection of the write (`AuthWeb.person_in`), so the post takes one connection. The
+  # filter answered a visitor before the form was read, so the form is read as results here and only a person who is
+  # signed in gets its 400.
+  form = Form(
+    body: Bond.form(conn, MESSAGE_BODY),
+    formats: Bond.form_all(conn, MESSAGE_FORMAT),
+    sent_id: client_id(conn),
+  )
+
   id = room_id(conn)
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db|
-    message_answer(conn, db, cable, cache, id, sent, sent_id, stream, max_length)
+    message_answer(conn, db, cable, cache, id, form, stream, max_length)
   end
 
   return ok(announced(conn, cable, answer))
@@ -1173,15 +1184,20 @@ def message_answer(
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   id: Optional[Int],
-  sent: Sent,
-  sent_id: String,
+  form: Form,
   stream: Bool,
   max_length: Int,
 ) -> Result[Answer]
-  user = try AuthWeb.assigned_user(conn)
-  case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return posted(db, cable, cache, person, id, sent, sent_id, stream, max_length)
+  found = try AuthWeb.person_in(conn, db)
+  case found
+    AuthWeb.Found.Entry(path) -> return ok(Answer.Redirect(path))
+    AuthWeb.Found.Person(person) ->
+      # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
+      # whatever the room: nothing here depends on the room.
+      body = (try form.body).strip
+      formats = try form.formats
+      sent = Sent(text: body, html: formats.any? do |format| format == HTML_FORMAT end)
+      return posted(db, cable, cache, person, id, sent, try form.sent_id, stream, max_length)
   end
 end
 
@@ -1426,7 +1442,7 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
     Answer.Made(room_id, actor_id, renamed, removed) ->
       CableWeb.members_removed(cable, removed)
       CableWeb.room_changed(cable, room_id, actor_id, renamed)
-    Answer.Posted(room, message, _) -> CableWeb.message_created(cable, room, message)
+    Answer.Posted(room, message, stream) -> return posted_response(conn, cable, room, message, stream)
     Answer.Deleted(room, members) -> CableWeb.room_deleted(cable, room, members)
     Answer.Edited(room, message) -> CableWeb.message_edited(cable, room, message)
     Answer.Removed(room, message_id, _) -> CableWeb.message_removed(cable, room.id, message_id)
@@ -1436,6 +1452,27 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
   return respond(conn, answer)
 end
 
+# A new message is broadcast and, for a browser that runs the scripts, answered with the same stream but for the link
+# to edit it, which only its writer has: the message is written once for both.
+def posted_response(
+  conn: Bond.Conn,
+  cable: CableWeb.Cable,
+  room: Rooms.Room,
+  message: Rooms.Message,
+  stream: Bool,
+) -> Bond.Conn
+  if not stream
+    CableWeb.message_created(cable, room, message)
+    return Bond.redirect(conn, Routes.room_path(room.id))
+  end
+
+  streams = Views.message_streams(room, message)
+  CableWeb.message_announced(cable, room, message, streams.broadcast)
+  return Bond.header(Bond.html(conn, 200, streams.own), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
+end
+
+# `Answer.Posted` is answered by `posted_response`, which also broadcasts; its arms here keep the case complete and say
+# the same.
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Page(status, html) -> return Bond.html(conn, status, html)
