@@ -51,9 +51,12 @@ ASSETS_PREFIX = "#{Routes.ASSETS}/"
 # the handler without telling anything else.
 JOIN_SEGMENTS = 3
 
-# The segments of `/rooms/ID/KEY/messages` and of `/rooms/ID/KEY/messages/ID`.
+# The segments of `/rooms/ID/KEY/messages`, of `/rooms/ID/KEY/messages/ID`, and of the boosts under a message,
+# `/rooms/ID/KEY/messages/ID/boosts` and `/rooms/ID/KEY/messages/ID/boosts/ID`.
 BOT_LIST_SEGMENTS = 4
 BOT_MESSAGE_SEGMENTS = 5
+BOT_BOOSTS_SEGMENTS = 6
+BOT_BOOST_SEGMENTS = 7
 
 # The request headers that `Bond.csrf` reads.
 CROSS_SITE_HEADERS = Set.new(["origin", "sec-fetch-site"])
@@ -146,18 +149,24 @@ export def form_method(conn: Bond.Conn) -> Result[String]
   return ok(methods[0].downcase)
 end
 
-## True for a path of the messages API of the chat bots, `/rooms/ID/KEY/messages` and `/rooms/ID/KEY/messages/ID`.
+## True for a path of the messages API of the chat bots, `/rooms/ID/KEY/messages`, `/rooms/ID/KEY/messages/ID` and the
+## boosts under a message, `/rooms/ID/KEY/messages/ID/boosts` and `/rooms/ID/KEY/messages/ID/boosts/ID`.
 ## The key in the path is the whole login, so the sign-in filter lets it through and the handler looks the key up.
 ## The parts are the non-empty segments, which is how the router reads a path, so a path that is true here is a path
 ## of the API and not a browser path with an odd shape (`/rooms/1//messages` is the messages of room 1, and
 ## `/rooms/1/messages/9`, the message 9, have `messages` where the key is).
 export def bot_api?(path: String) -> Bool
   parts = path.split("/").select do |part| not part.empty? end
-  if parts.size != BOT_LIST_SEGMENTS and parts.size != BOT_MESSAGE_SEGMENTS
+  if parts.size < BOT_LIST_SEGMENTS or parts.size > BOT_BOOST_SEGMENTS
     return false
   end
 
-  return parts[0] == "rooms" and parts[2] != "messages" and parts[3] == "messages"
+  if parts[0] != "rooms" or parts[2] == "messages" or parts[3] != "messages"
+    return false
+  end
+
+  # The boosts have `boosts` after the message; the list and the message have nothing more to check.
+  return parts.size < BOT_BOOSTS_SEGMENTS or parts[5] == "boosts"
 end
 
 ## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it.

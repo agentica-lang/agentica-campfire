@@ -6,6 +6,7 @@ import AccountsWeb from "accounts"
 import AuthWeb from "auth"
 import AvatarsWeb from "avatars"
 import BanFlag from "ban_flag"
+import BoostsWeb from "boosts"
 import BotMessagesWeb from "bot_messages"
 import BotsWeb from "bots"
 import CableWeb from "cable"
@@ -32,15 +33,15 @@ struct Health
   schema_version: Int
 end
 
-## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version
-## that the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb`
-## and `AccountsWeb`, the messages API of the chat bots (`BotMessagesWeb`), the user page and the profile, the
-## sidebar, the search, the avatars (checked with the key of `SECRET_KEY_BASE`) and the folder of the stylesheet, and
-## `/cable`, the live WebSocket (`CableWeb`), which the routes that change a room broadcast through `cable`.
-## `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered messages for
-## the room pages (`MessageCache.start`); without it every message is rendered each time. `pages` keeps the room
-## page, the older messages, the sidebar and the search whole (`PageCache.start`); without it each is made for every
-## request.
+## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
+## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
+## `AccountsWeb`, the boosts of the messages (`BoostsWeb`), the messages API of the chat bots (`BotMessagesWeb`), the
+## user page and the profile, the sidebar, the search, the avatars (checked with the key of `SECRET_KEY_BASE`) and the
+## folder of the stylesheet, and `/cable`, the live WebSocket (`CableWeb`), which the routes that change a room
+## broadcast through `cable`. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache
+## of rendered messages for the room pages (`MessageCache.start`); without it every message is rendered each time.
+## `pages` keeps the room page, the older messages, the sidebar and the search whole (`PageCache.start`); without it
+## each is made for every request.
 export def build(
   config: Config,
   pool: Database.Pool,
@@ -57,6 +58,7 @@ export def build(
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
+    |> BoostsWeb.add(pool, cable)
     |> BotMessagesWeb.add(pool, cable, config)
     |> AccountsWeb.add(config, pool, cable, bans)
     |> BotsWeb.add(pool, config)

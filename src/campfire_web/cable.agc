@@ -20,6 +20,7 @@ import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
+import Boosts from "../campfire/boosts"
 import Database from "../campfire/repo/database"
 import Hangup from "hangup"
 import Presence from "../campfire/presence"
@@ -164,6 +165,16 @@ end
 
 export def message_removed(cable: Cable, room_id: Int, message_id: Int) -> Void
   _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.message_removed(message_id))
+end
+
+## A boost was added to a message of the room, or taken away: it appears under the message, or leaves it, for the
+## people who are looking at the room, as Rails appends it and removes it on the stream of the room's messages.
+export def boost_added(cable: Cable, room_id: Int, message_id: Int, boost: Boosts.Boost) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.boost_added_stream(message_id, boost))
+end
+
+export def boost_removed(cable: Cable, room_id: Int, boost_id: Int) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.boost_removed_stream(boost_id))
 end
 
 ## A room was made (`renamed` false) or renamed: its entry goes to the sidebars that list it, in a task of its own.

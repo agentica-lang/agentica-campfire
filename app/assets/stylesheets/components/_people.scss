@@ -51,7 +51,7 @@
 .badge {
   padding: 0 var(--s-2);
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   color: var(--muted);
   font-size: var(--fs-xs);
 }

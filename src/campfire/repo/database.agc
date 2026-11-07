@@ -176,6 +176,7 @@ def needed_columns() -> Map[String, List[String]]
       "updated_at",
     ],
     "messages": ["id", "room_id", "creator_id", "client_message_id", "created_at", "updated_at"],
+    "boosts": ["id", "booster_id", "content", "message_id", "created_at", "updated_at"],
     "action_text_rich_texts": ["id", "record_type", "record_id", "name", "body", "created_at", "updated_at"],
     # The standalone FTS5 table (`pragma table_info` lists its one column, not `rowid`).
     "message_search_index": ["body"],

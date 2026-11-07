@@ -4,6 +4,7 @@
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
 import Accounts from "../campfire/accounts"
+import Boosts from "../campfire/boosts"
 import Bots from "../campfire/bots"
 import Profiles from "../campfire/profiles"
 import Rails from "../campfire/repo/rails"
@@ -18,6 +19,12 @@ NAME = "Campfire"
 # had).
 SHARED_ROOMS_ID = "shared_rooms"
 DIRECT_ROOMS_ID = "direct_rooms"
+
+# A quick reaction of the boost menu: the emoji that is posted and the name that a screen reader reads.
+struct Reaction
+  emoji: String
+  title: String
+end
 
 ## A bot of the list with the rooms it is in, but the direct ones: the rooms that its curl lines post to.
 export struct BotRooms
@@ -544,13 +551,14 @@ export def messages_id(room: Rooms.Room) -> String
   return "messages_rooms_#{room.room_type.split("::").last.downcase}_#{room.id}"
 end
 
-## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the presentation
-## `<div>` inside the frame that Turbo edits it in. The body is HTML that `Rooms.clean` (`MessageCache`, for a page) or
-## `Rooms.post` has cleaned, the one value here that is written with `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks
-## where a message ends (see specs/message_routes.feature). `controls` is for the person who may change the message
-## (`Rooms.changeable?`): it adds the link to the edit page to the heading, after the time, and nothing else, so for
-## everybody else the markup is the benchmark's byte for byte but for `data-creator-id`, which names the author so that
-## the page can put the messages of the person who looks on the other side (`viewer_style`): the markup is the same for
+## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the
+## presentation `<div>` inside the frame that Turbo edits it in, then the boosts (`boosts_area`). The body is HTML that
+## `Rooms.clean` (`MessageCache`, for a page) or `Rooms.post` has cleaned, the one value here that is written with
+## `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks where a message ends (see
+## specs/message_routes.feature). `controls` is for the person who may change the message (`Rooms.changeable?`): it
+## adds the link to the edit page to the heading, after the time, and nothing else. Apart from that link and the
+## boosts, the markup is the benchmark's byte for byte but for `data-creator-id`, which names the author so that the
+## page can put the messages of the person who looks on the other side (`viewer_style`): the markup is the same for
 ## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC); the
 ## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone.
 export def message(message: Rooms.Message, controls: Bool) -> String
@@ -559,8 +567,75 @@ export def message(message: Rooms.Message, controls: Bool) -> String
     <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
       <h3><strong><%= message.author %></strong>
         <time datetime="<%= message.created_at %>" title="<%= message.created_at %>"><%= clock(message.created_at) %></time><%== edit_link(message, controls) %></h3>
-      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div></turbo-frame></div>
+      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>
   EAG
+end
+
+## The boosts of a message and the link to the page that adds one: the element that a new boost is appended to
+## (`boost_added_stream`). The link is last, whatever the order of the elements, by the stylesheet. It is the markup
+## that `GET /messages/ID/boosts` answers.
+export def boosts_area(message_id: Int, boosts: List[Boosts.Boost]) -> String
+  items = boosts.map do |one| boost(message_id, one) end.join("")
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <div id="boosts_message_<%= message_id %>"><%== items %><a href="<%= Routes.message_boosts_new_path(message_id) %>">Boost</a></div>
+  EAG
+end
+
+## One boost: who made it and what it says. It carries a form that takes it away, which the stylesheet shows to its
+## booster alone (`data-booster-id`, and the rule of `viewer_style`); the server refuses anybody else. The markup is
+## the same for every viewer, since the live stream renders it once for all.
+export def boost(message_id: Int, one: Boosts.Boost) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <div id="boost_<%= one.id %>" data-booster-id="<%= one.booster_id %>"><small><%= one.booster %></small><span><%= one.content %></span><form method="post" action="<%= Routes.message_boost_path(message_id, one.id) %>"><input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>"><button type="submit" class="quiet" title="Remove this boost" aria-label="Remove this boost">×</button></form></div>
+  EAG
+end
+
+## The Turbo Stream that adds a boost to the message, for the people who are looking at the room, and the answer to the
+## person who made it.
+export def boost_added_stream(message_id: Int, one: Boosts.Boost) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <turbo-stream action="append" target="boosts_message_<%= message_id %>"><template><%== boost(message_id, one) %></template></turbo-stream>
+  EAG
+end
+
+## The Turbo Stream that takes a boost off the page.
+export def boost_removed_stream(boost_id: Int) -> String
+  return "<turbo-stream action=\"remove\" target=\"boost_#{boost_id}\"><template></template></turbo-stream>"
+end
+
+## The page that adds a boost to a message (the frame `new_boost_message_ID` that Rails loads into it): the quick
+## reactions, each a button of one form, and a form for words (`text` fills it again after a refusal, `note` says why).
+## Plain forms, so they work without a script; the script of the room page takes the element from this page and shows
+## it under the message. `room_id` is where the way back goes.
+export def new_boost(room_id: Int, message_id: Int, text: String, note: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <main id="main">
+      <h1>Boost</h1>
+    <% if not note.empty? %>
+      <p role="alert"><%= note %></p>
+    <% end %>
+      <div id="new_boost_message_<%= message_id %>">
+        <form method="post" action="<%= Routes.message_boosts_path(message_id) %>">
+    <% for one in reactions() %>
+          <button type="submit" class="quiet" name="boost[content]" value="<%= one.emoji %>" title="<%= one.title %>" aria-label="<%= one.title %>"><%= one.emoji %></button>
+    <% end %>
+        </form>
+        <form method="post" action="<%= Routes.message_boosts_path(message_id) %>">
+          <p>
+            <label><span class="sr-only">Your own words</span>
+              <input name="boost[content]" type="text" value="<%= text %>" autocomplete="off" required></label>
+            <button type="submit" class="quiet">Boost</button>
+          </p>
+        </form>
+        <p><a href="<%= Routes.room_at_path(room_id, message_id) %>" data-cancel>Back to the room</a></p>
+      </div>
+    </main>
+  EAG
+  return layout("Boost", body)
 end
 
 ## The messages one after the other, as the room page and the page of older messages write them, with the controls of
@@ -1143,6 +1218,20 @@ def room_item_id(room: Rooms.Room) -> String
   return "room_#{room.id}"
 end
 
+# The quick reactions of Rails (`EmojiHelper::REACTIONS`), in its order.
+def reactions() -> List[Reaction]
+  return [
+    Reaction(emoji: "👍", title: "Thumbs up"),
+    Reaction(emoji: "👏", title: "Clapping"),
+    Reaction(emoji: "👋", title: "Waving hand"),
+    Reaction(emoji: "💪", title: "Muscle"),
+    Reaction(emoji: "❤️", title: "Red heart"),
+    Reaction(emoji: "😂", title: "Face with tears of joy"),
+    Reaction(emoji: "🎉", title: "Party popper"),
+    Reaction(emoji: "🔥", title: "Fire"),
+  ]
+end
+
 # The link to the edit page, after the time, or nothing: an interpolated piece, so that without it `</h3>` follows
 # `</time>` with no byte between, as the benchmark's markup has it.
 def edit_link(message: Rooms.Message, controls: Bool) -> String
@@ -1208,13 +1297,14 @@ end
 
 # The messages of the person who looks sit on the other side, in the accent colour. The stylesheet reads six custom
 # properties (`components/messages`) with the other people's values as their defaults; this one rule sets them for the
-# messages of `me`. It
+# messages of `me`. A second rule shows the form that takes a boost away on the boosts of `me` (`--boost-remove`; it is
+# hidden on all others). It
 # is in the page, not the stylesheet, because the stylesheet is the same for everybody and so is the HTML of a message:
 # the viewer is the only thing that differs, and a CSS rule can compare an attribute with a number only when it is
 # written out.
 def viewer_style(me: Int) -> String
   return (
-    "<style>.thread [data-creator-id=\"#{me}\"]{--bubble-bg:var(--accent);--bubble-fg:var(--accent-fg);--bubble-meta:var(--accent-fg);--bubble-link:var(--accent-fg);--bubble-side:end;--bubble-name:none}</style>"
+    "<style>.thread [data-creator-id=\"#{me}\"]{--bubble-bg:var(--accent);--bubble-fg:var(--accent-fg);--bubble-meta:var(--accent-fg);--bubble-link:var(--accent-fg);--bubble-side:end;--bubble-name:none}.thread [data-booster-id=\"#{me}\"]{--boost-remove:grid}</style>"
   )
 end
 

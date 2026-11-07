@@ -1,0 +1,116 @@
+// The boosts under a message: a pill for each, then the link that adds one. The markup is the same for every viewer
+// (the live stream renders it once for all), so the form that takes a boost away is hidden by default and each room
+// page carries one rule that sets `--boost-remove` on the boosts of the person who looks (`Views.viewer_style`). The
+// pills take the colour of the text they sit in, so they work in a bubble of either colour and in the flat list of a
+// search.
+
+@use "../settings/mixins";
+
+[id^="boosts_message_"] {
+  // Flex, for the one thing grid does not do: pills of any width that wrap.
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+  margin-top: var(--s-1);
+
+  // A boost that arrives live is appended after the link, so the link goes last by its order, not its place.
+  > a {
+    order: 1;
+    padding: 0 var(--s-2);
+    border-radius: var(--r-pill);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    color: var(--bubble-link, var(--link));
+    text-decoration: none;
+
+    @include mixins.can-hover {
+      &:hover {
+        background: var(--hover);
+        text-decoration: underline;
+      }
+    }
+  }
+
+  > [id^="boost_"] {
+    display: grid;
+    grid-auto-flow: column;
+    align-items: center;
+    gap: var(--s-1);
+    padding: 0 var(--s-2);
+    border: 1px solid color-mix(in srgb, currentcolor 35%, transparent);
+    border-radius: var(--r-pill);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+
+    small {
+      font-size: var(--fs-xs);
+      opacity: 0.75;
+    }
+
+    form {
+      display: var(--boost-remove, none);
+    }
+
+    button {
+      min-height: var(--s-5);
+      padding: 0 var(--s-1);
+      font-size: var(--fs-sm);
+      color: inherit;
+      background: transparent;
+      border: 0;
+
+      @include mixins.can-hover {
+        &:hover {
+          background: var(--hover);
+        }
+      }
+    }
+  }
+
+  // The menu that the script shows under the message in place of the page that adds a boost.
+  > [id^="new_boost_message_"] {
+    order: 2;
+    flex: 1 0 100%;
+  }
+}
+
+// The reactions and the words of a new boost: the page that adds one, and the menu under a message.
+[id^="new_boost_message_"] {
+  > form:first-of-type {
+    display: grid;
+    grid-template-columns: repeat(4, 3rem);
+    justify-content: start;
+    gap: var(--s-1);
+
+    button {
+      padding: 0;
+      font-size: var(--fs-xl);
+      line-height: 1;
+    }
+  }
+
+  > form:last-of-type p:has(> button) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: var(--s-2);
+    margin-top: var(--s-2);
+  }
+
+  > p {
+    margin: var(--s-2) 0 0;
+    font-size: var(--fs-sm);
+
+    a {
+      color: var(--bubble-link, var(--link));
+    }
+  }
+}
+
+// A tap target of 44px on a phone, as every button is (`buttons`): the pill grows to hold it.
+@include mixins.phone {
+  [id^="boosts_message_"] > [id^="boost_"] button {
+    min-height: 2.75rem;
+  }
+}

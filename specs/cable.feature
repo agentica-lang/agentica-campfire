@@ -46,6 +46,21 @@ Feature: Live updates over /cable
     And client "ana" eventually receives a frame containing "Hello cable"
     And the query "select count(*) from messages where room_id = 1" gives 1
 
+  Scenario: A boost reaches the people who watch the room as soon as it is added, and so does its removal
+    Given I post to "/rooms/1/messages" the form:
+      | message[body] | Boost me |
+    When client "ana" connects with the cookies of the browser
+    And I get "/rooms/1"
+    And client "ana" subscribes to the streams of the last page
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "bea@example.com"
+    And I post to "/messages/1/boosts" the form:
+      | boost[content] | 🔥 |
+    Then client "ana" eventually receives a frame containing "target=\\\"boosts_message_1\\\"><template><div id=\\\"boost_1\\\""
+    When I post to "/messages/1/boosts/1" the form:
+      | _method | delete |
+    Then client "ana" eventually receives a frame containing "action=\\\"remove\\\" target=\\\"boost_1\\\""
+
   Scenario: A stream of a room that the person is not in is rejected, the stream of another room's page too
     When I post to "/closed_rooms" the form:
       | name | Secret |
