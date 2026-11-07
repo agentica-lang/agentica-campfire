@@ -42,28 +42,26 @@ The tests are BDD first and take under a minute. Rules for contributors and agen
 
 Requests per second (higher is better), median of 3 rounds with 16 clients, from the
 [Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) at ec02deb, with the server on
-CPUs 4-7 and the client on CPUs 0-3. Go and Agentica are run `20261106-223859-7` (2026-11-06): Campfire 53e4cc3 on
-Agentica 0.25.0, and [once-campfire-go](https://github.com/basecamp/once-campfire-go) c4ab53d. Rails is the
-reference run `20261105-101743-7` on the same machine. These numbers predate the native SQLite driver of agentica-db 0.6.0 (the app now runs it) and will be measured again.
+CPUs 4-7 and the client on CPUs 0-3. Go and Agentica are run `20261107-171526-7` (2026-11-07): Campfire e8ae07b on
+Agentica 0.26.1 with agentica-db 0.6.0, and [once-campfire-go](https://github.com/basecamp/once-campfire-go) c4ab53d.
+Rails is the reference run `20261105-101743-7` on the same machine.
 
 | Route | Rails | Go | Agentica | Agentica / Rails | Agentica / Go |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| room_show | 834.3 | 7057.8 | 3434.7 | 4.1x | 49% |
-| messages_page | 876.9 | 7130.6 | 3596.9 | 4.1x | 50% |
-| sidebar | 990.1 | 8040.5 | 3706.7 | 3.7x | 46% |
-| search | 970.8 | 8133.0 | 3617.6 | 3.7x | 44% |
-| post_message | 88.5 | 1011.3 | 623.3 | 7.0x | 62% |
+| room_show | 834.3 | 6955.9 | 4282.9 | 5.1x | 62% |
+| messages_page | 876.9 | 7233.8 | 6576.8 | 7.5x | 91% |
+| sidebar | 990.1 | 8077.0 | 8527.6 | 8.6x | 106% |
+| search | 970.8 | 8303.6 | 6898.3 | 7.1x | 83% |
+| post_message | 88.5 | 1135.3 | 906.6 | 10.2x | 80% |
 
-Against run `20261106-200652-7` (Campfire c2cdc7d), the page cache of the sidebar and the search
-([#110](https://github.com/agentica-lang/agentica-campfire/pull/110)) took sidebar from 1835.3 to 3706.7 (+102%) and
-search from 877.0 to 3617.6 (+312%). The benchmark asks one search query, so both numbers measure cache hits. #110
-also keeps the signed-in person until the database changes, so a cached page does not look the person up again (the
-end of the session is kept with it since [#113](https://github.com/agentica-lang/agentica-campfire/pull/113)).
-room_show gained 13% and messages_page 16% in this run; the A/B in #110 measured about +5% and +6%, so part of that is
-run-to-run noise. Every read route is now at 44-50% of Go. The cost that is left is probably the thread hops of the
-database layer, as measured in [agentica-db#60](https://github.com/agentica-lang/agentica-db/issues/60). The app now
-runs the native SQLite driver of agentica-db (a C module, [agentica#1149](https://github.com/agentica-lang/agentica/issues/1149)),
-and the numbers will be measured again.
+Against run `20261106-223859-7` (Campfire 53e4cc3 on Agentica 0.25.0 and agentica-db 0.5.0, which used the FFI
+SQLite driver), the native SQLite driver of agentica-db 0.6.0 (a C module, built by Agentica:
+[agentica#1149](https://github.com/agentica-lang/agentica/issues/1149)) and its turns for writers took room_show from
+3434.7 to 4282.9 (+25%), messages_page from 3596.9 to 6576.8 (+83%), sidebar from 3706.7 to 8527.6 (+130%), search
+from 3617.6 to 6898.3 (+91%) and post_message from 623.3 to 906.6 (+45%). Go moved by 0.5-12% between the two runs
+(post_message the most), so part of each change is run-to-run noise. Earlier steps (the page cache of
+[#110](https://github.com/agentica-lang/agentica-campfire/pull/110), the thread hops measured in
+[agentica-db#60](https://github.com/agentica-lang/agentica-db/issues/60)) are in the history of this file.
 
 To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
