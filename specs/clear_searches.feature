@@ -83,11 +83,14 @@ Feature: Clear the recent searches, and the way back to the last room
     Then the status is 405
     When I send a PUT to "/searches/clear"
     Then the status is 405
+    And the header "allow" is "POST, DELETE"
     When I send a PATCH to "/searches/clear" the form:
       | q | coffee |
     Then the status is 405
+    And the header "allow" is "POST, DELETE"
     When I get "/searches/clear"
     Then the status is 405
+    And the header "allow" is "POST, DELETE"
     And the query "select count(*) from searches where user_id = 1" gives 2
 
   Scenario: A visitor is sent to sign in and a page of another site clears nothing
