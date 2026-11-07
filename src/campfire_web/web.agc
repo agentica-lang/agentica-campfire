@@ -57,7 +57,7 @@ export def build(
     Bond.app()
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
-    |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
+    |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies, config.max_message_length)
     |> BoostsWeb.add(pool, cable)
     |> BotMessagesWeb.add(pool, cable, config)
     |> AccountsWeb.add(config, pool, cable, bans)

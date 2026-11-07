@@ -77,6 +77,7 @@ def main() -> Void
     BDD.step("bcrypt digests can be checked on this system", &bcrypt_can_be_checked),
     BDD.step("this system is Linux", &system_is_linux),
     BDD.step("the app starts with {int} database connections that wait {int} milliseconds", &start_with_pool),
+    BDD.step("the app starts with messages of at most {int} characters", &start_with_message_length),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the app restarts with the message cache off", &restart_app_without_cache),
     BDD.step("the app restarts with the page cache off", &restart_app_without_page_cache),
@@ -150,6 +151,11 @@ def start_with_pool(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return start_app(ctx, text_of(ctx, DB_URL), "false", pool)
 end
 
+# A cap on the length of a message below the default, so a spec does not need 10000 characters.
+def start_with_message_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return start_app(ctx, text_of(ctx, DB_URL), "false", {"CAMPFIRE_MAX_MESSAGE_LENGTH": args[0]})
+end
+
 # The program reads its address and its database from the environment, as `campfire.agc` does, and answers with the
 # `database:` line, then `listening on http://127.0.0.1:PORT`. Every variable it reads is set here, so the specs do not
 # depend on the environment of whoever runs them. Each start draws its own session secret.
@@ -168,6 +174,7 @@ def configured_program(ctx: BDD.Context, url: String, secure_cookies: String, po
     "CAMPFIRE_SECURE_COOKIES": secure_cookies,
     "CAMPFIRE_DB_POOL_SIZE": pool.get("CAMPFIRE_DB_POOL_SIZE", ""),
     "CAMPFIRE_DB_CHECKOUT_MS": pool.get("CAMPFIRE_DB_CHECKOUT_MS", ""),
+    "CAMPFIRE_MAX_MESSAGE_LENGTH": pool.get("CAMPFIRE_MAX_MESSAGE_LENGTH", ""),
     "CAMPFIRE_BCRYPT_LIBRARY": bcrypt_library(ctx),
     "SECRET_KEY_BASE": SECRET_KEY_BASE,
     "CAMPFIRE_STORAGE_DIR": storage_dir(ctx),

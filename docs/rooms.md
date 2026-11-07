@@ -95,7 +95,7 @@ before the time of message ID, and messages that share a time go by id.
 
 A message is a row of `messages`, its HTML body in `action_text_rich_texts` (`record_type` `Message`,
 `name` `body`) and its plain text in the FTS5 table `message_search_index` (`rowid` is the message id),
-all written in one transaction. The form sends plain text of at most 10000 characters, stripped of the
+all written in one transaction. The form sends plain text of at most `CAMPFIRE_MAX_MESSAGE_LENGTH` characters (10000 by default), stripped of the
 space around it, which is stored as HTML (escaped, a new line as `<br>`). An HTML body, from the form
 that is to come or from Rails, is cleaned by `HtmlSanitizer.sanitize` before it is stored and when it
 is read. There is no link or mention handling yet.
@@ -193,7 +193,7 @@ holds the form in `<turbo-frame id="edit_message_MID">`: a textarea with the tex
 The text in the form is the plain text of the body: a body that this app stored (plain text made HTML) comes back exactly,
 blank lines included; a body that Rails wrote with markup comes back as its plain text, without its formatting and blank
 lines, and saving it stores that text. A save is cleaned and stored as a new message is (limits `Write something to send`
-and 10000 characters, `422` with the form again), rewrites the body in `action_text_rich_texts` and the row of
+and `CAMPFIRE_MAX_MESSAGE_LENGTH` characters, `422` with the form again), rewrites the body in `action_text_rich_texts` and the row of
 `message_search_index`, and sets `updated_at` of the message and the room; it does not make the room unread. It redirects to the room
 page. A delete removes the message with its body, its search row and its boosts in one transaction, and answers a Turbo
 Stream that removes the message when `Accept` asks for one, else redirects to the room page. A person who is not in the

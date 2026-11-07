@@ -84,7 +84,7 @@ A bot uses its key in the path (`Messages::ByBotsController`), with no cookie an
 | Request | Answer |
 |---|---|
 | `GET /rooms/ID/KEY/messages` | the newest 40 messages of the room, oldest first; `?before=ID` the 40 before a message, `?after=ID` the 40 after it (`before` wins). `X-Total-Count` is the number of messages of the room and `Link: <URL>; rel="next"` points to the next page of the same direction while there is one. A cursor that is no message of the room is `404`, one that is not a number `400`. |
-| `POST /rooms/ID/KEY/messages` | the raw body of the request is the message (HTML, cleaned as every body is, so plain text is a message too, whatever the `Content-Type`): `201` with `Location` and no body; `422` for a body that is blank or over 10000 characters, `415` for a `multipart/form-data` upload. |
+| `POST /rooms/ID/KEY/messages` | the raw body of the request is the message (HTML, cleaned as every body is, so plain text is a message too, whatever the `Content-Type`): `201` with `Location` and no body; `422` for a body that is blank or over `CAMPFIRE_MAX_MESSAGE_LENGTH` (10000 by default) characters, `415` for a `multipart/form-data` upload. |
 | `PATCH` or `PUT /rooms/ID/KEY/messages/ID` | the raw body replaces the text of a message of the bot: `200` with the message. |
 | `DELETE /rooms/ID/KEY/messages/ID` | deletes a message of the bot: `204`. |
 | `POST /rooms/ID/KEY/messages/ID/boosts` | the raw body of the request is the text of a boost on any message of the room (1 to 16 characters once stripped): `201` with the boost as JSON, `422` for a text that is blank or too long, `415` for a `multipart/form-data` upload. |
@@ -101,7 +101,7 @@ message of anybody) and is announced live as the boost of a person is; it is `40
 
 Where this differs from Rails: a wrong key is `404`, not a redirect to the sign-in page, and a key is never looked up
 when a session cookie comes with it (Rails tries the session first, so the key in the path could be anything for a
-signed-in browser); an edit with a blank body is `422` (Rails saves it); a body over 10000 characters is `422`;
+signed-in browser); an edit with a blank body is `422` (Rails saves it); a body over `CAMPFIRE_MAX_MESSAGE_LENGTH` characters is `422`;
 `creator` and `booster` have no `avatar_url`. Not here yet, because the features they belong to are not: the `attachment`
 upload (#60) and the webhook that a post sends to the bots it mentions (#78).
 

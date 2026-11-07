@@ -126,13 +126,13 @@ export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config
       serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
     end
     |> Bond.post(Routes.BOT_MESSAGES) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| create_answer(conn, db, bot, room, origin(conn, config)) end
+      serve(conn, pool, cable) do |db, bot, room| create_answer(conn, db, bot, room, config) end
     end
     |> Bond.patch(Routes.BOT_MESSAGE) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, origin(conn, config)) end
+      serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
     end
     |> Bond.put(Routes.BOT_MESSAGE) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, origin(conn, config)) end
+      serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
     end
     |> Bond.delete(Routes.BOT_MESSAGE) do |conn|
       serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
@@ -331,14 +331,14 @@ def create_answer(
   db: Db.Connection,
   bot: Bots.Bot,
   room: Rooms.Room,
-  origin: String,
+  config: Config,
 ) -> Result[Answer]
   if upload?(conn)
     return ok(Answer.Unsupported)
   end
 
   body = (try Bond.body_text(conn)).strip
-  problem = Rooms.body_problem(body)
+  problem = Rooms.body_problem(body, config.max_message_length)
   if problem != ""
     return ok(Answer.Refused(problem))
   end
@@ -349,16 +349,16 @@ def create_answer(
   stored = try Rooms.post(db, room.id, bot.id, SecureRandom.hex(CLIENT_ID_BYTES), body)
   case stored
     none -> return ok(Answer.NotFound)
-    some(message) -> return ok(Answer.Created(room, message, message_url(origin, room.id, message.id)))
+    some(message) -> return ok(Answer.Created(room, message, message_url(origin(conn, config), room.id, message.id)))
   end
 end
 
-def edit_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, origin: String) -> Result[Answer]
+def edit_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, config: Config) -> Result[Answer]
   located = try own_message(conn, db, bot, room)
   case located
     Located.Missing -> return ok(Answer.NotFound)
     Located.Refused -> return ok(Answer.Forbidden)
-    Located.Found(message) -> return saved(conn, db, bot, room, origin, message)
+    Located.Found(message) -> return saved(conn, db, bot, room, config, message)
   end
 end
 
@@ -367,7 +367,7 @@ def saved(
   db: Db.Connection,
   bot: Bots.Bot,
   room: Rooms.Room,
-  origin: String,
+  config: Config,
   message: Rooms.Stored,
 ) -> Result[Answer]
   if upload?(conn)
@@ -375,7 +375,7 @@ def saved(
   end
 
   body = (try Bond.body_text(conn)).strip
-  problem = Rooms.body_problem(body)
+  problem = Rooms.body_problem(body, config.max_message_length)
   if problem != ""
     return ok(Answer.Refused(problem))
   end
@@ -392,7 +392,7 @@ def saved(
   end
 
   edited = Rooms.clean(stored.unwrap!)
-  return ok(Answer.Edited(room, edited, JSON.from(message_json(origin, edited, BOT_ROLE))))
+  return ok(Answer.Edited(room, edited, JSON.from(message_json(origin(conn, config), edited, BOT_ROLE))))
 end
 
 def remove_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room) -> Result[Answer]

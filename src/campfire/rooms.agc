@@ -26,16 +26,14 @@ export DIRECT = Rails.ROOM_DIRECT
 export ADMINISTRATOR_ROLE_NAME = Rails.ADMINISTRATOR_NAME
 export MEMBER_ROLE_NAME = Rails.MEMBER_NAME
 
-## The longest name of a room, in characters, and the longest message.
+## The longest name of a room, in characters.
 export MAX_NAME_LENGTH = 100
-export MAX_BODY_LENGTH = 10_000
 
 ## The `client_message_id` that the form of a room page carries is a random hex string, so nothing longer is real.
 export MAX_CLIENT_ID_LENGTH = 64
 
 NAME_PROBLEM = "Give the room a name of 1 to #{MAX_NAME_LENGTH} characters"
 BODY_BLANK = "Write something to send"
-BODY_LONG = "A message is at most #{MAX_BODY_LENGTH} characters"
 NO_PEOPLE = "Choose at least one person"
 NO_NAME = "Direct message"
 
@@ -167,14 +165,16 @@ export def people_problem(chosen: List[Int]) -> String
   return ""
 end
 
-## What is wrong with a message body, or "". The caller strips it first.
-export def body_problem(body: String) -> String
+## What is wrong with a message body, or "": it is blank, or it has more than `max_length` characters
+## (`Config.max_message_length`). The caller strips it first and calls this before `post` or `update_message`, so the
+## sanitizer never reads a text that is over the cap.
+export def body_problem(body: String, max_length: Int) -> String
   if body.empty?
     return BODY_BLANK
   end
 
-  if body.length > MAX_BODY_LENGTH
-    return BODY_LONG
+  if body.length > max_length
+    return "A message is at most #{max_length} characters"
   end
 
   return ""

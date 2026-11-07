@@ -465,6 +465,12 @@ def main() -> Void
       cells = HtmlSanitizer.sanitize("<table><tr>" + List.repeat("<td>x", 100).join("") + "</table>")
       Test.eq(cells.split("</td>").size, 101)
     end,
+    Test.test("the cap on nesting is checked after the end tags that a start tag implies") do
+      room = HtmlSanitizer.sanitize(List.repeat("<b>", 63).join("") + "<li>a<li>b")
+      try Test.eq(room.split("<li>").size, 3)
+      full = HtmlSanitizer.sanitize(List.repeat("<b>", 64).join("") + "<li>a")
+      Test.eq(full.split("<li>").size, 1)
+    end,
     Test.test("cleaning clean markup changes nothing, so a body is the same stored and read") do
       inputs = [
         "<p>Hi &amp; <b>there</b> <a href=\"http://x/?a=1&b=2\">link</a></p>",

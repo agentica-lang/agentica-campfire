@@ -20,6 +20,7 @@ help:
 	@echo "           CAMPFIRE_SEARCH_PAGES: the search pages that a person keeps in it, 8 by default (1 to 64);"
 	@echo "           CAMPFIRE_CURSOR_PAGES: the older-message pages (before=, after=) that a person keeps of each, 16 by default (1 to 64);"
 	@echo "           CAMPFIRE_SESSION_CACHE_MB: the store of the people of the sessions, 4 by default (1 to 1024);"
+	@echo "           CAMPFIRE_MAX_MESSAGE_LENGTH: the most characters of a message, 10000 by default (1 to 80000);"
 	@echo "           CAMPFIRE_MAX_CONNECTIONS: the connections the server holds, the /cable WebSockets among them, 4096 by default;"
 	@echo "           CAMPFIRE_BCRYPT_LIBRARY: a libxcrypt (path or name) for bcrypt digests; libcrypt.so.1 on Linux by default;"
 	@echo "           SECRET_KEY_BASE: the secret of a Rails Campfire, which checks avatar links (unset: they are 404);"

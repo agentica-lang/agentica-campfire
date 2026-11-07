@@ -80,7 +80,8 @@ end
 ## where a new message and a room that is made or renamed are broadcast, and whose stream of a room the room page
 ## names. `cache` keeps the markup of the messages that a room page and the older messages write (`MessageCache`),
 ## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache. `secure` makes the
-## cookie of the last room `Secure`, as `CAMPFIRE_SECURE_COOKIES` does the session cookie.
+## cookie of the last room `Secure`, as `CAMPFIRE_SECURE_COOKIES` does the session cookie. `max_length` is the most
+## characters that a message may have (`CAMPFIRE_MAX_MESSAGE_LENGTH`), for a new one and for an edit.
 export def add(
   app: Bond.App,
   pool: Database.Pool,
@@ -88,6 +89,7 @@ export def add(
   cache: Optional[Cache.Store],
   pages: Optional[PageCache.Pages],
   secure: Bool,
+  max_length: Int,
 ) -> Bond.App
   return (
     app
@@ -97,7 +99,7 @@ export def add(
     |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache, pages) end
     |> Bond.get(Routes.ROOM_REFRESH) do |conn| show_refresh(conn, pool, cache) end
     |> Bond.get(Routes.ROOM_AT) do |conn| show_at(conn, pool, cable, cache, secure) end
-    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cable, cache) end
+    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cable, cache, max_length) end
     |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
     |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool, cable) end
     |> Bond.get(Routes.DIRECT_ROOM_NEW) do |conn| show_new_direct_room(conn, pool) end
@@ -110,8 +112,8 @@ export def add(
     |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool, cable) end
     |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool, cable) end
     |> Bond.get(Routes.ROOM_MESSAGE_EDIT) do |conn| edit_message(conn, pool) end
-    |> Bond.post(Routes.ROOM_MESSAGE) do |conn| post_message(conn, pool, cable) end
-    |> Bond.patch(Routes.ROOM_MESSAGE) do |conn| update_message(conn, pool, cable) end
+    |> Bond.post(Routes.ROOM_MESSAGE) do |conn| post_message(conn, pool, cable, max_length) end
+    |> Bond.patch(Routes.ROOM_MESSAGE) do |conn| update_message(conn, pool, cable, max_length) end
     |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable) end
   )
 end
@@ -679,10 +681,10 @@ end
 
 # The form of Rails posts to the message with `_method` `patch` to save it and `delete` to delete it (in any case, as
 # Rails reads it); any other post is a 405 that says which methods the path takes, whatever the message.
-def post_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+def post_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, max_length: Int) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   if method == Routes.METHOD_PATCH
-    return update_message(conn, pool, cable)
+    return update_message(conn, pool, cable, max_length)
   end
 
   if method == Routes.METHOD_DELETE
@@ -692,18 +694,24 @@ def post_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) ->
   return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_MESSAGE_ALLOW)))
 end
 
-def update_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+def update_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, max_length: Int) -> Result[Bond.Conn]
   id = room_id(conn)
   message_id = message_id(conn)
-  answer = try Database.with_connection(pool) do |db| update_answer(conn, db, id, message_id) end
+  answer = try Database.with_connection(pool) do |db| update_answer(conn, db, id, message_id, max_length) end
   return ok(announced(conn, cable, answer))
 end
 
-def update_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], message_id: Optional[Int]) -> Result[Answer]
+def update_answer(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  id: Optional[Int],
+  message_id: Optional[Int],
+  max_length: Int,
+) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return updated_message(conn, db, person, id, message_id)
+    some(person) -> return updated_message(conn, db, person, id, message_id, max_length)
   end
 end
 
@@ -715,12 +723,13 @@ def updated_message(
   person: Auth.User,
   id: Optional[Int],
   message_id: Optional[Int],
+  max_length: Int,
 ) -> Result[Answer]
   located = try locate(db, person, id, message_id)
   case located
     Located.Missing -> return ok(Answer.NotFound)
     Located.Refused -> return ok(Answer.Forbidden)
-    Located.Found(room, message) -> return save_message(conn, db, person, room, message)
+    Located.Found(room, message) -> return save_message(conn, db, person, room, message, max_length)
   end
 end
 
@@ -730,9 +739,10 @@ def save_message(
   person: Auth.User,
   room: Rooms.Room,
   message: Rooms.Message,
+  max_length: Int,
 ) -> Result[Answer]
   body = (try Bond.form(conn, MESSAGE_BODY)).strip
-  problem = Rooms.body_problem(body)
+  problem = Rooms.body_problem(body, max_length)
   if problem != ""
     page = try edit_page(db, person, room, message, some(body), problem)
     return ok(Answer.Page(422, page))
@@ -1122,6 +1132,7 @@ def create_message(
   pool: Database.Pool,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  max_length: Int,
 ) -> Result[Bond.Conn]
   # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
   # whatever the room: nothing here depends on the room.
@@ -1130,7 +1141,7 @@ def create_message(
   id = room_id(conn)
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db|
-    message_answer(conn, db, cable, cache, id, body, sent_id, stream)
+    message_answer(conn, db, cable, cache, id, body, sent_id, stream, max_length)
   end
 
   return ok(announced(conn, cable, answer))
@@ -1152,11 +1163,12 @@ def message_answer(
   body: String,
   sent_id: String,
   stream: Bool,
+  max_length: Int,
 ) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return posted(db, cable, cache, person, id, body, sent_id, stream)
+    some(person) -> return posted(db, cable, cache, person, id, body, sent_id, stream, max_length)
   end
 end
 
@@ -1170,11 +1182,12 @@ def posted(
   body: String,
   sent_id: String,
   stream: Bool,
+  max_length: Int,
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return post_to(db, cable, cache, person, found, body, sent_id, stream)
+    some(found) -> return post_to(db, cable, cache, person, found, body, sent_id, stream, max_length)
   end
 end
 
@@ -1187,8 +1200,9 @@ def post_to(
   body: String,
   sent_id: String,
   stream: Bool,
+  max_length: Int,
 ) -> Result[Answer]
-  problem = Rooms.body_problem(body)
+  problem = Rooms.body_problem(body, max_length)
   if problem != ""
     page = try room_page(db, cable, cache, person, room, none, composer(problem, body))
     return ok(Answer.Page(422, page))

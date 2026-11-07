@@ -187,6 +187,36 @@ def cursors_of(cursor_pages: String) -> Result[Config.Config]
   )
 end
 
+# `parse` with this longest message.
+def message_length_of(text: String) -> Result[Config.Config]
+  return Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    Config.DEFAULT_ASSETS_DIR,
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    text,
+  )
+end
+
 def connections_of(text: String) -> Result[Config.Config]
   return Config.parse(
     Config.DEFAULT_HOST,
@@ -533,6 +563,15 @@ def main() -> Void
       try Test.error?(cursors_of("0"))
       try Test.error?(cursors_of("#{Config.MAX_CURSOR_PAGES + 1}"))
       Test.error?(cursors_of("many"))
+    end,
+    Test.test("the longest message has a default and a lowest and a highest") do
+      try Test.eq(message_length_of("").unwrap!.max_message_length, Config.DEFAULT_MAX_MESSAGE_LENGTH)
+      try Test.eq(message_length_of(" 500 ").unwrap!.max_message_length, 500)
+      try Test.ok?(message_length_of("#{Config.MIN_MAX_MESSAGE_LENGTH}"))
+      try Test.ok?(message_length_of("#{Config.MAX_MAX_MESSAGE_LENGTH}"))
+      try Test.error?(message_length_of("0"))
+      try Test.error?(message_length_of("#{Config.MAX_MAX_MESSAGE_LENGTH + 1}"))
+      Test.error?(message_length_of("long"))
     end,
     Test.test("the connections have a default, and the environment may name from the fewest to the most") do
       try Test.eq(connections_of("").unwrap!.max_connections, Config.DEFAULT_MAX_CONNECTIONS)
