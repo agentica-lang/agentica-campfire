@@ -1081,12 +1081,14 @@ end
 ## name, the email address, the password (blank leaves it as it is) and the bio, which saves with a `PATCH` through the
 ## `_method` field, and the rooms they are in, the shared ones first and then the direct messages, each with the link to
 ## its sidebar setting when it has one. `typed` is the form as it was sent, for a refused save, and `note` says why. The
-## picture cannot be changed yet, so only `avatar` is shown.
+## picture cannot be changed to another yet: `avatar` is shown, with a button that takes it away when `removable` (it
+## has one stored).
 export def profile_page(
   sidebar: String,
   profile: Profiles.Detail,
   rooms: List[Rooms.Room],
   avatar: String,
+  removable: Bool,
   note: String,
 ) -> String
   shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
@@ -1101,6 +1103,12 @@ export def profile_page(
     <% end %>
     <% if not avatar.empty? %>
       <p><img class="avatar" src="<%= avatar %>" alt="Profile avatar" width="120" height="120"></p>
+    <% end %>
+    <% if removable %>
+      <form method="post" action="<%= Routes.own_avatar_path() %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
+        <p><button type="submit" class="danger">Delete avatar</button></p>
+      </form>
     <% end %>
       <form method="post" action="<%= Routes.profile_path() %>">
         <input name="_method" type="hidden" value="<%= Routes.METHOD_PATCH %>">

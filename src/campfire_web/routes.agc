@@ -45,6 +45,11 @@ export SIDEBAR = "/users/me/sidebar"
 export SEARCHES = "/searches"
 export AVATAR = "/users/:id/avatar"
 
+## The same path takes the removal of the picture of the person who is signed in (`:id` is `me`, or their id; another
+## user's picture is a 404): a `DELETE`, or a `POST` with `_method` set to `METHOD_DELETE`, which is Rails' button. Any
+## other `POST` is a 405 that lists `AVATAR_ALLOW`, which is Bond's own list for the path.
+export AVATAR_ALLOW = "GET, HEAD, POST, DELETE"
+
 ## The password reset: the form for the email, the post that asks for the link, the page of the link (with `?token=`)
 ## and the post that sets the new password.
 export PASSWORD_RESET_NEW = "/password_reset/new"
@@ -282,6 +287,11 @@ end
 ## The path of the profile of the person who is signed in, which is also where its form posts.
 export def profile_path() -> String
   return "/users/me/profile"
+end
+
+## The path of the picture of the person who is signed in, which is where the button that removes it posts.
+export def own_avatar_path() -> String
+  return "/users/me/avatar"
 end
 
 ## The path of the ban of this user, which is where the forms of the ban and of its lifting post.
