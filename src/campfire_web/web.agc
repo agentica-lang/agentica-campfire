@@ -6,6 +6,7 @@ import AccountsWeb from "accounts"
 import AuthWeb from "auth"
 import AvatarsWeb from "avatars"
 import BanFlag from "ban_flag"
+import BotsWeb from "bots"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import Failure from "failure"
@@ -55,6 +56,7 @@ export def build(
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
     |> AccountsWeb.add(config, pool, cable, bans)
+    |> BotsWeb.add(pool)
     |> SidebarsWeb.add(pool, cable, pages)
     |> SearchesWeb.add(pool, pages)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)
