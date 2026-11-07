@@ -129,16 +129,20 @@ has comes again, and a Turbo Stream that appends or replaces an id that is in th
 The room page, the page of older messages, the sidebar page (`GET /users/me/sidebar`) and the search page are kept
 whole in a cache (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none); Rails Campfire keeps `rooms#show` and
 `messages#index`. A page is kept for one person and one room and `?before=` (the sidebar for one person, the search
-for one query), so nobody is sent a page that was made for somebody else, and only a 200 is kept. The words of a
+for one query), so nobody is sent a page that was made for somebody else, and only a 200 is kept. The room page and the
+sidebar have a key with the version of the database in it; the search and the older messages have a place of the
+person and keep the version in the page (see below). The words of a
 search are the person's to choose, so a person keeps at most `CAMPFIRE_SEARCH_PAGES` search pages (8 by default; the
 words choose the place, and a query of another place or version is written over), and words longer than the form
 allows are not kept. The `?before=` and `?after=` pages of older messages are also keyed by a number that the person
-chooses and are not bounded yet (follow-up issue #111). The people of the sessions are in a store of their own
+chooses, so a person keeps at most `CAMPFIRE_CURSOR_PAGES` pages of each of the two (16 by default; the room and the
+cursor choose the place, and a page of another cursor, room or version is written over; two cursors in one place take
+turns, and nothing worse happens). The people of the sessions are in a store of their own
 (`CAMPFIRE_SESSION_CACHE_MB`, 4 by default), so that no number of pages pushes a session out. A kept person is valid
 for one version of the database and until their session ends (30 days after it began, which no commit announces). A
 page is valid for one version of the database: a connection of its own reads `PRAGMA data_version`, which changes
 whenever any connection or program commits (a new message, an edit, a delete, a change of members, a rename of the room
-or of a person), and the version is in the key, so the next request builds the page again. Every page has a weak `ETag`
+or of a person), and the version is in the key or the page, so the next request builds the page again. Every page has a weak `ETag`
 (a digest of its bytes) and `Cache-Control: max-age=0, private, must-revalidate`, and a request with `If-None-Match` of
 that tag is answered `304`. The `client_message_id` of the form is drawn when a page is made, so two loads at one
 version share it; the app stores it and does nothing else with it. The same version also keeps the person of a session:

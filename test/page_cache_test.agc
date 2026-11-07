@@ -57,6 +57,7 @@ def spots_follow_the_person(observer: Database.Observer, writer: Db.Connection, 
       store: Cache.memory(1_000_000),
       people: Cache.memory(100_000),
       search_slots: SLOTS,
+      cursor_slots: SLOTS,
       observer: observer,
     ),
   )
@@ -90,6 +91,7 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
       store: Cache.memory(1_000_000),
       people: Cache.memory(100_000),
       search_slots: SLOTS,
+      cursor_slots: SLOTS,
       observer: observer,
     ),
   )
@@ -154,6 +156,7 @@ def fresh_session_is_kept_and_found(observer: Database.Observer, writer: Db.Conn
       store: Cache.memory(1_000_000),
       people: Cache.memory(100_000),
       search_slots: SLOTS,
+      cursor_slots: SLOTS,
       observer: observer,
     ),
   )
@@ -174,6 +177,7 @@ def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Conn
       store: Cache.memory(1_000_000),
       people: Cache.memory(100_000),
       search_slots: SLOTS,
+      cursor_slots: SLOTS,
       observer: observer,
     ),
   )
@@ -208,6 +212,118 @@ def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Conn
   )
 end
 
+# A person has `cursor_slots` places for each kind of older messages whatever cursors they ask for: more cursors write
+# over each other, the pages of another person stay, and a page is only found for the version,
+# the person, the room and the cursor it was made for.
+def cursor_pages_are_bounded_per_person(
+  observer: Database.Observer,
+  writer: Db.Connection,
+  url: String,
+) -> Result[Void]
+  _ = writer
+  _ = url
+  pages = some(
+    PageCache.Pages(
+      store: Cache.memory(1_000_000),
+      people: Cache.memory(100_000),
+      search_slots: SLOTS,
+      cursor_slots: SLOTS,
+      observer: observer,
+    ),
+  )
+
+  seen = some(try Database.version(observer))
+  bea = ana().with(id: 2, name: "Bea")
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, bea, some(1), some(7)), "<p>Bea before</p>")
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.AFTER, bea, some(1), some(7)), "<p>Bea after</p>")
+  cursors = (1...61).to_a
+  for cursor in cursors
+    spot = PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(cursor))
+    PageCache.keep(spot, "<p>#{cursor}</p>")
+  end
+
+  for cursor in cursors
+    spot = PageCache.spot(pages, seen, PageCache.AFTER, ana(), some(1), some(cursor + 100))
+    PageCache.keep(spot, "<p>after #{cursor}</p>")
+  end
+
+  held = cursors.select do |cursor|
+    PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(cursor))).some?
+  end
+
+  held_after = cursors.select do |cursor|
+    PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, ana(), some(1), some(cursor + 100))).some?
+  end
+
+  try Test.assert(held.size <= SLOTS, "a person holds more pages before a cursor than they have places")
+  try Test.assert(held.size > 0, "no page before a cursor is kept")
+  try Test.assert(held_after.size <= SLOTS, "a person holds more pages after a cursor than they have places")
+  try Test.assert(held_after.size > 0, "no page after a cursor is kept")
+  other = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, bea, some(1), some(7)))
+  try Test.eq(other.unwrap!.body, "<p>Bea before</p>")
+  after = PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, bea, some(1), some(7)))
+  return Test.eq(after.unwrap!.body, "<p>Bea after</p>")
+end
+
+# A page in a place of the person is a miss for any other stamp (the version, the state of the person, the room, the
+# cursor), and the page that is kept then writes over it.
+def cursor_stamp_mismatch_is_a_miss(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
+  _ = writer
+  _ = url
+  pages = some(
+    PageCache.Pages(
+      store: Cache.memory(1_000_000),
+      people: Cache.memory(100_000),
+      search_slots: SLOTS,
+      cursor_slots: 1,
+      observer: observer,
+    ),
+  )
+
+  seen = some(try Database.version(observer))
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "<p>five</p>")
+  found = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)))
+  try Test.eq(found.unwrap!.body, "<p>five</p>")
+  # With one place all the cursors share it, so these differ in the stamp alone.
+  try Test.assert(
+    PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6))).none?,
+    "a page of another cursor",
+  )
+
+  try Test.assert(
+    PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(2), some(5))).none?,
+    "a page of another room",
+  )
+
+  try Test.assert(
+    PageCache.lookup(
+      PageCache.spot(pages, seen, PageCache.MESSAGES, ana().with(name: "Anna"), some(1), some(5)),
+    ).none?,
+    "a page of another state of the person",
+  )
+
+  try Test.assert(
+    PageCache.lookup(
+      PageCache.spot(pages, seen, PageCache.MESSAGES, ana().with(role: "administrator"), some(1), some(5)),
+    ).none?,
+    "a page of another role of the person",
+  )
+
+  try Test.assert(
+    PageCache.lookup(PageCache.spot(pages, some("0:other"), PageCache.MESSAGES, ana(), some(1), some(5))).none?,
+    "a page of another version",
+  )
+
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6)), "<p>six</p>")
+  try Test.assert(
+    PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5))).none?,
+    "a page that was written over",
+  )
+
+  six = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6)))
+  return Test.eq(six.unwrap!.body, "<p>six</p>")
+end
+
 # Only the pages that the cache keeps make the sign-in filter read the version.
 def cached_paths() -> Result[Void]
   for path in ["/users/me/sidebar", "/searches", "/rooms/12", "/rooms/12/messages"]
@@ -228,7 +344,16 @@ def failing_observer_keeps_nothing(observer: Database.Observer, writer: Db.Conne
   _ = writer
   _ = url
   store = Cache.memory(1_000_000)
-  pages = some(PageCache.Pages(store: store, people: Cache.memory(100_000), search_slots: SLOTS, observer: observer))
+  pages = some(
+    PageCache.Pages(
+      store: store,
+      people: Cache.memory(100_000),
+      search_slots: SLOTS,
+      cursor_slots: SLOTS,
+      observer: observer,
+    ),
+  )
+
   Database.close_observer(observer)
   spot = PageCache.spot(pages, none, PageCache.ROOM, ana(), some(1), none)
   try Test.assert(spot.none?, "a spot from an observer that is closed")
@@ -264,6 +389,12 @@ def main() -> Void
     end,
     Test.test("a person keeps a bounded number of search pages, each for its words, version and person") do
       run_in_dir(&searches_are_bounded_per_person)
+    end,
+    Test.test(
+      "a person keeps a bounded number of pages of older messages for each kind, and another person keeps theirs",
+    ) do run_in_dir(&cursor_pages_are_bounded_per_person) end,
+    Test.test("a page of older messages with another stamp is a miss that the next page writes over") do
+      run_in_dir(&cursor_stamp_mismatch_is_a_miss)
     end,
     Test.test("only a room page, the older messages, the sidebar and the search are read at their version") do
       cached_paths()

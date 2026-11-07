@@ -63,6 +63,16 @@ export DEFAULT_SEARCH_PAGES = 8
 export MIN_SEARCH_PAGES = 1
 export MAX_SEARCH_PAGES = 64
 
+## The pages of older messages of each kind (`?before=` and `?after=`) that one person keeps in the cache of whole
+## pages when `CAMPFIRE_CURSOR_PAGES` is not set. The cursor is a number that the client chooses, so the cache gives
+## each person this many places for each kind and no more. A person who reads back through a room asks for a new cursor
+## for each screen, so this holds the last few screens of a few rooms.
+export DEFAULT_CURSOR_PAGES = 16
+
+## The fewest and the most that `CAMPFIRE_CURSOR_PAGES` may ask for.
+export MIN_CURSOR_PAGES = 1
+export MAX_CURSOR_PAGES = 64
+
 ## The megabytes of the store of the people of the sessions (kept apart from the pages, so that the pages cannot push a
 ## session out) when `CAMPFIRE_SESSION_CACHE_MB` is not set. A person is about a hundred bytes for every version of the
 ## database, so this holds tens of thousands.
@@ -114,8 +124,9 @@ SMTP_URL_FORM = (
 ## not set, and `assets_dir` the folder of the stylesheet. `cache_mb` is the size of the cache of rendered messages in
 ## megabytes, 0 for none, and `response_cache_mb` the size of the cache of whole pages, 0 for none. `max_connections` is
 ## the connections that the server holds at once, the WebSockets of `/cable` among them. `search_pages` is how many
-## search pages one person keeps in the cache of whole pages, and `session_cache_mb` the size of the store of the people
-## of the sessions in megabytes (both are used only while `response_cache_mb` is not 0).
+## search pages one person keeps in the cache of whole pages, `cursor_pages` how many pages of each kind of older
+## messages (`?before=` and `?after=`) it keeps, and `session_cache_mb` the size of the store of the people of the
+## sessions in megabytes (all three are used only while `response_cache_mb` is not 0).
 export struct Config
   host: String
   port: Int
@@ -138,6 +149,7 @@ export struct Config
   max_connections: Int = DEFAULT_MAX_CONNECTIONS
   search_pages: Int = DEFAULT_SEARCH_PAGES
   session_cache_mb: Int = DEFAULT_SESSION_CACHE_MB
+  cursor_pages: Int = DEFAULT_CURSOR_PAGES
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -160,9 +172,9 @@ end
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`,
 ## `CAMPFIRE_SMTP_FROM`, `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`,
 ## `CAMPFIRE_STORAGE_DIR` and `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB`, `CAMPFIRE_RESPONSE_CACHE_MB`,
-## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES` and `CAMPFIRE_SESSION_CACHE_MB`, with the defaults for a
-## variable that is not set (the secret has none, and without the smtp url there is no email). An `error` says which
-## value is wrong.
+## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES`, `CAMPFIRE_SESSION_CACHE_MB` and `CAMPFIRE_CURSOR_PAGES`, with
+## the defaults for a variable that is not set (the secret has none, and without the smtp url there is no email). An
+## `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
@@ -186,6 +198,7 @@ export def load() -> Result[Config]
   max_connections = System.env("CAMPFIRE_MAX_CONNECTIONS").unwrap_or("")
   search_pages = System.env("CAMPFIRE_SEARCH_PAGES").unwrap_or("")
   session_cache_mb = System.env("CAMPFIRE_SESSION_CACHE_MB").unwrap_or("")
+  cursor_pages = System.env("CAMPFIRE_CURSOR_PAGES").unwrap_or("")
   return parse(
     host,
     port,
@@ -209,6 +222,7 @@ export def load() -> Result[Config]
     max_connections,
     search_pages,
     session_cache_mb,
+    cursor_pages,
   )
 end
 
@@ -238,7 +252,8 @@ end
 ## `max_connections` (`CAMPFIRE_MAX_CONNECTIONS`) is `MIN_MAX_CONNECTIONS` to `MAX_MAX_CONNECTIONS`
 ## (`DEFAULT_MAX_CONNECTIONS` when left out). `search_pages` (`CAMPFIRE_SEARCH_PAGES`) is `MIN_SEARCH_PAGES` to
 ## `MAX_SEARCH_PAGES` (`DEFAULT_SEARCH_PAGES` when left out) and `session_cache_mb` (`CAMPFIRE_SESSION_CACHE_MB`) is
-## `MIN_SESSION_CACHE_MB` to `MAX_SESSION_CACHE_MB` (`DEFAULT_SESSION_CACHE_MB` when left out).
+## `MIN_SESSION_CACHE_MB` to `MAX_SESSION_CACHE_MB` (`DEFAULT_SESSION_CACHE_MB` when left out). `cursor_pages`
+## (`CAMPFIRE_CURSOR_PAGES`) is `MIN_CURSOR_PAGES` to `MAX_CURSOR_PAGES` (`DEFAULT_CURSOR_PAGES` when left out).
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -262,6 +277,7 @@ export def parse(
   max_connections: String = "",
   search_pages: String = "",
   session_cache_mb: String = "",
+  cursor_pages: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -344,6 +360,14 @@ export def parse(
     MAX_SEARCH_PAGES,
   )
 
+  slots = try parse_db_number(
+    "CAMPFIRE_CURSOR_PAGES",
+    cursor_pages,
+    DEFAULT_CURSOR_PAGES,
+    MIN_CURSOR_PAGES,
+    MAX_CURSOR_PAGES,
+  )
+
   people = try parse_db_number(
     "CAMPFIRE_SESSION_CACHE_MB",
     session_cache_mb,
@@ -390,6 +414,7 @@ export def parse(
       max_connections: connections,
       search_pages: places,
       session_cache_mb: people,
+      cursor_pages: slots,
     ),
   )
 end
