@@ -113,7 +113,9 @@ out unchanged), and shown with `<%==` as element content only. A body longer tha
 bounded (the sanitizer reads up to about 5 times the cap for a form's text, which is made HTML first). A form says
 that its body is HTML with `message[format]=html`; the body is cleaned the same way, so the field adds no markup that a
 bot could not send already. The links that `Autolink.link` makes are written from the clean body only: an address is
-text up to a space, a `<` or a quote, with `<`, `>` and `&` escaped already, and it carries `rel="noopener noreferrer"`.
+text up to a space, a `<` or a `"`, inside a double-quoted `href`, so it cannot leave the attribute (the clean text has
+no `<` or `>`, and an entity that it keeps, such as `&quot;`, is harmless inside an attribute); only `http://`,
+`https://` and `www.` start one, and it carries `rel="noopener noreferrer"`.
 
 ## The first administrator
 

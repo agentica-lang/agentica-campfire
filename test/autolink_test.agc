@@ -35,9 +35,13 @@ def cases() -> List[Case]
     Case(input: "http://example.com/é, ok", want: "#{blank("http://example.com/é", "http://example.com/é")}, ok"),
     Case(input: "http://example.com/a”", want: "#{blank("http://example.com/a", "http://example.com/a")}”"),
     Case(
-      input: "ftp://files.example.com and ssh://host",
-      want: "#{blank("ftp://files.example.com", "ftp://files.example.com")} and #{blank("ssh://host", "ssh://host")}",
+      input: "ftp://x file:///etc/passwd ssh://host mailto://x",
+      want: "ftp://x file:///etc/passwd ssh://host mailto://x",
     ),
+    Case(input: "http://. https://, www. www.!", want: "http://. https://, www. www.!"),
+    Case(input: "http://a.com/&quot;x", want: blank("http://a.com/&quot;x", "http://a.com/&quot;x")),
+    Case(input: "http://a.com/&#34; y", want: "#{blank("http://a.com/&#34;", "http://a.com/&#34;")} y"),
+    Case(input: "é日本 http://example.com/ü", want: "é日本 #{blank("http://example.com/ü", "http://example.com/ü")}"),
     Case(
       input: "mail ana@example.com, or <b>bea.b+c@mail.example.org</b>",
       want: (

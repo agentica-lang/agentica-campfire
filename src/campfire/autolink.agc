@@ -1,7 +1,9 @@
 ## Links in the text of a clean message body, as Campfire's `MessagesHelper#auto_link_text` does when it shows a message
 ## (it hands each text node outside a link to `auto_link` of the rails_autolink gem). The body is what
-## `HtmlSanitizer.sanitize` wrote, so a `<` starts a tag and no other text has one, and a tag has no attribute but a
-## link's. A link shows as `<a target="_blank" href="URL" rel="noopener noreferrer">`, an email address as the same with
+## `HtmlSanitizer.sanitize` wrote, so a `<` starts a tag and no other text has one. The scan below relies on it: a tag
+## ends at the first `>`, because the only attributes are a link's `href` (escaped, so it has no `<`, `>` or `"`), its
+## `rel` and the `data-language` of a `pre` (a short name of letters, digits and `_+#.-`): no attribute value can
+## contain `<` or `>`. A link shows as `<a target="_blank" href="URL" rel="noopener noreferrer">`, an email address as the same with
 ## a `mailto:` address.
 ##
 ## Compared with Rails:
@@ -9,12 +11,15 @@
 ## - the letters of a URL that are not ASCII count as letters at its end, except the usual punctuation and symbols of
 ##   Unicode (the quotes and dashes of a phone, CJK stops); Rails asks Onigmo for `\p{Word}`. An email address is
 ##   ASCII only.
+## - only `http://`, `https://` and `www.` start a URL, the schemes that the sanitizer allows in a link; Rails also
+##   links ftp, file, ssh and a dozen more. An email address is the only `mailto:` link, so `mailto://x` is text.
+## - a match that is only a scheme (`http://.`) is text; Rails links the bare scheme.
 
 import Regex from "std/regex"
 
-# What `auto_link` takes as the start of a URL: one of its schemes and `//`, or `www.`; it goes on to the next space,
+# What `auto_link` takes as the start of a URL: `http://`, `https://` or `www.`; it goes on to the next space,
 # `<`, `"` or no-break space. The first group is the scheme and its colon. A literal cannot be broken over lines.
-URL = /(?i)(?:((?:ed2k|ftp|http|https|irc|mailto|news|gopher|nntp|telnet|webcal|xmpp|callto|feed|svn|urn|aim|rsync|tag|ssh|sftp|rtsp|afs|file):)\/\/|www\.)[^\s<"\x{A0}]+/
+URL = /(?i)(?:((?:https|http):)\/\/|www\.)[^\s<"\x{A0}]+/
 
 # An address, as rails_autolink writes it; a match that has more of the local part before it is not one.
 EMAIL = /[\w.!#$%+-]\.?[\w.!#$%&'*\/=?^`{|}~+-]*@[\w-]+(?:\.[\w-]+)+/
@@ -157,6 +162,11 @@ def link_url(found: Regex.Match) -> String
   if href.end_with?("&gt;")
     href = href.slice(0, href.length - 4)
     closing = "&gt;"
+  end
+
+  # Nothing after the scheme (`http://.`) or after `www` is not an address.
+  if href == "#{found.groups[1].text}//" or href == "www"
+    return found.text
   end
 
   target = href
