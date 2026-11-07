@@ -32,3 +32,6 @@ export function latestNotice(list) {
   var after = list.nextElementSibling;
   return after && after.classList.contains("more") ? after : null;
 }
+
+// Sent on `document` by the pager when a page at a cursor reaches the newest message, so the live part can catch up.
+export var LATEST_EVENT = "campfire:latest";

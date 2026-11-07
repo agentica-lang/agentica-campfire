@@ -5,23 +5,28 @@
 var clock = null;
 var stamp = null;
 
-/* Writes the local time into each `<time datetime>` under `root` (idempotent: it reads the attribute only). */
+/* Writes the local time into `root` when it is a `<time datetime>` and into each one under it (idempotent: it reads the
+   attribute only). A time with no valid instant keeps the text the server wrote. */
 export function localize(root) {
   if (!clock) {
     return;
   }
 
-  var items = root.querySelectorAll("time[datetime]");
+  var items = Array.prototype.slice.call(root.querySelectorAll("time[datetime]"));
+  if (root.matches && root.matches("time[datetime]")) {
+    items.unshift(root);
+  }
+
   var today = new Date().toDateString();
-  for (var i = 0; i < items.length; i++) {
-    var date = new Date(items[i].getAttribute("datetime"));
+  items.forEach(function (item) {
+    var date = new Date(item.getAttribute("datetime"));
     if (isNaN(date.getTime())) {
-      continue;
+      return;
     }
 
-    items[i].textContent = (date.toDateString() === today ? clock : stamp).format(date);
-    items[i].title = stamp.format(date);
-  }
+    item.textContent = (date.toDateString() === today ? clock : stamp).format(date);
+    item.title = stamp.format(date);
+  });
 }
 
 /* Localizes the page, and every `<time>` that comes into `main` later (a message that is heard, sent or loaded). */

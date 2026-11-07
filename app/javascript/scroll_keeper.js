@@ -1,5 +1,5 @@
 /* Keeps the reading position of a room, as `scroll_manager.js` of Rails Campfire does, whatever changes the list: older
-   messages loaded above, a message that arrives, one that is edited or boosted. It remembers where one message of the
+   messages loaded above, a message that arrives, one that is edited or boosted, the "Latest messages" link that goes away. It remembers where one message of the
    view is (the anchor) and where the scroll is; when the list changes it puts the anchor back where it was, and when
    the reader was at the newest message of the room it stays there.
    - The scroller is a column-reverse box: the newest end is the origin of `scrollTop` (0, negative above it), so
@@ -22,6 +22,7 @@ export function startScrollKeeper(page) {
   var scroller = page.scroller;
   var list = page.list;
   var anchor = null;
+  var anchorId = "";
   var offset = 0;
   var seenTop = 0;
 
@@ -51,6 +52,7 @@ export function startScrollKeeper(page) {
   function remember() {
     seenTop = scroller.scrollTop;
     anchor = firstInView();
+    anchorId = anchor ? anchor.id : "";
     offset = anchor ? top(anchor) : 0;
   }
 
@@ -60,8 +62,10 @@ export function startScrollKeeper(page) {
   function keep() {
     if (-scroller.scrollTop <= NEAR_END && atLatest(list)) {
       scroller.scrollTop = 0;
-    } else if (anchor && anchor.isConnected && scroller.scrollTop === seenTop) {
-      var moved = top(anchor) - offset;
+    } else if (scroller.scrollTop === seenTop) {
+      // An edit replaces the element of a message: the same id in the list is the same place.
+      var now = anchor && anchor.isConnected ? anchor : anchorId ? document.getElementById(anchorId) : null;
+      var moved = now && list.contains(now) ? top(now) - offset : 0;
       if (moved) {
         // A positive `scrollTop` change moves the content up, which is where an anchor that went down has to come back.
         scroller.scrollTop += moved;
@@ -71,6 +75,7 @@ export function startScrollKeeper(page) {
   }
 
   scroller.addEventListener("scroll", remember, { passive: true });
-  new MutationObserver(keep).observe(list, { childList: true, subtree: true });
+  // The thread, not only the list: the links above and below it come and go, and move the view as a message does.
+  new MutationObserver(keep).observe(list.parentNode, { childList: true, subtree: true });
   remember();
 }

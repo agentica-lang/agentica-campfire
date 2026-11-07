@@ -2,4 +2,4 @@
 ## again. The name has the first 16 hex digits of the SHA-256 of the file, which `specs/assets.feature` checks.
 
 export STYLESHEET = "/assets/campfire-1b9800f058f48052.css"
-export SCRIPT = "/assets/campfire-422c8d4c6cd02929.js"
+export SCRIPT = "/assets/campfire-656b9b6c1d6f5bb7.js"

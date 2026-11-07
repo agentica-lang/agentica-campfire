@@ -1,5 +1,5 @@
 import { localize } from "./local_time.js";
-import { atLatest } from "./room_page.js";
+import { atLatest, LATEST_EVENT } from "./room_page.js";
 
 /* The live part: one WebSocket to `/cable` (Action Cable, `actioncable-v1-json`), opened by every page with the sidebar.
    What it hears is a Turbo Stream, which it applies itself (append, prepend, replace, update, remove, before, after;
@@ -411,9 +411,11 @@ export function startLive() {
     });
     catching = mine;
 
-    fetch(location.href, { credentials: "same-origin", headers: { Accept: "text/html" } })
+    // The room's own page, not `location.href`: a page at a cursor that the pager has taken to the end is the latest page
+    // now, and its address is still the window of the cursor, which lacks the messages after it.
+    fetch("/rooms/" + roomId, { credentials: "same-origin", headers: { Accept: "text/html" } })
       .then(function (response) {
-        return response.ok ? response.text() : "";
+        return response.ok && !response.redirected ? response.text() : "";
       })
       .then(function (text) {
         var theirs = text ? new DOMParser().parseFromString(text, "text/html").getElementById(list.id) : null;
@@ -567,6 +569,9 @@ export function startLive() {
       unmark(roomId);
     }
   }
+
+  // The pager reached the end of a page at a cursor: what was created while it walked down is fetched once.
+  document.addEventListener(LATEST_EVENT, catchUp);
 
   heartbeat = subscribe({ channel: "HeartbeatChannel" }, null);
   unreadSub = subscribe({ channel: "UnreadRoomsChannel" }, unread);

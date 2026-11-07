@@ -51,6 +51,13 @@ const settle = (page) => page.waitForTimeout(600);
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || "/usr/bin/chromium", args: ["--no-sandbox"] });
   const context = await browser.newContext({ locale: "en-US", timezoneId: "Asia/Tokyo", viewport: { width: 1000, height: 700 } });
+  // The sockets of the pages, so that a check can drop one and make the page reconnect.
+  await context.addInitScript(() => {
+    const Socket = window.WebSocket;
+    window.__sockets = [];
+    window.WebSocket = function (...args) { const one = new Socket(...args); window.__sockets.push(one); return one; };
+    window.WebSocket.prototype = Socket.prototype;
+  });
   const page = await context.newPage();
   await signIn(page);
   await page.goto(base + "/rooms/1");
@@ -78,6 +85,33 @@ const settle = (page) => page.waitForTimeout(600);
     return new Promise((done) => setTimeout(() => done(t.textContent), 50));
   });
   check("a time of another day has its date, in the zone of the viewer", old === "Jan 3, 2020, 5:04 AM", old);
+  const bad = await page.evaluate(() => {
+    const t = document.createElement("time");
+    t.setAttribute("datetime", "not a time");
+    t.textContent = "20:04";
+    document.querySelector('[id^="messages_rooms_"] [data-message-id] h3').append(t);
+    const bare = document.createElement("time");
+    bare.setAttribute("datetime", "2020-01-02T20:04:05.000Z");
+    document.querySelector('[id^="messages_rooms_"] [data-message-id] h3').append(bare);
+    return new Promise((done) => setTimeout(() => done([t.textContent, bare.textContent]), 50));
+  });
+  check("a time with no valid instant keeps the server's text", bad[0] === "20:04", bad[0]);
+  check("a <time> that is added by itself is localized", bad[1] === "Jan 3, 2020, 5:04 AM", bad[1]);
+
+  // A person who is signed out: the answer to a page of older messages is the sign-in page after a redirect, which the
+  // list must not take in, and which is not asked for again and again.
+  const out = await browser.newContext({ locale: "en-US", viewport: { width: 1000, height: 700 } });
+  const gone = await out.newPage();
+  await signIn(gone);
+  await gone.goto(base + "/rooms/1");
+  await out.clearCookies();
+  let asked = 0;
+  gone.on("request", (request) => { if (request.url().includes("/rooms/1/messages?")) asked++; });
+  await toTop(gone);
+  await gone.waitForTimeout(1500);
+  check("a signed-out answer adds nothing to the list", (await count(gone)) === 40 && (await gone.locator('.scroller input[type="password"]').count()) === 0);
+  check("a signed-out answer is asked for once, and the link stays", asked === 1 && (await gone.locator(".thread > .more a").count()) === 1, asked);
+  await out.close();
 
   // Scroll paging: 130 messages are three pages. The reader's place stays when the older ones come.
   check("the page starts with the newest 40", (await count(page)) === 40);
@@ -160,6 +194,29 @@ const settle = (page) => page.waitForTimeout(600);
     () => check("a live message is appended once the page is the latest", true),
     () => check("a live message is appended once the page is the latest", false),
   );
+
+  // The reconnect of a page that walked down from a cursor: its list is not the page at its address any more, and the
+  // catch-up must neither remove the messages after the cursor nor miss the one that came while the socket was away.
+  const kept = await ids(page);
+  await page.evaluate(() => window.__sockets.forEach((one) => one.close()));
+  await post(other, "missed while the socket was away");
+  await page.waitForFunction((k) => document.querySelectorAll("[data-message-id]").length === k + 1, kept.length, { timeout: 10000 }).then(
+    async () => {
+      const now = await ids(page);
+      check("a reconnect keeps what the page has and brings the missed message", kept.every((v, i) => now[i] === v) && now.length === kept.length + 1);
+    },
+    async () => check("a reconnect keeps what the page has and brings the missed message", false, (await count(page)) + " of " + (kept.length + 1)),
+  );
+
+  // The end of an `after` walk with the reader near the end: the link goes, and the reader is taken to the end. A short
+  // message is the newest, so the one that the walk loads is within 100px of the end.
+  await post(other, "x");
+  const last = await page.evaluate(() => fetch("/rooms/1").then((r) => r.text()).then((t) => Math.max(...[...t.matchAll(/data-message-id="(\d+)"/g)].map((m) => parseInt(m[1], 10)))));
+  await page.goto(base + `/rooms/1?before=${last}`);
+  await page.waitForFunction(() => !document.querySelector('.thread > .more a[href="/rooms/1"]'));
+  await settle(page);
+  check("the walk ends with the newest message", (await ids(page)).at(-1) === last);
+  check("a reader near the end is taken to it when the page becomes the latest", (await page.evaluate(() => -document.querySelector(".scroller").scrollTop)) < 2);
 
   await browser.close();
   process.exit(failed ? 1 : 0);
