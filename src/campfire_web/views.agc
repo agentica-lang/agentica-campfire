@@ -627,7 +627,7 @@ export def new_boost(room_id: Int, message_id: Int, text: String, note: String) 
         <form method="post" action="<%= Routes.message_boosts_path(message_id) %>">
           <p>
             <label><span class="sr-only">Your own words</span>
-              <input name="boost[content]" type="text" value="<%= text %>" maxlength="<%= Boosts.MAX_CONTENT_LENGTH %>" autocomplete="off" required></label>
+              <input name="boost[content]" type="text" value="<%= text %>" autocomplete="off" required></label>
             <button type="submit" class="quiet">Boost</button>
           </p>
         </form>

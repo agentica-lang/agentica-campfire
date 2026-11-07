@@ -18,7 +18,7 @@
   > a {
     order: 1;
     padding: 0 var(--s-2);
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     font-size: var(--fs-xs);
     font-weight: 600;
     color: var(--bubble-link, var(--link));
@@ -39,7 +39,7 @@
     gap: var(--s-1);
     padding: 0 var(--s-2);
     border: 1px solid color-mix(in srgb, currentcolor 35%, transparent);
-    border-radius: 999px;
+    border-radius: var(--r-pill);
     font-size: var(--fs-sm);
     overflow-wrap: anywhere;
 
@@ -53,12 +53,18 @@
     }
 
     button {
-      min-height: 1.5rem;
+      min-height: var(--s-5);
       padding: 0 var(--s-1);
       font-size: var(--fs-sm);
       color: inherit;
       background: transparent;
       border: 0;
+
+      @include mixins.can-hover {
+        &:hover {
+          background: var(--hover);
+        }
+      }
     }
   }
 
@@ -99,5 +105,12 @@
     a {
       color: var(--bubble-link, var(--link));
     }
+  }
+}
+
+// A tap target of 44px on a phone, as every button is (`buttons`): the pill grows to hold it.
+@include mixins.phone {
+  [id^="boosts_message_"] > [id^="boost_"] button {
+    min-height: 2.75rem;
   }
 }

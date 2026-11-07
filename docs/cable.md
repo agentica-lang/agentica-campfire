@@ -44,7 +44,10 @@ hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`
   the broadcast, which has no Edit link.
 - **A boost** that somebody adds or takes away (the routes, and the API of the bots) is appended to the boosts of its
   message, or removed, on the pages that look at the room. The booster's own tab has it from the answer of its post
-  too, and an element that is there already is not added twice.
+  too, and an element that is there already is not added twice. The catch-up after a reconnect replaces a message
+  whose markup differs from the fetched copy, and an open boost menu is part of that markup, so a reconnect can close
+  it. A boost that arrives live while the catch-up is in flight can be missing from the copy that replaces its
+  message, and shows after the next refresh of the page.
 - **After a reconnect**, once the room's subscription is confirmed (what comes later arrives live), the script notes
   the messages of the page, fetches the room page and makes the fetched list the page's: a noted message that the fetch
   lacks is removed (deleted while the socket was away, the newest one and a room that was emptied included; an empty room shows "No messages here yet." again, as it hides it when a message comes), an edited

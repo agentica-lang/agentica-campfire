@@ -53,7 +53,7 @@ trusts. Code uses the system monospace at 0.9em. Inputs are 16px or more on a ph
 ## Space, radius, shadow
 
 Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375rem (controls), `--r-md` 0.625rem (cards),
-999px (chips, badges). One shadow, `--shadow`, for the card of a page with no sidebar. Content text is at most 44rem wide
+`--r-pill` 999px (chips, badges, boosts). One shadow, `--shadow`, for the card of a page with no sidebar. Content text is at most 44rem wide
 (messages 70ch).
 
 ## Layout

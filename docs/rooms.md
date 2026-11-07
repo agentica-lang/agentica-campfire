@@ -215,8 +215,8 @@ another message or one that is gone, it is `404` and nothing changes (Rails' `fi
 is `405` with `Allow: POST, DELETE`. A boost touches its message and the room, on adding and on removing it (Rails'
 `touch: true`), so the refresh of the room (`/rooms/ID/refresh`) hands the message out again, the key of the cached
 markup of the message changes, and so does the version of the database that the page cache keys on. The key also holds
-the boosts themselves, so a boost written by another program, with no `updated_at`, shows at once too. Deleting a
-message deletes its boosts. The boosts of a chat bot are in [people.md](people.md#the-messages-api).
+the boosts themselves, so a boost written by another program, with no `updated_at`, shows at once too. A message has no
+cap on its boosts, as in Rails, and a person may boost it more than once. Deleting a message deletes its boosts. The boosts of a chat bot are in [people.md](people.md#the-messages-api).
 
 The script of the room page opens the page of a new boost under the message instead of going to it (the reactions, a
 field for words, Esc or Cancel to close), posts with `fetch` and applies the Turbo Stream. Live, everybody who looks at

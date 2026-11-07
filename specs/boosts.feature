@@ -28,7 +28,6 @@ Feature: Boosts on messages
     And the body contains "class=\"quiet\" name=\"boost[content]\" value=\"" 8 times
     And the body contains "name=\"boost[content]\" value=\"👍\" title=\"Thumbs up\""
     And the body contains "name=\"boost[content]\" value=\"❤️\" title=\"Red heart\""
-    And the body contains "maxlength=\"16\""
     And the body contains "<a href=\"/rooms/1/@1\" data-cancel>Back to the room</a>"
     When I post to "/messages/1/boosts" the form:
       | boost[content] | 👍 |

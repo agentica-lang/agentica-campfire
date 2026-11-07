@@ -98,17 +98,23 @@ export function startBoosts() {
       headers: { Accept: STREAM, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
       body: data,
     })
-      .then(
-        function (response) {
-          return response.ok ? response.text() : null;
-        },
-        function () {
-          return null;
-        },
-      )
-      .then(function (text) {
+      .then(function (response) {
+        return response.text().then(function (text) {
+          return { status: response.status, text: text };
+        });
+      })
+      .catch(function () {
+        return null;
+      })
+      .then(function (answer) {
         busy = false;
-        if (text === null) {
+        var pill = form.closest('[id^="boost_"]');
+        if (answer && answer.status === 404 && pill) {
+          // The boost is gone already (taken off in another tab): the pill goes, and nothing is sent again.
+          pill.remove();
+          return;
+        }
+        if (!answer || answer.status !== 200) {
           // A refusal shows its reason on the page that the plain post answers; a lost connection shows the
           // browser's own.
           plain = true;
@@ -120,7 +126,7 @@ export function startBoosts() {
           return;
         }
 
-        apply(text);
+        apply(answer.text);
         if (area.isConnected && menuOf(area)) {
           close(area);
         }

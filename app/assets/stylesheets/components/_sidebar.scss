@@ -159,7 +159,7 @@ nav {
       padding: 0.625rem var(--s-3);
       line-height: 1.5rem;
       border: 1px solid var(--line);
-      border-radius: 999px;
+      border-radius: var(--r-pill);
       background: var(--bg);
       white-space: nowrap;
       text-overflow: ellipsis;

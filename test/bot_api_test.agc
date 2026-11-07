@@ -10,6 +10,19 @@ def main() -> Void
       try Test.assert(AuthWeb.bot_api?("/rooms/1/wrong/messages/"), "a trailing slash")
       Test.assert(AuthWeb.bot_api?("//rooms//1//wrong//messages"), "double slashes")
     end,
+    Test.test("the boosts of a message and of one boost are the API, and nothing else of that length is") do
+      try Test.assert(AuthWeb.bot_api?("/rooms/1/3-aaaaBBBB1111/messages/9/boosts"), "boosts")
+      try Test.assert(AuthWeb.bot_api?("/rooms/1/3-aaaaBBBB1111/messages/9/boosts/4"), "a boost")
+      try Test.assert(AuthWeb.bot_api?("//rooms/1/wrong//messages/9/boosts/"), "odd slashes")
+      try Test.assert(not AuthWeb.bot_api?("/rooms/1/3-aaaaBBBB1111/messages/9/foo"), "6 segments, another resource")
+      try Test.assert(not AuthWeb.bot_api?("/rooms/1/3-aaaaBBBB1111/messages/9/foo/4"), "7 segments, another resource")
+      try Test.assert(not AuthWeb.bot_api?("/rooms/1/3-aaaaBBBB1111/messages/9/boosts/4/x"), "8 segments")
+      try Test.assert(not AuthWeb.bot_api?("/rooms/1/messages/9/boosts"), "5 segments, no key")
+      try Test.assert(not AuthWeb.bot_api?("/rooms/1/messages/9/boosts/4"), "6 segments, a message where the key is")
+      try Test.assert(not AuthWeb.bot_api?("/rooms/1/messages/messages/9/boosts"), "a key named messages")
+      try Test.assert(not AuthWeb.bot_api?("/rooms/1/key/other/9/boosts"), "not messages")
+      Test.assert(not AuthWeb.bot_api?("/messages/9/boosts/4"), "the boosts of the browser")
+    end,
     Test.test("a browser path is never the API, whatever its shape") do
       try Test.assert(not AuthWeb.bot_api?("/rooms/1/messages"), "the messages of a room")
       try Test.assert(not AuthWeb.bot_api?("/rooms/1//messages"), "an empty key is no key")
