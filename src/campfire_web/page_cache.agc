@@ -412,9 +412,9 @@ end
 
 # The page in the cached text `kept` at `spot`, or `none` when there is none or it was kept with another stamp. The
 # tag is
-# a short slice, but the body is taken by bytes: `String.slice` to the end of a text with a non-ASCII character
-# costs a walk over all of it. The tag is ASCII, so it follows the stamp at `prefix.length` characters and
-# `prefix.bytesize` bytes.
+# a short slice, but the body is taken by bytes: `String.slice` to the end of a text with a non-ASCII character costs a
+# walk over all of it. The tag is ASCII, so it follows the stamp at `prefix.length` characters and `prefix.bytesize`
+# bytes.
 def unpack(spot: Spot, kept: Optional[String]) -> Optional[Page]
   case kept
     none -> return none
