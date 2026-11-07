@@ -4,21 +4,17 @@ import Db from "pkg/db/db"
 import DbPool from "pkg/db/db_pool"
 import Migrate from "pkg/db/migrate"
 import Migrations from "migrations"
+import VersionReader from "version_reader"
 import {int_of, text_of} from "rows"
 
 # How long `close_pool` lets the running requests finish.
 CLOSE_MS = 1_000
 
-VERSION_SQL = (
-  "select data_version || ':' || (select epoch from temp.campfire_epoch) as version from pragma_data_version"
-)
-EPOCH_SQL = "create temp table if not exists campfire_epoch as select hex(randomblob(16)) as epoch"
-
 ## The connections of the app, opened once at the start (see `open_pool`).
 export type Pool = DbPool.Pool
 
 ## The one connection that watches the database for changes (see `open_observer`).
-export type Observer = DbPool.Pool
+export type Observer = VersionReader.Reader
 
 ## The schema version of a database after `migrate`, and the migrations that this call applied (none when the database
 ## was already up to date). `rails` is a database that Rails made, which `migrate` left as it was: its version is the
@@ -56,28 +52,26 @@ export def close_pool(pool: Pool) -> Void
   DbPool.close(pool, CLOSE_MS)
 end
 
-## Opens the observer: a pool of one connection to the database at `url`, which `version` reads. It is a connection of
-## its own, apart from the pool of the requests, because `PRAGMA data_version` changes only for the commits of the
-## other connections: on a connection that serves requests it would miss its own writes, and the connections of the
-## pool each count differently. As for `open_pool`, the connection belongs to the task that calls this, which must
-## live as long as the app does. An `error` says what failed.
-export def open_observer(url: String, checkout_ms: Int) -> Result[Observer]
-  return DbPool.start(DbPool.Options(url: url, size: 1, checkout_ms: checkout_ms))
+## Opens the observer: a read-only connection of its own to the database at `url`, which `version` reads. It is apart
+## from the pool of the requests because `PRAGMA data_version` changes only for the commits of the other connections:
+## on a connection that serves requests it would miss its own writes. See `version_reader.agc` for how the schedulers
+## share it. As for `open_pool`, the connection belongs to the task that calls this, which must live as long as the
+## app does. An `error` says what failed.
+export def open_observer(url: String) -> Result[Observer]
+  return VersionReader.open(url)
 end
 
-## Closes the observer, like `close_pool`.
+## Closes the observer, once nothing reads it any more.
 export def close_observer(observer: Observer) -> Void
-  DbPool.close(observer, CLOSE_MS)
+  VersionReader.close(observer)
 end
 
 ## A text that is the same for two calls only when no commit was made to the database in between, by any connection of
-## any program (the app itself, a Rails app, the `sqlite3` tool): the `data_version` of the observer, with a random
-## epoch of the connection in front, so that a connection that the pool replaced (a lease that ran out, a failed ping)
-## cannot count its way back to a number it already gave. A change of the schema or of a table that nothing reads is a
-## change too: that only costs a page that is made again. An `error` (the observer is busy or lost) means that nothing
-## is known, so the caller must not trust or keep anything it saw before.
+## any program (the app itself, a Rails app, the `sqlite3` tool): the `data_version` of the observer. A change of the
+## schema or of a table that nothing reads is a change too: that only costs a page that is made again. An `error`
+## means that nothing is known, so the caller must not trust or keep anything it saw before.
 export def version(observer: Observer) -> Result[String]
-  return DbPool.with(observer) do |conn| read_version(conn) end
+  return VersionReader.version(observer)
 end
 
 ## Runs `body` with a connection of the pool and gives its result: a request takes one connection, does all its work
@@ -98,23 +92,6 @@ export def busy?(message: String) -> Bool
     message.include?("pool error: closed") or
     message.include?("sqlite error 5:")
   )
-end
-
-# The epoch is a temp table, which only the connection that made it sees; the first call finds none, makes it and
-# reads again, so that every other call is the one statement.
-def read_version(conn: Db.Connection) -> Result[String]
-  first = Db.query(conn, VERSION_SQL, [])
-  if first.ok? and not first.unwrap!.empty?
-    return ok(text_of(first.unwrap![0], "version"))
-  end
-
-  try Db.execute(conn, EPOCH_SQL, [])
-  rows = try Db.query(conn, VERSION_SQL, [])
-  if rows.empty?
-    return error("database error: PRAGMA data_version gave no row")
-  end
-
-  return ok(text_of(rows[0], "version"))
 end
 
 # The keys of the schema (a message needs its room and its author) need foreign keys on, and a `foreign_keys=off` in

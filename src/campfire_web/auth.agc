@@ -246,7 +246,7 @@ def require_sign_in(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCa
 
   # A read of a page that the cache keeps, with a session cookie, reads the version of the database first
   # (`PageCache.watch`), so that the person of the session can be the one kept for that version and the handler does
-  # not read it again. A request with no cookie never leases the observer, and any other request looks the person up
+  # not read it again. A request with no cookie never reads the observer, and any other request looks the person up
   # as it always did.
   token = session_token(conn)
   watched = conn

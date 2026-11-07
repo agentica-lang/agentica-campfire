@@ -167,7 +167,7 @@ or of a person), and the version is in the key or the page, so the next request 
 that tag is answered `304`. The `client_message_id` of the form is drawn when a page is made, so two loads at one
 version share it; the app stores it and does nothing else with it. The same version also keeps the person of a session:
 a read request with a session cookie reads the version first and finds the person in the cache of the version, so a hit
-takes one connection (the observer's) and none of the pool. A hit does not touch the session, so on a quiet database
+takes one quick read of the observer's connection and none of the pool. A hit does not touch the session, so on a quiet database
 `last_active_at` can be older than its five-minute refresh (only Rails reads it; the end of a session uses
 `created_at`). A sign-out, a deactivation, a ban, a rename and a change of role are commits, so the next read has a new
 version and looks the session up again. The cache of messages (`CAMPFIRE_CACHE_MB`) is separate: it saves rendering a

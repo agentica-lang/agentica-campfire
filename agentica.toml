@@ -8,3 +8,9 @@ blank_line_after_end = true
 bond = { git = "https://github.com/agentica-lang/bond", tag = "0.8.0" }
 db = { git = "https://github.com/agentica-lang/agentica-db", tag = "0.5.0", subdir = "src/db" }
 channels = { git = "https://github.com/agentica-lang/packages", ref = "611bdf35b58c5732170f32e8d8ba852744b508b9", subdir = "bond-channels" }
+
+# The system SQLite, for the version reader (`extern "sqlite3"` in src/campfire/repo/version_reader.agc).
+[native.sqlite3]
+linux = { system = "libsqlite3.so.0" }
+macos = { system = "libsqlite3.dylib" }
+windows = { system = "winsqlite3.dll" }
