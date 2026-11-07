@@ -146,11 +146,11 @@ export def form_method(conn: Bond.Conn) -> Result[String]
   return ok(methods[0].downcase)
 end
 
-## True for a path of the messages API of the chat bots, `/rooms/ID/KEY/messages` and `/rooms/ID/KEY/messages/ID`. The key
-## in the path is the whole login, so the sign-in filter lets it through and the handler looks the key up. The parts are
-## the non-empty segments, which is how the router reads a path, so a path that is true here is a path of the API and
-## not a browser path with an odd shape (`/rooms/1//messages` is the messages of room 1, and `/rooms/1/messages/9`, the
-## message 9, have `messages` where the key is).
+## True for a path of the messages API of the chat bots, `/rooms/ID/KEY/messages` and `/rooms/ID/KEY/messages/ID`.
+## The key in the path is the whole login, so the sign-in filter lets it through and the handler looks the key up.
+## The parts are the non-empty segments, which is how the router reads a path, so a path that is true here is a path
+## of the API and not a browser path with an odd shape (`/rooms/1//messages` is the messages of room 1, and
+## `/rooms/1/messages/9`, the message 9, have `messages` where the key is).
 export def bot_api?(path: String) -> Bool
   parts = path.split("/").select do |part| not part.empty? end
   if parts.size != BOT_LIST_SEGMENTS and parts.size != BOT_MESSAGE_SEGMENTS
@@ -165,11 +165,11 @@ export def private_page(conn: Bond.Conn) -> Bond.Conn
   return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "no-referrer")
 end
 
-# `Bond.csrf` refuses a post that a page of another site sent, judging by `Sec-Fetch-Site` and `Origin`. The
-# messages API
-# of the bots is the one place where a page of another site may call (a dashboard that posts with a key, as Rails lets
-# a request with a bot key skip the check): its key is in the path and no cookie is read, so a forged post has nothing
-# to forge, and the browser routes keep the check. The two headers are left out of the request here, before the check.
+# `Bond.csrf` refuses a post that a page of another site sent, judging by `Sec-Fetch-Site` and `Origin`. The messages
+# API of the bots is the one place where a page of another site may call (a dashboard that posts with a key, as Rails
+# lets a request with a bot key skip the check): its key is in the path and no cookie is read, so a forged post has
+# nothing to forge, and the browser routes keep the check. The two headers are left out of the request here, before the
+# check.
 def unmarked(conn: Bond.Conn) -> Bond.Conn
   if not bot_api?(conn.path)
     return conn

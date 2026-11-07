@@ -26,6 +26,8 @@ THREAD_END = "<form method=\"post\" action=\"/rooms/"
 JOIN_LINK = "join_link"
 STATUSES = "statuses"
 ALL_AT_ONCE_MS = 60_000
+RAW_MS = 5_000
+RAW_CHUNK = 65_536
 BROWSER = "browser"
 FORM_TYPE = "application/x-www-form-urlencoded"
 # A WebP file starts with `RIFF`, four bytes of size and `WEBP`: 12 bytes.
@@ -77,6 +79,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("I send a DELETE to {string}", &delete_to),
     BDD.step("I send {string} to {string} the text {string}", &send_text),
     BDD.step("I send {string} to {string} a text of {int} characters", &send_text_of_length),
+    BDD.step("I send {string} to {string} the text {string} with the Host {string}", &send_text_with_host),
     BDD.step("I send a PATCH to {string} the form:", &patch_form),
     BDD.step("I send a PATCH to {string} a message of {int} characters", &patch_message_of_length),
     BDD.step("I send a PUT to {string}", &put_to),
@@ -343,6 +346,78 @@ end
 # step `the request header "content-type"` changes the type). The messages API of the bots reads it.
 def send_text(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, args[0], args[1], args[2])
+end
+
+# The same request over a raw socket, with the `Host` as written: the client of `std/http` sets its own, so it cannot
+# send one that is not a host. The answer is read to the end (`Connection: close`).
+def send_text_with_host(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  made = raw_request(port_of(ctx), args[0], args[1], args[2], args[3])
+  if not made.ok?
+    return BDD.assert(ctx, false, "#{args[0]} #{args[1]} failed: #{made.message}")
+  end
+
+  return BDD.set(ctx, REPLY, JSON.from(made.unwrap!))
+end
+
+def raw_request(port: Int, method: String, path: String, body: String, host: String) -> Result[Reply]
+  socket = try TCP.connect("127.0.0.1", port, RAW_MS)
+  head = (
+    "#{method} #{path} HTTP/1.1\r\nHost: #{host}\r\nConnection: close\r\nContent-Type: #{FORM_TYPE}\r\n" +
+    "Content-Length: #{body.bytes.size}\r\n\r\n"
+  )
+
+  sent = TCP.send_bytes(socket, head.bytes + body.bytes, RAW_MS)
+  received = read_all(socket, sent.ok?)
+  TCP.close(socket)
+  try sent
+  return reply_of_text(received, path)
+end
+
+# Everything the socket sends until it closes, or until it stops for `RAW_MS`.
+def read_all(socket: Socket, sent: Bool) -> Bytes
+  parts: List[Bytes] = []
+  while sent
+    chunk = TCP.recv_bytes(socket, RAW_CHUNK, RAW_MS)
+    if not chunk.ok? or chunk.unwrap!.empty?
+      break
+    end
+
+    parts = parts.push(chunk.unwrap!)
+  end
+
+  return Bytes.concat(parts)
+end
+
+def reply_of_text(received: Bytes, path: String) -> Result[Reply]
+  text = String.from_bytes(received).unwrap_or("")
+  at = text.index_of("\r\n\r\n")
+  if at.none?
+    return error("no answer")
+  end
+
+  lines = text.slice(0, at.unwrap!).split("\r\n")
+  status = lines[0].split(" ")[1].to_i
+  headers: Map[String, String] = {}
+  for line in lines.drop(1)
+    colon = line.index_of(":").unwrap_or(-1)
+    if colon > 0
+      headers = headers.put(line.slice(0, colon).downcase, line.slice(colon + 1, line.length - colon - 1).strip)
+    end
+  end
+
+  body = text.slice(at.unwrap! + 4, text.length - at.unwrap! - 4)
+  return ok(
+    Reply(
+      status: try status,
+      headers: headers,
+      body: body,
+      elapsed_ms: 0,
+      path: path,
+      size: body.bytes.size,
+      sha256: Digest.sha256_hexdigest(body.bytes),
+      head: "",
+    ),
+  )
 end
 
 def send_text_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context

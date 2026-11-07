@@ -33,8 +33,15 @@ the check as well. The two headers are taken off such a request before the check
 `/rooms/1//messages` included) keep it.
 
 The key is stored as plain text, as in Rails, and is compared with the stored one in constant time. It is in the URL, so
-the answers of the API are `Cache-Control: no-store`, and a server log that records paths records keys. A key that
-names no active bot is `404`, and so is a room that the bot is not in.
+the answers of the API are `Cache-Control: no-store`, and a reverse proxy or any log that records paths records keys:
+turn path logging off for `/rooms/*/*/messages` there, or treat the log as a secret. A key that names no active bot is
+`404`, and so is a room that the bot is not in. Requests with a wrong key are not rate limited, as in Rails; a token
+has 62^12 values.
+
+The links in the answers of the API (`url`, `Location`, `Link`) and the curl lines of the bots page start with
+`CAMPFIRE_BASE_URL`. Set it behind a proxy: without it they start with the scheme of the app (`https` only with
+`CAMPFIRE_SECURE_COOKIES=true`) and the `Host` of the request, which a proxy may change, and a `Host` that is not a host
+name or address with a port is left out, so the links are paths.
 
 ## Passwords
 

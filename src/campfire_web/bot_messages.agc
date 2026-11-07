@@ -1,7 +1,7 @@
 ## The messages API of the chat bots (`Messages::ByBotsController` of Rails): a bot lists the messages of a room, posts
-## one, and edits or deletes its own, with its key (`ID-TOKEN`) in the path and JSON in the answers. The key is the whole
-## login: these paths are not behind the sign-in filter (`AuthWeb.bot_api?`), no cookie is read, and nothing else of the
-## request says who asks, so a page of another site has nothing to forge. Every answer is kept out of caches.
+## one, and edits or deletes its own, with its key (`ID-TOKEN`) in the path and JSON in the answers. The key is the
+## whole login: these paths are not behind the sign-in filter (`AuthWeb.bot_api?`), no cookie is read, and nothing else
+## of the request says who asks, so a page of another site has nothing to forge. Every answer is kept out of caches.
 ##
 ## The checks come in this order, and the first that fails is the answer: a key that names no active bot (a wrong one,
 ## one that a new token or a deactivation ended, a person's id) is 404, as is a room that the bot is not in and a room
@@ -31,6 +31,11 @@ MESSAGE = "message_id"
 
 # Bytes of randomness in the `client_message_id` of a post (a bot sends none), which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
+
+# The characters that `origin` takes in a `Host`: a name or an IPv4 address, and the inside of an IPv6 address.
+DIGITS = Set.new("0123456789".split(""))
+HOST_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-".split(""))
+HOST_V6_CHARS = Set.new("abcdefABCDEF0123456789:.".split(""))
 
 UPLOAD_TYPE = "multipart/form-data"
 UPLOAD_REFUSED = "Attachments are not supported yet"
@@ -89,8 +94,8 @@ enum Answer
   Forbidden
 end
 
-## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at the
-## room, and `config` says where the links of the answers start (`origin`).
+## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at
+## the room, and `config` says where the links of the answers start (`origin`).
 export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config) -> Bond.App
   return (
     app
@@ -113,15 +118,17 @@ export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config
 end
 
 ## Where the links that the app writes for a client start: `CAMPFIRE_BASE_URL` when it is set, else the scheme of the
-## app and the `Host` of the request, and nothing (the links are paths) when there is no `Host`. The links go to the one
-## who asked, and are never stored or sent by email, so the header does no harm.
+## app and the `Host` of the request. A `Host` that is not a host name or address with an optional port (letters,
+## digits, `.` and `-`, or an IPv6 address in brackets) is left out, and so is a missing one: the links are then paths.
+## The links go to the one who asked and are never stored or sent by email, but a `Host` with a byte that a header
+## cannot carry would make the answer fail after the message is stored, and the bot would post it twice.
 export def origin(conn: Bond.Conn, config: Config) -> String
   if config.base_url != ""
     return config.base_url
   end
 
   host = Bond.request_header(conn, "host").unwrap_or("")
-  if host == ""
+  if not host_text?(host)
     return ""
   end
 
@@ -130,6 +137,48 @@ export def origin(conn: Bond.Conn, config: Config) -> String
   end
 
   return "http://#{host}"
+end
+
+# `name`, `name:port`, `1.2.3.4:port` or `[v6]:port`, written with the characters of a host and nothing else.
+def host_text?(host: String) -> Bool
+  if host.empty?
+    return false
+  end
+
+  name = host
+  port = ""
+  if host.start_with?("[")
+    close = host.index_of("]")
+    if close.none?
+      return false
+    end
+
+    name = host.slice(1, close.unwrap! - 1)
+    port = host.slice(close.unwrap! + 1, host.length - close.unwrap! - 1)
+    if not port.empty? and not port.start_with?(":")
+      return false
+    end
+
+    return not name.empty? and name.split("").all? do |ch| HOST_V6_CHARS.include?(ch) end and port_text?(port)
+  end
+
+  at = host.index_of(":")
+  if at.some?
+    name = host.slice(0, at.unwrap!)
+    port = host.slice(at.unwrap!, host.length - at.unwrap!)
+  end
+
+  return not name.empty? and name.split("").all? do |ch| HOST_CHARS.include?(ch) end and port_text?(port)
+end
+
+# Nothing, or a colon and digits.
+def port_text?(port: String) -> Bool
+  if port.empty?
+    return true
+  end
+
+  digits = port.slice(1, port.length - 1)
+  return port.start_with?(":") and not digits.empty? and digits.split("").all? do |ch| DIGITS.include?(ch) end
 end
 
 # The key, then the room, with one connection of the pool for the work of `handle`; then the broadcast and the answer.
@@ -265,9 +314,8 @@ def create_answer(
     return ok(Answer.Refused(problem))
   end
 
-  # The body is the HTML of the message, as Action Text takes it in Rails; `Rooms.post` cleans it. A post
-  # stores nothing
-  # for a bot that was deactivated since the key was checked, nor in a room that was deleted since: the key is
+  # The body is the HTML of the message, as Action Text takes it in Rails; `Rooms.post` cleans it. A post stores
+  # nothing for a bot that was deactivated since the key was checked, nor in a room that was deleted since: the key is
   # gone too.
   stored = try Rooms.post(db, room.id, bot.id, SecureRandom.hex(CLIENT_ID_BYTES), body)
   case stored

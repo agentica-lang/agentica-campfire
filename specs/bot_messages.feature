@@ -358,6 +358,22 @@ Feature: The messages API of the chat bots
     And the query "select count(*) from action_text_rich_texts where record_id = 1 and body = 'Still from a dashboard'" gives 1
     And the query "select count(*) from messages" gives 1
 
+  Scenario Outline: A Host that is not a host leaves the links as paths, and the post is stored once
+    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "Hello" with the Host "<host>"
+    Then the status is 201
+    And the header "location" is "/rooms/1/messages/1"
+    And the query "select count(*) from messages" gives 1
+    When I send "GET" to "/rooms/1/3-aaaaBBBB1111/messages" the text "" with the Host "<host>"
+    Then the status is 200
+    And the body contains "\"url\":\"/rooms/1/messages/1\""
+
+    Examples:
+      | host                |
+      | café.test      |
+      | evil.test/x         |
+      | evil.test:port      |
+      | a b                 |
+
   Scenario: Another method is a 405 that lists the methods of the path
     When I send "DELETE" to "/rooms/1/3-aaaaBBBB1111/messages" the text ""
     Then the status is 405
