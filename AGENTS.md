@@ -79,6 +79,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
 - Agentica 0.26.1 or later (`T.codec`, `Codec[T]`, Bond 0.8.0 and agentica-db 0.6.0 need it, and a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in `.github/workflows/ci.yml`).
 - To move Bond or agentica-db: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`), commit the lock.
+  Bond has `override = true` while bond-channels (pinned by commit) still asks for an older tag; drop it when the pin moves.
   A new dependency is `agentica add NAME URL --tag TAG`.
 
 ## Rules

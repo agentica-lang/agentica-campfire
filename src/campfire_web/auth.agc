@@ -51,6 +51,9 @@ ASSETS_PREFIX = "#{Routes.ASSETS}/"
 # the handler without telling anything else.
 JOIN_SEGMENTS = 3
 
+# The segments of `/rooms/ID/messages`.
+ROOM_MESSAGES_SEGMENTS = 3
+
 # The segments of `/rooms/ID/KEY/messages`, of `/rooms/ID/KEY/messages/ID`, and of the boosts under a message,
 # `/rooms/ID/KEY/messages/ID/boosts` and `/rooms/ID/KEY/messages/ID/boosts/ID`.
 BOT_LIST_SEGMENTS = 4
@@ -75,6 +78,12 @@ SIGN_IN_WINDOW_MS = 180_000
 export MAX_HASHES = 2
 
 RESET_SUBJECT = "Reset your Campfire password"
+
+## What `person_in` found: the person, or the page that the sign-in filter sends a visitor to.
+export enum Found
+  Person(Auth.User)
+  Entry(String)
+end
 
 ## Adds to `app` the cookie sessions, the check against requests from other sites, the sign-in filter and the routes
 ## of the first run, the sign-in page, the sign-out and the password reset (which is only there while the `mailer` can
@@ -125,6 +134,43 @@ end
 ## deactivated.
 export def current_user(conn: Bond.Conn, pool: Database.Pool) -> Result[Optional[Auth.User]]
   return Database.with_connection(pool) do |db| user_of_session(conn, db) end
+end
+
+## True for the post of a message (`Routes.ROOM_MESSAGES`, read as the router reads a path: its non-empty segments),
+## whose handler looks the person up in the connection that it writes with (`person_in`), so that the post takes one
+## connection of the pool and not two: the filter leaves the lookup to it for a request that has a session cookie. A
+## path of the bots (`bot_api?`) has more segments.
+export def lookup_in_handler?(conn: Bond.Conn) -> Bool
+  if conn.method != "POST"
+    return false
+  end
+
+  parts = conn.path.split("/").select do |part| not part.empty? end
+  return parts.size == ROOM_MESSAGES_SEGMENTS and parts[0] == "rooms" and parts[2] == "messages"
+end
+
+## The person of a request, for a handler that has a connection `db`: when `lookup_in_handler?` left the lookup to it,
+## the lookup is made in `db` (and a visitor is sent where the filter sends them: the first run while there is no
+## account, else the sign-in page); otherwise it is the person that the filter kept (`assigned_user`).
+export def person_in(conn: Bond.Conn, db: Db.Connection) -> Result[Found]
+  if not lookup_in_handler?(conn)
+    kept = try assigned_user(conn)
+    case kept
+      some(person) -> return ok(Found.Person(person))
+      none -> return ok(Found.Entry(Routes.SIGN_IN))
+    end
+  end
+
+  found = try user_of_session(conn, db)
+  case found
+    some(person) -> return ok(Found.Person(person))
+    none ->
+      if try Auth.first_run?(db)
+        return ok(Found.Entry(Routes.FIRST_RUN))
+      end
+
+      return ok(Found.Entry(Routes.SIGN_IN))
+  end
 end
 
 ## The person that the sign-in filter looked up and kept with `Bond.assign`, so a handler does not look them up again.
@@ -249,6 +295,10 @@ def require_sign_in(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCa
   # not read it again. A request with no cookie never reads the observer, and any other request looks the person up
   # as it always did.
   token = session_token(conn)
+  if not token.empty? and lookup_in_handler?(conn)
+    return ok(conn)
+  end
+
   watched = conn
   if (conn.method == "GET" or conn.method == "HEAD") and not token.empty? and PageCache.cached?(conn.path)
     watched = PageCache.watch(conn, pages)

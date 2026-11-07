@@ -222,3 +222,26 @@ Feature: Messages
     And the query "select count(*) from messages" gives 0
     And the query "select count(*) from action_text_rich_texts" gives 0
     And the query "select count(*) from message_search_index" gives 0
+
+  Scenario: A post looks the person up as the sign-in filter does: no session and an ended session are sent to sign in, whatever the form
+    Given the browser has no cookies
+    When I post to "/rooms/1/messages" the form:
+      | message[body] | Hello |
+    Then the status is 302
+    And the header "location" is "/session/new"
+    Given I sign in as "ana@example.com"
+    And I run the sql "delete from sessions"
+    When I post to "/rooms/1/messages" the form:
+      | message[body] | Hello |
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I post to "/rooms/1/messages" the form:
+      | message[client_message_id] | <anything> |
+    Then the status is 302
+    And the header "location" is "/session/new"
+    And the query "select count(*) from messages" gives 0
+
+  Scenario: A post from a signed-in person without a body is a 400
+    When I post to "/rooms/1/messages" the form:
+      | message[client_message_id] | abc |
+    Then the status is 400

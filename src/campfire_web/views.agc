@@ -33,6 +33,13 @@ export struct BotRooms
   rooms: List[Rooms.Room]
 end
 
+## The two streams of a new message, the broadcast (`message_stream` without the controls) and the answer to the person
+## who wrote it (with them), byte for byte, with the message written once.
+export struct MessageStreams
+  broadcast: String
+  own: String
+end
+
 ## What the form of a room page needs: a `note` that says why the last message was refused ("" shows none), the text
 ## to put back in the field (`draft`), and the id that this form sends with its message (`message_id`).
 export struct Composer
@@ -563,13 +570,7 @@ end
 ## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC); the
 ## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone.
 export def message(message: Rooms.Message, controls: Bool) -> String
-  return <<~EAG.strip
-    <%@ escape &Bond.escape %>
-    <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
-      <h3><strong><%= message.author %></strong>
-        <time datetime="<%= message.created_at %>" title="<%= message.created_at %>"><%= clock(message.created_at) %></time><%== edit_link(message, controls) %></h3>
-      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== Autolink.link(message.body) %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>
-  EAG
+  return message_head(message) + edit_link(message, controls) + message_tail(message)
 end
 
 ## The boosts of a message and the link to the page that adds one: the element that a new boost is appended to
@@ -648,10 +649,16 @@ end
 ## The Turbo Stream that appends the message to the list of the room: the answer of a post to the person who wrote it,
 ## with the controls (`controls` true), and the broadcast to the others, without.
 export def message_stream(room: Rooms.Room, one: Rooms.Message, controls: Bool) -> String
-  return <<~EAG.strip
-    <%@ escape &Bond.escape %>
-    <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== message(one, controls) %></template></turbo-stream>
-  EAG
+  return messages_appended(room, message(one, controls))
+end
+
+export def message_streams(room: Rooms.Room, one: Rooms.Message) -> MessageStreams
+  head = message_head(one)
+  tail = message_tail(one)
+  return MessageStreams(
+    broadcast: messages_appended(room, head + tail),
+    own: messages_appended(room, head + edit_link(one, true) + tail),
+  )
 end
 
 ## The Turbo Stream that shows an edited message in place of the old one, for the people who are looking at the room: no
@@ -1330,4 +1337,24 @@ end
 # `09:05` of `2026-03-01T09:05:00.000Z`.
 def clock(iso: String) -> String
   return iso.slice(11, 5)
+end
+
+# The markup of a message up to the end of the time, where the link to the edit page goes, and from there to the end.
+# The two parts are all of `message` (and the tail is the costly one: the body and the boosts), so a caller that
+# needs both the markup with the link and without it writes the tail once (`message_streams`).
+def message_head(message: Rooms.Message) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
+      <h3><strong><%= message.author %></strong>
+        <time datetime="<%= message.created_at %>" title="<%= message.created_at %>"><%= clock(message.created_at) %></time>
+  EAG
+end
+
+def message_tail(message: Rooms.Message) -> String
+  return <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    </h3>
+      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== Autolink.link(message.body) %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>
+  EAG
 end
