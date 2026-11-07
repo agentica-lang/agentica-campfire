@@ -75,12 +75,14 @@ export MAX_CURSOR_PAGES = 64
 
 ## The longest message that `CAMPFIRE_MAX_MESSAGE_LENGTH` may leave when it is not set, in characters of what is sent (the
 ## HTML of the editor counts its tags). The check comes before the sanitizer reads the text, which costs about 0.7 s a
-## megabyte, so this is what bounds that work for one message.
+## megabyte, so this bounds that work (a form's text is first made HTML, which grows it by a few times).
 export DEFAULT_MAX_MESSAGE_LENGTH = 10_000
 
-## The fewest and the most that `CAMPFIRE_MAX_MESSAGE_LENGTH` may ask for.
+## The fewest and the most that `CAMPFIRE_MAX_MESSAGE_LENGTH` may ask for. The most is what fits in the 1 MiB body that
+## the server takes: a form sends a character as up to 12 bytes (4 bytes of UTF-8, each percent-encoded), and a longer
+## limit would be answered 413 before the message was checked.
 export MIN_MAX_MESSAGE_LENGTH = 1
-export MAX_MAX_MESSAGE_LENGTH = 1_000_000
+export MAX_MAX_MESSAGE_LENGTH = 80_000
 
 ## The megabytes of the store of the people of the sessions (kept apart from the pages, so that the pages cannot push a
 ## session out) when `CAMPFIRE_SESSION_CACHE_MB` is not set. A person is about a hundred bytes for every version of the

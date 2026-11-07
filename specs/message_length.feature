@@ -25,3 +25,18 @@ Feature: The longest message
     And the body contains "A message is at most 20 characters"
     When I send a PATCH to "/rooms/1/messages/1" a message of 20 characters
     Then the status is 302
+
+  Scenario: A bot is held to the same cap, for a post and for an edit
+    Given I post to "/account/bots" the form:
+      | user[name] | Robo |
+    And I run the sql "update users set bot_token = 'aaaaBBBB1111' where id = 2"
+    And the browser has no cookies
+    When I send "POST" to "/rooms/1/2-aaaaBBBB1111/messages" a text of 21 characters
+    Then the status is 422
+    And the body contains "A message is at most 20 characters"
+    When I send "POST" to "/rooms/1/2-aaaaBBBB1111/messages" a text of 20 characters
+    Then the status is 201
+    When I send "PATCH" to "/rooms/1/2-aaaaBBBB1111/messages/1" a text of 21 characters
+    Then the status is 422
+    When I send "PATCH" to "/rooms/1/2-aaaaBBBB1111/messages/1" a text of 20 characters
+    Then the status is 200
