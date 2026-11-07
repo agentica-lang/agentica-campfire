@@ -7,7 +7,8 @@ that takes gzip. The image is x86_64 only.
 It runs the native SQLite driver of agentica-db. The build stage has a C compiler; `agentica compile` builds the
 driver into the package cache (`/opt/agentica-cache`, `XDG_CACHE_HOME`) and stores the absolute path of the library in
 `campfire.agcb`, and the build fails if the library is missing. The final image has no compiler: it gets the library at
-the same path, and runs the bytecode (a run from source needs the compiler to find the cache entry).
+the same path, and runs the bytecode (`agentica run -- campfire.agcb`). Running from source (`agentica campfire.agc`) in
+the image fails with PKG-NATIVE-BUILD, since it has no compiler.
 `AGENTICA_DB_SQLITE_DRIVER=native` makes a missing library stop the start instead of a quiet fall back to the FFI driver.
 
 ## Build and run

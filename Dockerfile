@@ -38,7 +38,8 @@ COPY src ./src
 # agentica-db) into the package cache, and the bytecode stores the absolute path of the library. The build fails if the
 # library is not there: at run time a missing one would quietly leave the slower FFI driver. The app runs from this
 # bytecode, not from source: a run from source computes the cache key with the C compiler, which stage 2 does not have.
-# The folders of the cache are made for root alone; the app runs as `campfire`.
+# The grep proves that the path stored in the bytecode is the path that stage 2 copies the library to (same
+# XDG_CACHE_HOME). The folders of the cache are made for root alone; the app runs as `campfire`.
 RUN /opt/agentica/bin/agentica compile campfire.agc -o campfire.agcb \
  && test "$(find "$XDG_CACHE_HOME/agentica/pkg/native-build" -name libdb_sqlite.so | wc -l)" = 1 \
  && grep -aq "$XDG_CACHE_HOME/agentica/pkg/native-build/.*/libdb_sqlite.so" campfire.agcb \
@@ -68,6 +69,7 @@ COPY --from=build /app /app
 # Only the native libraries of the package cache, at the path that the program looks them up in. `native` makes a
 # missing library an error of `open` instead of a quiet fall back to the FFI driver.
 COPY --from=build /opt/agentica-cache/agentica/pkg/native-build /opt/agentica-cache/agentica/pkg/native-build
+# XDG_CACHE_HOME must equal the value of stage 1: the bytecode holds the absolute path of the library.
 ENV XDG_CACHE_HOME=/opt/agentica-cache AGENTICA_DB_SQLITE_DRIVER=native
 COPY docker/entrypoint.sh /usr/local/bin/campfire-entrypoint
 

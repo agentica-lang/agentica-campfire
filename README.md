@@ -44,7 +44,7 @@ Requests per second (higher is better), median of 3 rounds with 16 clients, from
 [Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) at ec02deb, with the server on
 CPUs 4-7 and the client on CPUs 0-3. Go and Agentica are run `20261106-223859-7` (2026-11-06): Campfire 53e4cc3 on
 Agentica 0.25.0, and [once-campfire-go](https://github.com/basecamp/once-campfire-go) c4ab53d. Rails is the
-reference run `20261105-101743-7` on the same machine.
+reference run `20261105-101743-7` on the same machine. These numbers predate the native SQLite driver of agentica-db 0.6.0 (the app now runs it) and will be measured again.
 
 | Route | Rails | Go | Agentica | Agentica / Rails | Agentica / Go |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -61,9 +61,9 @@ also keeps the signed-in person until the database changes, so a cached page doe
 end of the session is kept with it since [#113](https://github.com/agentica-lang/agentica-campfire/pull/113)).
 room_show gained 13% and messages_page 16% in this run; the A/B in #110 measured about +5% and +6%, so part of that is
 run-to-run noise. Every read route is now at 44-50% of Go. The cost that is left is probably the thread hops of the
-database layer, as measured in [agentica-db#60](https://github.com/agentica-lang/agentica-db/issues/60). Next: native
-modules ([agentica#1149](https://github.com/agentica-lang/agentica/issues/1149)), and on them the statement cache and
-fewer per-row hops in agentica-db.
+database layer, as measured in [agentica-db#60](https://github.com/agentica-lang/agentica-db/issues/60). The app now
+runs the native SQLite driver of agentica-db (a C module, [agentica#1149](https://github.com/agentica-lang/agentica/issues/1149)),
+and the numbers will be measured again.
 
 To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
