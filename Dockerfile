@@ -71,6 +71,9 @@ COPY --from=build /app /app
 COPY --from=build /opt/agentica-cache/agentica/pkg/native-build /opt/agentica-cache/agentica/pkg/native-build
 # XDG_CACHE_HOME must equal the value of stage 1: the bytecode holds the absolute path of the library.
 ENV XDG_CACHE_HOME=/opt/agentica-cache AGENTICA_DB_SQLITE_DRIVER=native
+# The garbage collector starts with a 32 MB heap: from the default one it collects every few requests, and the pauses
+# cost about a third of the time of a busy server. 32 MB measured best (256 MB was slower). `docker run -e` overrides it.
+ENV GC_INITIAL_HEAP_SIZE=33554432
 COPY docker/entrypoint.sh /usr/local/bin/campfire-entrypoint
 
 WORKDIR /app

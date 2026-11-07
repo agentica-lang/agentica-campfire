@@ -14,6 +14,11 @@ def ana() -> Auth.User
   return Auth.User(id: 1, name: "Ana", role: "member")
 end
 
+# The body of a kept page as text; the bodies of the tests hold non-ASCII text, which `unpack` must cut out by bytes.
+def text_of(body: Bytes) -> String
+  return body.decode("utf-8").unwrap!
+end
+
 # The session of `person` that ends `ms` from now.
 def lasting(person: Auth.User, ms: Int) -> Auth.Session
   return Auth.Session(user: person, ends_at_ms: Time.now_ms() + ms)
@@ -172,9 +177,9 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   seen = some(try Database.version(observer))
   sidebar = PageCache.sidebar_spot(pages, seen, ana())
   try Test.assert(PageCache.lookup(sidebar).none?, "a sidebar before it is kept")
-  made = PageCache.keep(sidebar, "<p>rooms</p>")
+  made = PageCache.keep(sidebar, "<p>rooms é</p>")
   kept = PageCache.lookup(sidebar)
-  try Test.eq(kept.unwrap!.body, "<p>rooms</p>")
+  try Test.eq(text_of(kept.unwrap!.body), "<p>rooms é</p>")
   try Test.eq(kept.unwrap!.etag, made.etag)
   bea = ana().with(id: 2, name: "Bea")
   try Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, seen, bea)).none?, "a sidebar of another person")
@@ -275,9 +280,13 @@ def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Conn
   try Test.assert(held.size <= SLOTS, "a person holds more search pages than they have places")
   try Test.assert(held.size > 0, "no search page is kept")
   other = PageCache.lookup(PageCache.search_spot(pages, seen, bea, "coffee", none))
-  try Test.eq(other.unwrap!.body, "<p>Bea</p>")
+  try Test.eq(text_of(other.unwrap!.body), "<p>Bea</p>")
   last = queries.last
-  try Test.eq(PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last, none)).unwrap!.body, "<p>#{last}</p>")
+  try Test.eq(
+    text_of(PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last, none)).unwrap!.body),
+    "<p>#{last}</p>",
+  )
+
   try Test.assert(
     PageCache.lookup(PageCache.search_spot(pages, seen, ana().with(name: "Anna"), last, none)).none?,
     "a search page of another state of the person",
@@ -342,9 +351,9 @@ def cursor_pages_are_bounded_per_person(
   try Test.assert(held_after.size <= SLOTS, "a person holds more pages after a cursor than they have places")
   try Test.assert(held_after.size > 0, "no page after a cursor is kept")
   other = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, bea, some(1), some(7)))
-  try Test.eq(other.unwrap!.body, "<p>Bea before</p>")
+  try Test.eq(text_of(other.unwrap!.body), "<p>Bea before</p>")
   after = PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, bea, some(1), some(7)))
-  return Test.eq(after.unwrap!.body, "<p>Bea after</p>")
+  return Test.eq(text_of(after.unwrap!.body), "<p>Bea after</p>")
 end
 
 # A page in a place of the person is a miss for any other stamp (the version, the state of the person, the room, the
@@ -363,9 +372,9 @@ def cursor_stamp_mismatch_is_a_miss(observer: Database.Observer, writer: Db.Conn
   )
 
   seen = some(try Database.version(observer))
-  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "<p>five</p>")
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)), "<p>fivé</p>")
   found = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(5)))
-  try Test.eq(found.unwrap!.body, "<p>five</p>")
+  try Test.eq(text_of(found.unwrap!.body), "<p>fivé</p>")
   # With one place all the cursors share it, so these differ in the stamp alone.
   try Test.assert(
     PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6))).none?,
@@ -403,7 +412,7 @@ def cursor_stamp_mismatch_is_a_miss(observer: Database.Observer, writer: Db.Conn
   )
 
   six = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6)))
-  return Test.eq(six.unwrap!.body, "<p>six</p>")
+  return Test.eq(text_of(six.unwrap!.body), "<p>six</p>")
 end
 
 # Only the pages that the cache keeps make the sign-in filter read the version.
@@ -441,7 +450,7 @@ def failing_observer_keeps_nothing(observer: Database.Observer, writer: Db.Conne
   try Test.assert(spot.none?, "a spot from an observer that is closed")
   try Test.assert(PageCache.lookup(spot).none?, "a page without a spot")
   page = PageCache.keep(spot, "<p>made</p>")
-  try Test.eq(page.body, "<p>made</p>")
+  try Test.eq(text_of(page.body), "<p>made</p>")
   return Test.eq(Cache.bytes(store), 0)
 end
 
