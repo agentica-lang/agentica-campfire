@@ -26,9 +26,11 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 and its file; initials and colour), html_sanitizer.agc (an allowlist sanitizer for stored HTML
                 bodies; pure), autolink.agc (the links of URLs and email addresses in a clean body, made when a
                 message is shown; pure)
-src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request), migrations.agc (the list of the
-                schema) and migrations/ (one file per migration, `m0001_accounts.agc`...), rails.agc (the integer
-                enums and the timestamp form of the Rails schema), rows.agc (reading a column of a row)
+src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request, the observer),
+                version_reader.agc (the read of `PRAGMA data_version` on a connection of its own, without the pool),
+                migrations.agc (the list of the schema) and migrations/ (one file per migration, `m0001_accounts.agc`...),
+                rails.agc (the integer enums and the timestamp form of the Rails schema), rows.agc (reading a column of a
+                row)
 src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
                 smtp_message.agc (sending email: the client and the message builder; they import no other
                 app module, so they can move to their own package)
@@ -230,8 +232,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
 - Page cache: the room page, the page of older messages, the sidebar and the search are kept whole by `PageCache`
   (`CAMPFIRE_RESPONSE_CACHE_MB`, 64 by default, 0 for none; Rails' name and default), as Rails' `CachedResponses`
   does. The key of the room page and the sidebar holds the version of the database (`Database.version`: `PRAGMA
-  data_version` of a connection of its own, the observer, plus a random epoch of that connection), the kind of page,
-  the person (id, and a digest of name and role, which the sign-in filter looked up after the version), the room and
+  data_version` of a read-only connection of its own, the observer, read inline by `repo/version_reader.agc`), the
+  kind of page, the person (id, and a digest of name and role, which the sign-in filter looked up after the version), the room and
   `before` (the sidebar has no room), so any commit by anybody means a new key and nothing has to be dropped by hand
   (the pages that are kept in a place of the person, below, hold the version in their stamp instead); the version is
   read before the page is made, so a kept page is never older than its key. Only a 200 is kept (a 404 looks the
@@ -252,7 +254,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   the number of pages of one person.
   The sign-in filter reads the version first for a `GET` or `HEAD` of a page that is kept (`PageCache.cached?`,
   `PageCache.watch`, kept for the handler with `PageCache.seen`) and looks the person up after it: the person of a
-  session is kept under the version too (`known_user`, `remember_user`), so a hit costs one lease of the observer and
+  session is kept under the version too (`known_user`, `remember_user`), so a hit costs one inline read of the observer and
   none of the pool; it is valid for that version and until the session ends (`Auth.Session`), and a sign-out, a
   deactivation, a ban or a rename is a commit and so a miss. A hit does not touch
   the session (`Auth.user_for`), so `last_active_at` can be older than its five-minute refresh on a quiet database;

@@ -35,7 +35,7 @@
 ## kind. Two cursors of one place take turns, and nothing worse happens.
 ##
 ## The sign-in filter reads the version of a read of a page that is kept (`cached?`, `watch`) before it looks the
-## person up, and keeps it for the handler (`seen`), so a hit costs one lease of the observer and none of the pool:
+## person up, and keeps it for the handler (`seen`), so a hit costs one read of the observer and none of the pool:
 ## the person of a session is kept for one version of the database too (`known_user`, `remember_user`; a hit does not
 ## touch the session, see `Auth.user_for`, so on a quiet database `last_active_at` can be older than its five-minute
 ## refresh; and it is refused once the session is older than the cookie life, which no commit announces), in a store of
@@ -122,13 +122,12 @@ export def start(
   cursor_slots: Int,
   session_mb: Int,
   url: String,
-  checkout_ms: Int,
 ) -> Result[Optional[Pages]]
   if megabytes <= 0
     return ok(none)
   end
 
-  observer = try Database.open_observer(url, checkout_ms)
+  observer = try Database.open_observer(url)
   return ok(
     some(
       Pages(
@@ -233,7 +232,7 @@ end
 ## Reads the version of the database for a request and keeps it for the handler, which finds it with `seen`; `conn`
 ## as it is when there is no cache. The sign-in filter calls it before it looks the person up, so everything that the
 ## request then reads is at that version or later. A version that cannot be read is kept as unreadable, so that the
-## handler does not lease the observer again and wait out the checkout a second time: nothing is kept for the request.
+## handler does not read the observer again: nothing is kept for the request.
 export def watch(conn: Bond.Conn, pages: Optional[Pages]) -> Bond.Conn
   case pages
     none -> return conn
