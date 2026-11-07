@@ -71,7 +71,8 @@ The checks come in the order of Rails' filters: no session redirects to sign-in,
 for a user that does not exist, is a person or is not active), then the form (`400` for a missing field). A name that is
 blank or over 100 characters is `422` with the form again (Rails saves anything). The list shows, for each room the bot
 is in but the direct ones, the line `curl -d 'Hello!' URL` that posts to it (the URL starts with `CAMPFIRE_BASE_URL`, or
-the scheme of the app and the `Host` of the request when that is not set). Left out for now: the webhook URL and the
+the scheme of the app and the `Host` of the request when that is not set; a `Host` that is not a host name or address with
+an optional port is left out, and the URL is then a path). Left out for now: the webhook URL and the
 avatar of Rails' form, which need the webhooks (#78) and the profile pictures (#73), and the second line of the list,
 for an attachment.
 
@@ -88,7 +89,7 @@ A bot uses its key in the path (`Messages::ByBotsController`), with no cookie an
 | `DELETE /rooms/ID/KEY/messages/ID` | deletes a message of the bot: `204`. |
 
 A message is `{"id", "created_at", "body": {"plain_text", "html"}, "creator": {"id", "name", "role"}, "room": {"id"},
-"url"}`; `url` starts as the links of the curl lines do. The checks come in this order: a key that names no active bot
+"url"}`; `url` starts as the links of the curl lines do (a `Host` that is not a host is left out, and the links are then paths). The checks come in this order: a key that names no active bot
 (a wrong one, one that a new token or a deactivation ended, the id of a person) is `404`, a room that the bot is not in
 or that does not exist is `404`, a message that is not in the room is `404`, a message that somebody else wrote is `403`
 (a bot is never an administrator), and then the cursor and the body. A post, an edit and a delete are announced live

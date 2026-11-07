@@ -32,9 +32,10 @@ MESSAGE = "message_id"
 # Bytes of randomness in the `client_message_id` of a post (a bot sends none), which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
 
-# The characters that `origin` takes in a `Host`: a name or an IPv4 address, and the inside of an IPv6 address.
+# The characters that `origin` takes in a `Host`: a name (`_` is in the service names of Docker and Kubernetes) or an
+# IPv4 address, and the inside of an IPv6 address.
 DIGITS = Set.new("0123456789".split(""))
-HOST_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-".split(""))
+HOST_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_".split(""))
 HOST_V6_CHARS = Set.new("abcdefABCDEF0123456789:.".split(""))
 
 UPLOAD_TYPE = "multipart/form-data"

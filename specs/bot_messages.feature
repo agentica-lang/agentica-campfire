@@ -368,11 +368,26 @@ Feature: The messages API of the chat bots
     And the body contains "\"url\":\"/rooms/1/messages/1\""
 
     Examples:
-      | host                |
+      | host           |
       | café.test      |
-      | evil.test/x         |
-      | evil.test:port      |
-      | a b                 |
+      | evil.test/x    |
+      | evil.test:port |
+      | a b            |
+      | [::1]x         |
+
+  Scenario Outline: A Host that is a host starts the links, also a service name with an underscore and an IPv6 address
+    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "Hello" with the Host "<host>"
+    Then the status is 201
+    And the header "location" is "http://<host>/rooms/1/messages/1"
+    When I send "GET" to "/rooms/1/3-aaaaBBBB1111/messages" the text "" with the Host "<host>"
+    Then the status is 200
+    And the body contains "\"url\":\"http://<host>/rooms/1/messages/1\""
+
+    Examples:
+      | host              |
+      | campfire_app:3000 |
+      | [::1]:80          |
+      | 127.0.0.1:3000    |
 
   Scenario: Another method is a 405 that lists the methods of the path
     When I send "DELETE" to "/rooms/1/3-aaaaBBBB1111/messages" the text ""

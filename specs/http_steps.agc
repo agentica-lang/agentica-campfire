@@ -396,7 +396,16 @@ def reply_of_text(received: Bytes, path: String) -> Result[Reply]
   end
 
   lines = text.slice(0, at.unwrap!).split("\r\n")
-  status = lines[0].split(" ")[1].to_i
+  fields = lines[0].split(" ")
+  status: Result[Int] = error("the status line is #{lines[0].inspect}")
+  if fields.size > 1
+    status = fields[1].to_i
+  end
+
+  if not status.ok?
+    return error("the status line is #{lines[0].inspect}")
+  end
+
   headers: Map[String, String] = {}
   for line in lines.drop(1)
     colon = line.index_of(":").unwrap_or(-1)
@@ -408,7 +417,7 @@ def reply_of_text(received: Bytes, path: String) -> Result[Reply]
   body = text.slice(at.unwrap! + 4, text.length - at.unwrap! - 4)
   return ok(
     Reply(
-      status: try status,
+      status: status.unwrap!,
       headers: headers,
       body: body,
       elapsed_ms: 0,
