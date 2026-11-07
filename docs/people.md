@@ -87,20 +87,23 @@ A bot uses its key in the path (`Messages::ByBotsController`), with no cookie an
 | `POST /rooms/ID/KEY/messages` | the raw body of the request is the message (HTML, cleaned as every body is, so plain text is a message too, whatever the `Content-Type`): `201` with `Location` and no body; `422` for a body that is blank or over 10000 characters, `415` for a `multipart/form-data` upload. |
 | `PATCH` or `PUT /rooms/ID/KEY/messages/ID` | the raw body replaces the text of a message of the bot: `200` with the message. |
 | `DELETE /rooms/ID/KEY/messages/ID` | deletes a message of the bot: `204`. |
+| `POST /rooms/ID/KEY/messages/ID/boosts` | the raw body of the request is the text of a boost on any message of the room (1 to 16 characters once stripped): `201` with the boost as JSON, `422` for a text that is blank or too long, `415` for a `multipart/form-data` upload. |
+| `DELETE /rooms/ID/KEY/messages/ID/boosts/BID` | takes a boost of the bot off: `204`; a boost of somebody else or one that is gone is `404`. |
 
 A message is `{"id", "created_at", "body": {"plain_text", "html"}, "creator": {"id", "name", "role"}, "room": {"id"},
-"url"}`; `url` starts as the links of the curl lines do (a `Host` that is not a host is left out, and the links are then paths). The checks come in this order: a key that names no active bot
+"url"}`, and a boost is `{"id", "content", "created_at", "booster": {"id", "name", "role"}, "message": {"id", "url"}}`; `url` starts as the links of the curl lines do (a `Host` that is not a host is left out, and the links are then paths). The checks come in this order: a key that names no active bot
 (a wrong one, one that a new token or a deactivation ended, the id of a person) is `404`, a room that the bot is not in
 or that does not exist is `404`, a message that is not in the room is `404`, a message that somebody else wrote is `403`
 (a bot is never an administrator), and then the cursor and the body. A post, an edit and a delete are announced live
 to the room, change `unread_at` for the others as any message does, and are a commit like any other, so the cached
-pages of the room are made again.
+pages of the room are made again. A boost goes on any message of the room (never a `403`, since a bot may boost the
+message of anybody) and is announced live as the boost of a person is; it is `404` for a message that is not in the room.
 
 Where this differs from Rails: a wrong key is `404`, not a redirect to the sign-in page, and a key is never looked up
 when a session cookie comes with it (Rails tries the session first, so the key in the path could be anything for a
 signed-in browser); an edit with a blank body is `422` (Rails saves it); a body over 10000 characters is `422`;
-`creator` has no `avatar_url`. Not here yet, because the features they belong to are not: the boosts endpoints
-(#55), the `attachment` upload (#60) and the webhook that a post sends to the bots it mentions (#78).
+`creator` and `booster` have no `avatar_url`. Not here yet, because the features they belong to are not: the `attachment`
+upload (#60) and the webhook that a post sends to the bots it mentions (#78).
 
 ## The user page and the profile
 

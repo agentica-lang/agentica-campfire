@@ -24,7 +24,7 @@ under a key derived from `SECRET_KEY_BASE`, or from `CAMPFIRE_SESSION_SECRET` wh
 
 | Channel | Stream | Frames |
 | --- | --- | --- |
-| `RoomMessagesChannel` | the messages of a room (on the room page) | the Turbo Stream that appends a new message. Membership is checked when the subscription is made. |
+| `RoomMessagesChannel` | the messages of a room (on the room page) | the Turbo Stream that appends a new message, replaces an edited one and removes a deleted one, and appends a boost to `boosts_message_ID` and removes `boost_ID`. Membership is checked when the subscription is made. |
 | `Turbo::StreamsChannel` | `rooms`, and `user:ID:rooms` (on the sidebar) | the Turbo Streams that add a room to the sidebar, or replace its entry when a closed room is renamed. It refuses the names of the message streams. |
 | `UnreadRoomsChannel` | `user:ID:unreads` | `{"at":TIME,"roomId":ID}` for each new message of a room that the person has unread or is connected to. |
 | `PresenceChannel` | none (params `room_id`) | none. A member's subscription says a tab is looking at the room and marks it read; `refresh` (every 50 s) keeps the person connected for 60 s and checks the session; the end of the subscription removes the tab. A repeat of `present` or `absent` on one connection counts once. A person who is not in the room is rejected. |
@@ -42,6 +42,9 @@ hand, with no Turbo library: it applies `append`, `prepend`, `replace`, `update`
 - **New messages** are appended to the room page when it shows the latest messages (not `?before=`); a message that is
   there already (the sender's tab has the answer of its post) is not added twice, and the answer of the post wins over
   the broadcast, which has no Edit link.
+- **A boost** that somebody adds or takes away (the routes, and the API of the bots) is appended to the boosts of its
+  message, or removed, on the pages that look at the room. The booster's own tab has it from the answer of its post
+  too, and an element that is there already is not added twice.
 - **After a reconnect**, once the room's subscription is confirmed (what comes later arrives live), the script notes
   the messages of the page, fetches the room page and makes the fetched list the page's: a noted message that the fetch
   lacks is removed (deleted while the socket was away, the newest one and a room that was emptied included; an empty room shows "No messages here yet." again, as it hides it when a message comes), an edited

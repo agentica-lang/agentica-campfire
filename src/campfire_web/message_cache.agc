@@ -5,17 +5,18 @@
 ##
 ## The markup of a message is the same for every viewer but one thing: the link to the edit page of the person who may
 ## change it (`Views.message`), so there are two entries at most, with the link and without. The key is the message id,
-## whether it has the link, its `updated_at` and a SHA-256 of the room, the author's name, the time and the body as the
-## database holds them. Rails digests the same things (the attributes of the message, its
+## whether it has the link, its `updated_at` and a SHA-256 of the room, the author's name, the time, the boosts and the
+## body as the database holds them. Rails digests the same things (the attributes of the message, its
 ## creator and its room, and the body) because a rename, a body or a boost can change the markup without touching the
 ## `updated_at` of the message, and another program may write to the database. So an edit, a rename of the author or a
 ## body that another program changed gives a new key, and the old entry is never read again (the cache drops it when it
-## needs room). A delete needs nothing: the page does not list the message. The markup has no avatar, boost or room name
+## needs room). A delete needs nothing: the page does not list the message. The markup has no avatar or room name
 ## today, so none is in the key; whoever adds one to `Views.message` adds it to `key`. The cache is in memory, so a new
 ## build of the app starts with it empty and the key needs no version. When the working set outgrows the cache,
 ## the request whose write starts a rotation waits while the oldest generation is dropped (about 5 µs an entry).
 
 import Cache from "std/cache"
+import Boosts from "../campfire/boosts"
 import Rooms from "../campfire/rooms"
 import Views from "views"
 
@@ -51,12 +52,26 @@ def render(stored: Rooms.Stored, controls: Bool) -> String
 end
 
 # The creator is in the key too, since the markup names it (`data-creator-id`): a message that went to another person
-# with the same name must not keep the old one. The author is counted and the body goes last, so that no two messages
-# make the same text by moving bytes from one part to the next.
+# with the same name must not keep the old one. So are the boosts, each with its booster and its text: a boost that is
+# added or taken away by a program that does not touch `updated_at` must show too. The boosts, the author and the body
+# are counted or come last, so that no two messages make the same text by moving bytes from one part to the next.
 def key(stored: Rooms.Stored, controls: Bool) -> String
   text = (
-    "#{stored.room_id}\n#{stored.creator_id}\n#{stored.created_at}\n#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
+    "#{stored.room_id}\n#{stored.creator_id}\n#{stored.created_at}\n#{boosts_text(stored.boosts)}\n" +
+    "#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
   )
 
   return "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{Digest.sha256_hexdigest(text.bytes)}"
+end
+
+# The boosts as text that tells them apart: how many, and for each its id, its booster and its words, with the size of
+# the two names in bytes.
+def boosts_text(boosts: List[Boosts.Boost]) -> String
+  return (
+    "#{boosts.size}" +
+    boosts.map do |one|
+      "\n#{one.id}:#{one.booster_id}:#{one.booster.bytes.size}:#{one.booster}#{one.content.bytes.size}:#{one.content}"
+    end
+      .join("")
+  )
 end

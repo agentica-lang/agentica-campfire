@@ -16,7 +16,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
                 page and the profile save, over SQL), bots.agc (the chat bots: make, rename, new key, deactivate, over
-                SQL), bans.agc (ban and unban, the check of an address, over SQL),
+                SQL), bans.agc (ban and unban, the check of an address, over SQL), boosts.agc (the reactions under a message,
+                over SQL),
                 auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
@@ -35,7 +36,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), bots.agc (the chat bots pages and
-                posts), bot_messages.agc (the messages API of the bots, by key), profiles.agc (the user page and the profile),
+                posts), boosts.agc (the boosts of a message: list, new, add, remove), bot_messages.agc (the messages API of the
+                bots, by key, boosts included), profiles.agc (the user page and the profile),
                 rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
@@ -207,6 +209,16 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   it, else the oldest of their rooms, else the welcome page. `RoomsWeb.respond_visit` sets the cookie on a served room page
   only (never from a handler that answers a 404), after the page cache, so a cached page sets it too. Specs that need the
   sidebar get `/users/me/sidebar`, not `/`.
+- Boosts: a person reaches a message only through a `memberships` row of its room (`Boosts.reach`), so a message of a room
+  they are not in and a message that does not exist are the same 404, before the form is read. Only the booster removes a
+  boost: anybody else, an administrator included, gets the 404 (`Boosts.remove` checks the booster, the membership and
+  the status again inside its transaction). A text is 1 to `Boosts.MAX_CONTENT_LENGTH` (16) characters once stripped, on
+  every path. Adding or removing touches the message and the room (`touch: true`), so `refresh`, the message cache and the
+  page cache see it. `Rooms` reads the boosts of a message in the same query (`Boosts.COLUMN`, a JSON column), so every
+  `Stored` and `Message` has `boosts`, and `MessageCache.key` holds them. The markup of a boost is the same for every
+  viewer (the live stream renders it once): the form that removes it is shown by `--boost-remove`, which `viewer_style`
+  sets on the boosts of the person who looks. The broadcast (`CableWeb.boost_added`, `boost_removed`) is sent after the
+  connection is back in the pool, as for messages.
 - Message cache: the markup of each message of a room page and of the older messages (`Views.message`) is cached by
   `MessageCache` in one process-wide `std/cache` store (`CAMPFIRE_CACHE_MB`, 64 by default, 0 for none), under a key of
   the id, `updated_at` and a SHA-256 of everything else the markup shows (author, time, body), as Rails' partial
@@ -323,7 +335,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). The SCSS layout
   rule (grid first, flex only for one-dimensional bits) is at the top of `application.scss`. `/assets/` is public
   (`AuthWeb.public?`). The script is progressive enhancement: the room page, the edit page and every page with the sidebar link it, every form works
-  without it, and it stays about 10 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
+  without it, and it stays about 12 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
   `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
   open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that

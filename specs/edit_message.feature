@@ -19,7 +19,7 @@ Feature: Editing and deleting a message
   Scenario: Only the author and an administrator get the Edit link, and the rest of the message is as before
     When I get "/rooms/1"
     Then the body contains "<a href=\"/rooms/1/messages/1/edit\">Edit</a>" 1 times
-    And the body contains "<div id=\"presentation_message_1\">Coffee at nine</div></turbo-frame></div>"
+    And the body contains "<div id=\"presentation_message_1\">Coffee at nine</div><div id=\"boosts_message_1\"><a href=\"/messages/1/boosts/new\">Boost</a></div></turbo-frame></div>"
     When I get "/rooms/1/messages"
     Then the body contains "/rooms/1/messages/1/edit" 1 times
     And the body ends with "</turbo-frame></div>"

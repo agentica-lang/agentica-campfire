@@ -102,6 +102,21 @@ export AT_PREFIX = "@"
 export BOT_MESSAGES = "/rooms/:id/:segment/messages"
 export BOT_MESSAGE = "/rooms/:id/:segment/messages/:message_id"
 
+## The boosts of the bots (`Messages::Boosts::ByBotsController`), under a message: a `POST` of `BOT_MESSAGE_BOOSTS`
+## boosts it with the raw body as the text, and a `DELETE` of `BOT_MESSAGE_BOOST` (`:boost_id`) takes a boost of the
+## bot off.
+export BOT_MESSAGE_BOOSTS = "/rooms/:id/:segment/messages/:message_id/boosts"
+export BOT_MESSAGE_BOOST = "/rooms/:id/:segment/messages/:message_id/boosts/:boost_id"
+
+## The boosts of a message (`Messages::BoostsController`; `:message_id` is the message, whatever its room): a `GET` of
+## `MESSAGE_BOOSTS` gives their markup and a `POST` adds one (the field `boost[content]`), `MESSAGE_BOOST_NEW` is the
+## page that adds one, and a `DELETE` of `MESSAGE_BOOST` (`:id`), or a `POST` with `_method` set to `METHOD_DELETE`,
+## takes a boost off, for its booster alone. Any other method on a boost is a 405 that lists `MESSAGE_BOOST_ALLOW`.
+export MESSAGE_BOOSTS = "/messages/:message_id/boosts"
+export MESSAGE_BOOST_NEW = "/messages/:message_id/boosts/new"
+export MESSAGE_BOOST = "/messages/:message_id/boosts/:id"
+export MESSAGE_BOOST_ALLOW = "POST, DELETE"
+
 ## The sidebar setting of a person for a room (`:id` is the room): the page that shows the choice and its form, and
 ## the save, a `PUT` or a `POST` with `_method` set to `METHOD_PUT` (as Rails' forms send it), with the field
 ## `involvement`. Any other method is a 405 that lists `ROOM_INVOLVEMENT_ALLOW`, which is Bond's own list for the path.
@@ -186,6 +201,21 @@ end
 ## The path of the page that edits a message.
 export def room_message_edit_path(room_id: Int, message_id: Int) -> String
   return "/rooms/#{room_id}/messages/#{message_id}/edit"
+end
+
+## The path of the boosts of a message, which is where a boost is added.
+export def message_boosts_path(message_id: Int) -> String
+  return "/messages/#{message_id}/boosts"
+end
+
+## The path of the page that adds a boost to a message.
+export def message_boosts_new_path(message_id: Int) -> String
+  return "/messages/#{message_id}/boosts/new"
+end
+
+## The path of a boost, which is where its removal posts.
+export def message_boost_path(message_id: Int, boost_id: Int) -> String
+  return "/messages/#{message_id}/boosts/#{boost_id}"
 end
 
 ## The path of the settings of an open or closed room, which is also where its form posts.

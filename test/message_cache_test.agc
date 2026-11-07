@@ -1,4 +1,5 @@
 import Cache from "std/cache"
+import Boosts from "../src/campfire/boosts"
 import MessageCache from "../src/campfire_web/message_cache"
 import Rooms from "../src/campfire/rooms"
 
@@ -11,6 +12,7 @@ def stored(id: Int, body: String) -> Rooms.Stored
     body: body,
     created_at: "2026-03-01T09:00:00.000Z",
     updated_at: "2026-03-01 09:00:00.000000",
+    boosts: [],
   )
 end
 
@@ -34,6 +36,19 @@ def main() -> Void
       try Test.eq(held(cache), bytes)
       MessageCache.list(cache, [stored(1, "<p>Hi again</p>")], 1, "member")
       Test.assert(held(cache) > bytes, "a changed body did not make a new entry")
+    end,
+    Test.test("a boost that appears or changes makes a new entry, though updated_at is the same") do
+      cache = MessageCache.start(1)
+      plain = stored(1, "<p>Hi</p>")
+      MessageCache.list(cache, [plain], 1, "member")
+      bytes = held(cache)
+      boosted = plain.with(boosts: [Boosts.Boost(id: 1, booster_id: 2, booster: "Bea", content: "👍", created_at: "")])
+      try Test.assert(MessageCache.list(cache, [boosted], 1, "member").include?("👍"), "the boost is not shown")
+      try Test.assert(held(cache) > bytes, "a boost did not make a new entry")
+      bytes = held(cache)
+      other = plain.with(boosts: [Boosts.Boost(id: 1, booster_id: 2, booster: "Bea", content: "🔥", created_at: "")])
+      try Test.assert(MessageCache.list(cache, [other], 1, "member").include?("🔥"), "the new text is not shown")
+      Test.assert(held(cache) > bytes, "a changed boost did not make a new entry")
     end,
     Test.test("the link to the edit page is for the author and an administrator, and a viewer's entry is its own") do
       cache = MessageCache.start(1)

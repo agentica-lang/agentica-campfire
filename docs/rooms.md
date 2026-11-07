@@ -101,7 +101,8 @@ that is to come or from Rails, is cleaned by `HtmlSanitizer.sanitize` before it 
 is read. There is no link or mention handling yet.
 
 Each message on a page is `<div id="message_ID" data-message-id="ID">` with the author and the time, and its
-body in `<div id="presentation_message_ID">` inside `<turbo-frame id="edit_message_ID">`; the list is
+body in `<div id="presentation_message_ID">` inside `<turbo-frame id="edit_message_ID">`, followed in the frame by its
+boosts, `<div id="boosts_message_ID">` (see [Boosts](#boosts)); the list is
 `<div id="messages_rooms_open_ID">` (`closed` or `direct` for the other types). `GET /rooms/ID/messages` is
 the same markup without the layout or the sidebar: the 40 messages before `?before=ID` (the newest 40 without
 it), `204` when there are none, `404` for a room that is not the person's. Every page links one fingerprinted
@@ -186,6 +187,40 @@ page. A delete removes the message with its body, its search row and its boosts 
 Stream that removes the message when `Accept` asks for one, else redirects to the room page. A person who is not in the
 room, a message of another room, and a message that does not exist are all `404`, checked before the `403`. There are no
 live updates yet (#52): other people see the change when they load the page.
+
+## Boosts
+
+A person who is in a room can boost any message of it (`Messages::BoostsController`): a reaction under the message, one
+of the eight quick ones (👍 👏 👋 💪 ❤️ 😂 🎉 🔥, `EmojiHelper::REACTIONS`) or words of the person's own, 1 to 16
+characters once the space around them is taken off (the column is `varchar(16)`, which SQLite does not enforce, so the
+app does; Rails checks the length only in its form). Every message has the link "Boost" in its `<div
+id="boosts_message_ID">`, after the boosts it has, oldest first, each a `<div id="boost_ID" data-booster-id="USER">`
+with the name of the booster, the text and a form that takes it away. That form is hidden by the stylesheet except on
+the boosts of the person who looks (the room page has a rule for them, as it has for the side of the bubbles), because
+the markup is the same for everybody. Words are shown as text. The routes are Rails':
+
+| Request | Answer |
+|---|---|
+| `GET /messages/ID/boosts` | the `<div id="boosts_message_ID">` of the message, as the room page has it |
+| `GET /messages/ID/boosts/new` | a page with the eight reactions, each a button of one form, and a field for words |
+| `POST /messages/ID/boosts` | the field `boost[content]` adds one: a redirect to the room page around the message (Rails redirects to the list, which is only a frame); `422` with the page again for a text that is blank or too long, `400` with no field |
+| `DELETE /messages/ID/boosts/BID`, or a `POST` with `_method=delete` | takes the boost off and redirects the same way |
+
+A request that asks for `text/vnd.turbo-stream.html` (the script of the room page does) is answered `200` with the Turbo
+Stream that appends the boost to `boosts_message_ID`, or removes `boost_BID`. A message is reached through the
+membership of its room, any kind and involvement (`User#reachable_messages`): a message of a room the person is not in,
+one that does not exist and an id that is not a number are the same `404`, checked before the form is read. Only the
+booster takes a boost away; for anybody else, an administrator or the author of the message included, and for a boost of
+another message or one that is gone, it is `404` and nothing changes (Rails' `find_by!`). Any other method on a boost
+is `405` with `Allow: POST, DELETE`. A boost touches its message and the room, on adding and on removing it (Rails'
+`touch: true`), so the refresh of the room (`/rooms/ID/refresh`) hands the message out again, the key of the cached
+markup of the message changes, and so does the version of the database that the page cache keys on. The key also holds
+the boosts themselves, so a boost written by another program, with no `updated_at`, shows at once too. Deleting a
+message deletes its boosts. The boosts of a chat bot are in [people.md](people.md#the-messages-api).
+
+The script of the room page opens the page of a new boost under the message instead of going to it (the reactions, a
+field for words, Esc or Cancel to close), posts with `fetch` and applies the Turbo Stream. Live, everybody who looks at
+the room gets the boost appended and removed over `/cable` ([cable.md](cable.md)).
 
 Who may see a room, and why a non-member gets `404`: [security.md](security.md).
 

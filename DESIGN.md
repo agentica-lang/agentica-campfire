@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation, built from `app/assets/stylesheets/` by `make assets`;
-change this file and the stylesheet together. One stylesheet, one script of about 10 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
+change this file and the stylesheet together. One stylesheet, one script of about 12 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -13,11 +13,11 @@ images: the page stays small, because the benchmark compares page throughput wit
   `.people`, `.badge`, `.quiet`, `.danger`); the composer and the search form are styled by `main.room > form` and
   `form[action="/searches"]`, since specs match their `<form>` tag.
 - Fixed markup of a message (`Views.message`) is the benchmark's contract: style it, never change it. The additions are
-  `data-creator-id` on the `<div>` (the author, for the side of the bubble) and the Edit link in the heading, after the
-  time, for the person who may change the message (its author and an administrator) and nobody else: the benchmark reads
-  the id, the presentation `<div>` and the end of the message, none of which moves; but for `data-creator-id` and the
-  clock time in `<time>` (the whole instant is in `datetime`, as before, and in `title`), the markup is the contract
-  byte for byte.
+  `data-creator-id` on the `<div>` (the author, for the side of the bubble), the Edit link in the heading, after the
+  time, for the person who may change the message (its author and an administrator) and nobody else, and the boosts
+  `<div>` after the presentation `<div>`, inside the frame: the benchmark reads the id, the presentation `<div>` and the
+  end of the message (`</turbo-frame></div>`), none of which moves; but for those, the boosts and the clock time in
+  `<time>` (the whole instant is in `datetime`, as before, and in `title`), the markup is the contract byte for byte.
 
 ## Colour tokens
 
@@ -90,6 +90,13 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
   `--bubble-meta`, `--bubble-link`, `--bubble-side` and `--bubble-name` with the other people's values as defaults, and
   the room page has one `<style>` rule setting them for `[data-creator-id="ME"]` (`Views.room`). Search results keep the
   flat list. The body wraps anywhere; `pre` and tables scroll inside the bubble.
+- **Boosts** (`[id^="boosts_message_"]`, under the body): a wrapping row of pills, each the booster's name (extra small,
+  muted), the text and, on the viewer's own boosts only, a `×` button that takes it away; then the "Boost" link (extra
+  small, bold, the link colour of the bubble), always last (`order`), since a boost that arrives live is appended after
+  it. A pill takes the colour of the text it sits in (a 35% border of `currentcolor`), so it works on both bubbles and
+  on a search result. The viewer's rule sets `--boost-remove` (`Views.viewer_style`). The menu that adds one
+  (`[id^="new_boost_message_"]`) is a grid of the eight reactions, `.quiet` buttons of 1.5rem, over a row with the field
+  for words and its button; the page `/messages/ID/boosts/new` shows the same element in a card.
 - **Buttons**: primary (accent fill) is the default; `.quiet` (outline, text colour) for secondary actions; `.danger`
   (outline in the accent) for Deactivate and Delete room. 2.5rem high; 2.75rem (44px) on a phone, for every button and the chips; 2rem
   in a dense list and the room header on a wide screen.
@@ -110,7 +117,9 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 ## Script
 
 `public/assets/campfire-DIGEST.js` is the only script, linked by the room page (`Views.room`), the page that edits a
-message (`Views.edit_message`) and every page with the sidebar (`live_layout`), and the pages work without it. Its second
+message (`Views.edit_message`) and every page with the sidebar (`live_layout`), and the pages work without it. Its first
+part is the boosts (the "Boost" link opens the reactions under the message, a post goes with `fetch` asking for a Turbo
+Stream, Esc or Cancel closes the menu, and a refusal is sent again as a plain post, as the composer's is). Its last
 part keeps them live (`docs/cable.md`, "The pages"); a room with something new is `nav li.unread`, bold with a dot. The
 composer works without it (a plain post and a redirect), and has the keys of the composer and of the edit form. It sends the message with `fetch`, asking for the Turbo Stream that
 `POST /rooms/ID/messages` already answers, appends the message to the list, clears the box, gives the form a new

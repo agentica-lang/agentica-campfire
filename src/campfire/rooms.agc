@@ -6,6 +6,7 @@
 ## else is `none` exactly as a room that does not exist is, and a caller cannot tell them apart.
 
 import Db from "pkg/db/db"
+import Boosts from "boosts"
 import HtmlSanitizer from "html_sanitizer"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
@@ -56,7 +57,7 @@ ISO = "%Y-%m-%dT%H:%M:%fZ"
 MESSAGE_COLUMNS = (
   "messages.id, messages.room_id, messages.creator_id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
   "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +
-  "messages.updated_at as updated_at"
+  "messages.updated_at as updated_at, #{Boosts.COLUMN}"
 )
 
 MESSAGE_JOINS = (
@@ -97,9 +98,10 @@ export struct Person
   name: String
 end
 
-## A message with the name of its author (`creator_id` is who wrote it, `room_id` where). `body` is HTML that `HtmlSanitizer.sanitize` has cleaned, so a view writes it
-## with `<%== %>`. `created_at` is an ISO 8601 UTC instant with milliseconds (`2026-03-01T09:00:00.123Z`), made from
-## the Rails form of the column, so that `<time datetime>` and the scripts that read it take it as UTC.
+## A message with the name of its author (`creator_id` is who wrote it, `room_id` where). `body` is HTML that
+## `HtmlSanitizer.sanitize` has cleaned, so a view writes it with `<%== %>`. `created_at` is an ISO 8601 UTC instant
+## with milliseconds (`2026-03-01T09:00:00.123Z`), made from the Rails form of the column, so that `<time datetime>`
+## and the scripts that read it take it as UTC. `boosts` are the reactions under it, oldest first.
 export struct Message
   id: Int
   room_id: Int
@@ -107,6 +109,7 @@ export struct Message
   author: String
   body: String
   created_at: String
+  boosts: List[Boosts.Boost]
 end
 
 ## A message as the database holds it: the body is not cleaned yet, so `clean` must run before a view writes it. A page
@@ -120,6 +123,7 @@ export struct Stored
   body: String
   created_at: String
   updated_at: String
+  boosts: List[Boosts.Boost]
 end
 
 ## A page of a room, oldest message first. `older` is the cursor of the page before it (`before=` of `page`), `none`
@@ -186,6 +190,7 @@ export def stored_of(row: Db.Row) -> Stored
     body: text_of(row, "body"),
     created_at: text_of(row, "created_at"),
     updated_at: text_of(row, "updated_at"),
+    boosts: Boosts.parse(text_of(row, "boosts")),
   )
 end
 
@@ -200,6 +205,7 @@ export def clean(stored: Stored) -> Message
     author: stored.author,
     body: HtmlSanitizer.sanitize(stored.body),
     created_at: stored.created_at,
+    boosts: stored.boosts,
   )
 end
 
@@ -820,6 +826,7 @@ def post_in(
         author: text_of(rows[0], "author"),
         body: body,
         created_at: text_of(rows[0], "created_at"),
+        boosts: [],
       ),
     ),
   )

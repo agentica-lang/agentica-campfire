@@ -9,13 +9,18 @@
 ## (404), a message of somebody else (403), and last the request itself (400 for a cursor that is not a number or a body
 ## that is not UTF-8, 415 for a file upload, 422 for a body that is blank or too long).
 ##
+## The boosts of a message (`Messages::Boosts::ByBotsController`) are on the same keys and in the same order: a bot
+## boosts any message of the room (the raw body is the text, 1 to 16 characters once stripped) and takes off only its
+## own boosts, and a boost of somebody else is as good as none (404).
+##
 ## Where this differs from Rails: a wrong key is 404, not a redirect to the sign-in page, and a blank body is also
 ## refused on an edit. Left out until they exist here: the `attachment` upload (a `multipart/form-data` post is 415, so
-## the form is never posted as text), the boosts of a message, the avatar of `creator` and the webhooks that a post
-## sends to the bots it mentions.
+## the form is never posted as text), the avatar of `creator` and of `booster` and the webhooks that a post sends to
+## the bots it mentions.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
+import Boosts from "../campfire/boosts"
 import Bots from "../campfire/bots"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
@@ -25,9 +30,10 @@ import RoomsWeb from "rooms"
 import Routes from "routes"
 import {Config} from "../campfire/config"
 
-# The segment of the paths that holds the key, and the name of the message in them.
+# The segment of the paths that holds the key, and the name of the message and of the boost in them.
 KEY = "segment"
 MESSAGE = "message_id"
+BOOST = "boost_id"
 
 # Bytes of randomness in the `client_message_id` of a post (a bot sends none), which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
@@ -69,6 +75,20 @@ struct MessageJson
   url: String
 end
 
+# A boost as `messages/boosts/_boost.json.jbuilder` writes it, but for the `avatar_url` of the booster.
+struct BoostJson
+  id: Int
+  content: String
+  created_at: String
+  booster: Creator
+  message: MessageRef
+end
+
+struct MessageRef
+  id: Int
+  url: String
+end
+
 # The messages of a page and the query of the page that follows it ("" for none: `before=ID` or `after=ID`).
 struct Window
   messages: List[Rooms.Stored]
@@ -89,6 +109,8 @@ enum Answer
   Created(Rooms.Room, Rooms.Message, String)
   Edited(Rooms.Room, Rooms.Message, Json)
   Removed(Rooms.Room, Int)
+  Boosted(Boosts.Reach, Boosts.Boost, Json)
+  Unboosted(Boosts.Reach, Int)
   Refused(String)
   Unsupported
   NotFound
@@ -114,6 +136,12 @@ export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config
     end
     |> Bond.delete(Routes.BOT_MESSAGE) do |conn|
       serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
+    end
+    |> Bond.post(Routes.BOT_MESSAGE_BOOSTS) do |conn|
+      serve(conn, pool, cable) do |db, bot, room| boost_answer(conn, db, bot, room, origin(conn, config)) end
+    end
+    |> Bond.delete(Routes.BOT_MESSAGE_BOOST) do |conn|
+      serve(conn, pool, cable) do |db, bot, room| unboost_answer(conn, db, bot, room) end
     end
   )
 end
@@ -388,17 +416,86 @@ end
 # The message that the path names, when it is in the room and the bot wrote it. A bot is never an administrator, so the
 # author is the only right it has over a message (`User#can_administer?`). The checks inside `Rooms` look again.
 def own_message(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room) -> Result[Located]
-  id = Bond.param_int(conn, MESSAGE)
-  if not id.ok?
-    return ok(Located.Missing)
-  end
-
-  stored = try Rooms.find_message(db, room.id, id.unwrap!)
+  stored = try room_message(conn, db, room)
   case stored
     none -> return ok(Located.Missing)
     some(one) if one.creator_id != bot.id -> return ok(Located.Refused)
     some(one) -> return ok(Located.Found(one))
   end
+end
+
+# The message that the path names, when it is in the room, whoever wrote it.
+def room_message(conn: Bond.Conn, db: Db.Connection, room: Rooms.Room) -> Result[Optional[Rooms.Stored]]
+  id = Bond.param_int(conn, MESSAGE)
+  if not id.ok?
+    return ok(none)
+  end
+
+  return Rooms.find_message(db, room.id, id.unwrap!)
+end
+
+def boost_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, origin: String) -> Result[Answer]
+  stored = try room_message(conn, db, room)
+  case stored
+    none -> return ok(Answer.NotFound)
+    some(message) -> return boosted(conn, db, bot, room, origin, message)
+  end
+end
+
+def boosted(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  bot: Bots.Bot,
+  room: Rooms.Room,
+  origin: String,
+  message: Rooms.Stored,
+) -> Result[Answer]
+  if upload?(conn)
+    return ok(Answer.Unsupported)
+  end
+
+  content = (try Bond.body_text(conn)).strip
+  problem = Boosts.content_problem(content)
+  if problem != ""
+    return ok(Answer.Refused(problem))
+  end
+
+  # Nothing is stored for a bot that was deactivated since the key was checked, nor for a message that was deleted.
+  added = try Boosts.add(db, bot.id, message.id, content)
+  case added
+    none -> return ok(Answer.NotFound)
+    some(boost) ->
+      reach = Boosts.Reach(message_id: message.id, room_id: room.id)
+      return ok(Answer.Boosted(reach, boost, JSON.from(boost_json(origin, bot, boost, reach))))
+  end
+end
+
+def unboost_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room) -> Result[Answer]
+  stored = try room_message(conn, db, room)
+  case stored
+    none -> return ok(Answer.NotFound)
+    some(message) -> return unboosted(conn, db, bot, room, message)
+  end
+end
+
+def unboosted(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  bot: Bots.Bot,
+  room: Rooms.Room,
+  message: Rooms.Stored,
+) -> Result[Answer]
+  id = Bond.param_int(conn, BOOST)
+  if not id.ok?
+    return ok(Answer.NotFound)
+  end
+
+  gone = try Boosts.remove(db, bot.id, message.id, id.unwrap!)
+  if not gone
+    return ok(Answer.NotFound)
+  end
+
+  return ok(Answer.Unboosted(Boosts.Reach(message_id: message.id, room_id: room.id), id.unwrap!))
 end
 
 # A file upload (`curl -F attachment=@file`) is a form that would be posted as the text of the message.
@@ -418,6 +515,16 @@ def message_json(origin: String, message: Rooms.Message, role: String) -> Messag
   )
 end
 
+def boost_json(origin: String, bot: Bots.Bot, boost: Boosts.Boost, reach: Boosts.Reach) -> BoostJson
+  return BoostJson(
+    id: boost.id,
+    content: boost.content,
+    created_at: boost.created_at,
+    booster: Creator(id: bot.id, name: boost.booster, role: BOT_ROLE),
+    message: MessageRef(id: reach.message_id, url: message_url(origin, reach.room_id, reach.message_id)),
+  )
+end
+
 def message_url(origin: String, room_id: Int, message_id: Int) -> String
   return "#{origin}#{Routes.room_message_path(room_id, message_id)}"
 end
@@ -427,6 +534,8 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
     Answer.Created(room, message, _) -> CableWeb.message_created(cable, room, message)
     Answer.Edited(room, message, _) -> CableWeb.message_edited(cable, room, message)
     Answer.Removed(room, message_id) -> CableWeb.message_removed(cable, room.id, message_id)
+    Answer.Boosted(reach, boost, _) -> CableWeb.boost_added(cable, reach.room_id, reach.message_id, boost)
+    Answer.Unboosted(reach, boost_id) -> CableWeb.boost_removed(cable, reach.room_id, boost_id)
     _ -> return answered(conn, answer)
   end
 
@@ -449,6 +558,8 @@ def reply(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.Created(_, _, location) -> return Bond.header(Bond.status(conn, 201), "location", location)
     Answer.Edited(_, _, message) -> return Bond.json(conn, 200, message)
     Answer.Removed(_, _) -> return Bond.status(conn, 204)
+    Answer.Boosted(_, _, boost) -> return Bond.json(conn, 201, boost)
+    Answer.Unboosted(_, _) -> return Bond.status(conn, 204)
     Answer.Refused(problem) -> return Bond.text(conn, 422, problem)
     Answer.Unsupported -> return Bond.text(conn, 415, UPLOAD_REFUSED)
     Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
