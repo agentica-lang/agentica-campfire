@@ -16,6 +16,7 @@ COLORS = [
 
 # `\b\w` of `User#initials`: the first letter of each word.
 INITIALS = /\b\w/
+# The runs of digits of a timestamp, for `version`.
 DIGITS = /\d+/
 
 # Active Storage keys are 28 characters of base 36 (`SecureRandom.base36`). Only those can be a name in the folder of
@@ -112,8 +113,9 @@ export def color(user_id: Int) -> String
   return COLORS[checksum % COLORS.size]
 end
 
-## The cache buster of an avatar link, `?v=` in Rails (`updated_at.to_fs(:number)`): the digits of the `updated_at` of
-## the user, with the fraction of a second, so two changes in one second are two links.
+## The cache buster of an avatar link, `?v=` as in Rails (`updated_at.to_fs(:number)`, 14 digits): the digits of the
+## `updated_at` of the user, but with the fraction of a second too (unlike Rails), so two changes in one second are two
+## links.
 export def version(updated_at: String) -> String
   return Regex.find_all(updated_at, DIGITS).map do |found| found.text end.join("")
 end
@@ -134,7 +136,8 @@ end
 ## attachment, its blob, and the variants made from it with their blobs, in one transaction, so no half of an avatar is
 ## left. A blob that something else is attached to stays. It gives the keys of the blobs that went, for the caller to
 ## delete their files once the transaction has committed (a file is not undone by a rollback), and `updated_at` of
-## the user changes, since the avatar links carry its digits (`version`) as a cache buster. A user with no avatar is no change: no keys.
+## the user changes, since the avatar links carry its digits (`version`) as a cache buster. A user with no avatar is no
+## change: no keys.
 export def remove(conn: Db.Connection, user_id: Int) -> Result[List[String]]
   return Db.transaction(conn) do |tx| remove_in(tx, user_id) end
 end

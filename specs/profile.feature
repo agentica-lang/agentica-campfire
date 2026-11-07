@@ -1,9 +1,9 @@
 Feature: The profile and the page of a user
   A person reads the page of any user (`UsersController#show`) and changes their own name, email address, password and
   bio at `/users/me/profile` (`Users::ProfilesController`). The picture cannot be changed to another yet, only taken
-  away. A blank email or password is left as it is. The profile of another user is a 404 here (Rails ignores the id and edits the person who
-  is signed in). The first admin is Ana, user 1; Bea is user 2 and Cy is user 3; Di (user 4) is deactivated and the bot
-  Robo is user 5.
+  away. A blank email or password is left as it is. The profile of another user is a 404 here (Rails ignores the id and
+  edits the person who is signed in). The first admin is Ana, user 1; Bea is user 2 and Cy is user 3; Di (user 4) is
+  deactivated and the bot Robo is user 5.
 
   Background:
     Given a fresh database

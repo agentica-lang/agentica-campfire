@@ -365,8 +365,9 @@ def own?(conn: Bond.Conn, person: Auth.User) -> Bool
 end
 
 # The path of the picture of the user, "" when the app has no key to sign it with. It ends in `?v=` and the digits of
-# `updated_at` (Rails' `fresh_user_avatar`), so a change of the picture, which touches `updated_at`, is a new link and
-# the browser does not keep the old picture for the 30 minutes that the answer may be kept.
+# `updated_at` (Rails' `fresh_user_avatar`, but with the fraction of a second, which Rails drops), so a change of the
+# picture, which touches `updated_at`, is a new link and the browser does not keep the old picture for the 30 minutes
+# that the answer may be kept.
 def avatar_of(key: Optional[Bytes], user_id: Int, updated_at: String) -> String
   if key.none?
     return ""
