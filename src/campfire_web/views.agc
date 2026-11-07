@@ -4,6 +4,7 @@
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
 import Accounts from "../campfire/accounts"
+import Autolink from "../campfire/autolink"
 import Boosts from "../campfire/boosts"
 import Bots from "../campfire/bots"
 import Profiles from "../campfire/profiles"
@@ -554,7 +555,7 @@ end
 ## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the
 ## presentation `<div>` inside the frame that Turbo edits it in, then the boosts (`boosts_area`). The body is HTML that
 ## `Rooms.clean` (`MessageCache`, for a page) or `Rooms.post` has cleaned, the one value here that is written with
-## `<%== %>`. The markup ends with `</turbo-frame></div>`: the benchmark checks where a message ends (see
+## `<%== %>`, with the links of its text made (`Autolink.link`). The markup ends with `</turbo-frame></div>`: the benchmark checks where a message ends (see
 ## specs/message_routes.feature). `controls` is for the person who may change the message (`Rooms.changeable?`): it
 ## adds the link to the edit page to the heading, after the time, and nothing else. Apart from that link and the
 ## boosts, the markup is the benchmark's byte for byte but for `data-creator-id`, which names the author so that the
@@ -567,7 +568,7 @@ export def message(message: Rooms.Message, controls: Bool) -> String
     <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
       <h3><strong><%= message.author %></strong>
         <time datetime="<%= message.created_at %>" title="<%= message.created_at %>"><%= clock(message.created_at) %></time><%== edit_link(message, controls) %></h3>
-      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== message.body %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>
+      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== Autolink.link(message.body) %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>
   EAG
 end
 

@@ -110,7 +110,12 @@ Message bodies are stored as sanitized HTML (`HtmlSanitizer.sanitize`), cleaned 
 as well (a row that Rails wrote was never cleaned by this app; markup that is clean already comes
 out unchanged), and shown with `<%==` as element content only. A body longer than
 `CAMPFIRE_MAX_MESSAGE_LENGTH` is refused before the sanitizer reads it, so the work of one message is
-bounded (the sanitizer reads up to about 5 times the cap for a form's text, which is made HTML first).
+bounded (the sanitizer reads up to about 5 times the cap for a form's text, which is made HTML first). A form says
+that its body is HTML with `message[format]=html`; the body is cleaned the same way, so the field adds no markup that a
+bot could not send already. The links that `Autolink.link` makes are written from the clean body only: an address is
+text up to a space, a `<` or a `"`, inside a double-quoted `href`, so it cannot leave the attribute (the clean text has
+no `<` or `>`, and an entity that it keeps, such as `&quot;`, is harmless inside an attribute); only `http://`,
+`https://` and `www.` start one, and it carries `rel="noopener noreferrer"`.
 
 ## The first administrator
 

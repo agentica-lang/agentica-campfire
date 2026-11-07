@@ -24,7 +24,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 in memory), searches.agc (the words of a query, the
                 FTS5 search of messages, the recent searches), avatars.agc (the Active Storage variant of an avatar
                 and its file; initials and colour), html_sanitizer.agc (an allowlist sanitizer for stored HTML
-                bodies; pure)
+                bodies; pure), autolink.agc (the links of URLs and email addresses in a clean body, made when a
+                message is shown; pure)
 src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request), migrations.agc (the list of the
                 schema) and migrations/ (one file per migration, `m0001_accounts.agc`...), rails.agc (the integer
                 enums and the timestamp form of the Rails schema), rows.agc (reading a column of a row)
@@ -189,11 +190,13 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   account administrator may change an open or closed room (`Rooms.editable?`): another member is answered 403, after the
   membership check (a non-member is 404) and before the form is read; `Rooms.update_room` checks it again inside its
   transaction and fails, rolling back, when it no longer holds. The form sends plain text, stripped of the space around
-  it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`; every body that `Rooms`
+  it, which the web layer turns into HTML (`HtmlSanitizer.from_text`) for `Rooms.post`, unless the form has
+  `message[format]=html` (the editor to come): its body is HTML and goes to `Rooms.post` as it is; every body that `Rooms`
   gives out is cleaned as it is read (`Rooms.clean`, called by `Rooms.message_of` for the search and by
   `MessageCache` for a page of a room, which hands `Rooms.page`'s `Stored` messages), since a row that Rails wrote
   was never cleaned by this app; the cleaner leaves clean markup as it is, so what `Rooms.post` stored passes
-  unchanged, and the view writes the body as it is given.
+  unchanged, and the view writes the body with its links made (`Autolink.link`, only when it is shown: never stored, and
+  not in the JSON of the bots API).
   Deleting a room is for its maker and an account administrator, of any kind (`Rooms.administrable?`; another member is
   answered 403, after the membership check): `Rooms.destroy_later` closes an open room and deletes its memberships in one
   transaction (it checks the right again inside), then `RoomDeletion` (a task that the request starts, one connection of

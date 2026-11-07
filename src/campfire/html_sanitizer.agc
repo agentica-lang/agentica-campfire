@@ -1,6 +1,7 @@
 ## An allowlist sanitizer for the HTML of a stored message body (Action Text, as the Rails Campfire wrote it), so the
 ## body can be shown with `<%== %>`. `sanitize` reads the text once and writes a new text that is made only of what
-## this file writes: the tags of `ALLOWED_TAGS` with no attribute (a link has `href` and `rel`, nothing else), text
+## this file writes: the tags of `ALLOWED_TAGS` with no attribute (a link has `href` and `rel`, a `pre` may have
+## `data-language`, the language of a code block, nothing else), text
 ## with `<`, `>` and `&` escaped, and every tag closed. Nothing of the input is copied into the output except text and
 ## the value of a link, which is checked and escaped. What it does not know it drops: a tag that is not allowed goes
 ## and its text stays, a script and its kind go with their content (an end tag that never comes takes the rest of
@@ -15,7 +16,8 @@
 ##   tt, var, figure and figcaption; each is one more word in `ALLOWED_TAGS`.
 ## - a tag that is not allowed: Rails drops the element with its text; here the tag goes and its text stays.
 ## - fewer attributes: Rails keeps `class`, `title`, `alt`, `src`, `width`, `height`, `data-language` and a few more;
-##   here only `href` of a link survives (and `rel`, which is written, not copied).
+##   here only `href` of a link survives (and `rel`, which is written, not copied) and `data-language`, which Rails
+##   keeps on any tag and the editor writes on a `pre`, so only there and only as a short name (`ruby`, `c++`).
 ## - schemes: Loofah's list has more (ftp, tel, ...); here only http, https and mailto, and a relative address.
 ## - `<a>` with no usable `href` is dropped (its text stays); Rails keeps the tag without the attribute.
 ## - tags that are mis-nested are closed in order; Rails (Nokogiri) rebuilds the tree the way a browser does. Only its
@@ -68,6 +70,10 @@ ALLOWED_TAGS = Set.new(ALLOWED_TAG_NAMES)
 
 # The allowed tags that `sanitize` writes with no more than the name; `a` has the address.
 PLAIN_TAGS = Set.new(ALLOWED_TAG_NAMES.select do |name| name != "a" end)
+
+# The characters of the language of a code block, and its longest name.
+LANGUAGE_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+#.-".split(""))
+MAX_LANGUAGE = 32
 
 # What lies between `<` and `>` of an end tag with no attribute: `/p`.
 END_TAGS = Set.new(ALLOWED_TAG_NAMES.map do |name| "/#{name}" end)
@@ -198,6 +204,7 @@ struct Tag
   name: String
   closing: Bool
   href: Optional[String]
+  language: Optional[String]
   next: Int
 end
 
@@ -256,7 +263,7 @@ export def sanitize(html: String) -> String
     end
 
     if PLAIN_TAGS.include?(head)
-      piece = start_piece(head, open, 0)
+      piece = start_piece(head, open, 0, "")
       out = out.push(piece.html)
       open = piece.open
       if stop + 1 < part.length
@@ -464,11 +471,26 @@ def open_piece(text: Text, tag: Tag, open: List[String]) -> Piece
     return link_piece(tag, open)
   end
 
-  return start_piece(name, open, tag.next)
+  return start_piece(name, open, tag.next, language_of(name, tag))
 end
 
-# A start tag of `PLAIN_TAGS`; `next` is where the input goes on after it.
-def start_piece(name: String, open: List[String], next: Int) -> Piece
+# The `data-language` that is written on a tag: a short name, on a `pre` only; "" for none.
+def language_of(name: String, tag: Tag) -> String
+  language = tag.language.unwrap_or("")
+  if name != "pre" or language.empty? or language.length > MAX_LANGUAGE
+    return ""
+  end
+
+  if language.split("").all? do |c| LANGUAGE_CHARS.include?(c) end
+    return language
+  end
+
+  return ""
+end
+
+# A start tag of `PLAIN_TAGS`; `next` is where the input goes on after it. `language` is the `data-language` of a `pre`
+# ("" for none), checked by `language_of`, so it is written as it is.
+def start_piece(name: String, open: List[String], next: Int, language: String) -> Piece
   ended = ""
   stack = open
   # With nothing open, no tag ends.
@@ -482,12 +504,17 @@ def start_piece(name: String, open: List[String], next: Int) -> Piece
     return Piece(html: "#{ended}<#{name}>", open: stack, next: next)
   end
 
+  tag = "<#{name}>"
+  if not language.empty?
+    tag = "<#{name} data-language=\"#{language}\">"
+  end
+
   # The cap is checked after the end tags above, which make room.
   if stack.size >= MAX_DEPTH
     return Piece(html: ended, open: stack, next: next)
   end
 
-  return Piece(html: "#{ended}<#{name}>", open: stack.push(name), next: next)
+  return Piece(html: "#{ended}#{tag}", open: stack.push(name), next: next)
 end
 
 # The end tags that the start tag `name` implies. The cost is bounded by MAX_DEPTH, as the stack is.
@@ -603,10 +630,11 @@ def read_tag(text: Text, start: Int) -> Result[Tag]
   name = take_until(text, i, NAME_END)
   i = name.next
   href: Optional[String] = none
+  language: Optional[String] = none
   i = skip(cs, n, i, BETWEEN_ATTRIBUTES)
   while i < n
     if cs[i] == ">"
-      return ok(Tag(name: name.text.downcase, closing: closing, href: href, next: i + 1))
+      return ok(Tag(name: name.text.downcase, closing: closing, href: href, language: language, next: i + 1))
     end
 
     # The first character is always part of the name, even an `=`.
@@ -620,8 +648,11 @@ def read_tag(text: Text, start: Int) -> Result[Tag]
       i = read.next
     end
 
-    if href.none? and "#{cs[attribute_start]}#{attribute.text}".downcase == "href"
+    attribute_name = "#{cs[attribute_start]}#{attribute.text}".downcase
+    if href.none? and attribute_name == "href"
       href = some(value)
+    elsif language.none? and attribute_name == "data-language"
+      language = some(value)
     end
 
     i = skip(cs, n, i, BETWEEN_ATTRIBUTES)
