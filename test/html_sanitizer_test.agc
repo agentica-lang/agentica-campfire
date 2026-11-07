@@ -71,7 +71,7 @@ def action_text_cases() -> List[Case]
     Case(input: "<blockquote>quoted</blockquote>", want: "<blockquote>quoted</blockquote>"),
     Case(
       input: "<pre data-language=\"ruby\">puts \"a\" &lt; 1\n  x</pre>a <code>b &amp; c</code>",
-      want: "<pre>puts \"a\" &lt; 1\n  x</pre>a <code>b &amp; c</code>",
+      want: "<pre data-language=\"ruby\">puts \"a\" &lt; 1\n  x</pre>a <code>b &amp; c</code>",
     ),
     Case(
       input: "<table><thead><tr><th>a</th></tr></thead><tbody><tr><td colspan=\"2\">b</td></tr></tbody></table>",
@@ -248,11 +248,35 @@ def editor_tag_cases() -> List[Case]
     Case(input: "<#{t} onclick=\"alert(1)\" style=\"x:expression(alert(1))\" class=x>a</#{t}>", want: "<#{t}>a</#{t}>")
   end
 
-  return cases.concat([
-    Case(input: "<hr onclick=\"alert(1)\" style=\"x\"/>t", want: "<hr>t"),
-    Case(input: "<hr><script>alert(1)</script></hr>t", want: "<hr>t"),
-    Case(input: "<span title=\"</span><script>alert(1)</script>\">t</span>", want: "<span>t</span>"),
-  ])
+  return (
+    cases.concat([
+      Case(input: "<hr onclick=\"alert(1)\" style=\"x\"/>t", want: "<hr>t"),
+      Case(input: "<hr><script>alert(1)</script></hr>t", want: "<hr>t"),
+      Case(input: "<span title=\"</span><script>alert(1)</script>\">t</span>", want: "<span>t</span>"),
+    ])
+      .concat(code_block_cases())
+  )
+end
+
+# The language of a code block is the one attribute besides a link's that is kept, on a `pre` and as a short name.
+def code_block_cases() -> List[Case]
+  return [
+    Case(
+      input: "<PRE onclick=x DATA-LANGUAGE=ruby><code>def x\n  1 &lt; 2\nend</code></PRE>",
+      want: "<pre data-language=\"ruby\"><code>def x\n  1 &lt; 2\nend</code></pre>",
+    ),
+    Case(input: "<pre data-language=\"c++\">x</pre>", want: "<pre data-language=\"c++\">x</pre>"),
+    Case(input: "<pre data-language=\"a\" data-language=\"b\">x</pre>", want: "<pre data-language=\"a\">x</pre>"),
+    Case(input: "<pre data-language=\"ru by\">x</pre>", want: "<pre>x</pre>"),
+    Case(input: "<pre data-language='\"><script>alert(1)</script>'>x</pre>", want: "<pre>x</pre>"),
+    Case(input: "<pre data-language=\"&quot;&gt;\">x</pre>", want: "<pre>x</pre>"),
+    Case(input: "<pre data-language=\"\">x</pre>", want: "<pre>x</pre>"),
+    Case(input: "<pre data-language=\"#{"a" * 33}\">x</pre>", want: "<pre>x</pre>"),
+    Case(
+      input: "<p data-language=\"ruby\">x</p><code data-language=\"ruby\">y</code>",
+      want: "<p>x</p><code>y</code>",
+    ),
+  ]
 end
 
 # The scheme of a link, written in every way that a browser reads as that scheme.
@@ -302,7 +326,8 @@ def run_cases(cases: List[Case]) -> Result[Void]
   return ok()
 end
 
-# Every `<` of the output opens an allowed tag; only a link has attributes, and they are the two that it writes.
+# Every `<` of the output opens an allowed tag; only a link has attributes, and they are the two that it writes, and a
+# `pre` may have the language of a code block.
 def only_allowed_markup?(html: String) -> Bool
   for piece in html.split("<").drop(1)
     tag = piece.split(">")[0]
@@ -315,12 +340,25 @@ def only_allowed_markup?(html: String) -> Bool
       return false
     end
 
-    if tag.include?(" ") and not link_tag?(tag)
+    if tag.include?(" ") and not link_tag?(tag) and not code_tag?(tag)
       return false
     end
   end
 
   return true
+end
+
+def code_tag?(tag: String) -> Bool
+  if not (tag.start_with?("pre data-language=\"") and tag.end_with?("\""))
+    return false
+  end
+
+  language = tag.slice(19, tag.length - 20)
+  return not language.empty? and language.length <= 32 and language.split("").all? do |c| language_char?(c) end
+end
+
+def language_char?(c: String) -> Bool
+  return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+#.-".include?(c)
 end
 
 def link_tag?(tag: String) -> Bool

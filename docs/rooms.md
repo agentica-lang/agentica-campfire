@@ -96,9 +96,16 @@ before the time of message ID, and messages that share a time go by id.
 A message is a row of `messages`, its HTML body in `action_text_rich_texts` (`record_type` `Message`,
 `name` `body`) and its plain text in the FTS5 table `message_search_index` (`rowid` is the message id),
 all written in one transaction. The form sends plain text of at most `CAMPFIRE_MAX_MESSAGE_LENGTH` characters (10000 by default), stripped of the
-space around it, which is stored as HTML (escaped, a new line as `<br>`). An HTML body, from the form
-that is to come or from Rails, is cleaned by `HtmlSanitizer.sanitize` before it is stored and when it
-is read. There is no link or mention handling yet.
+space around it, which is stored as HTML (escaped, a new line as `<br>`). An HTML body is cleaned by
+`HtmlSanitizer.sanitize` before it is stored and when it is read: the body of a bot (the raw request body), a body that
+Rails wrote, and the body of the form when it sends `message[format]=html` (the editor of Rails, Lexxy, sends HTML in
+`message[body]` and has no such field; here the textarea of the page has no editor, so the field says which of the two
+the body is, and without it the body is text). The tags of the editor stay (`strong`, `em`, `s`, `u`, `mark`,
+headings, lists, `blockquote`, tables, `pre` and `code`), `script` and every attribute but a link's `href` go, and
+`data-language` stays on a `pre` (the language of a code block, a short name). The URLs, the `www.` addresses and the
+email addresses in the text of a message are links when it is shown, as Rails does (`MessagesHelper#auto_link_text`,
+by `Autolink.link`): `<a target="_blank" href="..." rel="noopener noreferrer">`, none inside a link that is already
+one. The stored body and the JSON of the bots API have no autolinks, as in Rails. There is no mention handling yet.
 
 Each message on a page is `<div id="message_ID" data-message-id="ID">` with the author and the time, and its
 body in `<div id="presentation_message_ID">` inside `<turbo-frame id="edit_message_ID">`, followed in the frame by its

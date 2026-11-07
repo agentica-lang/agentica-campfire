@@ -32,6 +32,11 @@ import Views from "views"
 MESSAGE_BODY = "message[body]"
 MESSAGE_CLIENT_ID = "message[client_message_id]"
 
+# `message[format]` says what `message[body]` is: `html` for the HTML of an editor (cleaned, not escaped), anything
+# else, or nothing, for the plain text of the textarea. Rails has no such field because its only form has the editor.
+MESSAGE_FORMAT = "message[format]"
+HTML_FORMAT = "html"
+
 # What a post that asks for a Turbo Stream sends in `Accept`, and what the answer is typed.
 TURBO_STREAM_TYPE = "text/vnd.turbo-stream.html"
 
@@ -67,6 +72,12 @@ enum Answer
   Forbidden
   Deleted(Rooms.Room, List[Int])
   SignedOut
+end
+
+# What a person sent as the body of a message: the text as it came (stripped), and whether it is HTML.
+struct Sent
+  text: String
+  html: Bool
 end
 
 # Where a request for a message of a room ends up, once the room and the message are looked up for the person.
@@ -1137,11 +1148,13 @@ def create_message(
   # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
   # whatever the room: nothing here depends on the room.
   body = (try Bond.form(conn, MESSAGE_BODY)).strip
+  formats = try Bond.form_all(conn, MESSAGE_FORMAT)
+  sent = Sent(text: body, html: formats.any? do |format| format == HTML_FORMAT end)
   sent_id = try client_id(conn)
   id = room_id(conn)
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db|
-    message_answer(conn, db, cable, cache, id, body, sent_id, stream, max_length)
+    message_answer(conn, db, cable, cache, id, sent, sent_id, stream, max_length)
   end
 
   return ok(announced(conn, cable, answer))
@@ -1160,7 +1173,7 @@ def message_answer(
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   id: Optional[Int],
-  body: String,
+  sent: Sent,
   sent_id: String,
   stream: Bool,
   max_length: Int,
@@ -1168,7 +1181,7 @@ def message_answer(
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Answer.SignedOut)
-    some(person) -> return posted(db, cable, cache, person, id, body, sent_id, stream, max_length)
+    some(person) -> return posted(db, cable, cache, person, id, sent, sent_id, stream, max_length)
   end
 end
 
@@ -1179,7 +1192,7 @@ def posted(
   cache: Optional[Cache.Store],
   person: Auth.User,
   id: Optional[Int],
-  body: String,
+  sent: Sent,
   sent_id: String,
   stream: Bool,
   max_length: Int,
@@ -1187,7 +1200,7 @@ def posted(
   room = try member_room(db, person, id)
   case room
     none -> return ok(Answer.NotFound)
-    some(found) -> return post_to(db, cable, cache, person, found, body, sent_id, stream, max_length)
+    some(found) -> return post_to(db, cable, cache, person, found, sent, sent_id, stream, max_length)
   end
 end
 
@@ -1197,20 +1210,25 @@ def post_to(
   cache: Optional[Cache.Store],
   person: Auth.User,
   room: Rooms.Room,
-  body: String,
+  sent: Sent,
   sent_id: String,
   stream: Bool,
   max_length: Int,
 ) -> Result[Answer]
-  problem = Rooms.body_problem(body, max_length)
+  problem = Rooms.body_problem(sent.text, max_length)
   if problem != ""
-    page = try room_page(db, cable, cache, person, room, none, composer(problem, body))
+    page = try room_page(db, cable, cache, person, room, none, composer(problem, sent.text))
     return ok(Answer.Page(422, page))
   end
 
   # The insert stores nothing for a person who was deactivated since the filter looked them up, nor in a room that was
   # deleted since the membership check (which also took the person out of it): looking the room up again tells which.
-  stored = try Rooms.post(db, room.id, person.id, sent_id, HtmlSanitizer.from_text(body))
+  html = sent.text
+  if not sent.html
+    html = HtmlSanitizer.from_text(sent.text)
+  end
+
+  stored = try Rooms.post(db, room.id, person.id, sent_id, html)
   case stored
     none -> return ok(try refused_post(db, person, room))
     some(message) -> return ok(Answer.Posted(room, message, stream))
