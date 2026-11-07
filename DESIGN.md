@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation, built from `app/assets/stylesheets/` by `make assets`;
-change this file and the stylesheet together. One stylesheet, one script of about 17 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
+change this file and the stylesheet together. One stylesheet, one script of about 18 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -145,8 +145,11 @@ one (a message that is sent or heard is appended again, and the live part fetche
 created while the pager walked down). An answer that is a redirect (a signed-out session), a page with no message that the
 list lacks, or a refusal is not inserted; a lost connection, a 5xx or a 429 is tried again 3 times with a growing pause (a
 `Retry-After` is honoured, up to 30 s), and after that the pager sleeps until the browser is online again or the reader
-scrolls with the link in reach; the link stays all the while. The live catch-up decides what the fetched page covers by
-position, not by id, as an id does not follow time in a database that Rails seeded. The links stay in the markup as the way of a browser without the
+scrolls with the link in reach; the link stays all the while. A 204 is not the end at once: the room answers 204 for a message it does not have (one that was
+deleted), so the pager asks again from the neighbour of the cursor, and only a page with no news ends the walk. The live
+catch-up decides what the fetched page covers by position, not by id (an id does not follow time in a database that Rails
+seeded), and a fetched page with nothing in common with the list (40 or more messages came while the socket was away)
+becomes the list, with a link to the messages before it. The links stay in the markup as the way of a browser without the
 script, and the server markup of a message is not touched. **Scroll keeping** (`scroll_keeper.js`): the list is a
 column-reverse box, so the scroll starts at the newest message with no script and older messages added above never move
 it. For everything else that changes the thread (a message heard or sent, an edit, a boost, a link that goes away) the script remembers one

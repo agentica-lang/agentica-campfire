@@ -335,7 +335,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). The SCSS layout
   rule (grid first, flex only for one-dimensional bits) is at the top of `application.scss`. `/assets/` is public
   (`AuthWeb.public?`). The script is progressive enhancement: the room page, the edit page and every page with the sidebar link it, every form works
-  without it, and it stays about 17 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
+  without it, and it stays about 18 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
   `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
   open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that

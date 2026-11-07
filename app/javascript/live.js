@@ -1,5 +1,5 @@
 import { localize } from "./local_time.js";
-import { atLatest, LATEST_EVENT } from "./room_page.js";
+import { atLatest, LATEST_EVENT, WINDOW_EVENT } from "./room_page.js";
 
 /* The live part: one WebSocket to `/cable` (Action Cable, `actioncable-v1-json`), opened by every page with the sidebar.
    What it hears is a Turbo Stream, which it applies itself (append, prepend, replace, update, remove, before, after;
@@ -449,8 +449,16 @@ export function startLive() {
     // gone; otherwise only the ones from the oldest fetched one that the list has on (the ones before it are on pages that
     // the fetch did not cover, the older messages that the pager loaded).
     var empty = theirs.children.length === 0;
+    // A fetched page that has no message of the list in common (40 or more were made while the socket was away) leaves a
+    // gap that no position can fill: the list is made the fetched page, with a link to the messages before it.
+    var gap =
+      !boundary &&
+      !empty &&
+      Array.prototype.some.call(list.children, function (item) {
+        return item.id && mine.seen[item.id];
+      });
     Array.prototype.slice.call(list.children).forEach(function (item) {
-      var covered = empty || (boundary && (item === boundary || boundary.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING));
+      var covered = gap || empty || (boundary && (item === boundary || boundary.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING));
       if (item.id && mine.seen[item.id] && !wanted[item.id] && !mine.touched[item.id] && covered) {
         item.remove();
       }
@@ -475,6 +483,10 @@ export function startLive() {
       } else if (previous) {
         previous.after(copy);
         here = copy;
+      } else if (boundary) {
+        // A message that the list lacks, before the first one that it has: it goes there, not at the top of the list.
+        boundary.before(copy);
+        here = copy;
       } else {
         list.prepend(copy);
         here = copy;
@@ -482,7 +494,30 @@ export function startLive() {
       previous = here;
     });
 
+    if (gap) {
+      linkOlder();
+    }
     syncEmpty();
+  }
+
+  // The "Older messages" link above a list that was made a new page: it points before the first message, and the pager is
+  // told, since it watched the link that was there (or none).
+  function linkOlder() {
+    var first = list.querySelector("[data-message-id]");
+    if (!first) {
+      return;
+    }
+
+    var notice = list.previousElementSibling;
+    if (!notice || !notice.classList.contains("more")) {
+      notice = document.createElement("p");
+      notice.className = "more";
+      notice.append(document.createElement("a"));
+      notice.firstChild.textContent = "Older messages";
+      list.parentNode.insertBefore(notice, list);
+    }
+    notice.firstChild.setAttribute("href", "/rooms/" + roomId + "?before=" + first.getAttribute("data-message-id"));
+    document.dispatchEvent(new Event(WINDOW_EVENT));
   }
 
   // The notice of a room with no message is in the page when it was made empty and is not when it was not, so the

@@ -37,9 +37,11 @@ export function startLocalTime() {
     return;
   }
 
+  // Both or neither: a `localize` that has the clock and not the stamp would fail on the first date.
   try {
-    clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+    var made = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
     stamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+    clock = made;
   } catch (e) {
     return;
   }

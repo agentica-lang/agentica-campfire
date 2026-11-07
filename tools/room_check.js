@@ -326,6 +326,70 @@ const settle = (page) => page.waitForTimeout(600);
   const now2 = await page.evaluate((id) => document.getElementById(id).getBoundingClientRect().top - document.querySelector(".scroller").getBoundingClientRect().top, spot2.id);
   check("the view keeps its place when the link to the latest goes away", Math.abs(now2 - spot2.at) < 2, `${spot2.at} -> ${now2}`);
 
+  // A message that is the cursor of the pager is deleted: the room answers 204 for a message it does not have, which is not
+  // the end. Both walks ask again from the neighbour.
+  const remove = (id) => other.evaluate((n) => fetch("/rooms/1/messages/" + n, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: new URLSearchParams({ _method: "delete" }) }).then((r) => r.status), id);
+  const roomIds = () => page.evaluate(() => fetch("/rooms/1").then((r) => r.text()).then((t) => [...t.matchAll(/data-message-id="(\d+)"/g)].map((m) => parseInt(m[1], 10))));
+  // The page `?before=AFTER` ends at the message CURSOR, more than 40 messages below the newest, so nothing but the pager
+  // brings the messages after it (the catch-up of the end of a walk could only show the newest 40). CURSOR is deleted
+  // as the first request for what is after it is in flight.
+  const newest40 = await roomIds();
+  const middle = await page.evaluate((id) => fetch("/rooms/1/messages?before=" + id).then((r) => r.text()).then((t) => [...t.matchAll(/data-message-id="(\d+)"/g)].map((m) => parseInt(m[1], 10))), newest40[0]);
+  const cursor = middle.at(-5);
+  const after = middle.at(-4);
+  let deleted = 0;
+  await page.route("**/rooms/1/messages?after=*", async (route) => {
+    if (++deleted === 1) await remove(cursor);
+    await route.continue();
+  });
+  await page.goto(base + `/rooms/1?before=${after}`);
+  // The reader scrolls down as each page comes, since the place is kept and the link goes below the view.
+  for (let n = 0; n < 8 && (await page.locator('.thread > .more a[href="/rooms/1"]').count()); n++) {
+    await toEnd(page);
+    await settle(page);
+  }
+  await page.unroute("**/rooms/1/messages?after=*");
+  const walked = await ids(page);
+  check("a deleted cursor does not end the walk down: the message after it comes, in order", walked.includes(after) && walked.every((v, i) => i === 0 || v > walked[i - 1]), `after ${after} cursor ${cursor}: ${JSON.stringify(walked)}`);
+
+  await page.goto(base + "/rooms/1");
+  const top = (await ids(page))[0];
+  let dropped = 0;
+  await page.route(OLDER, async (route) => {
+    if (++dropped === 1) await remove(top);
+    await route.continue();
+  });
+  await toTop(page);
+  await page.waitForFunction(() => document.querySelectorAll("[data-message-id]").length > 60, null, { timeout: 10000 }).then(
+    async () => check("a deleted first message does not end the walk up, and the link stays", (await page.locator(".thread > .more").count()) === 1),
+    async () => check("a deleted first message does not end the walk up, and the link stays", false, await count(page)),
+  );
+  await page.unroute(OLDER);
+
+  // 45 messages are made while the socket is down for good: the catch-up fetches the newest 40, which have nothing in
+  // common with the list. The list becomes that page, in order, with a link to what is before it, and paging up reaches
+  // the message that the list had.
+  await page.goto(base + "/rooms/1");
+  const known = (await ids(page)).at(-1);
+  await page.evaluate(() => { window.__down = true; window.__sockets.forEach((one) => one.close()); });
+  await page.waitForFunction(() => window.__sockets.every((one) => one.readyState === 3));
+  for (let n = 0; n < 45; n++) await post(other, `missed number ${n}`);
+  await page.evaluate(() => { window.__down = false; });
+  await page.waitForFunction((k) => [...document.querySelectorAll("[data-message-id]")].some((i) => parseInt(i.dataset.messageId, 10) > k + 40), known, { timeout: 15000 });
+  await settle(page);
+  const jumped = await ids(page);
+  check("a catch-up with nothing in common makes the list the newest page, in order", jumped.length === 40 && jumped.every((v, i) => i === 0 || v > jumped[i - 1]) && jumped.at(-1) === (await roomIds()).at(-1), JSON.stringify(jumped));
+  const older = await page.locator(".thread > .more a").getAttribute("href");
+  check("it has a link to what is before it", older === `/rooms/1?before=${jumped[0]}`, older);
+  await toTop(page);
+  await page.waitForFunction((k) => [...document.querySelectorAll("[data-message-id]")].some((i) => parseInt(i.dataset.messageId, 10) === k), known, { timeout: 10000 }).then(
+    async () => {
+      const filled = await ids(page);
+      check("paging up reaches the message that the list had, with no gap and none twice", filled.every((v, i) => i === 0 || v > filled[i - 1]) && new Set(filled).size === filled.length);
+    },
+    () => check("paging up reaches the message that the list had, with no gap and none twice", false),
+  );
+
   // A short newest message: the page that the walk loads is within 100px of the end, and the reader is taken to it.
   await walk(async () => null);
   check("a reader near the end is taken to it when the page becomes the latest", (await page.evaluate(() => -document.querySelector(".scroller").scrollTop)) < 2);

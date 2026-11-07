@@ -35,3 +35,7 @@ export function latestNotice(list) {
 
 // Sent on `document` by the pager when a page at a cursor reaches the newest message, so the live part can catch up.
 export var LATEST_EVENT = "campfire:latest";
+
+// Sent on `document` by the live part when it made the list a new page (a catch-up that had nothing in common with it),
+// so that the pager watches the link above it again.
+export var WINDOW_EVENT = "campfire:window";

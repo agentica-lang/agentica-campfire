@@ -11,7 +11,7 @@
      the reader scrolls with the link in reach; the link stays all the while.
    - When the "Latest messages" link has nothing more to load, the page is the latest one, and the live part is told
      (`LATEST_EVENT`) to fetch the room once, for what was created while the pager walked down. */
-import { olderNotice, latestNotice, LATEST_EVENT } from "./room_page.js";
+import { olderNotice, latestNotice, LATEST_EVENT, WINDOW_EVENT } from "./room_page.js";
 
 // How far from the edge of the view a link starts its load, so the page is there before the reader reaches the end.
 var REACH_PX = 300;
@@ -73,11 +73,16 @@ export function startMessagePager(page) {
     });
   }
 
-  // The message of the list that the cursor is: the first for `before`, the last for `after`.
-  function cursor(side) {
-    var items = list.querySelectorAll("[data-message-id]");
-    var item = items[side === "before" ? 0 : items.length - 1];
-    return item ? parseInt(item.getAttribute("data-message-id"), 10) || 0 : 0;
+  // The messages of the list that the cursor can be, the edge one first and its neighbour second: the first and second for
+  // `before`, the last and the one before it for `after`.
+  function cursors(side) {
+    var items = Array.prototype.slice.call(list.querySelectorAll("[data-message-id]"));
+    var near = side === "before" ? items.slice(0, 2) : items.slice(-2).reverse();
+    return near
+      .map(function (item) {
+        return parseInt(item.getAttribute("data-message-id"), 10) || 0;
+      })
+      .filter(Boolean);
   }
 
   // What the answer is made of: a page of messages ("" for a 204), or a refusal. A redirect is checked first, as a
@@ -104,15 +109,25 @@ export function startMessagePager(page) {
     return error;
   }
 
+  // Asks for the page at the first cursor. A 204 is not the end when the message that was the cursor may be gone (deleted
+  // since the list got it): the room answers 204 for a message it does not have. So the neighbour is asked once; at the
+  // real end it answers with the edge message that the list has already, which is no news and ends the walk.
+  function ask(side, ids, n) {
+    return fetch(base + "?" + side + "=" + ids[n], { credentials: "same-origin", headers: { Accept: "text/html" } })
+      .then(read)
+      .then(function (text) {
+        return text === "" && n + 1 < ids.length ? ask(side, ids, n + 1) : text;
+      });
+  }
+
   function load(side) {
-    var id = cursor(side);
-    if (busy[side] || !id) {
+    var ids = cursors(side);
+    if (busy[side] || !ids.length) {
       return;
     }
 
     busy[side] = true;
-    fetch(base + "?" + side + "=" + id, { credentials: "same-origin", headers: { Accept: "text/html" } })
-      .then(read)
+    ask(side, ids, 0)
       .then(function (text) {
         failures[side] = 0;
         if (!notice(side)) {
@@ -171,7 +186,7 @@ export function startMessagePager(page) {
       list.prepend(fresh);
       // The link of the fallback now points before what the page holds.
       var link = olderNotice(list).querySelector("a");
-      link.setAttribute("href", link.getAttribute("href").replace(/before=\d+/, "before=" + cursor("before")));
+      link.setAttribute("href", link.getAttribute("href").replace(/before=\d+/, "before=" + cursors("before")[0]));
     } else {
       list.append(fresh);
     }
@@ -197,6 +212,13 @@ export function startMessagePager(page) {
     var view = page.scroller.getBoundingClientRect();
     return side === "before" ? box.bottom > view.top - REACH_PX : box.top < view.bottom + REACH_PX;
   }
+
+  // The list was made a new page: its link above is a new one, and what the old one did is forgotten.
+  document.addEventListener(WINDOW_EVENT, function () {
+    asleep.before = false;
+    failures.before = 0;
+    watch("before");
+  });
 
   window.addEventListener("online", function () {
     wake("before");
