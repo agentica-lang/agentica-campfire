@@ -89,10 +89,18 @@ export ROOM_SETTINGS = "/rooms/:id/settings"
 ## `/rooms/:id/refresh?since=MILLISECONDS` gives the Turbo Streams of what a room gained since a time, and
 ## `/rooms/:id/@MESSAGE` is the room page around a message. Bond's params are whole segments, so the second is the route
 ## `ROOM_AT` that takes any segment after the room (a literal one, such as `messages`, is tried first), and the handler
-## checks that it is `AT_PREFIX` and a number.
+## checks that it is `AT_PREFIX` and a number. The bots' messages API has a segment there too, the key of the bot, so
+## both routes name it `:segment` (Bond wants one name for a place).
 export ROOM_REFRESH = "/rooms/:id/refresh"
-export ROOM_AT = "/rooms/:id/:at"
+export ROOM_AT = "/rooms/:id/:segment"
 export AT_PREFIX = "@"
+
+## The messages API of the chat bots (`Messages::ByBotsController`): the key of the bot (`ID-TOKEN`) is in the path and
+## is the whole login, so these are not behind the sign-in filter (`AuthWeb.bot_api?`). A `GET` of `BOT_MESSAGES` lists
+## the room (`?before=ID`, `?after=ID`), a `POST` posts the raw body, and a `PATCH` or `PUT` and a `DELETE` of
+## `BOT_MESSAGE` (`:message_id`) change a message of the bot.
+export BOT_MESSAGES = "/rooms/:id/:segment/messages"
+export BOT_MESSAGE = "/rooms/:id/:segment/messages/:message_id"
 
 ## The sidebar setting of a person for a room (`:id` is the room): the page that shows the choice and its form, and
 ## the save, a `PUT` or a `POST` with `_method` set to `METHOD_PUT` (as Rails' forms send it), with the field
@@ -204,6 +212,11 @@ end
 ## The path of the changes of a room since `millis`.
 export def room_refresh_path(room_id: Int, millis: Int) -> String
   return "/rooms/#{room_id}/refresh?since=#{millis}"
+end
+
+## The path of the messages API of the bot with this key in a room.
+export def bot_messages_path(room_id: Int, key: String) -> String
+  return "/rooms/#{room_id}/#{key}/messages"
 end
 
 ## The path of the join page of this code, which is also where its form posts.

@@ -4,7 +4,7 @@ The app serves the Action Cable WebSocket (`actioncable-v1-json`) at `/cable`, b
 [`bond-channels`](https://github.com/agentica-lang/packages) package. The Rails clients
 (`@rails/actioncable`, `turbo-rails`) and the load generator of the benchmark connect to it unchanged. The pages
 listen through their script (see "The pages" below); the HTTP endpoints work as they did, and a `POST` that stores a
-message also broadcasts it.
+message also broadcasts it, also the post, edit and delete of a chat bot through its key (the messages API).
 
 ## Connecting
 

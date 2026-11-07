@@ -9,12 +9,14 @@ import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
+import BotMessagesWeb from "bot_messages"
 import Bots from "../campfire/bots"
 import Database from "../campfire/repo/database"
 import Rooms from "../campfire/rooms"
 import RoomsWeb from "rooms"
 import Routes from "routes"
 import Views from "views"
+import {Config} from "../campfire/config"
 
 # The name of the field of Rails' form (`params.require(:user)`).
 USER_NAME = "user[name]"
@@ -36,11 +38,13 @@ enum Actor
   Turned(Answer)
 end
 
-## Adds the routes of the chat bots to `app`.
-export def add(app: Bond.App, pool: Database.Pool) -> Bond.App
+## Adds the routes of the chat bots to `app`. `config` says where the curl lines of the list start.
+export def add(app: Bond.App, pool: Database.Pool, config: Config) -> Bond.App
   return (
     app
-    |> Bond.get(Routes.BOTS) do |conn| respond(conn, pool, &list_answer) end
+    |> Bond.get(Routes.BOTS) do |conn|
+      respond(conn, pool) do |_, db, person| list_answer(db, person, BotMessagesWeb.origin(conn, config)) end
+    end
     |> Bond.post(Routes.BOTS) do |conn| respond(conn, pool, &create_answer) end
     |> Bond.get(Routes.BOT_NEW) do |conn| respond(conn, pool, &new_answer) end
     |> Bond.get(Routes.BOT_EDIT) do |conn| respond(conn, pool, &edit_answer) end
@@ -98,8 +102,17 @@ def gated(
   end
 end
 
-def list_answer(_conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
-  return ok(Answer.Page(Views.bots(try RoomsWeb.sidebar_of(db, person), try Bots.active(db))))
+# Each bot with the rooms it is in but the direct ones, which the curl lines of the list post to.
+def list_answer(db: Db.Connection, person: Auth.User, origin: String) -> Result[Answer]
+  bots = try Bots.active(db)
+  entries: List[Views.BotRooms] = []
+  for bot in bots
+    rooms = try Rooms.memberships(db, bot.id)
+    shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
+    entries = entries.push(Views.BotRooms(bot: bot, rooms: shared))
+  end
+
+  return ok(Answer.Page(Views.bots(try RoomsWeb.sidebar_of(db, person), entries, origin)))
 end
 
 def new_answer(_conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]

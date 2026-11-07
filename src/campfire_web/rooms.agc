@@ -138,6 +138,22 @@ export def sidebar_without(db: Db.Connection, person: Auth.User, open_room: Int)
   return ok(Views.sidebar(person.name, rooms, can_create, unread.select do |id| id != open_room end))
 end
 
+## `?before=ID` or `?after=ID`, the message that the page shows the ones before (or after). A value that is not a number
+## is a 400. The messages API of the bots reads its cursors the same way.
+export def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
+  values = try Bond.query_all(conn, name)
+  if values.empty?
+    return ok(none)
+  end
+
+  parsed = values[0].to_i
+  if not parsed.ok?
+    return Bond.bad_request("#{name} must be a whole number")
+  end
+
+  return ok(some(parsed.unwrap!))
+end
+
 # Whether the person may make an open or a closed room: an administrator always, anybody else unless the account
 # restricts it to administrators (`ensure_permission_to_create_rooms` of Rails). A direct message is never restricted.
 def may_create_rooms?(db: Db.Connection, person: Auth.User) -> Result[Bool]
@@ -1300,22 +1316,6 @@ def message_id(conn: Bond.Conn) -> Optional[Int]
   return none
 end
 
-# `?before=ID` or `?after=ID`, the message that the page shows the ones before (or after). A value that is not a number
-# is a 400.
-def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
-  values = try Bond.query_all(conn, name)
-  if values.empty?
-    return ok(none)
-  end
-
-  parsed = values[0].to_i
-  if not parsed.ok?
-    return Bond.bad_request("#{name} must be a whole number")
-  end
-
-  return ok(some(parsed.unwrap!))
-end
-
 # `?since=`, as Ruby's `to_i` reads it: the whitespace, the sign and the digits at the start, and nothing after them
 # (`12abc` is 12, `1.5e3` is 1), so a value with no digits is 0. More digits than any time has are as far in the future
 # as one can write, which no message is after.
@@ -1358,7 +1358,7 @@ end
 
 # The message of `/rooms/ID/@MESSAGE`: `none` for a segment that is not `@` and a whole number.
 def at_message(conn: Bond.Conn) -> Optional[Int]
-  text = Bond.param(conn, "at").unwrap_or("")
+  text = Bond.param(conn, "segment").unwrap_or("")
   if not text.start_with?(Routes.AT_PREFIX)
     return none
   end

@@ -51,6 +51,13 @@ ASSETS_PREFIX = "#{Routes.ASSETS}/"
 # the handler without telling anything else.
 JOIN_SEGMENTS = 3
 
+# The segments of `/rooms/ID/KEY/messages` and of `/rooms/ID/KEY/messages/ID`.
+BOT_LIST_SEGMENTS = 4
+BOT_MESSAGE_SEGMENTS = 5
+
+# The request headers that `Bond.csrf` reads.
+CROSS_SITE_HEADERS = Set.new(["origin", "sec-fetch-site"])
+
 BAD_LOGIN = "Wrong email or password"
 TOO_MANY = "Too many sign-in attempts, try again later"
 
@@ -70,7 +77,8 @@ RESET_SUBJECT = "Reset your Campfire password"
 ## of the first run, the sign-in page, the sign-out and the password reset (which is only there while the `mailer` can
 ## send email). The filters run in this order, and `Bond.csrf` goes first so that a forged request is refused before
 ## any work. A missing `Sec-Fetch-Site` and `Origin` (a tool, not a browser) passes, which is what the specs and `curl`
-## send.
+## send. The messages API of the bots is the exception to the check (`unmarked`), and a path that `bot_api?` names needs
+## no session.
 export def add(
   app: Bond.App,
   config: Config,
@@ -86,6 +94,7 @@ export def add(
   attempts = RateLimit.new()
   return (
     app
+    |> Bond.before() do |conn| ok(unmarked(conn)) end
     |> Bond.csrf()
     |> Bond.before() do |conn| reject_banned(conn, pool, bans) end
     |> Bond.sessions(session_options(config))
@@ -137,9 +146,36 @@ export def form_method(conn: Bond.Conn) -> Result[String]
   return ok(methods[0].downcase)
 end
 
+## True for a path of the messages API of the chat bots, `/rooms/ID/KEY/messages` and `/rooms/ID/KEY/messages/ID`.
+## The key in the path is the whole login, so the sign-in filter lets it through and the handler looks the key up.
+## The parts are the non-empty segments, which is how the router reads a path, so a path that is true here is a path
+## of the API and not a browser path with an odd shape (`/rooms/1//messages` is the messages of room 1, and
+## `/rooms/1/messages/9`, the message 9, have `messages` where the key is).
+export def bot_api?(path: String) -> Bool
+  parts = path.split("/").select do |part| not part.empty? end
+  if parts.size != BOT_LIST_SEGMENTS and parts.size != BOT_MESSAGE_SEGMENTS
+    return false
+  end
+
+  return parts[0] == "rooms" and parts[2] != "messages" and parts[3] == "messages"
+end
+
 ## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it.
 export def private_page(conn: Bond.Conn) -> Bond.Conn
   return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "no-referrer")
+end
+
+# `Bond.csrf` refuses a post that a page of another site sent, judging by `Sec-Fetch-Site` and `Origin`. The messages
+# API of the bots is the one place where a page of another site may call (a dashboard that posts with a key, as Rails
+# lets a request with a bot key skip the check): its key is in the path and no cookie is read, so a forged post has
+# nothing to forge, and the browser routes keep the check. The two headers are left out of the request here, before the
+# check.
+def unmarked(conn: Bond.Conn) -> Bond.Conn
+  if not bot_api?(conn.path)
+    return conn
+  end
+
+  return conn.with(headers: conn.headers.select do |field| not CROSS_SITE_HEADERS.include?(field.name.downcase) end)
 end
 
 def session_options(config: Config) -> Bond.SessionOptions
@@ -244,7 +280,7 @@ def session_user(
 end
 
 def public?(path: String) -> Bool
-  if PUBLIC_PATHS.include?(path)
+  if PUBLIC_PATHS.include?(path) or bot_api?(path)
     return true
   end
 
