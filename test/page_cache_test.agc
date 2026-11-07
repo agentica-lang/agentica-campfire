@@ -213,7 +213,7 @@ def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Conn
 end
 
 # A person has `cursor_slots` places for each kind of older messages whatever cursors they ask for: more cursors write
-# over each other, the pages of another person and of the other kind stay, and a page is only found for the version,
+# over each other, the pages of another person stay, and a page is only found for the version,
 # the person, the room and the cursor it was made for.
 def cursor_pages_are_bounded_per_person(
   observer: Database.Observer,
@@ -235,23 +235,34 @@ def cursor_pages_are_bounded_per_person(
   seen = some(try Database.version(observer))
   bea = ana().with(id: 2, name: "Bea")
   PageCache.keep(PageCache.spot(pages, seen, PageCache.MESSAGES, bea, some(1), some(7)), "<p>Bea before</p>")
-  PageCache.keep(PageCache.spot(pages, seen, PageCache.AFTER, ana(), some(1), some(7)), "<p>Ana after</p>")
+  PageCache.keep(PageCache.spot(pages, seen, PageCache.AFTER, bea, some(1), some(7)), "<p>Bea after</p>")
   cursors = (1...61).to_a
   for cursor in cursors
     spot = PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(cursor))
     PageCache.keep(spot, "<p>#{cursor}</p>")
   end
 
+  for cursor in cursors
+    spot = PageCache.spot(pages, seen, PageCache.AFTER, ana(), some(1), some(cursor + 100))
+    PageCache.keep(spot, "<p>after #{cursor}</p>")
+  end
+
   held = cursors.select do |cursor|
     PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(cursor))).some?
   end
 
-  try Test.assert(held.size <= SLOTS, "a person holds more pages of older messages than they have places")
-  try Test.assert(held.size > 0, "no page of older messages is kept")
+  held_after = cursors.select do |cursor|
+    PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, ana(), some(1), some(cursor + 100))).some?
+  end
+
+  try Test.assert(held.size <= SLOTS, "a person holds more pages before a cursor than they have places")
+  try Test.assert(held.size > 0, "no page before a cursor is kept")
+  try Test.assert(held_after.size <= SLOTS, "a person holds more pages after a cursor than they have places")
+  try Test.assert(held_after.size > 0, "no page after a cursor is kept")
   other = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, bea, some(1), some(7)))
   try Test.eq(other.unwrap!.body, "<p>Bea before</p>")
-  after = PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, ana(), some(1), some(7)))
-  return Test.eq(after.unwrap!.body, "<p>Ana after</p>")
+  after = PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, bea, some(1), some(7)))
+  return Test.eq(after.unwrap!.body, "<p>Bea after</p>")
 end
 
 # A page in a place of the person is a miss for any other stamp (the version, the state of the person, the room, the
@@ -289,6 +300,13 @@ def cursor_stamp_mismatch_is_a_miss(observer: Database.Observer, writer: Db.Conn
       PageCache.spot(pages, seen, PageCache.MESSAGES, ana().with(name: "Anna"), some(1), some(5)),
     ).none?,
     "a page of another state of the person",
+  )
+
+  try Test.assert(
+    PageCache.lookup(
+      PageCache.spot(pages, seen, PageCache.MESSAGES, ana().with(role: "administrator"), some(1), some(5)),
+    ).none?,
+    "a page of another role of the person",
   )
 
   try Test.assert(
@@ -372,9 +390,9 @@ def main() -> Void
     Test.test("a person keeps a bounded number of search pages, each for its words, version and person") do
       run_in_dir(&searches_are_bounded_per_person)
     end,
-    Test.test("a person keeps a bounded number of pages of older messages for each kind, and others keep theirs") do
-      run_in_dir(&cursor_pages_are_bounded_per_person)
-    end,
+    Test.test(
+      "a person keeps a bounded number of pages of older messages for each kind, and another person keeps theirs",
+    ) do run_in_dir(&cursor_pages_are_bounded_per_person) end,
     Test.test("a page of older messages with another stamp is a miss that the next page writes over") do
       run_in_dir(&cursor_stamp_mismatch_is_a_miss)
     end,

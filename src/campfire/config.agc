@@ -64,9 +64,9 @@ export MIN_SEARCH_PAGES = 1
 export MAX_SEARCH_PAGES = 64
 
 ## The pages of older messages of each kind (`?before=` and `?after=`) that one person keeps in the cache of whole
-## pages when `CAMPFIRE_CURSOR_PAGES` is not set. The cursor is a number that the client chooses, so the cache gives each
-## person this many places for each kind and no more. A person who reads back through a room asks for a new
-## cursor for each screen, so this holds the last few screens of a few rooms.
+## pages when `CAMPFIRE_CURSOR_PAGES` is not set. The cursor is a number that the client chooses, so the cache gives
+## each person this many places for each kind and no more. A person who reads back through a room asks for a new cursor
+## for each screen, so this holds the last few screens of a few rooms.
 export DEFAULT_CURSOR_PAGES = 16
 
 ## The fewest and the most that `CAMPFIRE_CURSOR_PAGES` may ask for.
@@ -172,9 +172,9 @@ end
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`,
 ## `CAMPFIRE_SMTP_FROM`, `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`,
 ## `CAMPFIRE_STORAGE_DIR` and `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB`, `CAMPFIRE_RESPONSE_CACHE_MB`,
-## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES`, `CAMPFIRE_SESSION_CACHE_MB` and `CAMPFIRE_CURSOR_PAGES`, with the defaults for a
-## variable that is not set (the secret has none, and without the smtp url there is no email). An `error` says which
-## value is wrong.
+## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES`, `CAMPFIRE_SESSION_CACHE_MB` and `CAMPFIRE_CURSOR_PAGES`, with
+## the defaults for a variable that is not set (the secret has none, and without the smtp url there is no email). An
+## `error` says which value is wrong.
 export def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
