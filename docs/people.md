@@ -121,7 +121,7 @@ one. The picture is shown. A person who has one stored (it came with a database 
 upload waits for the attachments, #60) also gets a button that deletes it: `DELETE /users/me/avatar`
 (`Users::AvatarsController#destroy`; a `POST` with `_method` `delete` from the form; any other method on the path is
 `405` with the `Allow` list) takes the attachment, its blob and the variants with their blobs away in one
-transaction, deletes their files after it commits, touches `updated_at` (the avatar links carry it) and goes back to
+transaction, deletes their files after it commits, touches `updated_at` (the avatar links of the profile and the user page end in `?v=` and its digits, as Rails' `fresh_user_avatar` does, so the browser asks again) and goes back to
 the profile. A blob that something else is attached to stays. As for the profile, `:id` is `me` or the person's own id
 and another user's picture is `404`. A person with no picture gets the same redirect (Rails fails on it).
 

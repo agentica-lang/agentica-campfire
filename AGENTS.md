@@ -325,9 +325,11 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
 - Avatars: `/users/TOKEN/avatar` takes a Rails `signed_id` (purpose `user/avatar`) checked by `SignedId.verify` with the
   key of `SECRET_KEY_BASE`, and answers the WebP file of the variant that Rails stored (`Avatars.find`, `Avatars.path`:
   a key that is not 4 to 64 of `[0-9a-z]` is never made a path), else initials. The app makes no image. The router wants
-  one name for the segment under `/users/`, so the token is `:id`. `DELETE /users/me/avatar` (`Avatars.remove`, own
-  only, 404 for another's) deletes the rows in one transaction and the files after it commits. The Active Storage rows and files of the specs are
-  made by Rails (`specs/fixtures/rails/make_avatar.sh`).
+  one name for the segment under `/users/`, so the token is `:id`. The links of the profile and the user page end in
+  `?v=` and the digits of the user's `updated_at` (`Avatars.version`), so a change of the picture is a new link.
+  `DELETE /users/me/avatar` (`Avatars.remove`, own only, 404 for another's) deletes the rows in one transaction and the
+  files after it commits. The Active Storage rows and files of the specs are made by Rails
+  (`specs/fixtures/rails/make_avatar.sh`).
 - Assets: never edit `public/assets/` or `src/campfire_web/asset_names.agc`. Change `app/assets/stylesheets/` or
   `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
   and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`

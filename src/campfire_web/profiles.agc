@@ -131,7 +131,7 @@ def user_of(conn: Bond.Conn, db: Db.Connection, person: Auth.User, key: Optional
         profile,
         person.id,
         admin,
-        avatar_of(key, profile.id),
+        avatar_of(key, profile.id, profile.updated_at),
       )
 
       return ok(Answer.Page(200, page))
@@ -186,7 +186,9 @@ end
 
 # Takes the picture of the person away (the sign-in first, then the person: 404 for the picture of another) and goes
 # back to the profile. A person with none is the same redirect (Rails would fail on it). The files go once the rows
-# have committed; a file that cannot be deleted is left, since the rows no longer name it.
+# have committed; a file that cannot be deleted is left with a warning, since the rows no longer name it. (The stdlib
+# has no delete for a plain file: `Path.remove` also takes a folder, but the path here is made by `Avatars.path` from
+# a checked key, so it is never one.)
 def remove_avatar(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
   user = try AuthWeb.assigned_user(conn)
   case user
@@ -201,7 +203,10 @@ def removed(conn: Bond.Conn, env: Env, person: Auth.User) -> Result[Bond.Conn]
   for key in keys
     path = Avatars.path(env.config.storage_dir, key)
     if path.some?
-      _ = Path.remove(path.unwrap!)
+      gone = Path.remove(path.unwrap!)
+      if not gone.ok?
+        IO.warn("campfire: the file of the avatar blob #{key} could not be deleted: #{gone.message}")
+      end
     end
   end
 
@@ -342,7 +347,14 @@ def profile_form(
   rooms = try Rooms.memberships(db, person.id)
   removable = try Avatars.attached?(db, person.id)
   return ok(
-    Views.profile_page(try RoomsWeb.sidebar_of(db, person), shown, rooms, avatar_of(key, person.id), removable, note),
+    Views.profile_page(
+      try RoomsWeb.sidebar_of(db, person),
+      shown,
+      rooms,
+      avatar_of(key, person.id, shown.updated_at),
+      removable,
+      note,
+    ),
   )
 end
 
@@ -352,8 +364,10 @@ def own?(conn: Bond.Conn, person: Auth.User) -> Bool
   return id == ME or id == "#{person.id}"
 end
 
-# The path of the picture of the user, "" when the app has no key to sign it with.
-def avatar_of(key: Optional[Bytes], user_id: Int) -> String
+# The path of the picture of the user, "" when the app has no key to sign it with. It ends in `?v=` and the digits of
+# `updated_at` (Rails' `fresh_user_avatar`), so a change of the picture, which touches `updated_at`, is a new link and
+# the browser does not keep the old picture for the 30 minutes that the answer may be kept.
+def avatar_of(key: Optional[Bytes], user_id: Int, updated_at: String) -> String
   if key.none?
     return ""
   end
@@ -363,7 +377,7 @@ def avatar_of(key: Optional[Bytes], user_id: Int) -> String
     return ""
   end
 
-  return "/users/#{token.unwrap!}/avatar"
+  return "/users/#{token.unwrap!}/avatar?v=#{Avatars.version(updated_at)}"
 end
 
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
