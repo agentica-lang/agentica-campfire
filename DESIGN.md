@@ -1,7 +1,7 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation, built from `app/assets/stylesheets/` by `make assets`;
-change this file and the stylesheet together. One stylesheet, one script of about 16 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
+change this file and the stylesheet together. One stylesheet, one script of about 17 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
 images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
@@ -143,8 +143,10 @@ loads the 40 messages before the first one when it comes within 300px of the top
 (`?after=ID`) the same way near the bottom; a 204 takes the link away, and at the newest message the page is the latest
 one (a message that is sent or heard is appended again, and the live part fetches the room's latest page once, for what was
 created while the pager walked down). An answer that is a redirect (a signed-out session), a page with no message that the
-list lacks, or a refusal is not inserted; a lost connection, a 5xx or a 429 is tried again 3 times with a growing pause, and
-the link stays. The links stay in the markup as the way of a browser without the
+list lacks, or a refusal is not inserted; a lost connection, a 5xx or a 429 is tried again 3 times with a growing pause (a
+`Retry-After` is honoured, up to 30 s), and after that the pager sleeps until the browser is online again or the reader
+scrolls with the link in reach; the link stays all the while. The live catch-up decides what the fetched page covers by
+position, not by id, as an id does not follow time in a database that Rails seeded. The links stay in the markup as the way of a browser without the
 script, and the server markup of a message is not touched. **Scroll keeping** (`scroll_keeper.js`): the list is a
 column-reverse box, so the scroll starts at the newest message with no script and older messages added above never move
 it. For everything else that changes the thread (a message heard or sent, an edit, a boost, a link that goes away) the script remembers one

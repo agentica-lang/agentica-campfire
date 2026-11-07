@@ -433,23 +433,25 @@ export function startLive() {
       });
   }
 
-  function numberOf(item) {
-    return parseInt(item.getAttribute("data-message-id"), 10) || 0;
-  }
-
   function reconcile(theirs, mine) {
     var wanted = {};
-    var low = Infinity;
+    var boundary = null;
     Array.prototype.forEach.call(theirs.children, function (item) {
       wanted[item.id] = true;
-      low = Math.min(low, numberOf(item));
+      var here = document.getElementById(item.id);
+      if (!boundary && here && here.parentNode === list) {
+        boundary = here;
+      }
     });
 
-    // With no fetched message every message of the first list is gone; otherwise only the ones from the oldest fetched
-    // on (older ones are on a page that the fetch did not cover).
-    var covered = theirs.children.length === 0 ? 0 : low;
+    // What the fetch covers is told by position, not by id: the page is in the server's order (time, then id), and in a
+    // database that Rails seeded an id does not follow time. With no fetched message every message of the first list is
+    // gone; otherwise only the ones from the oldest fetched one that the list has on (the ones before it are on pages that
+    // the fetch did not cover, the older messages that the pager loaded).
+    var empty = theirs.children.length === 0;
     Array.prototype.slice.call(list.children).forEach(function (item) {
-      if (item.id && mine.seen[item.id] && !wanted[item.id] && !mine.touched[item.id] && numberOf(item) >= covered) {
+      var covered = empty || (boundary && (item === boundary || boundary.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING));
+      if (item.id && mine.seen[item.id] && !wanted[item.id] && !mine.touched[item.id] && covered) {
         item.remove();
       }
     });

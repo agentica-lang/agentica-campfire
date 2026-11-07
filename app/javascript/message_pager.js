@@ -2,16 +2,25 @@
    list loads the 40 messages before the first one (`/rooms/ID/messages?before=ID`) when it comes near the top of the
    view, and on a page that does not end at the newest message the "Latest messages" link loads the 40 after the last one
    (`?after=ID`) when it comes near the bottom. Both links stay in the page as the fallback of a browser without the
-   script, and are taken away here when the server has nothing more (a 204, or a page with nothing new in it). Where the reader is does not move: the
-   scroll keeper (`scroll_keeper.js`) sees the list change. */
+   script, and are taken away here when the server has nothing more (a 204, or a page with nothing new in it). Where the
+   reader is does not move: the scroll keeper (`scroll_keeper.js`) sees the list change.
+   - An answer that is a redirect (a session that ended: `fetch` follows it to the sign-in page and calls it a success) is a
+     refusal, and nothing of it is inserted.
+   - A load that failed for lack of a connection, or with a 5xx or a 429 (which may say when to come back, `Retry-After`),
+     is tried again 3 times with a growing pause. After that the pager is asleep until the browser says it is online or
+     the reader scrolls with the link in reach; the link stays all the while.
+   - When the "Latest messages" link has nothing more to load, the page is the latest one, and the live part is told
+     (`LATEST_EVENT`) to fetch the room once, for what was created while the pager walked down. */
 import { olderNotice, latestNotice, LATEST_EVENT } from "./room_page.js";
 
 // How far from the edge of the view a link starts its load, so the page is there before the reader reaches the end.
-var REACH = "300px 0px";
-// A load that failed for lack of a connection, or with a 5xx or 429, is tried again after 2 s, 4 s and 8 s; then the link
-// is left for the reader to follow.
+var REACH_PX = 300;
+var REACH = REACH_PX + "px 0px";
+// The pauses before the tries of a failed load: 2 s, 4 s and 8 s, or what the server asked for when that is longer (up to
+// 30 s).
 var RETRY_MS = 2000;
 var TRIES = 3;
+var LONGEST_WAIT_S = 30;
 
 export function startMessagePager(page) {
   "use strict";
@@ -25,6 +34,8 @@ export function startMessagePager(page) {
   var seen = new IntersectionObserver(visible, { root: page.scroller, rootMargin: REACH });
   var busy = { before: false, after: false };
   var failures = { before: 0, after: 0 };
+  // The side whose tries ran out: nothing is asked for until `wake`.
+  var asleep = { before: false, after: false };
 
   // The paragraph (`.more`) with the link, for each direction; null when the page lacks it.
   function notice(side) {
@@ -69,19 +80,28 @@ export function startMessagePager(page) {
     return item ? parseInt(item.getAttribute("data-message-id"), 10) || 0 : 0;
   }
 
-  // What the answer made of: a page of messages ("" for a 204), or a refusal. A redirect is a refusal: a session that
-  // ended is answered with the sign-in page, which `fetch` follows and calls a success.
+  // What the answer is made of: a page of messages ("" for a 204), or a refusal. A redirect is checked first, as a
+  // redirected answer is not the one that was asked for, whatever its status says.
   function read(response) {
+    if (response.redirected) {
+      throw refusal(false, 0);
+    }
     if (response.status === 204) {
       return "";
     }
-    if (response.redirected || !response.ok) {
-      var error = new Error("refused");
+    if (!response.ok) {
       // A server that is busy or limiting may answer again; the other refusals will not change.
-      error.again = response.status >= 500 || response.status === 429;
-      throw error;
+      var seconds = parseInt(response.headers.get("Retry-After"), 10);
+      throw refusal(response.status >= 500 || response.status === 429, seconds > 0 ? Math.min(seconds, LONGEST_WAIT_S) * 1000 : 0);
     }
     return response.text();
+  }
+
+  function refusal(again, wait) {
+    var error = new Error("refused");
+    error.again = again;
+    error.wait = wait;
+    return error;
   }
 
   function load(side) {
@@ -114,11 +134,16 @@ export function startMessagePager(page) {
 
         seen.unobserve(one);
         // No connection (a TypeError of fetch) or a busy server: tried again a few times; the link stays either way.
-        if ((error.again === undefined || error.again) && failures[side] < TRIES) {
+        if (error.again === false) {
+          return;
+        }
+        if (failures[side] < TRIES) {
           failures[side] += 1;
           setTimeout(function () {
             watch(side);
-          }, RETRY_MS * Math.pow(2, failures[side] - 1));
+          }, Math.max(RETRY_MS * Math.pow(2, failures[side] - 1), error.wait || 0));
+        } else {
+          asleep[side] = true;
         }
       })
       .then(function () {
@@ -152,6 +177,42 @@ export function startMessagePager(page) {
     }
     return true;
   }
+
+  function wake(side) {
+    if (asleep[side]) {
+      asleep[side] = false;
+      failures[side] = 0;
+      watch(side);
+    }
+  }
+
+  // Is the link of this side within reach of the view (the same distance as the observer's)?
+  function near(side) {
+    var one = notice(side);
+    if (!one) {
+      return false;
+    }
+
+    var box = one.getBoundingClientRect();
+    var view = page.scroller.getBoundingClientRect();
+    return side === "before" ? box.bottom > view.top - REACH_PX : box.top < view.bottom + REACH_PX;
+  }
+
+  window.addEventListener("online", function () {
+    wake("before");
+    wake("after");
+  });
+  page.scroller.addEventListener(
+    "scroll",
+    function () {
+      ["before", "after"].forEach(function (side) {
+        if (asleep[side] && near(side)) {
+          wake(side);
+        }
+      });
+    },
+    { passive: true },
+  );
 
   watch("before");
   watch("after");

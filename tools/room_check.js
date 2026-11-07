@@ -7,7 +7,9 @@
 //   BASE=http://127.0.0.1:3592 CHROMIUM=/usr/bin/chromium PLAYWRIGHT_CORE=playwright-core node tools/room_check.js
 //
 // It needs a new database (it makes the first admin, "ana@example.com"), `playwright-core` and a Chromium, as
-// `keys_check.js` does. It adds 130 messages to room 1 and exits 1 when a check fails.
+// `keys_check.js` does. It adds 130 messages to room 1 and exits 1 when a check fails. With DATA_DIR (the data folder of
+// the app, node 22.5 or later for `node:sqlite`) it also makes a room whose ids are not in the order of time, as a
+// database that Rails seeded can have.
 const { chromium } = require(process.env.PLAYWRIGHT_CORE || "playwright-core");
 const base = process.env.BASE || "http://127.0.0.1:3592";
 const PASSWORD = "correct horse battery";
@@ -55,7 +57,8 @@ const settle = (page) => page.waitForTimeout(600);
   await context.addInitScript(() => {
     const Socket = window.WebSocket;
     window.__sockets = [];
-    window.WebSocket = function (...args) { const one = new Socket(...args); window.__sockets.push(one); return one; };
+    // With `__down` set a connection goes to a port that refuses it, so the page cannot reconnect until it is cleared.
+    window.WebSocket = function (url, ...rest) { const one = new Socket(window.__down ? "ws://127.0.0.1:9/cable" : url, ...rest); window.__sockets.push(one); return one; };
     window.WebSocket.prototype = Socket.prototype;
   });
   const page = await context.newPage();
@@ -85,18 +88,25 @@ const settle = (page) => page.waitForTimeout(600);
     return new Promise((done) => setTimeout(() => done(t.textContent), 50));
   });
   check("a time of another day has its date, in the zone of the viewer", old === "Jan 3, 2020, 5:04 AM", old);
+  // Two times that come in together, the first with no valid instant: it keeps its text and the second is still localized
+  // (a formatter that is given an invalid date throws, which would end the pass over the times).
   const bad = await page.evaluate(() => {
-    const t = document.createElement("time");
-    t.setAttribute("datetime", "not a time");
-    t.textContent = "20:04";
-    document.querySelector('[id^="messages_rooms_"] [data-message-id] h3').append(t);
+    const holder = document.createElement("span");
+    const broken = document.createElement("time");
+    broken.setAttribute("datetime", "not a time");
+    broken.textContent = "20:04";
+    const fine = document.createElement("time");
+    fine.setAttribute("datetime", "2020-01-02T20:04:05.000Z");
+    holder.append(broken, fine);
+    document.querySelector('[id^="messages_rooms_"] [data-message-id] h3').append(holder);
     const bare = document.createElement("time");
     bare.setAttribute("datetime", "2020-01-02T20:04:05.000Z");
     document.querySelector('[id^="messages_rooms_"] [data-message-id] h3').append(bare);
-    return new Promise((done) => setTimeout(() => done([t.textContent, bare.textContent]), 50));
+    return new Promise((done) => setTimeout(() => done([broken.textContent, fine.textContent, bare.textContent]), 50));
   });
   check("a time with no valid instant keeps the server's text", bad[0] === "20:04", bad[0]);
-  check("a <time> that is added by itself is localized", bad[1] === "Jan 3, 2020, 5:04 AM", bad[1]);
+  check("a time after it is still localized", bad[1] === "Jan 3, 2020, 5:04 AM", bad[1]);
+  check("a <time> that is added by itself is localized", bad[2] === "Jan 3, 2020, 5:04 AM", bad[2]);
 
   // A person who is signed out: the answer to a page of older messages is the sign-in page after a redirect, which the
   // list must not take in, and which is not asked for again and again.
@@ -196,11 +206,16 @@ const settle = (page) => page.waitForTimeout(600);
   );
 
   // The reconnect of a page that walked down from a cursor: its list is not the page at its address any more, and the
-  // catch-up must neither remove the messages after the cursor nor miss the one that came while the socket was away.
+  // catch-up must neither remove the messages after the cursor nor miss the one that came while the socket was away. The
+  // message is posted while the socket is down for good (the page cannot reconnect until `__down` is cleared).
   const kept = await ids(page);
-  await page.evaluate(() => window.__sockets.forEach((one) => one.close()));
+  await page.evaluate(() => { window.__down = true; window.__sockets.forEach((one) => one.close()); });
+  await page.waitForFunction(() => window.__sockets.every((one) => one.readyState === 3));
   await post(other, "missed while the socket was away");
-  await page.waitForFunction((k) => document.querySelectorAll("[data-message-id]").length === k + 1, kept.length, { timeout: 10000 }).then(
+  await page.waitForTimeout(400);
+  check("the message is missed while the socket is down", (await count(page)) === kept.length);
+  await page.evaluate(() => { window.__down = false; });
+  await page.waitForFunction((k) => document.querySelectorAll("[data-message-id]").length === k + 1, kept.length, { timeout: 15000 }).then(
     async () => {
       const now = await ids(page);
       check("a reconnect keeps what the page has and brings the missed message", kept.every((v, i) => now[i] === v) && now.length === kept.length + 1);
@@ -208,15 +223,144 @@ const settle = (page) => page.waitForTimeout(600);
     async () => check("a reconnect keeps what the page has and brings the missed message", false, (await count(page)) + " of " + (kept.length + 1)),
   );
 
-  // The end of an `after` walk with the reader near the end: the link goes, and the reader is taken to the end. A short
-  // message is the newest, so the one that the walk loads is within 100px of the end.
-  await post(other, "x");
-  const last = await page.evaluate(() => fetch("/rooms/1").then((r) => r.text()).then((t) => Math.max(...[...t.matchAll(/data-message-id="(\d+)"/g)].map((m) => parseInt(m[1], 10)))));
-  await page.goto(base + `/rooms/1?before=${last}`);
-  await page.waitForFunction(() => !document.querySelector('.thread > .more a[href="/rooms/1"]'));
+  // What the pager does when the server fails. Each case loads the room again (40 messages, an older link) and reaches for
+  // the top; `times` are the moments of the requests for the older page.
+  const OLDER = "**/rooms/1/messages?before=*";
+  async function reach(handler) {
+    await page.unroute(OLDER).catch(() => {});
+    const times = [];
+    await page.route(OLDER, (route) => { times.push(Date.now()); return handler(route, times.length); });
+    await page.goto(base + "/rooms/1");
+    await toTop(page);
+    return times;
+  }
+  const loaded = (n, ms) => page.waitForFunction((k) => document.querySelectorAll("[data-message-id]").length === k, n, { timeout: ms || 10000 }).then(() => true, () => false);
+
+  let times = await reach((route, n) => (n === 1 ? route.fulfill({ status: 503, body: "busy" }) : route.continue()));
+  check("a 503 is tried again, and the page comes", (await loaded(80)) && times.length === 2 && times[1] - times[0] >= 1800, JSON.stringify(times));
+
+  times = await reach((route, n) => (n === 1 ? route.fulfill({ status: 429, headers: { "Retry-After": "3" }, body: "slow down" }) : route.continue()));
+  check("a 429 is tried again after the Retry-After, and the page comes", (await loaded(80)) && times.length === 2 && times[1] - times[0] >= 2900, JSON.stringify(times));
+
+  times = await reach((route) => route.fulfill({ status: 404, body: "gone" }));
+  await page.waitForTimeout(3000);
+  check("a refusal that will not change is asked for once", times.length === 1 && (await page.locator(".thread > .more a").count()) === 1, times.length);
+
+  times = await reach((route) => route.fulfill({ status: 503, body: "busy" }));
+  await page.waitForTimeout(15000);
+  const dead = times.length;
+  check("a failing server is asked for 4 times and then left alone, the link stays", dead === 4 && (await count(page)) === 40 && (await page.locator(".thread > .more a").count()) === 1, dead);
+  await page.unroute(OLDER);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  check("the pager wakes when the browser is online again", await loaded(80, 5000));
+
+  times = await reach((route) => route.fulfill({ status: 503, body: "busy" }));
+  await page.waitForTimeout(15000);
+  await page.unroute(OLDER);
+  await page.evaluate(() => { document.querySelector(".scroller").scrollTop = -2000; });
   await settle(page);
-  check("the walk ends with the newest message", (await ids(page)).at(-1) === last);
+  check("it stays asleep while the link is far", (await count(page)) === 40);
+  await toTop(page);
+  check("it wakes when the reader scrolls to the link", await loaded(80, 5000));
+
+  await page.goto(base + "/rooms/1");
+  const copy = await page.evaluate(() => document.querySelector("[data-message-id]").outerHTML);
+  times = await reach((route) => route.fulfill({ status: 200, contentType: "text/html", body: copy }));
+  await page.waitForTimeout(1500);
+  check("a page with nothing new takes the link away and is not asked for again", times.length === 1 && (await count(page)) === 40 && (await page.locator(".thread > .more").count()) === 0, times.length);
+  await page.unroute(OLDER);
+
+  // The anchor of the keeper is replaced (an edit does it) while a message comes in below it: the same id is found again.
+  await page.goto(base + "/rooms/1");
+  await page.evaluate(() => { document.querySelector(".scroller").scrollTop = -1500; });
+  await settle(page);
+  const shifted = await page.evaluate(async () => {
+    const edge = document.querySelector(".scroller").getBoundingClientRect().top;
+    const list = document.querySelector('[id^="messages_rooms_"]');
+    const anchor = [...list.children].find((item) => item.getBoundingClientRect().bottom > edge);
+    const was = anchor.getBoundingClientRect().top - edge;
+    anchor.replaceWith(anchor.cloneNode(true));
+    const tall = document.createElement("div");
+    tall.style.height = "120px";
+    list.append(tall);
+    await new Promise((done) => setTimeout(done, 300));
+    const now = document.getElementById(anchor.id).getBoundingClientRect().top - edge;
+    tall.remove();
+    return [was, now];
+  });
+  check("the view keeps its place when the message at its top is replaced", Math.abs(shifted[0] - shifted[1]) < 2, JSON.stringify(shifted));
+
+  // The end of an `after` walk. The page `?before=LAST` has one message to walk to; the answer to the second `after` (the
+  // 204) is held, as the server gave it, while a message is made, and then handed over.
+  async function walk(duringHold) {
+    await page.unroute("**/rooms/1/messages?after=*").catch(() => {});
+    await post(other, "short");
+    const newest = await page.evaluate(() => fetch("/rooms/1").then((r) => r.text()).then((t) => Math.max(...[...t.matchAll(/data-message-id="(\d+)"/g)].map((m) => parseInt(m[1], 10)))));
+    let hits = 0;
+    let held = null;
+    await page.route("**/rooms/1/messages?after=*", async (route) => {
+      hits++;
+      const response = await route.fetch();
+      if (hits === 2) held = await duringHold();
+      await route.fulfill({ response });
+    });
+    await page.goto(base + `/rooms/1?before=${newest}`);
+    await page.waitForFunction(() => !document.querySelector('.thread > .more a[href="/rooms/1"]'), null, { timeout: 10000 });
+    await settle(page);
+    await page.unroute("**/rooms/1/messages?after=*");
+    return held;
+  }
+
+  await walk(() => post(other, "created while the last page was in flight"));
+  check("what is created while the walk ends is fetched by the catch-up", (await page.locator("text=created while the last page was in flight").count()) === 1);
+
+  const spot2 = await walk(async () => {
+    await page.evaluate(() => { document.querySelector(".scroller").scrollTop = -250; });
+    await page.waitForTimeout(300);
+    return page.evaluate(() => {
+      const edge = document.querySelector(".scroller").getBoundingClientRect().top;
+      const item = [...document.querySelectorAll("[data-message-id]")].find((i) => i.getBoundingClientRect().top > edge + 30);
+      return { id: item.id, at: item.getBoundingClientRect().top - edge };
+    });
+  });
+  const now2 = await page.evaluate((id) => document.getElementById(id).getBoundingClientRect().top - document.querySelector(".scroller").getBoundingClientRect().top, spot2.id);
+  check("the view keeps its place when the link to the latest goes away", Math.abs(now2 - spot2.at) < 2, `${spot2.at} -> ${now2}`);
+
+  // A short newest message: the page that the walk loads is within 100px of the end, and the reader is taken to it.
+  await walk(async () => null);
   check("a reader near the end is taken to it when the page becomes the latest", (await page.evaluate(() => -document.querySelector(".scroller").scrollTop)) < 2);
+
+  // A room whose ids are not in the order of time (the id of a database that Rails seeded does not follow it): 60 messages
+  // whose ids go down as time goes up. The page loads the 20 older ones, the socket is dropped, and the catch-up has to
+  // keep them, though their ids are above the lowest id of the newest 40.
+  if (process.env.DATA_DIR) {
+    const { DatabaseSync } = require("node:sqlite");
+    const room = await page.evaluate(() => fetch("/rooms", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: new URLSearchParams({ name: "Backwards" }) }).then((r) => new URL(r.url).pathname.split("/").pop()));
+    const db = new DatabaseSync(process.env.DATA_DIR + "/campfire.db");
+    db.exec("pragma busy_timeout = 5000");
+    for (let i = 0; i < 60; i++) {
+      const at = `2026-03-01 10:${String(i).padStart(2, "0")}:00.000000`;
+      db.prepare("insert into messages (id, room_id, creator_id, client_message_id, created_at, updated_at) values (?, ?, 1, 'seed', ?, ?)").run(9000 - i, room, at, at);
+      db.prepare("insert into action_text_rich_texts (record_type, record_id, name, body, created_at, updated_at) values ('Message', ?, 'body', ?, ?, ?)").run(9000 - i, `<div>seeded ${i}</div>`, at, at);
+    }
+    db.close();
+    await page.goto(base + `/rooms/${room}`);
+    check("the page of the room shows the newest 40 by time", (await count(page)) === 40 && (await ids(page))[0] === 8980, (await ids(page))[0]);
+    await toTop(page);
+    check("older messages load, with ids above the first page's", await loaded(60));
+    // The link stays until the server says there is nothing older: with it in the page the pager would load them again.
+    await toTop(page);
+    await page.waitForFunction(() => !document.querySelector(".thread > .more"));
+    const all60 = await ids(page);
+    const asked = page.waitForRequest((request) => request.url().endsWith(`/rooms/${room}`), { timeout: 15000 });
+    await page.evaluate(() => window.__sockets.forEach((one) => one.close()));
+    await asked;
+    await page.waitForTimeout(1500);
+    const after60 = await ids(page);
+    check("the catch-up keeps every message of a room whose ids are out of time order", after60.length === 60 && all60.every((v, i) => after60[i] === v), after60.length);
+  } else {
+    console.log("SKIP the room with ids out of time order (DATA_DIR is not set)");
+  }
 
   await browser.close();
   process.exit(failed ? 1 : 0);

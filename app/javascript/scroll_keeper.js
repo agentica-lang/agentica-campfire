@@ -1,7 +1,7 @@
-/* Keeps the reading position of a room, as `scroll_manager.js` of Rails Campfire does, whatever changes the list: older
-   messages loaded above, a message that arrives, one that is edited or boosted, the "Latest messages" link that goes away. It remembers where one message of the
-   view is (the anchor) and where the scroll is; when the list changes it puts the anchor back where it was, and when
-   the reader was at the newest message of the room it stays there.
+/* Keeps the reading position of a room, as `scroll_manager.js` of Rails Campfire does, whatever changes the thread: older
+   messages loaded above, a message that arrives, one that is edited or boosted, a "Latest messages" link that goes away.
+   It remembers where one message of the view is (the anchor) and where the scroll is; when the thread changes it puts
+   the anchor back where it was, and when the reader was at the newest message of the room it stays there.
    - The scroller is a column-reverse box: the newest end is the origin of `scrollTop` (0, negative above it), so
      the distance from the end is `-scrollTop`. The browser's own scroll anchoring is off for it (`overflow-anchor` in
      the stylesheet), so this is the only thing that moves the scroll.

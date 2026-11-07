@@ -109,8 +109,15 @@ it), `204` when there are none, `404` for a room that is not the person's. Every
 stylesheet, `/assets/campfire-DIGEST.css` (see [Assets](#assets)).
 
 In the browser, the script of the page also follows the `Older messages` link by scrolling: the 40 messages before the
-first one are loaded above the list when the link comes near the top, with the reader's place kept, and on a page that does
-not end at the newest message `Latest messages` does the same below it with `?after=` (`DESIGN.md`, "Script"). Each
+first one are loaded above the list when the link comes near the top, with the reader's place kept, and on a page that
+does not end at the newest message `Latest messages` does the same below it with `?after=` (`DESIGN.md`, "Script").
+An answer that is a redirect (a signed-out session) or a page with nothing new in it is not inserted, and the link goes
+or stays; a lost connection, a 5xx or a 429 is tried again 3 times (a `Retry-After` is honoured) and then the pager
+waits for the browser to be online or for the reader to scroll to the link. When the walk down reaches the newest
+message the page is the latest one, and the script fetches the room page once (`/rooms/ID`) for what was created
+meanwhile; the catch-up after a reconnect does the same and, whatever address the page has, treats the messages from the
+oldest fetched one that the list has on as covered, by position, not by id (an id does not follow time in a database
+that Rails seeded). Each
 `<time datetime>` is shown in the viewer's zone; the server's UTC clock is the text of a page without the script.
 
 `?after=ID` on the same route is the 40 messages after message ID, oldest first, `204` when there are none; with both
