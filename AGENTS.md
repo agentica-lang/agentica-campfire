@@ -49,7 +49,7 @@ Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmar
 app/            the sources of the assets: `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,
                 components, utilities) and `javascript/` (ES modules, `application.js` the entry)
 tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files and `src/campfire_web/asset_names.agc`
-public/assets/  the built, fingerprinted stylesheet and script (composer, keys, live updates), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+public/assets/  the built, fingerprinted stylesheet and script (composer, keys, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through fixtures/cable_peer.py, a raw-socket
@@ -60,7 +60,7 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
                 `make.sh` makes it again in a ruby container)
 test/           unit tests (*_test.agc)
-tools/          keys_check.js: the by-hand browser check of the composer keys (playwright-core, not in CI)
+tools/          keys_check.js and room_check.js: the by-hand browser checks of the composer keys and of the room page's scroll paging, scroll keeping and local time (playwright-core, not in CI)
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
@@ -335,7 +335,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). The SCSS layout
   rule (grid first, flex only for one-dimensional bits) is at the top of `application.scss`. `/assets/` is public
   (`AuthWeb.public?`). The script is progressive enhancement: the room page, the edit page and every page with the sidebar link it, every form works
-  without it, and it stays about 12 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
+  without it, and it stays about 16 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
   `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
   open its keyboard on each load).
 - The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that

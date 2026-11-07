@@ -1,3 +1,6 @@
+import { localize } from "./local_time.js";
+import { atLatest } from "./room_page.js";
+
 /* The live part: one WebSocket to `/cable` (Action Cable, `actioncable-v1-json`), opened by every page with the sidebar.
    What it hears is a Turbo Stream, which it applies itself (append, prepend, replace, update, remove, before, after;
    no Turbo library), or a notice that a room has something new.
@@ -24,8 +27,11 @@ export function startLive() {
   var list = main ? main.querySelector('[id^="messages_rooms_"]') : null;
   var match = list ? /_(\d+)$/.exec(list.id) : null;
   var roomId = match ? parseInt(match[1], 10) : null;
-  // A page of older messages (`?before=`) is not the end of the room: the newest message does not belong in it.
-  var latest = !location.search;
+  // A page of older messages (`?before=`, `/rooms/ID/@MESSAGE`) is not the end of the room: the newest message does not
+  // belong in it, until the pager has reached the end.
+  function latest() {
+    return atLatest(list);
+  }
 
   var subscriptions = [];
   var socket = null;
@@ -131,7 +137,7 @@ export function startLive() {
           one.rejected = false;
           send({ command: "subscribe", identifier: one.id });
         });
-        catchRoom = everWelcomed && roomSub !== null && latest;
+        catchRoom = everWelcomed && roomSub !== null && latest();
         catchSidebar = everWelcomed;
         everWelcomed = true;
         return;
@@ -251,7 +257,7 @@ export function startLive() {
         break;
       case "remove":
         target.remove();
-        if (list && latest && list.isConnected) {
+        if (list && latest() && list.isConnected) {
           syncEmpty();
         }
         break;
@@ -393,7 +399,7 @@ export function startLive() {
   // order. What arrived live since the catch-up began (a message that is not in the first list, or one that a stream
   // touched) stays as the stream made it, as the fetch may be older than the stream. The composer is not touched.
   function catchUp() {
-    if (!list || !latest || !roomId) {
+    if (!list || !latest() || !roomId) {
       return;
     }
 
@@ -454,6 +460,8 @@ export function startLive() {
       }
 
       var copy = document.importNode(item, true);
+      // The page in the list has its times in the viewer's zone, so the copy is compared in it too.
+      localize(copy);
       var here = document.getElementById(item.id);
       if (here && here.parentNode === list) {
         if (here.outerHTML !== copy.outerHTML) {
@@ -490,7 +498,7 @@ export function startLive() {
   }
 
   function room(html) {
-    if (typeof html !== "string" || !latest) {
+    if (typeof html !== "string" || !latest()) {
       return;
     }
 

@@ -108,6 +108,11 @@ the same markup without the layout or the sidebar: the 40 messages before `?befo
 it), `204` when there are none, `404` for a room that is not the person's. Every page links one fingerprinted
 stylesheet, `/assets/campfire-DIGEST.css` (see [Assets](#assets)).
 
+In the browser, the script of the page also follows the `Older messages` link by scrolling: the 40 messages before the
+first one are loaded above the list when the link comes near the top, with the reader's place kept, and on a page that does
+not end at the newest message `Latest messages` does the same below it with `?after=` (`DESIGN.md`, "Script"). Each
+`<time datetime>` is shown in the viewer's zone; the server's UTC clock is the text of a page without the script.
+
 `?after=ID` on the same route is the 40 messages after message ID, oldest first, `204` when there are none; with both
 cursors, `before` wins, as in Rails. A cursor that is not a number is `400`; one that names no message of the room gives
 nothing (`204`).
