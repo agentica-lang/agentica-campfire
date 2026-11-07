@@ -106,6 +106,10 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 - **People**: a list of rows; name in bold, email muted, `.badge` pills for `administrator` and `deactivated`, the action
   button at the end. On a phone the email takes its own line before it breaks mid-word. The join link is a dashed block.
 
+- **Search**: the page has the "Back to the room" link under the heading (the same text link as the other pages, only when
+  the person is in a room), then the form, then the recent searches as a list with a `.quiet` "Clear recent searches"
+  button under it (only when there are any; it asks to confirm).
+
 ## States
 
 - Hover: `--hover` tint on rows and links of the sidebar; the primary button darkens to `--accent-hover`.

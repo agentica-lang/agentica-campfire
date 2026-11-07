@@ -183,12 +183,15 @@ export def sidebar_spot(pages: Optional[Pages], seen: Optional[String], person: 
 end
 
 ## Where the search page of `person` for the words `query` goes (see `spot`): one of the `search_slots` places of the
-## person, which the words choose, kept with the version, the state of the person and the words.
+## person, which the words choose, kept with the version, the state of the person, the words and `wanted`, the room of
+## the `last_room` cookie: the page links back to a room that the cookie picks (`RoomsWeb.last_room_cookie`), which no
+## commit changes, so the cookie is part of the stamp, as the words are.
 export def search_spot(
   pages: Optional[Pages],
   seen: Optional[String],
   person: Auth.User,
   query: String,
+  wanted: Optional[Int],
 ) -> Optional[Spot]
   case pages
     none -> return none
@@ -199,12 +202,13 @@ export def search_spot(
       end
 
       words = Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS)
+      cookie = wanted.map do |id| id.to_s end.unwrap_or("")
       place = Digest.sha256(query.bytes)[0] % found.search_slots
       return some(
         Spot(
           pages: found,
           key: "page:#{SEARCH}:#{person.id}:#{place}",
-          stamp: "#{version.unwrap!}:#{state_of(person)}:#{words}",
+          stamp: "#{version.unwrap!}:#{state_of(person)}:#{words}:#{cookie}",
         ),
       )
   end

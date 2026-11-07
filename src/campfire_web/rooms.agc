@@ -154,6 +154,22 @@ export def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
   return ok(some(parsed.unwrap!))
 end
 
+## The room in the `last_room` cookie, `none` for no cookie and for one that is not a whole number (a client made it up).
+## It is only a wish: `Rooms.last_visited` checks the membership.
+export def last_room_cookie(conn: Bond.Conn) -> Optional[Int]
+  sent = Bond.cookie(conn, LAST_ROOM_COOKIE)
+  if not sent.ok?
+    return none
+  end
+
+  parsed = sent.unwrap!.to_i
+  if parsed.ok?
+    return some(parsed.unwrap!)
+  end
+
+  return none
+end
+
 # Whether the person may make an open or a closed room: an administrator always, anybody else unless the account
 # restricts it to administrators (`ensure_permission_to_create_rooms` of Rails). A direct message is never restricted.
 def may_create_rooms?(db: Db.Connection, person: Auth.User) -> Result[Bool]
@@ -179,21 +195,6 @@ def home_of(db: Db.Connection, person: Auth.User, wanted: Optional[Int]) -> Resu
     some(found) -> return ok(Answer.Redirect(Routes.room_path(found.id)))
     none -> return ok(Answer.Page(200, Views.home(try sidebar_of(db, person))))
   end
-end
-
-# The room in the cookie, `none` for no cookie and for one that is not a whole number (a client made it up).
-def last_room_cookie(conn: Bond.Conn) -> Optional[Int]
-  sent = Bond.cookie(conn, LAST_ROOM_COOKIE)
-  if not sent.ok?
-    return none
-  end
-
-  parsed = sent.unwrap!.to_i
-  if parsed.ok?
-    return some(parsed.unwrap!)
-  end
-
-  return none
 end
 
 # The answer, and for a room page that was served (a 200 or a 304) the cookie that makes it the person's last room, as

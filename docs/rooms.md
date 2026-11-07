@@ -249,7 +249,13 @@ letter, digit or `_` separates words, and each word goes to FTS5 in double quote
 `*`, `-`, `col:` and quotes are only text and no query can make the search fail. All the words must match
 (the porter tokenizer matches `coffees` for `coffee`). The query is shown escaped. Posting the form to
 `POST /searches` remembers the words (the 10 last, newest first, as `Search.record` does), shows them on the
-page, and redirects to the results; a get does not remember anything. There is no way to clear them yet.
+page, and redirects to the results; a get does not remember anything. `DELETE /searches/clear` (or a `POST` with
+`_method=delete`, which is the button under the list, with a confirmation) removes every recent search of the person who is
+signed in, and no one else's, and redirects to `/searches`; any other method is a 405 (`Allow: POST, DELETE`). The page
+links back to the room the person was in last (`Back to the room`: the room of the `last_room` cookie when they are in
+it, else the oldest of their rooms, as `last_room_visited` does; a person in no room gets no link). The kept search page
+holds the cookie in its stamp, and a clear is a commit, so a kept page never shows searches that were cleared or a stale
+link.
 
 ## Avatars
 

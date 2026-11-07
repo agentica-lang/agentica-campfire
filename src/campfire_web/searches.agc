@@ -1,5 +1,6 @@
 ## The search of messages: `GET /searches?q=words` shows the messages of the person's rooms that match, `POST
-## /searches` remembers what they searched for (the form of the page posts it) and goes to the results. What a person
+## /searches` remembers what they searched for (the form of the page posts it) and goes to the results, and `DELETE
+## /searches/clear` forgets all of them. The page links back to the room that the person was in last. What a person
 ## types is words (`Searches.words`), never a search expression, so no query can make the index fail. The results are
 ## read on the same connection as the sidebar, and a page has no message of a room that the person is not in.
 
@@ -9,6 +10,7 @@ import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Database from "../campfire/repo/database"
 import PageCache from "page_cache"
+import Rooms from "../campfire/rooms"
 import RoomsWeb from "rooms"
 import Routes from "routes"
 import Searches from "../campfire/searches"
@@ -21,12 +23,15 @@ enum Answer
 end
 
 ## Adds the routes of the search to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. The results
-## are kept whole in `pages` for one person, one query and one version of the database (`PageCache`).
+## are kept whole in `pages` for one person, one query, one version of the database and one `last_room` cookie
+## (`PageCache`); a clear is a commit, so the next page has none of the searches that it took away.
 export def add(app: Bond.App, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Bond.App
   return (
     app
     |> Bond.get(Routes.SEARCHES) do |conn| show(conn, pool, pages) end
     |> Bond.post(Routes.SEARCHES) do |conn| remember(conn, pool) end
+    |> Bond.post(Routes.SEARCHES_CLEAR) do |conn| post_clear(conn, pool) end
+    |> Bond.delete(Routes.SEARCHES_CLEAR) do |conn| clear(conn, pool) end
   )
 end
 
@@ -35,7 +40,7 @@ def show(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCache.Pages])
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> return ok(Bond.redirect(conn, Routes.SIGN_IN))
-    some(person) -> return shown(conn, pool, pages, person, query)
+    some(person) -> return shown(conn, pool, pages, person, query, RoomsWeb.last_room_cookie(conn))
   end
 end
 
@@ -47,16 +52,17 @@ def shown(
   pages: Optional[PageCache.Pages],
   person: Auth.User,
   query: String,
+  wanted: Optional[Int],
 ) -> Result[Bond.Conn]
   spot: Optional[PageCache.Spot] = none
   if query.length <= Searches.MAX_QUERY_LENGTH
-    spot = PageCache.search_spot(pages, PageCache.seen(conn), person, query)
+    spot = PageCache.search_spot(pages, PageCache.seen(conn), person, query, wanted)
   end
 
   kept = PageCache.lookup(spot)
   case kept
     some(page) -> return ok(PageCache.respond(conn, page))
-    none -> return made(conn, pool, spot, person, query)
+    none -> return made(conn, pool, spot, person, query, wanted)
   end
 end
 
@@ -66,15 +72,27 @@ def made(
   spot: Optional[PageCache.Spot],
   person: Auth.User,
   query: String,
+  wanted: Optional[Int],
 ) -> Result[Bond.Conn]
-  html = try Database.with_connection(pool) do |db| results_page(db, person, query) end
+  html = try Database.with_connection(pool) do |db| results_page(db, person, query, wanted) end
   return ok(PageCache.respond(conn, PageCache.keep(spot, html)))
 end
 
-def results_page(db: Db.Connection, person: Auth.User, query: String) -> Result[String]
+def results_page(db: Db.Connection, person: Auth.User, query: String, wanted: Optional[Int]) -> Result[String]
   messages = try Searches.messages(db, person.id, query)
   recent = try Searches.recent(db, person.id)
-  return ok(Views.search(try RoomsWeb.sidebar_of(db, person), query, messages, recent, person.id, person.role))
+  back = try back_path(db, person, wanted)
+  return ok(Views.search(try RoomsWeb.sidebar_of(db, person), query, messages, recent, back, person.id, person.role))
+end
+
+# The room that the link of the page goes back to (`@return_to_room` of Rails, which is `last_room_visited`), "" for a
+# person in no room: Rails has nothing to link to then, and neither does the page.
+def back_path(db: Db.Connection, person: Auth.User, wanted: Optional[Int]) -> Result[String]
+  room = try Rooms.last_visited(db, person.id, wanted)
+  case room
+    some(found) -> return ok(Routes.room_path(found.id))
+    none -> return ok("")
+  end
 end
 
 def remember(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
@@ -102,6 +120,34 @@ def keep(db: Db.Connection, person: Auth.User, query: String) -> Result[String]
   end
 
   return ok(Routes.search_path(query))
+end
+
+# The button of Rails' page: a `POST` with `_method` set to `delete`; any other is a 405 that lists the methods of the
+# path.
+def post_clear(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  method = try AuthWeb.form_method(conn)
+  if method != Routes.METHOD_DELETE
+    return ok(Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", Routes.SEARCHES_CLEAR_ALLOW))
+  end
+
+  return clear(conn, pool)
+end
+
+# Forgets the recent searches of the person who is signed in and of nobody else: the route names no one's searches, so
+# there is no other person's to find or to refuse. Back to the page, as Rails does.
+def clear(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  answer = try Database.with_connection(pool) do |db| cleared(conn, db) end
+  return ok(respond(conn, answer))
+end
+
+def cleared(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(Answer.SignedOut)
+    some(person) ->
+      try Searches.clear(db, person.id)
+      return ok(Answer.Redirect(Routes.SEARCHES))
+  end
 end
 
 # A page without `q` is a search for nothing, as Rails has it.
