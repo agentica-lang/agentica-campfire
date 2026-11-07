@@ -67,6 +67,8 @@ Feature: The chat bots of the account
     Given a bot "Robo" with the token "aaaaBBBB1111" exists
     When I get "/account/bots/3/edit"
     Then the status is 200
+    And the header "cache-control" is "no-store"
+    And the header "referrer-policy" is "no-referrer"
     And the body contains "<h1>Edit chat bot</h1>"
     And the body contains "value=\"Robo\""
     And the body contains "<code>3-aaaaBBBB1111</code>"

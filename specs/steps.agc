@@ -676,9 +676,9 @@ def accounts_as(conn: Db.Connection, email: String, action: String, user_id: Int
   return ok(change_name(try Accounts.reactivate(conn, actor_id, user_id)))
 end
 
-# `Bots` straight, which looks at the actor again inside its transaction: `action` is `create`, `rename`,
-# `reset_key` or
-# `deactivate` (`create` takes no bot). The outcome is kept as the `Accounts.Change` names it, as for `ask_accounts`.
+# `Bots` straight, which looks at the actor again inside its transaction: `action` is `create`, `rename`, `reset_key`
+# or `deactivate` (`create` takes no bot). The outcome is kept as the `Accounts.Change` names it, as
+# for `ask_accounts`.
 def ask_bots(ctx: BDD.Context, args: List[String]) -> BDD.Context
   outcome = with_database(ctx) do |conn| bots_as(conn, args[0], args[1], args[2].to_i!) end
   if not outcome.ok?

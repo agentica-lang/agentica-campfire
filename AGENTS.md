@@ -15,7 +15,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
-                page and the profile save, over SQL), bots.agc (the chat bots: make, rename, new key, deactivate, over SQL), bans.agc (ban and unban, the check of an address, over SQL),
+                page and the profile save, over SQL), bots.agc (the chat bots: make, rename, new key, deactivate, over
+                SQL), bans.agc (ban and unban, the check of an address, over SQL),
                 auth.agc
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
@@ -33,7 +34,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 the 503 of a failure), routes.agc
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
-                password reset), accounts.agc (the people page and those posts), bots.agc (the chat bots pages and posts), profiles.agc (the user page and the profile),
+                password reset), accounts.agc (the people page and those posts), bots.agc (the chat bots pages and
+                posts), profiles.agc (the user page and the profile),
                 rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
