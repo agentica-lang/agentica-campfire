@@ -719,14 +719,16 @@ export def edit_message(sidebar: String, room: Rooms.Room, one: Rooms.Message, t
   return layout("Edit message", body)
 end
 
-## The search page: the form, the recent searches (`recent`, the words of each) and, for a `query` (the words that
-## `Searches.words` made, "" for none), the messages that match it in the markup of the room page. The query is shown as
+## The search page: the form, the recent searches (`recent`, the words of each, with the button that clears them) and,
+## for a `query` (the words that `Searches.words` made, "" for none), the messages that match it in the markup of the
+## room page. `back` is the path of the room that the link at the top goes to, "" for none. The query is shown as
 ## text, and only the messages carry a `data-message-id`.
 export def search(
   sidebar: String,
   query: String,
   messages: List[Rooms.Message],
   recent: List[String],
+  back: String,
   user_id: Int,
   role: String,
 ) -> String
@@ -735,6 +737,9 @@ export def search(
     <%== sidebar %>
     <main id="main">
       <h1>Search</h1>
+    <% if not back.empty? %>
+      <p><a href="<%= back %>">Back to the room</a></p>
+    <% end %>
       <form method="post" action="<%= Routes.SEARCHES %>">
         <p>
           <label><span class="sr-only">Words</span>
@@ -750,6 +755,11 @@ export def search(
         <li><a href="<%= Routes.search_path(words) %>"><%= words %></a></li>
     <% end %>
       </ul>
+      <form method="post" action="<%= Routes.SEARCHES_CLEAR %>"
+        onsubmit="return confirm('Are you sure you want to clear your recent searches?')">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>">
+        <p><button type="submit" class="quiet">Clear recent searches</button></p>
+      </form>
     <% end %>
     <% if not query.empty? and messages.empty? %>
       <p class="empty">No messages match.</p>

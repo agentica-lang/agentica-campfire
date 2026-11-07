@@ -321,7 +321,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   a separator (as `SearchesController#query` does) and `Searches.match` puts each word in double quotes, so a query
   cannot make the index fail; never hand the text of a client to `MATCH` in any other way. A search reads the rooms the
   person has a `memberships` row for, any involvement, newest 100, shown oldest first, with `Rooms.MESSAGE_SELECT`.
-  Only `POST /searches` writes `searches`, as Rails does.
+  Only `POST /searches` writes `searches`, as Rails does, and `DELETE /searches/clear` (or a `POST` with `_method=delete`) deletes
+  the signed-in person's rows with one `where user_id = ?` and nothing else: the route names no other person. The page
+  links back to `Rooms.last_visited` (the `last_room` cookie), which is a header that no commit changes, so
+  `PageCache.search_spot` puts the cookie in the stamp.
 - Avatars: `/users/TOKEN/avatar` takes a Rails `signed_id` (purpose `user/avatar`) checked by `SignedId.verify` with the
   key of `SECRET_KEY_BASE`, and answers the WebP file of the variant that Rails stored (`Avatars.find`, `Avatars.path`:
   a key that is not 4 to 64 of `[0-9a-z]` is never made a path), else initials. The app makes no image. The router wants

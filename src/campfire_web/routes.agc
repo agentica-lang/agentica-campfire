@@ -43,6 +43,12 @@ export SCRIPT = AssetNames.SCRIPT
 ## the segment under `/users/`).
 export SIDEBAR = "/users/me/sidebar"
 export SEARCHES = "/searches"
+
+## Forgets the recent searches of the person who is signed in (`clear` of Rails' `SearchesController`): a `DELETE`, or a
+## `POST` with `_method` set to `METHOD_DELETE`, which is Rails' button. Any other `POST` is a 405 that lists
+## `SEARCHES_CLEAR_ALLOW`, which is the list that Bond itself gives for the path (a `GET`, `PUT` or `PATCH` is its 405).
+export SEARCHES_CLEAR = "/searches/clear"
+export SEARCHES_CLEAR_ALLOW = "POST, DELETE"
 export AVATAR = "/users/:id/avatar"
 
 ## The same path takes the removal of the picture of the person who is signed in (`:id` is `me`, or their id; another

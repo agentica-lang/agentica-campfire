@@ -81,6 +81,12 @@ export def recent(conn: Db.Connection, user_id: Int) -> Result[List[String]]
   return ok(rows.map do |row| text_of(row, "query") end)
 end
 
+## Forgets every recent search of the person and no one else's (`Current.user.searches.destroy_all` of
+## `SearchesController#clear`). It gives how many it removed.
+export def clear(conn: Db.Connection, user_id: Int) -> Result[Int]
+  return Db.execute(conn, "delete from searches where user_id = ?", [Db.Value.Int(user_id)])
+end
+
 def record_in(tx: Db.Connection, user_id: Int, query: String) -> Result[Void]
   touched = try Db.execute(
     tx,

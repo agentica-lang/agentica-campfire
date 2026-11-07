@@ -105,8 +105,8 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   try Test.eq(kept.unwrap!.etag, made.etag)
   bea = ana().with(id: 2, name: "Bea")
   try Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, seen, bea)).none?, "a sidebar of another person")
-  coffee = PageCache.search_spot(pages, seen, ana(), "coffee")
-  tea = PageCache.search_spot(pages, seen, ana(), "tea")
+  coffee = PageCache.search_spot(pages, seen, ana(), "coffee", none)
+  tea = PageCache.search_spot(pages, seen, ana(), "tea", none)
   try Test.assert(coffee.unwrap!.key != tea.unwrap!.key, "two queries share a key")
   try Test.assert(coffee.unwrap!.key != sidebar.unwrap!.key, "a search and a sidebar share a key")
   PageCache.remember_user(pages, seen, "token", lasting(ana(), HOUR_MS))
@@ -123,7 +123,11 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   try Test.assert(PageCache.known_user(pages, seen, "ghost").none?, "a person kept under an unreadable version")
   try Test.assert(PageCache.known_user(pages, some(""), "ghost").none?, "a person found under an unreadable version")
   try Test.assert(PageCache.sidebar_spot(pages, some(""), ana()).none?, "a sidebar under an unreadable version")
-  try Test.assert(PageCache.search_spot(pages, some(""), ana(), "tea").none?, "a search under an unreadable version")
+  try Test.assert(
+    PageCache.search_spot(pages, some(""), ana(), "tea", none).none?,
+    "a search under an unreadable version",
+  )
+
   try Db.execute(writer, "insert into notes (body) values ('x')", [])
   later = some(try Database.version(observer))
   try Test.assert(PageCache.known_user(pages, later, "token").none?, "a person kept across a commit")
@@ -184,30 +188,35 @@ def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Conn
 
   seen = some(try Database.version(observer))
   bea = ana().with(id: 2, name: "Bea")
-  PageCache.keep(PageCache.search_spot(pages, seen, bea, "coffee"), "<p>Bea</p>")
+  PageCache.keep(PageCache.search_spot(pages, seen, bea, "coffee", none), "<p>Bea</p>")
   queries: List[String] = []
   for n in 0...60
     queries = queries.push("words#{n}")
   end
 
   for query in queries
-    PageCache.keep(PageCache.search_spot(pages, seen, ana(), query), "<p>#{query}</p>")
+    PageCache.keep(PageCache.search_spot(pages, seen, ana(), query, none), "<p>#{query}</p>")
   end
 
-  held = queries.select do |query| PageCache.lookup(PageCache.search_spot(pages, seen, ana(), query)).some? end
+  held = queries.select do |query| PageCache.lookup(PageCache.search_spot(pages, seen, ana(), query, none)).some? end
   try Test.assert(held.size <= SLOTS, "a person holds more search pages than they have places")
   try Test.assert(held.size > 0, "no search page is kept")
-  other = PageCache.lookup(PageCache.search_spot(pages, seen, bea, "coffee"))
+  other = PageCache.lookup(PageCache.search_spot(pages, seen, bea, "coffee", none))
   try Test.eq(other.unwrap!.body, "<p>Bea</p>")
   last = queries.last
-  try Test.eq(PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last)).unwrap!.body, "<p>#{last}</p>")
+  try Test.eq(PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last, none)).unwrap!.body, "<p>#{last}</p>")
   try Test.assert(
-    PageCache.lookup(PageCache.search_spot(pages, seen, ana().with(name: "Anna"), last)).none?,
+    PageCache.lookup(PageCache.search_spot(pages, seen, ana().with(name: "Anna"), last, none)).none?,
     "a search page of another state of the person",
   )
 
+  try Test.assert(
+    PageCache.lookup(PageCache.search_spot(pages, seen, ana(), last, some(2))).none?,
+    "a search page for another last room",
+  )
+
   return Test.assert(
-    PageCache.lookup(PageCache.search_spot(pages, some("0:other"), ana(), last)).none?,
+    PageCache.lookup(PageCache.search_spot(pages, some("0:other"), ana(), last, none)).none?,
     "a search page of another version",
   )
 end
