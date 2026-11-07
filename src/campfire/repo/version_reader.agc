@@ -15,9 +15,11 @@
 ##   built with).
 ## - A statement that has stepped keeps a read transaction open until it is reset, and a second statement stepped
 ##   meanwhile would share that old snapshot and could give the number from before a commit that was already
-##   finished. The gate keeps one reader at a time between the step and the reset. It is a spin gate (a table entry,
-##   taken and given back in a few microseconds, and a waiter yields to the scheduler), not a `Native.mutex`: a
-##   mutex that parks the waiting scheduler cost 15 to 25 percent of the throughput in measurements.
+##   finished. The turn keeps one reader at a time between the step and the reset. It is a token in a channel of one
+##   place: taking it is a `recv`, giving it back a `send`, and a reader that finds none waits as a task (the
+##   scheduler runs others), so nothing parks a thread. It is not a `Native.mutex`: a mutex that parks the waiting
+##   scheduler cost 15 to 25 percent of the throughput in measurements. A spin on a table entry was tried first and
+##   burned the CPU of a machine with fewer cores than schedulers while the holder waited for its turn on one.
 
 import SqliteUrl from "pkg/db/sqlite/url"
 
@@ -28,12 +30,10 @@ OPEN_FLAGS = 65_601
 NUL_TERMINATED = -1
 SQL = "PRAGMA data_version"
 SCHEME = "sqlite:"
-GATE_KEY = 0
-# A holder keeps the gate for microseconds. A waiter that finds it still taken after this many ms takes it over,
-# because the holder is gone (a task cancelled between taking and giving it back), and the app must not stop with it.
-STUCK_MS = 1_000
-# How many yields a waiter makes between two looks at the clock.
-SPINS_PER_CLOCK_LOOK = 256
+# A holder keeps the token for microseconds, unless its scheduler is starved of CPU. A waiter that has waited this
+# long gives up (the page is made and not kept) and puts a token back, in case the holder is gone (a task cancelled
+# between taking and giving it back), so that the app does not stop reading versions with it.
+TURN_MS = 1_000
 
 extern "sqlite3"
   resource Handle, free: sqlite3_close_v2
@@ -46,11 +46,11 @@ extern "sqlite3"
   def sqlite3_errstr(code: C.Int32) -> C.String
 end
 
-## The connection and the gate that its readers take turns at. The task that opened it owns the connection.
+## The connection and the turn that its readers take. The task that opened it owns the connection.
 export struct Reader
   db: Handle
   stmt: Stmt
-  gate: ATS[Int, Bool]
+  turn: Channel[Bool]
 end
 
 ## Opens a read-only connection to the database that `url` names (`sqlite:PATH`, as the pool takes it; the settings
@@ -75,25 +75,31 @@ export def open(url: String) -> Result[Reader]
     return error("version reader: cannot prepare #{SQL}: #{sqlite3_errstr(made.result)}")
   end
 
-  gate: ATS[Int, Bool] = ATS.new()
-  return ok(Reader(db: opened.db, stmt: made.stmt, gate: gate))
+  turn: Channel[Bool] = Channel.new(1)
+  _ = turn.send(true, 0)
+  return ok(Reader(db: opened.db, stmt: made.stmt, turn: turn))
 end
 
-## Closes the connection, once the last reader is done: the app calls it after the server has stopped.
+## Closes the connection, once the last reader is done: the app calls it after the server has stopped. A read after
+## it is an `error`.
 export def close(reader: Reader) -> Void
-  enter(reader.gate)
-  Native.close(reader.stmt)
-  Native.close(reader.db)
-  reader.gate.delete(GATE_KEY)
+  if take(reader.turn)
+    Native.close(reader.stmt)
+    Native.close(reader.db)
+    give_back(reader.turn)
+  end
 end
 
 ## A text that is the same for two calls only when no other connection committed in between. An `error` (the database
-## is busy or the reader is closed) means that nothing is known, so the caller must not trust or keep anything it saw
-## before.
+## is busy, the reader is closed or the turn did not come) means that nothing is known, so the caller must not trust
+## or keep anything it saw before.
 export def version(reader: Reader) -> Result[String]
-  enter(reader.gate)
+  if not take(reader.turn)
+    return error("database error: the version reader is busy")
+  end
+
   value = current(reader)
-  reader.gate.delete(GATE_KEY)
+  give_back(reader.turn)
   if value < 0
     return error("database error: PRAGMA data_version could not be read")
   end
@@ -117,20 +123,17 @@ def current(reader: Reader) -> Int
   return value
 end
 
-# Takes the gate. A wait yields (`Task.sleep(0)`) so that the holder, which may be a task on this scheduler, runs.
-def enter(gate: ATS[Int, Bool]) -> Void
-  if gate.put_new(GATE_KEY, true)
-    return
+# True when the token is ours. When it did not come in `TURN_MS` the holder is lost: a new token is put in so that the
+# next readers are not stuck behind it too.
+def take(turn: Channel[Bool]) -> Bool
+  if turn.recv(TURN_MS).ok?
+    return true
   end
 
-  started = Time.now_ms()
-  spins = 0
-  while not gate.put_new(GATE_KEY, true)
-    Task.sleep(0)
-    spins += 1
-    if spins % SPINS_PER_CLOCK_LOOK == 0 and Time.now_ms() - started > STUCK_MS
-      gate.put(GATE_KEY, true)
-      return
-    end
-  end
+  _ = turn.send(true, 0)
+  return false
+end
+
+def give_back(turn: Channel[Bool]) -> Void
+  _ = turn.send(true, 0)
 end
