@@ -82,6 +82,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("I send {string} to {string} the text {string} with the Host {string}", &send_text_with_host),
     BDD.step("I send a PATCH to {string} the form:", &patch_form),
     BDD.step("I send a PATCH to {string} a message of {int} characters", &patch_message_of_length),
+    BDD.step("I send {string} to {string} a list of {int} items with no end tags", &send_open_list),
     BDD.step("I send a PUT to {string}", &put_to),
     BDD.step("I send a PUT to {string} the form:", &put_form),
     BDD.step("I submit the form of the page that posts to {string}", &submit_page_form),
@@ -431,6 +432,11 @@ end
 
 def send_text_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, args[0], args[1], List.repeat("x", args[2].to_i!).join(""))
+end
+
+# A `<ul>` of `args[2]` items, each `<li>x` with no end tag, as the body.
+def send_open_list(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return send(ctx, args[0], args[1], "<ul>" + List.repeat("<li>x", args[2].to_i!).join("") + "</ul>")
 end
 
 # The method that a browser form cannot send, with no body.

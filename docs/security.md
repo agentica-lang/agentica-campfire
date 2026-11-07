@@ -108,7 +108,9 @@ the route needs a sign-in and a shared cache must not hand it to anyone else.
 
 Message bodies are stored as sanitized HTML (`HtmlSanitizer.sanitize`), cleaned when they are read
 as well (a row that Rails wrote was never cleaned by this app; markup that is clean already comes
-out unchanged), and shown with `<%==` as element content only.
+out unchanged), and shown with `<%==` as element content only. A body longer than
+`CAMPFIRE_MAX_MESSAGE_LENGTH` is refused before the sanitizer reads it, so one message cannot cost
+unbounded work.
 
 ## The first administrator
 

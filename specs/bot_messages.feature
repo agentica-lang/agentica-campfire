@@ -42,6 +42,12 @@ Feature: The messages API of the chat bots
     Then the status is 201
     And the query "select count(*) from action_text_rich_texts where record_id = 1 and body like '%👋%' and body not like '%<script%' and body not like '%onerror%'" gives 1
 
+  Scenario: A list whose items have no end tags keeps every item
+    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" a list of 100 items with no end tags
+    Then the status is 201
+    And the query "select (length(body) - length(replace(body, '<li>', ''))) / 4 from action_text_rich_texts where record_id = 1" gives 100
+    And the query "select (length(body) - length(replace(body, '</li>', ''))) / 5 from action_text_rich_texts where record_id = 1" gives 100
+
   Scenario: The post is a commit, so the page of the room that was kept is made again, and a new message is announced live
     Given the cable peer starts
     And I sign in as "ana@example.com"

@@ -73,6 +73,15 @@ export DEFAULT_CURSOR_PAGES = 16
 export MIN_CURSOR_PAGES = 1
 export MAX_CURSOR_PAGES = 64
 
+## The longest message that `CAMPFIRE_MAX_MESSAGE_LENGTH` may leave when it is not set, in characters of what is sent (the
+## HTML of the editor counts its tags). The check comes before the sanitizer reads the text, which costs about 0.7 s a
+## megabyte, so this is what bounds that work for one message.
+export DEFAULT_MAX_MESSAGE_LENGTH = 10_000
+
+## The fewest and the most that `CAMPFIRE_MAX_MESSAGE_LENGTH` may ask for.
+export MIN_MAX_MESSAGE_LENGTH = 1
+export MAX_MAX_MESSAGE_LENGTH = 1_000_000
+
 ## The megabytes of the store of the people of the sessions (kept apart from the pages, so that the pages cannot push a
 ## session out) when `CAMPFIRE_SESSION_CACHE_MB` is not set. A person is about a hundred bytes for every version of the
 ## database, so this holds tens of thousands.
@@ -126,7 +135,8 @@ SMTP_URL_FORM = (
 ## the connections that the server holds at once, the WebSockets of `/cable` among them. `search_pages` is how many
 ## search pages one person keeps in the cache of whole pages, `cursor_pages` how many pages of each kind of older
 ## messages (`?before=` and `?after=`) it keeps, and `session_cache_mb` the size of the store of the people of the
-## sessions in megabytes (all three are used only while `response_cache_mb` is not 0).
+## sessions in megabytes (all three are used only while `response_cache_mb` is not 0). `max_message_length` is the
+## longest body of a message, in characters, that a post or an edit may send.
 export struct Config
   host: String
   port: Int
@@ -150,6 +160,7 @@ export struct Config
   search_pages: Int = DEFAULT_SEARCH_PAGES
   session_cache_mb: Int = DEFAULT_SESSION_CACHE_MB
   cursor_pages: Int = DEFAULT_CURSOR_PAGES
+  max_message_length: Int = DEFAULT_MAX_MESSAGE_LENGTH
 end
 
 # What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
@@ -172,7 +183,8 @@ end
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`,
 ## `CAMPFIRE_SMTP_FROM`, `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`,
 ## `CAMPFIRE_STORAGE_DIR` and `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB`, `CAMPFIRE_RESPONSE_CACHE_MB`,
-## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES`, `CAMPFIRE_SESSION_CACHE_MB` and `CAMPFIRE_CURSOR_PAGES`, with
+## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES`, `CAMPFIRE_SESSION_CACHE_MB`, `CAMPFIRE_CURSOR_PAGES` and
+## `CAMPFIRE_MAX_MESSAGE_LENGTH`, with
 ## the defaults for a variable that is not set (the secret has none, and without the smtp url there is no email). An
 ## `error` says which value is wrong.
 export def load() -> Result[Config]
@@ -199,6 +211,7 @@ export def load() -> Result[Config]
   search_pages = System.env("CAMPFIRE_SEARCH_PAGES").unwrap_or("")
   session_cache_mb = System.env("CAMPFIRE_SESSION_CACHE_MB").unwrap_or("")
   cursor_pages = System.env("CAMPFIRE_CURSOR_PAGES").unwrap_or("")
+  max_message_length = System.env("CAMPFIRE_MAX_MESSAGE_LENGTH").unwrap_or("")
   return parse(
     host,
     port,
@@ -223,6 +236,7 @@ export def load() -> Result[Config]
     search_pages,
     session_cache_mb,
     cursor_pages,
+    max_message_length,
   )
 end
 
@@ -254,6 +268,8 @@ end
 ## `MAX_SEARCH_PAGES` (`DEFAULT_SEARCH_PAGES` when left out) and `session_cache_mb` (`CAMPFIRE_SESSION_CACHE_MB`) is
 ## `MIN_SESSION_CACHE_MB` to `MAX_SESSION_CACHE_MB` (`DEFAULT_SESSION_CACHE_MB` when left out). `cursor_pages`
 ## (`CAMPFIRE_CURSOR_PAGES`) is `MIN_CURSOR_PAGES` to `MAX_CURSOR_PAGES` (`DEFAULT_CURSOR_PAGES` when left out).
+## `max_message_length` (`CAMPFIRE_MAX_MESSAGE_LENGTH`) is `MIN_MAX_MESSAGE_LENGTH` to `MAX_MAX_MESSAGE_LENGTH`
+## (`DEFAULT_MAX_MESSAGE_LENGTH` when left out).
 export def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -278,6 +294,7 @@ export def parse(
   search_pages: String = "",
   session_cache_mb: String = "",
   cursor_pages: String = "",
+  max_message_length: String = "",
 ) -> Result[Config]
   if host.strip.empty?
     return error("CAMPFIRE_HOST is empty")
@@ -368,6 +385,14 @@ export def parse(
     MAX_CURSOR_PAGES,
   )
 
+  longest = try parse_db_number(
+    "CAMPFIRE_MAX_MESSAGE_LENGTH",
+    max_message_length,
+    DEFAULT_MAX_MESSAGE_LENGTH,
+    MIN_MAX_MESSAGE_LENGTH,
+    MAX_MAX_MESSAGE_LENGTH,
+  )
+
   people = try parse_db_number(
     "CAMPFIRE_SESSION_CACHE_MB",
     session_cache_mb,
@@ -415,6 +440,7 @@ export def parse(
       search_pages: places,
       session_cache_mb: people,
       cursor_pages: slots,
+      max_message_length: longest,
     ),
   )
 end

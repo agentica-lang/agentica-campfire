@@ -272,7 +272,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
 - HTML bodies: markup that did not come from a view is shown only after `HtmlSanitizer.sanitize` (it writes tags
   from its own allowlist and nothing else of the input but text and the checked `href` of a link), and then
   with `<%== %>`, as element content only: `'` and `"` are not escaped, so the output never goes inside an
-  attribute or a script. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
+  attribute or a script. A body is checked against `Config.max_message_length` (`CAMPFIRE_MAX_MESSAGE_LENGTH`,
+  `Rooms.body_problem`) before `post` or `update_message`, so the sanitizer never reads more than the cap. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
   tag or attribute.
 - Message windows: `Rooms.page` (before), `Rooms.page_after`, `Rooms.around` and `Rooms.since` read by `created_at` then
   `id`, never by id alone. `/rooms/:id/:segment` serves `@MESSAGE` because Bond params are whole segments (the handler
