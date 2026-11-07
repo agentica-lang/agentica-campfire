@@ -113,7 +113,7 @@ nothing (`204`).
 `/rooms/ID/@MESSAGE` is the room page around a message (`page_around`): the 40 before it, it, and the 40 after, with
 `Older messages` and `Latest messages` links where the window does not reach the first or the last message. A message
 that the room does not have shows the newest page, as in Rails; a segment that is not `@` and a number is `404`. Bond's
-route params are whole segments, so the route is `/rooms/:id/:at` (a literal segment such as `messages` wins), which
+route params are whole segments, so the route is `/rooms/:id/:segment` (a literal segment such as `messages` wins), which
 also makes `POST` to another path under a room a `405` where it was a `404`. That page, like the room page with
 `?before=`, is not kept in the cache, since there is one for every message; `?after=` is kept like `?before=`.
 

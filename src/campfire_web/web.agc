@@ -6,6 +6,7 @@ import AccountsWeb from "accounts"
 import AuthWeb from "auth"
 import AvatarsWeb from "avatars"
 import BanFlag from "ban_flag"
+import BotMessagesWeb from "bot_messages"
 import BotsWeb from "bots"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
@@ -33,7 +34,7 @@ end
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
-## `AccountsWeb`, the user page and the profile, the sidebar, the search, the avatars (checked with the key of
+## `AccountsWeb`, the messages API of the chat bots (`BotMessagesWeb`), the user page and the profile, the sidebar, the search, the avatars (checked with the key of
 ## `SECRET_KEY_BASE`) and the folder of the stylesheet, and `/cable`, the live WebSocket (`CableWeb`), which the routes
 ## that change a room broadcast through `cable`. `config.assets_dir` must be a folder, which `App.start` checks. `messages` is the cache of rendered
 ## messages for the room pages (`MessageCache.start`); without it every message is rendered each time. `pages` keeps
@@ -55,8 +56,9 @@ export def build(
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies)
+    |> BotMessagesWeb.add(pool, cable, config)
     |> AccountsWeb.add(config, pool, cable, bans)
-    |> BotsWeb.add(pool)
+    |> BotsWeb.add(pool, config)
     |> SidebarsWeb.add(pool, cable, pages)
     |> SearchesWeb.add(pool, pages)
     |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)

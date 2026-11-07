@@ -2,9 +2,10 @@ Feature: The chat bots of the account
   An administrator manages the chat bots of the account at `/account/bots`, as in Rails Campfire
   (`Accounts::BotsController`, `Accounts::Bots::KeysController`, `User::Bot`): a bot is a user with the role `bot`, a name
   and a token of 12 letters and digits, and its key is `ID-TOKEN`. The administrator makes a bot (it joins the open rooms),
-  sees its key, renames it, gives it a new key (the old one finds no bot) and deactivates it (it leaves the open and
-  closed rooms and its key finds no bot). The webhook URL and the avatar of Rails' form are not here, and nor are the
-  curl lines of the list, which need the messages API. Everything here is for administrators: anybody else is answered
+  sees its key and a curl line for each room it is in, renames it, gives it a new key (the old one finds no bot) and
+  deactivates it (it leaves the open and closed rooms and its key finds no bot; bot_messages.feature has the API).
+  The webhook URL and the avatar of Rails' form are not here, and nor is the line for an attachment. Everything here is
+  for administrators: anybody else is answered
   403 before the bot is looked at. The first admin is Ana, user 1, "All Talk" is room 1 (open); Bea is user 2 and the
   bot Robo is user 3 (token `aaaaBBBB1111`) in the scenarios that need one. Room 2 is the closed room "Secret" of Ana,
   Bea and Robo.
@@ -47,6 +48,9 @@ Feature: The chat bots of the account
     Then the body contains "<span class=\"name\">Robo</span>"
     And the body contains "<code class=\"meta\">3-aaaaBBBB1111</code>"
     And the body contains "href=\"/account/bots/3/edit\""
+    And the body contains "<span class=\"hint\">Post to All Talk</span>"
+    And the body contains "<code class=\"meta\">curl -d 'Hello!' http://127.0.0.1:"
+    And the body contains "/rooms/1/3-aaaaBBBB1111/messages</code>"
     When I get "/users"
     Then the body does not contain "Robo"
 
@@ -97,14 +101,19 @@ Feature: The chat bots of the account
     And the body contains "Give the bot a name of 1 to 100 characters"
     And the query "select count(*) from users where id = 3 and name = 'Robo'" gives 1
 
-  Scenario: A new key makes the old one find no bot
+  Scenario: A new key makes the old one find no bot, which the messages API refuses
     Given a bot "Robo" with the token "aaaaBBBB1111" exists
+    And I run the sql "insert into memberships (room_id, user_id, created_at, updated_at) values (1, 3, 'now', 'now')"
+    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "Before the new key"
+    Then the status is 201
     When I post to "/account/bots/3/key" the form:
       | _method | put |
     Then the status is 302
     And the header "location" is "/account/bots"
-    And the query "select count(*) from users where role = 2 and status = 0 and id = 3 and bot_token = 'aaaaBBBB1111'" gives 0
     And the query "select count(*) from users where id = 3 and length(bot_token) = 12 and bot_token not glob '*[^A-Za-z0-9]*'" gives 1
+    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "With the old key"
+    Then the status is 404
+    And the query "select count(*) from messages" gives 1
     When I get "/account/bots"
     Then the body does not contain "aaaaBBBB1111"
     And the body contains "<code class=\"meta\">3-"
@@ -112,11 +121,15 @@ Feature: The chat bots of the account
     And I send a PUT to "/account/bots/3/key"
     Then the status is 302
     And the query "select count(*) from users where id = 3 and bot_token <> 'ccccDDDD2222'" gives 1
+    When I send "POST" to "/rooms/1/3-ccccDDDD2222/messages" the text "With the second old key"
+    Then the status is 404
 
   Scenario: Deactivating a bot takes it out of the list and the shared rooms and kills its key
     Given a bot "Robo" with the token "aaaaBBBB1111" exists
     And a closed room "Secret" with the members "ana@example.com, bea@example.com"
     And I run the sql "insert into memberships (room_id, user_id, created_at, updated_at) values (1, 3, 'now', 'now'), (2, 3, 'now', 'now')"
+    When I send "POST" to "/rooms/2/3-aaaaBBBB1111/messages" the text "Before the removal"
+    Then the status is 201
     When I get "/account/bots/3/edit"
     Then the body contains "action=\"/account/bots/3\""
     When I post to "/account/bots/3" the form:
@@ -124,8 +137,12 @@ Feature: The chat bots of the account
     Then the status is 302
     And the header "location" is "/account/bots"
     And the query "select count(*) from users where id = 3 and status = 1 and role = 2" gives 1
-    And the query "select count(*) from users where role = 2 and status = 0 and id = 3 and bot_token = 'aaaaBBBB1111'" gives 0
     And the query "select count(*) from memberships where user_id = 3" gives 0
+    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "After the removal"
+    Then the status is 404
+    When I send "GET" to "/rooms/2/3-aaaaBBBB1111/messages" the text ""
+    Then the status is 404
+    And the query "select count(*) from messages" gives 1
     When I get "/account/bots"
     Then the body does not contain "Robo"
     And the body contains "There are no chat bots yet."

@@ -35,7 +35,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), bots.agc (the chat bots pages and
-                posts), profiles.agc (the user page and the profile),
+                posts), bot_messages.agc (the messages API of the bots, by key), profiles.agc (the user page and the profile),
                 rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
@@ -122,8 +122,9 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   benchmark of basecamp/once-campfire-verification checks (`specs/message_routes.feature` lists its rules): change it
   only with that feature.
 - Auth: a page is public only if `PUBLIC_PATHS` in `src/campfire_web/auth.agc` names it (the sign-in filter is
-  deny-by-default); the one exception is `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
-  code is part of the path and cannot be a fixed entry, and the handler answers a wrong code with the 404 of any
+  deny-by-default); the exceptions are `/join/CODE` (`AuthWeb.public?`: exactly `/join/` and one segment), since its
+  code is part of the path and cannot be a fixed entry, and the messages API of the bots (`AuthWeb.bot_api?`, below),
+  and the handler answers a wrong code with the 404 of any
   missing page (`Routes.MISSING`, the one 404 text of every handler and of the app for a path with no route). A
   request takes one connection of the pool for its work (`Database.with_connection(pool)`, which is `DbPool.with`: the
   app starts the pool once in `App.start`, in the task of `main`, and hands it to the routes). The sign-in filter looks
@@ -262,7 +263,7 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   attribute or a script. A change to its lists adds a case to `test/html_sanitizer_test.agc`, an XSS one for a new
   tag or attribute.
 - Message windows: `Rooms.page` (before), `Rooms.page_after`, `Rooms.around` and `Rooms.since` read by `created_at` then
-  `id`, never by id alone. `/rooms/:id/:at` serves `@MESSAGE` because Bond params are whole segments (the handler
+  `id`, never by id alone. `/rooms/:id/:segment` serves `@MESSAGE` because Bond params are whole segments (the handler
   404s any other segment); it is not kept in `PageCache` (a cursor per message), `?after=` is (kind `AFTER`).
   `refresh` compares `created_at`/`updated_at` as text against `INSTANT` of `rooms.agc` (the millisecond time written as the
   columns are), answers Turbo Stream whatever `Accept` says, reads `since` as `to_i` (its leading digits) and compares with `>=`, so a message in the
@@ -276,8 +277,17 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   form is read, then 404 for a bot that is not an active one, then 400/422). `Bots.*` check the actor again inside their
   transaction. A key is `ID-TOKEN` with a 12-character `[A-Za-z0-9]` token (`Bots.new_token`, bytes from 248 on skipped
   so each character is as likely), and only an active bot has a key that names it; a new token or a deactivation ends
-  the old key. The pages hold keys, so they are `no-store`. The webhook URL, the avatar and the curl lines of Rails'
-  list wait for #78, #73 and #77.
+  the old key. The pages hold keys, so they are `no-store`. The webhook URL and the avatar of Rails' form wait for #78
+  and #73.
+- Bot messages API (`/rooms/ID/KEY/messages`, `docs/people.md`): the key in the path is the whole login. `Bots.authenticate`
+  finds the bot by id with the rule of the admin pages (active, role bot) and compares the whole key with
+  `HMAC.secure_compare`; a session is never read on these paths. `AuthWeb.bot_api?` (the non-empty segments, as the router
+  reads them) lets them past the sign-in filter and takes `Origin` and `Sec-Fetch-Site` off the request before
+  `Bond.csrf`, so no browser path may match it: a segment `messages` where the key goes is not the API. The bot is 404
+  for a key, a room it is not in and a message not in the room, 403 for a message of somebody else; a bot never changes
+  more than its own. Params of one place in a Bond route share a name, so the segment after a room is `:segment` for
+  `ROOM_AT` and the key alike. The API broadcasts through `CableWeb` after its connection is back in the pool, as
+  `RoomsWeb` does.
 - Who may create rooms: `Accounts.room_creation_restricted?` reads the key `restrict_room_creation_to_administrators`
   of `accounts.settings` with `json_extract`, guarded by `json_valid`. `RoomsWeb.may_create_rooms?` is the one check,
   used by the four open and closed create routes (403 before the form is read) and by `sidebar_of` (the links). A

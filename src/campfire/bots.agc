@@ -1,6 +1,6 @@
 ## The chat bots of the account over the `users` table (`User::Bot` of Rails): a bot is a user with the role `bot`, a
 ## name and a `bot_token`, and no email or password, so it cannot sign in. Its key is `ID-TOKEN`, with a token of 12
-## letters and digits; the key is what a bot will show to post (the messages API comes later). Every change runs in one
+## letters and digits; the key is what a bot shows to the messages API (`authenticate`). Every change runs in one
 ## write transaction that checks again that the actor is an active administrator, and finds only an active bot, as
 ## `User.active_bots.find` does: a deactivated bot, a person and a missing user are the same `Missing`.
 
@@ -56,6 +56,31 @@ export def find(conn: Db.Connection, bot_id: Int) -> Result[Optional[Bot]]
   end
 
   return ok(some(bot_of(rows[0])))
+end
+
+## The active bot that `key` (`ID-TOKEN`) names, or `none` for any other text, a bot with another token (a key that a
+## new token ended), a deactivated bot and a user who is not a bot. The bot is found by its id with the rule of `find`
+## (`role = bot and status = active`), and the key is then compared with the stored one in constant time, since the
+## token is stored as plain text and a `=` in SQL would stop at the first byte that differs. An empty token never
+## matches, so a user with no token is not reached by a key that ends at the dash.
+export def authenticate(conn: Db.Connection, key: String) -> Result[Optional[Bot]]
+  given = key.strip
+  dash = given.index_of("-")
+  if dash.none?
+    return ok(none)
+  end
+
+  id = given.slice(0, dash.unwrap!).to_i
+  token = given.slice(dash.unwrap! + 1, given.length - dash.unwrap! - 1)
+  if not id.ok? or token.empty?
+    return ok(none)
+  end
+
+  found = try find(conn, id.unwrap!)
+  case found
+    some(bot) if HMAC.secure_compare(bot.key.bytes, given.bytes) -> return ok(some(bot))
+    _ -> return ok(none)
+  end
 end
 
 ## Makes a bot named `name` for `actor_id` and puts it in every open room, as a new person is. It gives false, with

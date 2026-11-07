@@ -19,6 +19,12 @@ NAME = "Campfire"
 SHARED_ROOMS_ID = "shared_rooms"
 DIRECT_ROOMS_ID = "direct_rooms"
 
+## A bot of the list with the rooms it is in, but the direct ones: the rooms that its curl lines post to.
+export struct BotRooms
+  bot: Bots.Bot
+  rooms: List[Rooms.Room]
+end
+
 ## What the form of a room page needs: a `note` that says why the last message was refused ("" shows none), the text
 ## to put back in the field (`draft`), and the id that this form sends with its message (`message_id`).
 export struct Composer
@@ -165,9 +171,11 @@ export def account(
   return live_layout("Account settings", body)
 end
 
-## The chat bots page (`accounts/bots/index.html.erb`, for administrators): each active bot with its key and a link to
-## its edit page, and the link that adds one. The key is the secret of the bot, so the page is kept out of caches.
-export def bots(sidebar: String, list: List[Bots.Bot]) -> String
+## The chat bots page (`accounts/bots/index.html.erb`, for administrators): each active bot with its key, a link to its
+## edit page, and a curl line that posts to each room it is in (`origin` is where the app is: `BotMessagesWeb.origin`),
+## and the link that adds one. The key is the secret of the bot, so the page is kept out of caches. Rails' second line,
+## for an attachment, waits for the attachments.
+export def bots(sidebar: String, list: List[BotRooms], origin: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <%== sidebar %>
@@ -179,11 +187,15 @@ export def bots(sidebar: String, list: List[Bots.Bot]) -> String
       <p>There are no chat bots yet.</p>
     <% else %>
       <ul class="people">
-    <% for bot in list %>
+    <% for entry in list %>
         <li>
-          <span class="name"><%= bot.name %></span>
-          <code class="meta"><%= bot.key %></code>
-          <a href="<%= Routes.bot_edit_path(bot.id) %>">Edit<span class="sr-only"> <%= bot.name %></span></a>
+          <span class="name"><%= entry.bot.name %></span>
+          <code class="meta"><%= entry.bot.key %></code>
+          <a href="<%= Routes.bot_edit_path(entry.bot.id) %>">Edit<span class="sr-only"> <%= entry.bot.name %></span></a>
+    <% for room in entry.rooms %>
+          <span class="hint">Post to <%= room.name %></span>
+          <code class="meta">curl -d 'Hello!' <%= origin %><%= Routes.bot_messages_path(room.id, entry.bot.key) %></code>
+    <% end %>
         </li>
     <% end %>
       </ul>

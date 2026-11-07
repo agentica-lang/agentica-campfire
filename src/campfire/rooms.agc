@@ -501,6 +501,33 @@ export def find_message(conn: Db.Connection, room_id: Int, message_id: Int) -> R
   return ok(some(stored_of(rows[0])))
 end
 
+## How many messages the room has (the `X-Total-Count` of the messages API). The schema has no counter column, so the
+## index on `room_id` is counted.
+export def message_count(conn: Db.Connection, room_id: Int) -> Result[Int]
+  rows = try Db.query(conn, "select count(*) as total from messages where room_id = ?", [Db.Value.Int(room_id)])
+  return ok(int_of(rows[0], "total"))
+end
+
+## True when the room has a message after `message_id`, by `created_at` and then `id` as `page_after` reads them.
+export def newer?(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Bool]
+  rows = try after_rows(conn, room_id, message_id, 1)
+  return ok(not rows.empty?)
+end
+
+## The role (`member`, `administrator` or `bot`) of each author of `messages`, by user id. An author whose row is gone
+## is not in the map.
+export def author_roles(conn: Db.Connection, messages: List[Stored]) -> Result[Map[Int, String]]
+  ids = messages.map do |one| one.creator_id end.uniq
+  rows = try Db.query(
+    conn,
+    "select id, role from users where id in (#{placeholders(ids.size)})",
+    ids.map do |id| Db.Value.Int(id) end,
+  )
+
+  start: Map[Int, String] = {}
+  return ok(rows.reduce(start) do |roles, row| roles.put(int_of(row, "id"), Rails.role_name(int_of(row, "role"))) end)
+end
+
 ## Replaces the body of a message with `html` (cleaned here, before the transaction begins, as `post` does), in one
 ## transaction: the body in `action_text_rich_texts`, the plain text in `message_search_index` (`Message::Searchable`
 ## rewrites it when the body changes), and `updated_at` of the message and the room (a rich text touches its record, and

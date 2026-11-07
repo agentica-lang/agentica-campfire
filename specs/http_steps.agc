@@ -75,6 +75,8 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
     BDD.step("I post nothing to {string}", &post_nothing),
     BDD.step("I send a DELETE to {string}", &delete_to),
+    BDD.step("I send {string} to {string} the text {string}", &send_text),
+    BDD.step("I send {string} to {string} a text of {int} characters", &send_text_of_length),
     BDD.step("I send a PATCH to {string} the form:", &patch_form),
     BDD.step("I send a PATCH to {string} a message of {int} characters", &patch_message_of_length),
     BDD.step("I send a PUT to {string}", &put_to),
@@ -337,6 +339,16 @@ def put_to(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "PUT", args[0], "")
 end
 
+# The raw body of a client that is not a browser, as `curl -d` sends it: the text itself, with the type of a form (the
+# step `the request header "content-type"` changes the type). The messages API of the bots reads it.
+def send_text(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return send(ctx, args[0], args[1], args[2])
+end
+
+def send_text_of_length(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return send(ctx, args[0], args[1], List.repeat("x", args[2].to_i!).join(""))
+end
+
 # The method that a browser form cannot send, with no body.
 def delete_to(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "DELETE", args[0], "")
@@ -410,7 +422,7 @@ def perform(port: Int, state: Browser, method: String, path: String, body: Strin
     headers = headers.push(Header(name: "cookie", value: pairs.join("; ")))
   end
 
-  if method == "POST" or method == "PATCH" or method == "PUT"
+  if (method == "POST" or method == "PATCH" or method == "PUT") and not state.headers.key?("content-type")
     headers = headers.push(Header(name: "content-type", value: FORM_TYPE))
   end
 

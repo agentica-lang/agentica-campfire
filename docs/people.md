@@ -69,8 +69,37 @@ nobody, since a key finds only an active bot. Any other method on a bot or its k
 
 The checks come in the order of Rails' filters: no session redirects to sign-in, a member is `403`, then the bot (`404`
 for a user that does not exist, is a person or is not active), then the form (`400` for a missing field). A name that is
-blank or over 100 characters is `422` with the form again (Rails saves anything). Left out for now: the webhook URL and
-the avatar of Rails' form, and the curl lines of the list, which need the webhooks and the messages API.
+blank or over 100 characters is `422` with the form again (Rails saves anything). The list shows, for each room the bot
+is in but the direct ones, the line `curl -d 'Hello!' URL` that posts to it (the URL starts with `CAMPFIRE_BASE_URL`, or
+the scheme of the app and the `Host` of the request when that is not set). Left out for now: the webhook URL and the
+avatar of Rails' form, which need the webhooks (#78) and the profile pictures (#73), and the second line of the list,
+for an attachment.
+
+### The messages API
+
+A bot uses its key in the path (`Messages::ByBotsController`), with no cookie and no CSRF check (see
+[security.md](security.md)). KEY is `ID-TOKEN`, and the answers are JSON with `Cache-Control: no-store`.
+
+| Request | Answer |
+|---|---|
+| `GET /rooms/ID/KEY/messages` | the newest 40 messages of the room, oldest first; `?before=ID` the 40 before a message, `?after=ID` the 40 after it (`before` wins). `X-Total-Count` is the number of messages of the room and `Link: <URL>; rel="next"` points to the next page of the same direction while there is one. A cursor that is no message of the room is `404`, one that is not a number `400`. |
+| `POST /rooms/ID/KEY/messages` | the raw body of the request is the message (HTML, cleaned as every body is, so plain text is a message too, whatever the `Content-Type`): `201` with `Location` and no body; `422` for a body that is blank or over 10000 characters, `415` for a `multipart/form-data` upload. |
+| `PATCH` or `PUT /rooms/ID/KEY/messages/ID` | the raw body replaces the text of a message of the bot: `200` with the message. |
+| `DELETE /rooms/ID/KEY/messages/ID` | deletes a message of the bot: `204`. |
+
+A message is `{"id", "created_at", "body": {"plain_text", "html"}, "creator": {"id", "name", "role"}, "room": {"id"},
+"url"}`; `url` starts as the links of the curl lines do. The checks come in this order: a key that names no active bot
+(a wrong one, one that a new token or a deactivation ended, the id of a person) is `404`, a room that the bot is not in
+or that does not exist is `404`, a message that is not in the room is `404`, a message that somebody else wrote is `403`
+(a bot is never an administrator), and then the cursor and the body. A post, an edit and a delete are announced live
+to the room, change `unread_at` for the others as any message does, and are a commit like any other, so the cached
+pages of the room are made again.
+
+Where this differs from Rails: a wrong key is `404`, not a redirect to the sign-in page, and a key is never looked up
+when a session cookie comes with it (Rails tries the session first, so the key in the path could be anything for a
+signed-in browser); an edit with a blank body is `422` (Rails saves it); a body over 10000 characters is `422`;
+`creator` has no `avatar_url`. Not here yet, because the features they belong to are not: the boosts endpoints
+(#55), the `attachment` upload (#60) and the webhook that a post sends to the bots it mentions (#78).
 
 ## The user page and the profile
 
