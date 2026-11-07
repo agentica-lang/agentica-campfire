@@ -51,9 +51,6 @@ ASSETS_PREFIX = "#{Routes.ASSETS}/"
 # the handler without telling anything else.
 JOIN_SEGMENTS = 3
 
-# The segments of `/rooms/ID/messages`.
-ROOM_MESSAGES_SEGMENTS = 3
-
 # The segments of `/rooms/ID/KEY/messages`, of `/rooms/ID/KEY/messages/ID`, and of the boosts under a message,
 # `/rooms/ID/KEY/messages/ID/boosts` and `/rooms/ID/KEY/messages/ID/boosts/ID`.
 BOT_LIST_SEGMENTS = 4
@@ -136,17 +133,33 @@ export def current_user(conn: Bond.Conn, pool: Database.Pool) -> Result[Optional
   return Database.with_connection(pool) do |db| user_of_session(conn, db) end
 end
 
-## True for the post of a message (`Routes.ROOM_MESSAGES`, read as the router reads a path: its non-empty segments),
-## whose handler looks the person up in the connection that it writes with (`person_in`), so that the post takes one
-## connection of the pool and not two: the filter leaves the lookup to it for a request that has a session cookie. A
-## path of the bots (`bot_api?`) has more segments.
+## True for the post of a message (`Routes.ROOM_MESSAGES`), whose handler looks the person up in the connection that it
+## writes with (`person_in`), so that the post takes one connection of the pool and not two: the filter leaves the
+## lookup to it for a request that has a session cookie. A path of the bots (`bot_api?`) has more segments.
 export def lookup_in_handler?(conn: Bond.Conn) -> Bool
-  if conn.method != "POST"
+  return message_post?(conn.method, conn.path)
+end
+
+## `lookup_in_handler?` for a method and a path. The path is read as the router reads it, by its non-empty segments,
+## against the segments of `Routes.ROOM_MESSAGES`, where a segment that starts with ":" is any value.
+export def message_post?(method: String, path: String) -> Bool
+  if method != "POST"
     return false
   end
 
-  parts = conn.path.split("/").select do |part| not part.empty? end
-  return parts.size == ROOM_MESSAGES_SEGMENTS and parts[0] == "rooms" and parts[2] == "messages"
+  wanted = Routes.ROOM_MESSAGES.split("/").select do |part| not part.empty? end
+  parts = path.split("/").select do |part| not part.empty? end
+  if parts.size != wanted.size
+    return false
+  end
+
+  for index in 0...wanted.size
+    if not wanted[index].start_with?(":") and wanted[index] != parts[index]
+      return false
+    end
+  end
+
+  return true
 end
 
 ## The person of a request, for a handler that has a connection `db`: when `lookup_in_handler?` left the lookup to it,

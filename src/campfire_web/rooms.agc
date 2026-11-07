@@ -1452,9 +1452,8 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
   return respond(conn, answer)
 end
 
-# A new message is broadcast and, for a browser that runs the scripts, answered with the same stream but for the
-# link to
-# edit it, which only its writer has: the message is written once for both.
+# A new message is broadcast and, for a browser that runs the scripts, answered with the same stream but for the link
+# to edit it, which only its writer has: the message is written once for both.
 def posted_response(
   conn: Bond.Conn,
   cable: CableWeb.Cable,
@@ -1472,6 +1471,8 @@ def posted_response(
   return Bond.header(Bond.html(conn, 200, streams.own), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
 end
 
+# `Answer.Posted` is answered by `posted_response`, which also broadcasts; its arms here keep the case complete and say
+# the same.
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Page(status, html) -> return Bond.html(conn, status, html)
