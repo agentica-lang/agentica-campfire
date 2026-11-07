@@ -117,7 +117,15 @@ administrator also sees a button to ban the person (or, for a banned one, to lif
 password and the bio (`user[name]`, `user[email_address]`, `user[password]`, `user[bio]`), saved with a `PATCH` (a real
 one, a `PUT`, or a `POST` with `_method` `patch` or `put`; any other method is `405` with the `Allow` list) and a
 redirect back. The page also lists the rooms the person is in, with the link to the sidebar setting of each shared
-one. The picture is shown but cannot be changed yet.
+one. The picture is shown. A person who has one stored (it came with a database that a Rails Campfire made, since the
+upload waits for the attachments, #60) also gets a button that deletes it: `DELETE /users/me/avatar`
+(`Users::AvatarsController#destroy`; a `POST` with `_method` `delete` from the form; any other method on the path is
+`405` with the `Allow` list) takes the attachment, its blob and the variants with their blobs away in one
+transaction, deletes their files after it commits, touches `updated_at` and goes back to the profile. The avatar links
+of the profile and the user page end in `?v=` and the digits of `updated_at`, as Rails' `fresh_user_avatar` does, so the
+browser asks again after a change; unlike Rails, the digits keep the fraction of a second, so two changes in one second
+are two links. A blob that something else is attached to stays. As for the profile, `:id` is `me` or the person's own id
+and another user's picture is `404`. A person with no picture gets the same redirect (Rails fails on it).
 
 A new password needs the current one (`user[password_challenge]`), checked in the hashing slot of the new hash, at
 most 10 times in 3 minutes for each person (`429` with `Retry-After` past it); a wrong or missing one is `422` and

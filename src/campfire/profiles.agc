@@ -196,7 +196,8 @@ def save_in(
   return ok(Change.Saved)
 end
 
-# One column of the user, with `updated_at` touched: the avatar link of Rails' pages carries it as a cache buster.
+# One column of the user, with `updated_at` touched: the avatar link of the profile and of the user page carries its
+# digits as a cache buster (`Avatars.version`).
 def set_column(tx: Db.Connection, user_id: Int, column: String, value: String) -> Result[Int]
   return Db.execute(
     tx,

@@ -60,6 +60,11 @@ Feature: Avatars
     Then the status is 404
     And the body is "Not Found"
 
+  Scenario: The cache buster of the links (`?v=`) changes nothing in the answer
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar?v=20261104182129614026"
+    Then the status is 200
+    And the body starts with "<svg"
+
   Scenario Outline: A token that does not verify is not found
     When I get "/users/<token>/avatar"
     Then the status is 404

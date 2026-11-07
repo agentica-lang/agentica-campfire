@@ -1,11 +1,12 @@
 ## What `Users::AvatarsController` of Rails Campfire needs for the avatar of a user, over the tables of Active Storage
 ## and the files that its Disk service wrote. The app never makes an avatar or its variant (that is image processing,
-## which Rails does with libvips): it finds the WebP that Rails made for the variant `:square`, and where it lies.
+## which Rails does with libvips): it finds the WebP that Rails made for the variant `:square`, and where it lies, and
+## it takes an avatar away (`remove`).
 
 import Regex from "std/regex"
 import Db from "pkg/db/db"
 import Rails from "repo/rails"
-import {text_of} from "repo/rows"
+import {int_of, text_of} from "repo/rows"
 
 # The colours of the circle behind the initials, in the order of `AVATAR_COLORS` of `Users::AvatarsHelper`.
 COLORS = [
@@ -15,6 +16,8 @@ COLORS = [
 
 # `\b\w` of `User#initials`: the first letter of each word.
 INITIALS = /\b\w/
+# The runs of digits of a timestamp, for `version`.
+DIGITS = /\d+/
 
 # Active Storage keys are 28 characters of base 36 (`SecureRandom.base36`). Only those can be a name in the folder of
 # the files: whatever else a row holds (it came from a database, not from a visitor) is never turned into a path.
@@ -108,6 +111,109 @@ end
 export def color(user_id: Int) -> String
   checksum = Zlib.crc32("#{user_id}".bytes).unwrap!
   return COLORS[checksum % COLORS.size]
+end
+
+## The cache buster of an avatar link, `?v=` as in Rails (`updated_at.to_fs(:number)`, 14 digits): the digits of the
+## `updated_at` of the user, but with the fraction of a second too (unlike Rails), so two changes in one second are two
+## links.
+export def version(updated_at: String) -> String
+  return Regex.find_all(updated_at, DIGITS).map do |found| found.text end.join("")
+end
+
+## True when the user has an avatar attached.
+export def attached?(conn: Db.Connection, user_id: Int) -> Result[Bool]
+  rows = try Db.query(
+    conn,
+    "select 1 from active_storage_attachments where record_type = '#{Rails.USER_RECORD}' and record_id = ? " +
+    "and name = '#{Rails.AVATAR_NAME}' limit 1",
+    [Db.Value.Int(user_id)],
+  )
+
+  return ok(not rows.empty?)
+end
+
+## Takes the avatar of the user away, as `Users::AvatarsController#destroy` does (`Current.user.avatar.destroy`): the
+## attachment, its blob, and the variants made from it with their blobs, in one transaction, so no half of an avatar is
+## left. A blob that something else is attached to stays. It gives the keys of the blobs that went, for the caller to
+## delete their files once the transaction has committed (a file is not undone by a rollback), and `updated_at` of
+## the user changes, since the avatar links carry its digits (`version`) as a cache buster. A user with no avatar is no
+## change: no keys.
+export def remove(conn: Db.Connection, user_id: Int) -> Result[List[String]]
+  return Db.transaction(conn) do |tx| remove_in(tx, user_id) end
+end
+
+def remove_in(tx: Db.Connection, user_id: Int) -> Result[List[String]]
+  attached = try Db.query(
+    tx,
+    "select id, blob_id from active_storage_attachments where record_type = '#{Rails.USER_RECORD}' " +
+    "and record_id = ? and name = '#{Rails.AVATAR_NAME}'",
+    [Db.Value.Int(user_id)],
+  )
+
+  keys: List[String] = []
+  for row in attached
+    try Db.execute(tx, "delete from active_storage_attachments where id = ?", [Db.Value.Int(int_of(row, "id"))])
+    keys = keys.concat(try drop_blob(tx, int_of(row, "blob_id")))
+  end
+
+  if not attached.empty?
+    try Db.execute(tx, "update users set updated_at = #{Rails.NOW} where id = ?", [Db.Value.Int(user_id)])
+  end
+
+  return ok(keys)
+end
+
+# The blob and its variants, when nothing is attached to it any more: the variants go first, since their rows and
+# the attachments of their images hold keys to it. The keys are those of every blob deleted.
+def drop_blob(tx: Db.Connection, blob_id: Int) -> Result[List[String]]
+  if not try unused?(tx, blob_id)
+    return ok([])
+  end
+
+  keys: List[String] = []
+  variants = try Db.query(
+    tx,
+    "select id from active_storage_variant_records where blob_id = ?",
+    [Db.Value.Int(blob_id)],
+  )
+
+  for variant in variants
+    keys = keys.concat(try drop_variant(tx, int_of(variant, "id")))
+  end
+
+  found = try Db.query(tx, "select key from active_storage_blobs where id = ?", [Db.Value.Int(blob_id)])
+  try Db.execute(tx, "delete from active_storage_blobs where id = ?", [Db.Value.Int(blob_id)])
+  return ok(keys.concat(found.map do |row| text_of(row, "key") end))
+end
+
+# A variant record, its image (an attachment of a blob) and that blob.
+def drop_variant(tx: Db.Connection, variant_id: Int) -> Result[List[String]]
+  id = Db.Value.Int(variant_id)
+  images = try Db.query(
+    tx,
+    "select id, blob_id from active_storage_attachments where record_type = '#{Rails.VARIANT_RECORD}' " +
+    "and record_id = ? and name = '#{Rails.VARIANT_IMAGE_NAME}'",
+    [id],
+  )
+
+  keys: List[String] = []
+  for image in images
+    try Db.execute(tx, "delete from active_storage_attachments where id = ?", [Db.Value.Int(int_of(image, "id"))])
+    keys = keys.concat(try drop_blob(tx, int_of(image, "blob_id")))
+  end
+
+  try Db.execute(tx, "delete from active_storage_variant_records where id = ?", [id])
+  return ok(keys)
+end
+
+def unused?(tx: Db.Connection, blob_id: Int) -> Result[Bool]
+  rows = try Db.query(
+    tx,
+    "select 1 from active_storage_attachments where blob_id = ? limit 1",
+    [Db.Value.Int(blob_id)],
+  )
+
+  return ok(rows.empty?)
 end
 
 # A plain image type, and not SVG: RE2 has no lookahead, so the SVG types are left out here.

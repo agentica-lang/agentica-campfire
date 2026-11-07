@@ -8,6 +8,7 @@
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
+import Avatars from "../campfire/avatars"
 import Channels from "pkg/channels/channels"
 import Hangup from "hangup"
 import RateLimit from "../campfire/rate_limit"
@@ -41,7 +42,7 @@ ME = "me"
 # What a handler makes of its request, decided while its connection is open and answered after it is closed.
 enum Answer
   Page(Int, String)
-  NotAllowed
+  NotAllowed(String)
   Redirect(String)
   Busy(String)
   Limited(String, Int)
@@ -95,6 +96,8 @@ export def add(
     |> Bond.post(Routes.PROFILE) do |conn| post_profile(conn, env) end
     |> Bond.patch(Routes.PROFILE) do |conn| save_profile(conn, env) end
     |> Bond.put(Routes.PROFILE) do |conn| save_profile(conn, env) end
+    |> Bond.post(Routes.AVATAR) do |conn| post_avatar(conn, env) end
+    |> Bond.delete(Routes.AVATAR) do |conn| remove_avatar(conn, env) end
   )
 end
 
@@ -128,7 +131,7 @@ def user_of(conn: Bond.Conn, db: Db.Connection, person: Auth.User, key: Optional
         profile,
         person.id,
         admin,
-        avatar_of(key, profile.id),
+        avatar_of(key, profile.id, profile.updated_at),
       )
 
       return ok(Answer.Page(200, page))
@@ -155,7 +158,7 @@ end
 def post_profile(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   if method != Routes.METHOD_PATCH and method != Routes.METHOD_PUT
-    return ok(respond(conn, Answer.NotAllowed))
+    return ok(respond(conn, Answer.NotAllowed(Routes.PROFILE_ALLOW)))
   end
 
   return save_profile(conn, env)
@@ -168,6 +171,46 @@ def save_profile(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
     some(person) if not own?(conn, person) -> return ok(respond(conn, Answer.NotFound))
     some(person) -> return saved(conn, env, person)
   end
+end
+
+# The button of Rails' profile: a `POST` with `_method` set to `delete`; any other is a 405 that lists the methods of
+# the path.
+def post_avatar(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
+  method = try AuthWeb.form_method(conn)
+  if method != Routes.METHOD_DELETE
+    return ok(respond(conn, Answer.NotAllowed(Routes.AVATAR_ALLOW)))
+  end
+
+  return remove_avatar(conn, env)
+end
+
+# Takes the picture of the person away (the sign-in first, then the person: 404 for the picture of another) and goes
+# back to the profile. A person with none is the same redirect (Rails would fail on it). The files go once the rows
+# have committed; a file that cannot be deleted is left with a warning, since the rows no longer name it. (The stdlib
+# has no delete for a plain file: `Path.remove` also takes a folder, but the path here is made by `Avatars.path` from
+# a checked key, so it is never one.)
+def remove_avatar(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> return ok(respond(conn, Answer.SignedOut))
+    some(person) if not own?(conn, person) -> return ok(respond(conn, Answer.NotFound))
+    some(person) -> return removed(conn, env, person)
+  end
+end
+
+def removed(conn: Bond.Conn, env: Env, person: Auth.User) -> Result[Bond.Conn]
+  keys = try Database.with_connection(env.pool) do |db| Avatars.remove(db, person.id) end
+  for key in keys
+    path = Avatars.path(env.config.storage_dir, key)
+    if path.some?
+      gone = Path.remove(path.unwrap!)
+      if not gone.ok?
+        IO.warn("campfire: the file of the avatar blob #{key} could not be deleted: #{gone.message}")
+      end
+    end
+  end
+
+  return ok(respond(conn, Answer.Redirect(Routes.profile_path())))
 end
 
 def saved(conn: Bond.Conn, env: Env, person: Auth.User) -> Result[Bond.Conn]
@@ -302,7 +345,17 @@ def profile_form(
   end
 
   rooms = try Rooms.memberships(db, person.id)
-  return ok(Views.profile_page(try RoomsWeb.sidebar_of(db, person), shown, rooms, avatar_of(key, person.id), note))
+  removable = try Avatars.attached?(db, person.id)
+  return ok(
+    Views.profile_page(
+      try RoomsWeb.sidebar_of(db, person),
+      shown,
+      rooms,
+      avatar_of(key, person.id, shown.updated_at),
+      removable,
+      note,
+    ),
+  )
 end
 
 # The profile is the signed-in person's: `:id` is `me`, or their own id. The profile of another user is 404.
@@ -311,8 +364,11 @@ def own?(conn: Bond.Conn, person: Auth.User) -> Bool
   return id == ME or id == "#{person.id}"
 end
 
-# The path of the picture of the user, "" when the app has no key to sign it with.
-def avatar_of(key: Optional[Bytes], user_id: Int) -> String
+# The path of the picture of the user, "" when the app has no key to sign it with. It ends in `?v=` and the digits of
+# `updated_at` (Rails' `fresh_user_avatar`, but with the fraction of a second, which Rails drops), so a change of the
+# picture, which touches `updated_at`, is a new link and the browser does not keep the old picture for the 30 minutes
+# that the answer may be kept.
+def avatar_of(key: Optional[Bytes], user_id: Int, updated_at: String) -> String
   if key.none?
     return ""
   end
@@ -322,13 +378,13 @@ def avatar_of(key: Optional[Bytes], user_id: Int) -> String
     return ""
   end
 
-  return "/users/#{token.unwrap!}/avatar"
+  return "/users/#{token.unwrap!}/avatar?v=#{Avatars.version(updated_at)}"
 end
 
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Page(status, html) -> return AuthWeb.private_page(Bond.html(conn, status, html))
-    Answer.NotAllowed -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", Routes.PROFILE_ALLOW)
+    Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
     Answer.Redirect(path) -> return Bond.redirect(conn, path)
     Answer.Limited(html, wait) ->
       return AuthWeb.private_page(Bond.header(Bond.html(conn, 429, html), "retry-after", wait.to_s))

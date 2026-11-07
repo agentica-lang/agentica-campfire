@@ -1,9 +1,9 @@
 Feature: The profile and the page of a user
   A person reads the page of any user (`UsersController#show`) and changes their own name, email address, password and
-  bio at `/users/me/profile` (`Users::ProfilesController`). The picture is not changeable yet. A blank email or
-  password is left as it is. The profile of another user is a 404 here (Rails ignores the id and edits the person who
-  is signed in). The first admin is Ana, user 1; Bea is user 2 and Cy is user 3; Di (user 4) is deactivated and the bot
-  Robo is user 5.
+  bio at `/users/me/profile` (`Users::ProfilesController`). The picture cannot be changed to another yet, only taken
+  away. A blank email or password is left as it is. The profile of another user is a 404 here (Rails ignores the id and
+  edits the person who is signed in). The first admin is Ana, user 1; Bea is user 2 and Cy is user 3; Di (user 4) is
+  deactivated and the bot Robo is user 5.
 
   Background:
     Given a fresh database
@@ -243,3 +243,91 @@ Feature: The profile and the page of a user
     When I get "/users"
     Then the body contains "<a href=\"/users/1\">Ana</a>"
     And the body contains "<a href=\"/users/3\">Cy</a>"
+
+  Scenario: The picture is taken away with its variant, rows and files, and only the button of a person who has one shows
+    When I get "/users/me/profile"
+    Then the body does not contain "Delete avatar"
+    When I post to "/users/me/avatar" the form:
+      | _method | delete |
+    Then the status is 302
+    And the header "location" is "/users/me/profile"
+    Given the avatar that Rails stored for the user 1
+    And I run the sql "update active_storage_attachments set record_id = 2 where record_type = 'User'"
+    And I run the sql "update users set updated_at = '2020-01-01 00:00:00.000000' where id = 2"
+    When I get "/users/me/profile"
+    Then the body contains "/avatar?v=20200101000000000000\""
+    And the body contains "<form method=\"post\" action=\"/users/me/avatar\">"
+    And the body contains "<button type=\"submit\" class=\"danger\">Delete avatar</button>"
+    When I post to "/users/me/avatar" the form:
+      | _method | delete |
+    Then the status is 302
+    And the header "location" is "/users/me/profile"
+    And the query "select count(*) from active_storage_attachments" gives 0
+    And the query "select count(*) from active_storage_blobs" gives 0
+    And the query "select count(*) from active_storage_variant_records" gives 0
+    And the query "select count(*) from users where id = 2 and updated_at > '2020-01-01 00:00:00.000000'" gives 1
+    And the stored file "0vpm70m8wtfnve0ravm8xe0lzqvn" is "gone"
+    And the stored file "x1s3j8autb7671fkjsjfwutj3z3z" is "gone"
+    When I get "/users/me/profile"
+    Then the body does not contain "Delete avatar"
+    And the body does not contain "/avatar?v=20200101000000000000"
+    And the body contains "/avatar?v="
+    When I get "/users/2"
+    Then the body does not contain "/avatar?v=20200101000000000000"
+
+  Scenario: A DELETE takes the picture away too, a blob that something else holds stays, and the others keep theirs
+    Given the avatar that Rails stored for the user 1
+    And I run the sql "insert into active_storage_attachments (id, blob_id, created_at, name, record_id, record_type) values (3, 1, '2026-11-04 18:21:29.194952', 'avatar', 2, 'User')"
+    And I run the sql "insert into active_storage_attachments (id, blob_id, created_at, name, record_id, record_type) values (4, 1, '2026-11-04 18:21:29.194952', 'file', 9, 'Other')"
+    When I send a DELETE to "/users/2/avatar"
+    Then the status is 302
+    And the header "location" is "/users/me/profile"
+    And the query "select count(*) from active_storage_attachments where record_type = 'User' and record_id = 2" gives 0
+    And the query "select count(*) from active_storage_attachments where record_type = 'User' and record_id = 1" gives 1
+    And the query "select count(*) from active_storage_blobs" gives 2
+    And the query "select count(*) from active_storage_variant_records" gives 1
+    And the query "select count(*) from active_storage_attachments where record_type = 'ActiveStorage::VariantRecord'" gives 1
+    And the stored file "0vpm70m8wtfnve0ravm8xe0lzqvn" is "kept"
+    And the stored file "x1s3j8autb7671fkjsjfwutj3z3z" is "kept"
+
+  Scenario: The picture of another user is a 404 and stays, and any other method is a 405
+    Given the avatar that Rails stored for the user 1
+    When I post to "/users/1/avatar" the form:
+      | _method | delete |
+    Then the status is 404
+    When I send a DELETE to "/users/3/avatar"
+    Then the status is 404
+    And the query "select count(*) from active_storage_attachments" gives 2
+    When I post to "/users/me/avatar" the form:
+      | _method | patch |
+    Then the status is 405
+    And the header "allow" is "GET, HEAD, POST, DELETE"
+    When I send a PUT to "/users/me/avatar"
+    Then the status is 405
+    And the header "allow" is "GET, HEAD, POST, DELETE"
+    When I post to "/users/me/avatar" the form:
+      | user[name] | Nope |
+    Then the status is 405
+    And the query "select count(*) from active_storage_attachments" gives 2
+
+  Scenario: A visitor is sent to sign in and a page of another site takes nothing away
+    Given the avatar that Rails stored for the user 1
+    And I run the sql "update active_storage_attachments set record_id = 2 where record_type = 'User'"
+    And the request header "sec-fetch-site" is "cross-site"
+    When I post to "/users/me/avatar" the form:
+      | _method | delete |
+    Then the status is 403
+    When I send a DELETE to "/users/me/avatar"
+    Then the status is 403
+    And the query "select count(*) from active_storage_attachments" gives 2
+    And the stored file "0vpm70m8wtfnve0ravm8xe0lzqvn" is "kept"
+    Given the request header "sec-fetch-site" is "same-origin"
+    And the browser has no cookies
+    When I send a DELETE to "/users/me/avatar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I post to "/users/me/avatar" the form:
+      | _method | delete |
+    Then the status is 302
+    And the header "location" is "/session/new"
+    And the query "select count(*) from active_storage_attachments" gives 2
