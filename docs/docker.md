@@ -1,8 +1,14 @@
 # Docker
 
-The image has the pinned Agentica release, the app and its packages (no network at run time) on
+The image has the pinned Agentica release, the app compiled to bytecode and its packages (no network at run time) on
 Debian 13 slim, and a `.gz` copy next to each stylesheet and script, which Bond sends to a client
 that takes gzip. The image is x86_64 only.
+
+It runs the native SQLite driver of agentica-db. The build stage has a C compiler; `agentica compile` builds the
+driver into the package cache (`/opt/agentica-cache`, `XDG_CACHE_HOME`) and stores the absolute path of the library in
+`campfire.agcb`, and the build fails if the library is missing. The final image has no compiler: it gets the library at
+the same path, and runs the bytecode (a run from source needs the compiler to find the cache entry).
+`AGENTICA_DB_SQLITE_DRIVER=native` makes a missing library stop the start instead of a quiet fall back to the FFI driver.
 
 ## Build and run
 

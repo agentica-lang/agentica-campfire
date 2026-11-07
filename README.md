@@ -8,7 +8,7 @@ This project is licensed under Apache-2.0 (see [LICENSE](LICENSE)). It is indepe
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.25.0 or later on `PATH` to run the app and its tests.
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.26.1 or later on `PATH` to run the app and its tests, and a C compiler (agentica-db builds its native SQLite driver on the first run).
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by tag in agentica.toml) into deps/

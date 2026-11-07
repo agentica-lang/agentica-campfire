@@ -9,8 +9,11 @@ permissions:
   contents: read
 
 env:
-  AGENTICA_VERSION: 0.25.0
-  AGENTICA_SHA256: 4ecf226a4a8c1ac2573bfe23674c387a40b0cc69f97ecbf408d9a7888ec9da3d
+  AGENTICA_VERSION: 0.26.1
+  AGENTICA_SHA256: 68c3e825cb14148e45c47b21b6ef66036c5ad17a2cdf36948f47e1415bae5524
+  # The tests must run the native SQLite driver of agentica-db (built by the first program that imports it, with the
+  # runner's gcc); without this a missing library would quietly leave the FFI driver.
+  AGENTICA_DB_SQLITE_DRIVER: native
 
 jobs:
   test:
@@ -40,6 +43,7 @@ jobs:
       - name: Install the packages
         run: |
           agentica --version
+          cc --version
           make install
 
       - name: Check
