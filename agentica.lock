@@ -19,9 +19,9 @@ hash = "sha256:4d91af1dc0f545b541dbe55195abdcc2ce4cf948c9fff7f9a45f79f0efd20f20"
 name = "db"
 git = "https://github.com/agentica-lang/agentica-db"
 subdir = "src/db"
-tag = "0.5.0"
-commit = "53be246dc70912957c8c8859b7c735dd9a0ba516"
-hash = "sha256:927ee5a69530deb72ef4fc61d14d3e3a811178a7c494a646e09ee9d4977c7f06"
+tag = "0.6.0"
+commit = "2c0f98e873e1167d246615009aeb95fa614939cf"
+hash = "sha256:aa90a056753a198d3012cdf2f8d6c1edcf418bc258302e0812cd9a3c37869179"
 
 [[package]]
 name = "pool"

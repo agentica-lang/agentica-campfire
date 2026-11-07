@@ -46,6 +46,11 @@ Start-up makes the data folder and its missing parents with mode 0700 (the datab
 digests and tokens, and SQLite makes the file with the umask), and leaves a folder that exists as
 it is.
 
+agentica-db runs SQLite through its native driver, a C module that Agentica builds from the package on the first run
+(it needs a C compiler, not the SQLite headers) and that opens the system `libsqlite3.so.0`. Without the built library
+it quietly falls back to the slower FFI driver; `AGENTICA_DB_SQLITE_DRIVER=native` makes that an error of `open`, and
+the Docker image sets it.
+
 agentica-db turns on WAL mode and foreign keys for any SQLite url. The default url has
 `fts5=required`, which stops start-up when the system SQLite has no FTS5 (message search needs it);
 add it to a custom url too. A url with `foreign_keys=off` is refused, since the schema relies on
