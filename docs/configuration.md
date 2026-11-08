@@ -56,6 +56,12 @@ agentica-db turns on WAL mode and foreign keys for any SQLite url. The default u
 add it to a custom url too. A url with `foreign_keys=off` is refused, since the schema relies on
 cascades.
 
+The WAL checkpoints are agentica-db's too (0.7.0): the pool turns SQLite's automatic checkpoint off, and a task of its
+own runs a passive checkpoint when 1000 pages wait in the `-wal` file and every second, so that the `COMMIT` of a
+message does not pay for the copy and a short write runs on the scheduler. The app sets no `journal_mode`,
+`synchronous`, `locking_mode` or `wal_*` pragma and keeps the defaults of `DbPool.Options` (`checkpoint_frames`,
+`checkpoint_ms`, `checkpoint_cap`): such a pragma would send its writes to the compute pool again.
+
 The app opens its connections once, at start-up, and lends one to each request (agentica-db `DbPool`).
 A url that does not open stops the start. Put `timeout_ms` in the url to bound each statement
 (under 30 s, the time a request may hold a connection); a statement that runs over it is answered `503` too.
