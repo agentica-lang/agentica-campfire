@@ -1,5 +1,5 @@
-## A limit on how many requests do slow work at once. The work here is hashing a password: `OpenSSL.KDF.scrypt` takes about
-## a second and 64 MiB, and the routes that hash are open to anyone, so without a limit a burst of sign-ins from a
+## A limit on how many requests do slow work at once. The work here is hashing a password: `OpenSSL.KDF.scrypt` takes
+## about a second and 64 MiB, and the routes that hash are open to anyone, so without a limit a burst of sign-ins from a
 ## stranger fills the memory and the schedulers. A refused request is answered at once, and the work that is running
 ## is never cut short. A runtime halt inside the guarded call does not release its slot, so the guarded code must not
 ## halt (the callers keep to `Result` and never `unwrap!` there).
