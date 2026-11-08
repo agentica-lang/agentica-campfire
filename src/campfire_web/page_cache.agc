@@ -44,6 +44,10 @@
 ## looks the session up again. The person is looked up after the version was read, so what is kept under a version is
 ## that of the database at that version or later.
 ##
+## The answer of an avatar link (`AvatarsWeb`: the initials, or the file to send and its type, or none) is kept in the same
+## store under a key of the version and the user only (`shared_spot`), since it is the same for everybody who is signed
+## in; the token and the sign-in are checked before it is looked up.
+##
 ## Every page has a weak `ETag` (a digest of its bytes, as `Rack::ETag` writes it) and `Cache-Control: max-age=0,
 ## private, must-revalidate`, as Rails sends, and a request whose `If-None-Match` has the tag is a 304. The form of a
 ## room page carries a `client_message_id` drawn when the page is made, so two loads of one person at one version of the
@@ -69,6 +73,8 @@ export MESSAGES = "messages"
 export AFTER = "after"
 export SIDEBAR = "sidebar"
 export SEARCH = "search"
+## The kind of the answer of an avatar link, which is the same for everybody who is signed in (`shared_spot`).
+export AVATAR = "avatar"
 
 # The content type that `Bond.html` sets, for a page answered as bytes.
 HTML_TYPE = "text/html; charset=utf-8"
@@ -218,14 +224,49 @@ export def search_spot(
   end
 end
 
-## Whether the page at `path` is one that the cache keeps (a room page, the older messages, the sidebar, the search), so
-## that the sign-in filter reads the version for it and for no other.
+## Where an answer of `kind` that does not depend on the person goes, as the database is now (see `spot`), `scope`
+## being what names it (the id of the user of an avatar). It is kept for the version only, so any commit makes it a miss.
+export def shared_spot(pages: Optional[Pages], seen: Optional[String], kind: String, scope: String) -> Optional[Spot]
+  case pages
+    none -> return none
+    some(found) ->
+      version = version_of(found, seen)
+      if not version.ok?
+        return none
+      end
+
+      return some(Spot(pages: found, key: "shared:#{version.unwrap!}:#{kind}:#{scope}", stamp: ""))
+  end
+end
+
+## The text kept at `spot`, if there is one.
+export def recall(spot: Optional[Spot]) -> Optional[String]
+  case spot
+    none -> return none
+    some(found) -> return Cache.get(found.pages.store, found.key)
+  end
+end
+
+## Keeps `text` at `spot`, if there is one.
+export def remember(spot: Optional[Spot], text: String) -> Void
+  case spot
+    none -> return
+    some(found) -> Cache.put(found.pages.store, found.key, text)
+  end
+end
+
+## Whether the page at `path` is one that the cache keeps (a room page, the older messages, the sidebar, the search) or
+## the answer of an avatar link, so that the sign-in filter reads the version for it and for no other.
 export def cached?(path: String) -> Bool
   if path == Routes.SIDEBAR or path == Routes.SEARCHES
     return true
   end
 
   parts = path.split("/")
+  if parts.size == 4 and parts[0].empty? and parts[1] == "users" and parts[3] == "avatar"
+    return not parts[2].empty?
+  end
+
   if parts.size < 3 or parts.size > 4 or not parts[0].empty? or parts[1] != "rooms"
     return false
   end

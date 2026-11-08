@@ -60,6 +60,40 @@ Feature: Avatars
     Then the status is 404
     And the body is "Not Found"
 
+  Scenario: What the database says is kept for its version, so a new picture and a removed one show at once
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the body starts with "<svg"
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the body starts with "<svg"
+    Given the avatar that Rails stored for the user 1
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 200
+    And the header "content-type" is "image/webp"
+    And the body is the stored variant of the avatar of the user 1
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the body is the stored variant of the avatar of the user 1
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b86/avatar"
+    Then the status is 404
+    When I post to "/users/me/avatar" the form:
+      | _method | delete |
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 200
+    And the body starts with "<svg"
+    Given the browser has no cookies
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+
+  Scenario: A file that goes from the disk is a 404 even when the answer was kept
+    Given the avatar that Rails stored for the user 1
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 200
+    When I delete the stored file "x1s3j8autb7671fkjsjfwutj3z3z"
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 404
+    And the body is "Not Found"
+
   Scenario: The cache buster of the links (`?v=`) changes nothing in the answer
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar?v=20261104182129614026"
     Then the status is 200

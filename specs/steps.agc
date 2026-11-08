@@ -107,6 +107,7 @@ def main() -> Void
     BDD.step("a direct room with the members {string}", &direct_room_exists),
     BDD.step("the avatar that Rails stored for the user 1", &stored_avatar),
     BDD.step("the stored file {string} is {string}", &stored_file_is),
+    BDD.step("I delete the stored file {string}", &delete_stored_file),
     BDD.step("the body is the stored variant of the avatar of the user {int}", &body_is_variant),
     BDD.step("the body is the stored original of the avatar of the user {int}", &body_is_original),
     BDD.step("the room {int} has {int} messages", &room_has_messages),
@@ -1033,6 +1034,17 @@ def stored_file_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   there = File.stat(path.unwrap!).ok?
   return BDD.assert(ctx, there == (args[1] == "kept"), "the file of #{args[0]} is #{args[1]}, expected: #{there}")
+end
+
+# The file of a blob goes from the disk and nothing is committed to the database, as when someone clears the folder.
+def delete_stored_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  path = Avatars.path(storage_dir(ctx), args[0])
+  if path.none?
+    return BDD.assert(ctx, false, "the key #{args[0]} is not one of Active Storage")
+  end
+
+  gone = Path.remove(path.unwrap!)
+  return BDD.assert(ctx, gone.ok?, "cannot delete the file of #{args[0]}: #{gone.message}")
 end
 
 # The bytes that the app answered are the bytes of the image that was attached, before any variant.

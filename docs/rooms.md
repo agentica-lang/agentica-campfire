@@ -276,6 +276,9 @@ unlike the variant, it is not resized and keeps its metadata (such as EXIF). A
 user with no avatar at all gets an SVG with their initials, as Rails does for a person (a bot gets initials too, where
 Rails has a picture for bots). A token that does not verify, a user that does not exist, and a file that
 is missing are all the same `404`. The route needs a sign-in. Nothing in the app uploads an avatar yet.
+What the database says (the initials, or the file and its type) is kept in the cache of whole pages for one version of
+the database, so any commit, such as a new or a removed picture, makes the next request ask again; a repeat takes no
+connection of the pool. The file is read each time, so a file that has gone from the disk is still a `404`.
 
 ## Assets
 

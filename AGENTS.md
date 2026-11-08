@@ -46,7 +46,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
                 searches.agc and avatars.agc (the sidebar page, the search and the
-                avatar link), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
+                avatar link, whose answer is kept in the page store by `PageCache.shared_spot`), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
                 broadcasts of the routes, on bond-channels)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
 app/            the sources of the assets: `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,

@@ -70,7 +70,7 @@ export def build(
     |> BotsWeb.add(pool, config)
     |> SidebarsWeb.add(pool, cable, pages)
     |> SearchesWeb.add(pool, pages)
-    |> AvatarsWeb.add(pool, avatar_key(config), config.storage_dir)
+    |> AvatarsWeb.add(pool, pages, avatar_key(config), config.storage_dir)
     |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
     |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)
     |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, pool) end
