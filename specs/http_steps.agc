@@ -181,7 +181,7 @@ export def body_is_file(ctx: BDD.Context, path: String) -> BDD.Context
     return BDD.assert(ctx, false, "cannot read #{path}: #{expected.message}")
   end
 
-  same = reply.sha256 == Digest.hexencode(expected.unwrap!)
+  same = reply.sha256 == OpenSSL.Digest.hexencode(expected.unwrap!)
   return BDD.assert(ctx, same, "the body (#{reply.size} bytes) is not the file #{path}")
 end
 
@@ -426,7 +426,7 @@ def reply_of_text(received: Bytes, path: String) -> Result[Reply]
       elapsed_ms: 0,
       path: path,
       size: body.bytes.size,
-      sha256: Digest.sha256_hexdigest(body.bytes),
+      sha256: OpenSSL.Digest.sha256_hexdigest(body.bytes),
       head: "",
     ),
   )
@@ -561,8 +561,8 @@ def reply_of(response: HttpResponse, elapsed_ms: Int, path: String) -> Reply
     elapsed_ms: elapsed_ms,
     path: path,
     size: response.body.size,
-    sha256: Digest.sha256_hexdigest(response.body),
-    head: Digest.hexencode(response.body.take(HEAD_BYTES)),
+    sha256: OpenSSL.Digest.sha256_hexdigest(response.body),
+    head: OpenSSL.Digest.hexencode(response.body.take(HEAD_BYTES)),
   )
 end
 

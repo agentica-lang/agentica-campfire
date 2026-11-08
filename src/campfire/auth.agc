@@ -132,7 +132,7 @@ export def first_run(
   end
 
   digest = try Passwords.hash(password)
-  token = SecureRandom.hex(TOKEN_BYTES)
+  token = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   made = try Db.transaction(conn) do |tx| make_account(tx, name.strip, normal(email), digest, token, client) end
   if made
@@ -199,7 +199,7 @@ export def join_hashed(
   user_agent: String,
   ip_address: String,
 ) -> Result[JoinOutcome]
-  token = SecureRandom.hex(TOKEN_BYTES)
+  token = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   return Db.transaction(conn) do |tx| make_member(tx, code, name.strip, normal(email), digest, token, client) end
 end
@@ -248,7 +248,7 @@ export def open_session(
   ip_address: String,
 ) -> Result[Optional[String]]
   try purge_sessions(conn)
-  token = SecureRandom.hex(TOKEN_BYTES)
+  token = OpenSSL.Random.hex(TOKEN_BYTES)
   inserted = try Db.execute(
     conn,
     "insert into sessions (user_id, token, user_agent, ip_address, last_active_at, created_at, updated_at) " +
@@ -334,7 +334,7 @@ export def request_password_reset(conn: Db.Connection, email: String) -> Result[
     return ok(none)
   end
 
-  token = SecureRandom.hex(TOKEN_BYTES)
+  token = OpenSSL.Random.hex(TOKEN_BYTES)
   return Db.transaction(conn) do |tx| make_reset(tx, normal(email), token) end
 end
 
@@ -389,7 +389,7 @@ export def reset_password(
   end
 
   digest = try Passwords.hash(password)
-  session = SecureRandom.hex(TOKEN_BYTES)
+  session = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   made = try Db.transaction(conn) do |tx| finish_reset(tx, token, digest, session, client) end
   if made.some?
@@ -505,7 +505,7 @@ end
 
 # The hash of a token, as the table keeps it.
 def token_digest(token: String) -> String
-  return Digest.sha256_hexdigest(token.bytes)
+  return OpenSSL.Digest.sha256_hexdigest(token.bytes)
 end
 
 # `none` when the link was used or expired since it was looked at, or when its person is gone, with no session started;

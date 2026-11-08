@@ -346,7 +346,7 @@ def create_answer(
   # The body is the HTML of the message, as Action Text takes it in Rails; `Rooms.post` cleans it. A post stores
   # nothing for a bot that was deactivated since the key was checked, nor in a room that was deleted since: the key is
   # gone too.
-  stored = try Rooms.post(db, room.id, bot.id, SecureRandom.hex(CLIENT_ID_BYTES), body)
+  stored = try Rooms.post(db, room.id, bot.id, OpenSSL.Random.hex(CLIENT_ID_BYTES), body)
   case stored
     none -> return ok(Answer.NotFound)
     some(message) -> return ok(Answer.Created(room, message, message_url(origin(conn, config), room.id, message.id)))

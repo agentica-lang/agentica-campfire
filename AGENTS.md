@@ -76,7 +76,7 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   `make run`.
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
-- Agentica 0.26.1 or later (`T.codec`, `Codec[T]`, Bond 0.9.0 and agentica-db 0.6.0 need it, and a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
+- Agentica 0.27.0 or later (`OpenSSL.*` builtins, `T.codec`, `Codec[T]`, Bond 0.9.0 and agentica-db 0.6.0 need it, and a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (the `version` and `sha256` inputs of `agentica-lang/setup-agentica` in `.github/workflows/ci.yml`;
   bump the `AGENTICA_VERSION` and `AGENTICA_SHA256` ARGs of the `Dockerfile` with them).
 - To move Bond, agentica-db or bond-channels: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`), commit the lock.
@@ -305,7 +305,7 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   and #73.
 - Bot messages API (`/rooms/ID/KEY/messages`, `docs/people.md`): the key in the path is the whole login. `Bots.authenticate`
   finds the bot by id with the rule of the admin pages (active, role bot) and compares the whole key with
-  `HMAC.secure_compare`; a session is never read on these paths. `AuthWeb.bot_api?` (the non-empty segments, as the router
+  `OpenSSL.HMAC.secure_compare`; a session is never read on these paths. `AuthWeb.bot_api?` (the non-empty segments, as the router
   reads them) lets them past the sign-in filter and takes `Origin` and `Sec-Fetch-Site` off the request before
   `Bond.csrf`, so no browser path may match it: a segment `messages` where the key goes is not the API. The bot is 404
   for a key, a room it is not in and a message not in the room, 403 for a message of somebody else; a bot never changes

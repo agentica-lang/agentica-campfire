@@ -54,7 +54,7 @@ end
 
 ## Three groups of four hex digits, `a1b2-c3d4-e5f6`, to type or read out.
 export def new_join_code() -> String
-  digits = SecureRandom.hex(JOIN_CODE_BYTES)
+  digits = OpenSSL.Random.hex(JOIN_CODE_BYTES)
   return "#{digits.slice(0, GROUP)}-#{digits.slice(GROUP, GROUP)}-#{digits.slice(GROUP * 2, GROUP)}"
 end
 
@@ -293,7 +293,7 @@ def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     "substr(email_address, 1, instr(email_address, '@') - 1) || '#{MARKER}' || ? || " +
     "substr(email_address, instr(email_address, '@')) else email_address end " +
     "where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
-    [Db.Value.Text(SecureRandom.uuid()), Db.Value.Int(user_id)],
+    [Db.Value.Text(OpenSSL.Random.uuid()), Db.Value.Int(user_id)],
   )
 
   if changed == 0

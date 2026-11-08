@@ -1301,7 +1301,7 @@ end
 # the person at that version of the database, so two tabs can post with the same `client_message_id`: nothing may
 # drop a message because its id was seen before.
 def composer(note: String, draft: String) -> Views.Composer
-  return Views.Composer(note: note, draft: draft, message_id: SecureRandom.hex(CLIENT_ID_BYTES))
+  return Views.Composer(note: note, draft: draft, message_id: OpenSSL.Random.hex(CLIENT_ID_BYTES))
 end
 
 def member_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]
@@ -1425,7 +1425,7 @@ end
 def client_id(conn: Bond.Conn) -> Result[String]
   values = try Bond.form_all(conn, MESSAGE_CLIENT_ID)
   if values.empty? or values[0].empty?
-    return ok(SecureRandom.hex(CLIENT_ID_BYTES))
+    return ok(OpenSSL.Random.hex(CLIENT_ID_BYTES))
   end
 
   if values[0].length > Rooms.MAX_CLIENT_ID_LENGTH

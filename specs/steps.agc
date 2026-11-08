@@ -170,7 +170,7 @@ def configured_program(ctx: BDD.Context, url: String, secure_cookies: String, po
     "CAMPFIRE_PORT": "0",
     "CAMPFIRE_DATA_DIR": "unused",
     "CAMPFIRE_DATABASE_URL": url,
-    "CAMPFIRE_SESSION_SECRET": SecureRandom.hex(32),
+    "CAMPFIRE_SESSION_SECRET": OpenSSL.Random.hex(32),
     "CAMPFIRE_SECURE_COOKIES": secure_cookies,
     "CAMPFIRE_DB_POOL_SIZE": pool.get("CAMPFIRE_DB_POOL_SIZE", ""),
     "CAMPFIRE_DB_CHECKOUT_MS": pool.get("CAMPFIRE_DB_CHECKOUT_MS", ""),
@@ -289,7 +289,7 @@ end
 
 def new_database(ctx: BDD.Context, migrated: Bool) -> BDD.Context
   root = System.env("TMPDIR").unwrap_or("/tmp")
-  dir = Path.join([root, "#{FOLDER_PREFIX}#{SecureRandom.hex(8)}"]).unwrap!
+  dir = Path.join([root, "#{FOLDER_PREFIX}#{OpenSSL.Random.hex(8)}"]).unwrap!
   made = Dir.mkdir_private(dir)
   if not made.ok?
     return BDD.assert(ctx, false, "cannot make #{dir}: #{made.message}")
@@ -325,7 +325,7 @@ def schema_template() -> Result[String]
     return ok(path)
   end
 
-  scratch = try Path.join([folder, "making-#{SecureRandom.hex(8)}.db"])
+  scratch = try Path.join([folder, "making-#{OpenSSL.Random.hex(8)}.db"])
   migrated = Database.migrate("sqlite:#{scratch}?fts5=required")
   if not migrated.ok?
     _ = Path.remove(scratch)
@@ -378,7 +378,7 @@ def schema_digest() -> Result[String]
   end
 
   lock = try File.read_text(PACKAGE_LOCK)
-  return ok(Digest.sha256_hexdigest("#{parts.join("\n")}\n#{lock}".bytes))
+  return ok(OpenSSL.Digest.sha256_hexdigest("#{parts.join("\n")}\n#{lock}".bytes))
 end
 
 # The statements of a migration. A migration that is a function has none to show, so the digest would not see a change
@@ -640,7 +640,7 @@ end
 def post_as(conn: Db.Connection, email: String, room_id: Int, body: String) -> Result[Bool]
   rows = try Db.query(conn, "select id from users where email_address = ?", [Db.Value.Text(email)])
   user_id = value_int(rows[0].get("id", Db.Value.Null))
-  stored = try Rooms.post(conn, room_id, user_id, "stale-#{SecureRandom.hex(4)}", body)
+  stored = try Rooms.post(conn, room_id, user_id, "stale-#{OpenSSL.Random.hex(4)}", body)
   return ok(stored.some?)
 end
 

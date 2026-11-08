@@ -19,7 +19,7 @@ INITIALS = /\b\w/
 # The runs of digits of a timestamp, for `version`.
 DIGITS = /\d+/
 
-# Active Storage keys are 28 characters of base 36 (`SecureRandom.base36`). Only those can be a name in the folder of
+# Active Storage keys are 28 characters of base 36 (`OpenSSL.Random.base36`). Only those can be a name in the folder of
 # the files: whatever else a row holds (it came from a database, not from a visitor) is never turned into a path.
 KEY = /\A[0-9a-z]{4,64}\z/
 

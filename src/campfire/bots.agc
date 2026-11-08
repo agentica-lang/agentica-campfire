@@ -10,7 +10,7 @@ import Rails from "repo/rails"
 import Rooms from "rooms"
 import {int_of, text_of} from "repo/rows"
 
-# The characters of a token (`SecureRandom.alphanumeric`).
+# The characters of a token (`OpenSSL.Random.alphanumeric`).
 ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 TOKEN_LENGTH = 12
 
@@ -78,7 +78,7 @@ export def authenticate(conn: Db.Connection, key: String) -> Result[Optional[Bot
 
   found = try find(conn, id.unwrap!)
   case found
-    some(bot) if HMAC.secure_compare(bot.key.bytes, given.bytes) -> return ok(some(bot))
+    some(bot) if OpenSSL.HMAC.secure_compare(bot.key.bytes, given.bytes) -> return ok(some(bot))
     _ -> return ok(none)
   end
 end
@@ -170,7 +170,7 @@ end
 def new_token() -> String
   token = ""
   while token.length < TOKEN_LENGTH
-    for byte in SecureRandom.random_bytes(TOKEN_LENGTH)
+    for byte in OpenSSL.Random.random_bytes(TOKEN_LENGTH)
       if byte < FAIR_BELOW and token.length < TOKEN_LENGTH
         token = "#{token}#{ALPHABET.slice(byte % ALPHABET.length, 1)}"
       end

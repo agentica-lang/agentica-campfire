@@ -501,7 +501,7 @@ end
 
 def run_in_dir(body: Fn[Database.Observer, Db.Connection, String, Result[Void]]) -> Result[Void]
   root = System.env("TMPDIR").unwrap_or("/tmp")
-  dir = try Path.join([root, "campfire-pages-#{SecureRandom.hex(8)}"])
+  dir = try Path.join([root, "campfire-pages-#{OpenSSL.Random.hex(8)}"])
   try Dir.mkdir_private(dir)
   outcome = with_database(dir, body)
   removed = Path.remove(dir)

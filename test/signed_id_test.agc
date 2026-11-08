@@ -56,7 +56,7 @@ end
 def main() -> Void
   Test.run([
     Test.test("the key is the one that Rails derives: PBKDF2-SHA256, 1000 rounds, the salt of signed_id, 64 bytes") do
-      Test.eq(Digest.hexencode(key()), KEY_HEX)
+      Test.eq(OpenSSL.Digest.hexencode(key()), KEY_HEX)
     end,
     Test.test("the tokens of Rails 7.1, 7.2 and 8.0 give the id of the user") do
       try Test.eq(SignedId.verify(key(), RAILS_8_ID_1, SignedId.AVATAR_PURPOSE, NOW_MS), some(1))
@@ -111,7 +111,7 @@ def main() -> Void
         "{\"_rails\":{\"data\":\"7\",\"pur\":\"user/avatar\"}}", "{\"data\":7,\"pur\":\"user/avatar\"}", "nope", "7",
       ]
         encoded = Base64.urlsafe_encode64(json.bytes, false)
-        token = "#{encoded}--#{HMAC.sha256_hexdigest(key(), encoded.bytes)}"
+        token = "#{encoded}--#{OpenSSL.HMAC.sha256_hexdigest(key(), encoded.bytes)}"
         try Test.eq(SignedId.verify(key(), token, purpose, NOW_MS), none)
       end
 

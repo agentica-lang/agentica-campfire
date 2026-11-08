@@ -23,8 +23,8 @@ jobs:
       - name: Install the pinned Agentica release
         uses: agentica-lang/setup-agentica@v1
         with:
-          version: 0.26.1
-          sha256: 68c3e825cb14148e45c47b21b6ef66036c5ad17a2cdf36948f47e1415bae5524 # linux-x86_64
+          version: 0.27.0
+          sha256: 87319417a3ad3338af8117e0885cbabf63ae54c8e4539318829c221a342342f9 # linux-x86_64
 
       # The stylesheet and the script are built from app/ and committed: the build must give the same files. The runner's
       # Node is enough; esbuild and sass are the pinned versions of package-lock.json.

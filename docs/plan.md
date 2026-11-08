@@ -34,7 +34,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
 | DB: SQLite, WAL, 13 tables, FTS5 (`db/schema.rb`, `config/database.yml`, `initializers/sqlite_wal_checkpoint.rb`) | agentica-db `Db`/`Orm`, sqlite adapter (busy timeout 5 s, BEGIN IMMEDIATE) | partial: a connection is owned by one task, so the app lends them from a `DbPool` (one per request); a migrations runner exists | DB | M |
 | Background jobs (resque + Redis, 6 jobs in `app/jobs/`) | Task, Channel, Task.map | exists in-process (not durable) | APP | S |
 | Redis use (Action Cable pub/sub, kredis, resque, rate limits) | ATS tables, Channel | replace: ATS for counters/presence/rate/cache, a hub task for fan-out | APP | M |
-| Caching (`response_cache.rb`, `fragment_cache.rb`, `record_cache.rb`, ETag in `messages_controller.rb`) | ATS, `Digest.sha256` | exists; Bond has no ETag/304 | BOND, APP | S |
+| Caching (`response_cache.rb`, `fragment_cache.rb`, `record_cache.rb`, ETag in `messages_controller.rb`) | ATS, `OpenSSL.Digest.sha256` | exists; Bond has no ETag/304 | BOND, APP | S |
 | Compression + static caching (Thruster) | `Zlib.gzip`, `Bond.static` (no cache headers) | partial | BOND | S |
 | PWA (`pwa_controller.rb`, manifest, service worker) | static files, views | exists | APP | S |
 | Assets (importmap, Propshaft, Stimulus, CSS, sounds) | `Bond.static`, `Bond.send_file` | maintainers' decision: esbuild + dart-sass via Makefile/Dockerfile; needs fingerprinted names + cache headers | APP, BOND | M |
@@ -101,7 +101,7 @@ Out of the MVP: push, thumbnails, unfurl, rich text, QR transfer, ACME, custom s
 
 **Web Push crypto (maintainers' decision: FFI to libcrypto, outside the core).** Needs (RFC 8291 aes128gcm + RFC 8292
 VAPID): P-256 key generation, ECDH with the subscriber's `p256dh`, HKDF-SHA256, AES-128-GCM (the VM has only
-256), ECDSA P-256/SHA-256 for the ES256 JWT (raw 64-byte r||s), base64url (exists). HKDF is two `HMAC.sha256`
+256), ECDSA P-256/SHA-256 for the ES256 JWT (raw 64-byte r||s), base64url (exists). HKDF is two `OpenSSL.HMAC.sha256`
 calls in Agentica, no FFI. HTTP/2 is not needed: Campfire's gem posts over HTTP/1.1
 (`lib/web_push/notification.rb`) and endpoints are host-allowlisted (`models/push/subscription.rb`), so the
 Agentica HTTP client and no DNS pinning are enough.
@@ -129,7 +129,7 @@ What the FFI must support, and whether it does today (`site/content/library/io-a
    point by prefixing the fixed 26-byte P-256 SPKI header and calling `d2i_PUBKEY`; export ours with
    `EVP_PKEY_get_octet_string_param(key, "pub", ...)`; load the VAPID private scalar by wrapping it in a SEC1
    `ECPrivateKey` DER (`d2i_PrivateKey`, built with Bytes concat); sign the digest with
-   `Digest.sha256` + `EVP_PKEY_sign_init`/`EVP_PKEY_sign`, then convert DER (r,s) to raw r||s in Agentica.
+   `OpenSSL.Digest.sha256` + `EVP_PKEY_sign_init`/`EVP_PKEY_sign`, then convert DER (r,s) to raw r||s in Agentica.
    AES-128-GCM: `EVP_EncryptInit_ex` (key and iv as `C.Bytes`), `EVP_EncryptUpdate`, `EVP_EncryptFinal_ex`, and
    `EVP_CIPHER_CTX_ctrl(ctx, 0x10, 16, tagbuf)` with an owned buffer.
 Not verified (needs a spike before Phase 5): (a) the release binary links a static OpenSSL, so loading the
