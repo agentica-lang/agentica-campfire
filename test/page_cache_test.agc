@@ -429,12 +429,13 @@ end
 
 # Only the pages that the cache keeps make the sign-in filter read the version.
 def cached_paths() -> Result[Void]
-  for path in ["/users/me/sidebar", "/searches", "/rooms/12", "/rooms/12/messages"]
+  for path in ["/users/me/sidebar", "/searches", "/rooms/12", "/rooms/12/messages", "/users/TOKEN/avatar"]
     try Test.assert(PageCache.cached?(path), "#{path} is kept")
   end
 
   for path in [
-    "/rooms/new", "/rooms/12/edit", "/rooms/12/@5", "/rooms/12/messages/3", "/users/1/avatar", "/cable", "/",
+    "/rooms/new", "/rooms/12/edit", "/rooms/12/@5", "/rooms/12/messages/3", "/users//avatar", "/users/1/avatar/x",
+    "/cable", "/",
   ]
     try Test.assert(not PageCache.cached?(path), "#{path} is not kept")
   end

@@ -6,11 +6,18 @@
 ## gets initials too. A token that does not verify, a user that does not exist and a file that is gone are the 404 of
 ## any missing page, and nothing tells which. The answer may be kept by the browser of the person for 30 minutes. The
 ## route needs a sign-in, as in Rails.
+##
+## What the database says (the initials, or the file to send and its type, or none) is kept in the cache of whole pages
+## for the version of the database (`PageCache.shared_spot`), the same for everybody: a new picture, a removed one, a
+## rename or any other commit is another version, so it is never older than the database. The sign-in filter reads the
+## version for these paths too (`PageCache.cached?`), so a repeat costs the read of the observer, the check of the token
+## and the file, and takes no connection of the pool. The file is read each time, so a file that is gone is still a 404.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Avatars from "../campfire/avatars"
 import Database from "../campfire/repo/database"
+import PageCache from "page_cache"
 import Routes from "routes"
 import SignedId from "../campfire/signed_id"
 import Views from "views"
@@ -20,6 +27,11 @@ import Views from "views"
 # yet the route needs a sign-in, so a shared cache must not hand the picture to someone who is not signed in.
 CACHE_CONTROL = "private, max-age=1800, stale-while-revalidate=604800"
 SVG_TYPE = "image/svg+xml; charset=utf-8"
+
+# The marks of the kept forms of an answer (`encode`).
+STORED_MARK = "S"
+INITIALS_MARK = "I\n"
+MISSING_MARK = "M"
 
 # What the handler found while its connection was open. The stored file (its path and its type) is sent after it is
 # closed, since a download can take long and the connection is not needed for it.
@@ -31,17 +43,73 @@ end
 
 ## Adds the route of the avatars to `app`. `key` is `SignedId.key` of the `SECRET_KEY_BASE`, `none` without one (every
 ## link is then a 404), and `storage_dir` the folder of the files of Active Storage.
-export def add(app: Bond.App, pool: Database.Pool, key: Optional[Bytes], storage_dir: String) -> Bond.App
-  return app |> Bond.get(Routes.AVATAR) do |conn| show(conn, pool, key, storage_dir) end
+export def add(
+  app: Bond.App,
+  pool: Database.Pool,
+  pages: Optional[PageCache.Pages],
+  key: Optional[Bytes],
+  storage_dir: String,
+) -> Bond.App
+  return app |> Bond.get(Routes.AVATAR) do |conn| show(conn, pool, pages, key, storage_dir) end
 end
 
-def show(conn: Bond.Conn, pool: Database.Pool, key: Optional[Bytes], storage_dir: String) -> Result[Bond.Conn]
+def show(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  pages: Optional[PageCache.Pages],
+  key: Optional[Bytes],
+  storage_dir: String,
+) -> Result[Bond.Conn]
   user_id = verified(conn, key)
   case user_id
     none -> return ok(missing(conn))
     some(id) ->
+      # The version is read before the database, so what is kept under it is that of the version or later.
+      spot = PageCache.shared_spot(pages, PageCache.seen(conn), PageCache.AVATAR, id.to_s)
+      kept = recalled(spot)
+      if kept.some?
+        return respond(conn, kept.unwrap!)
+      end
+
       answer = try Database.with_connection(pool) do |db| answer_for(db, id, storage_dir) end
+      PageCache.remember(spot, encode(answer))
       return respond(conn, answer)
+  end
+end
+
+# The answer kept at `spot`, if it holds one that this code wrote.
+def recalled(spot: Optional[PageCache.Spot]) -> Optional[Answer]
+  kept = PageCache.recall(spot)
+  if kept.none?
+    return none
+  end
+
+  text = kept.unwrap!
+  if text.start_with?(STORED_MARK)
+    parts = text.split("\n")
+    if parts.size == 3
+      return some(Answer.Stored(parts[2], parts[1]))
+    end
+  end
+
+  if text.start_with?(INITIALS_MARK)
+    return some(Answer.Initials(text.slice(INITIALS_MARK.length, text.length - INITIALS_MARK.length)))
+  end
+
+  if text == MISSING_MARK
+    return some(Answer.Missing)
+  end
+
+  return none
+end
+
+# The kept form of an answer: a mark, then its parts. The type and the path of a stored file have no line break (the
+# type is checked in `Avatars`, the path is made from a checked key), so the line break separates them.
+def encode(answer: Answer) -> String
+  case answer
+    Answer.Stored(path, content_type) -> return "#{STORED_MARK}\n#{content_type}\n#{path}"
+    Answer.Initials(svg) -> return INITIALS_MARK + svg
+    Answer.Missing -> return MISSING_MARK
   end
 end
 
