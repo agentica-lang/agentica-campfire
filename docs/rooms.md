@@ -287,4 +287,6 @@ esbuild) and writes the names to `src/campfire_web/asset_names.agc`, which `Rout
 pages with the sidebar link: with it a message is sent with `fetch` (the Turbo Stream answer above) and the page does not
 reload, and the keys work (Enter, Shift+Enter, Ctrl or Cmd+Enter, Esc); without it the form posts and redirects as before.
 
+Every HTML page and every redirect that sets no `Cache-Control` of its own (`web.agc`, `revalidate`) is sent with `Cache-Control: max-age=0, private, must-revalidate`, as Rails does, so a browser never shows an old page that links an old fingerprint after a deploy.
+
 Bond sends each file with an `ETag` and `Last-Modified` (a request with `If-None-Match` or `If-Modified-Since` gets `304`), keeps the small ones in memory, and answers a client that takes gzip with the `.gz` file next to a text file when there is one that is not older. The Docker image writes one next to each stylesheet and script (`gzip -9 -k -n`); a run from the source folder has none and sends the plain file.

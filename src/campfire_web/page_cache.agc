@@ -85,7 +85,8 @@ QUERY_DIGITS = 32
 # How much of the digest of the name and the role of the person goes in the key.
 SEEN_DIGITS = 16
 
-CACHE_CONTROL = "max-age=0, private, must-revalidate"
+## What Rails sends for a page that says nothing else: the browser keeps a copy but asks again each time.
+export CACHE_CONTROL = "max-age=0, private, must-revalidate"
 
 # The version of the database that a request was made at, as it is assigned.
 struct Version
