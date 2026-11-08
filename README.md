@@ -42,27 +42,29 @@ The tests are BDD first and take under a minute. Rules for contributors and agen
 
 Requests per second (higher is better), median of 3 rounds with 16 clients, from the
 [Rails Campfire benchmark](https://github.com/basecamp/once-campfire-verification) at ec02deb, with the server on
-CPUs 4-7 and the client on CPUs 0-3. Go and Agentica are run `20261108-212335-7` (2026-11-08): Campfire e3ce2b9 on
-Agentica 0.27.0 with agentica-db 0.8.0 and Bond 0.10.0 (image `sha256:3187fa91`), and
+CPUs 4-7 and the client on CPUs 0-3. Go and Agentica are run `20261108-222622-7` (2026-11-08): Campfire 8a7616e on
+Agentica 0.27.0 with agentica-db 0.8.0 and Bond 0.10.1 (image `sha256:a7e426e7`), and
 [once-campfire-go](https://github.com/basecamp/once-campfire-go) c4ab53d. Rails is the reference run
 `20261105-101743-7` on the same machine.
 
 | Route | Rails | Go | Agentica | Agentica / Rails | Agentica / Go |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| room_show | 834.3 | 7021.1 | 9408.5 | 11.3x | 134% |
-| messages_page | 876.9 | 7455.0 | 9462.6 | 10.8x | 127% |
-| sidebar | 990.1 | 8213.8 | 9068.5 | 9.2x | 110% |
-| search | 970.8 | 8268.8 | 8850.6 | 9.1x | 107% |
+| room_show | 834.3 | 7077.0 | 9500.9 | 11.4x | 134% |
+| messages_page | 876.9 | 7424.0 | 9536.0 | 10.9x | 128% |
+| sidebar | 990.1 | 8201.1 | 9357.9 | 9.5x | 114% |
+| search | 970.8 | 8360.0 | 8953.4 | 9.2x | 107% |
 
 post_message is left out of this run (`--routes`): on this machine, writes under load stalled for seconds (Go fell from
 1135 to 91-211 requests per second, with a p99 up to 3.8 s; Agentica answered some 503s), so the number did not measure
-the apps. The other routes of the run: avatar 4170.4 against Go's 20870.9 (20%), static_css 14323.0 against 23407.0
-(61%), up 21686.4 against 15261.4 (142%).
+the apps. The other routes of the run: avatar 7646.4 against Go's 21185.9 (36%), static_css 18006.9 against 24902.3
+(72%), up 21693.1 against 15314.7 (142%).
 
-Against run `20261107-171526-7` (Campfire e8ae07b on Agentica 0.26.1 and agentica-db 0.6.0), room_show went from 4282.9
-to 9408.5 (+120%), messages_page from 6576.8 to 9462.6 (+44%), sidebar from 8527.6 to 9068.5 (+6%) and search from
-6898.3 to 8850.6 (+28%); Go moved by 0-3% between the two runs. The app changed too between e8ae07b and e3ce2b9, so the
-gain is not Agentica 0.27.0 alone. Earlier steps are in the history of this file.
+Against run `20261108-212335-7` (Campfire e3ce2b9 with Bond 0.10.0, the same day), the avatar answer cache of
+[#143](https://github.com/agentica-lang/agentica-campfire/pull/143) took avatar from 4170.4 to 7646.4 (+83%), and the
+header work of Bond 0.10.1 took static_css from 14323.0 to 18006.9 (+26%); the four pages moved by 1-3%. Against run
+`20261107-171526-7` (Campfire e8ae07b on Agentica 0.26.1 and agentica-db 0.6.0), room_show went from 4282.9 to 9500.9,
+messages_page from 6576.8 to 9536.0, sidebar from 8527.6 to 9357.9 and search from 6898.3 to 8953.4; the app changed too
+between e8ae07b and 8a7616e, so the gain is not Agentica 0.27.0 alone. Earlier steps are in the history of this file.
 
 To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
