@@ -72,11 +72,17 @@ Feature: Avatars
     And the body is the stored variant of the avatar of the user 1
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the body is the stored variant of the avatar of the user 1
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b86/avatar"
+    Then the status is 404
     When I post to "/users/me/avatar" the form:
       | _method | delete |
     And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the status is 200
     And the body starts with "<svg"
+    Given the browser has no cookies
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 302
+    And the header "location" is "/session/new"
 
   Scenario: A file that goes from the disk is a 404 even when the answer was kept
     Given the avatar that Rails stored for the user 1

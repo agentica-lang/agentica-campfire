@@ -35,7 +35,7 @@ MISSING_MARK = "M"
 
 # What the handler found while its connection was open. The stored file (its path and its type) is sent after it is
 # closed, since a download can take long and the connection is not needed for it.
-enum Answer
+export enum Answer
   Stored(String, String)
   Initials(String)
   Missing
@@ -51,6 +51,41 @@ export def add(
   storage_dir: String,
 ) -> Bond.App
   return app |> Bond.get(Routes.AVATAR) do |conn| show(conn, pool, pages, key, storage_dir) end
+end
+
+## The answer in the kept form `text`, `none` for a text that `encode` did not write.
+export def decode(text: String) -> Optional[Answer]
+  if text.start_with?(STORED_MARK)
+    parts = text.split("\n")
+    if parts.size == 3
+      return some(Answer.Stored(parts[2], parts[1]))
+    end
+  end
+
+  if text.start_with?(INITIALS_MARK)
+    # The SVG is cut out by bytes: the marks are ASCII, and `String.slice` walks every character of a text that has a
+    # non-ASCII one.
+    svg = String.from_bytes(text.bytes.drop(INITIALS_MARK.bytesize))
+    if svg.ok?
+      return some(Answer.Initials(svg.unwrap!))
+    end
+  end
+
+  if text == MISSING_MARK
+    return some(Answer.Missing)
+  end
+
+  return none
+end
+
+## The kept form of an answer: a mark, then its parts. The type and the path of a stored file have no line break (the
+## type is checked in `Avatars`, the path is made from a checked key), so the line break separates them.
+export def encode(answer: Answer) -> String
+  case answer
+    Answer.Stored(path, content_type) -> return "#{STORED_MARK}\n#{content_type}\n#{path}"
+    Answer.Initials(svg) -> return INITIALS_MARK + svg
+    Answer.Missing -> return MISSING_MARK
+  end
 end
 
 def show(
@@ -77,40 +112,15 @@ def show(
   end
 end
 
-# The answer kept at `spot`, if it holds one that this code wrote.
+# The answer kept at `spot`, if it holds one that this code wrote. Avatar entries share the page store
+# (`CAMPFIRE_RESPONSE_CACHE_MB`) with the pages, and the version of the database is in their key.
 def recalled(spot: Optional[PageCache.Spot]) -> Optional[Answer]
   kept = PageCache.recall(spot)
   if kept.none?
     return none
   end
 
-  text = kept.unwrap!
-  if text.start_with?(STORED_MARK)
-    parts = text.split("\n")
-    if parts.size == 3
-      return some(Answer.Stored(parts[2], parts[1]))
-    end
-  end
-
-  if text.start_with?(INITIALS_MARK)
-    return some(Answer.Initials(text.slice(INITIALS_MARK.length, text.length - INITIALS_MARK.length)))
-  end
-
-  if text == MISSING_MARK
-    return some(Answer.Missing)
-  end
-
-  return none
-end
-
-# The kept form of an answer: a mark, then its parts. The type and the path of a stored file have no line break (the
-# type is checked in `Avatars`, the path is made from a checked key), so the line break separates them.
-def encode(answer: Answer) -> String
-  case answer
-    Answer.Stored(path, content_type) -> return "#{STORED_MARK}\n#{content_type}\n#{path}"
-    Answer.Initials(svg) -> return INITIALS_MARK + svg
-    Answer.Missing -> return MISSING_MARK
-  end
+  return decode(kept.unwrap!)
 end
 
 # The user in the token, when it was signed with the key for the purpose of an avatar and has not expired.

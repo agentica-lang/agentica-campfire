@@ -5,6 +5,7 @@ import Testing from "pkg/bond/testing"
 import Db from "pkg/db/db"
 import Auth from "../src/campfire/auth"
 import Database from "../src/campfire/repo/database"
+import AvatarsWeb from "../src/campfire_web/avatars"
 import PageCache from "../src/campfire_web/page_cache"
 
 SLOTS = 8
@@ -500,6 +501,72 @@ def respond_matches_html() -> Result[Void]
   return Test.eq(HTTP.header_values(same.headers, "etag"), [tag])
 end
 
+# The kept form of an avatar answer reads back as it was written, a text that is not one reads as none, and the shared
+# spot keeps an answer for its version only (and does nothing without a cache).
+def avatar_answers_round_trip() -> Result[Void]
+  svg = "<svg>\n<text>é日本</text>\n</svg>"
+  stored = AvatarsWeb.decode(AvatarsWeb.encode(AvatarsWeb.Answer.Stored("/files/ab/cd/abcdef", "image/webp")))
+  try Test.assert(stored.some?, "a stored file is read back")
+  case stored.unwrap!
+    AvatarsWeb.Answer.Stored(path, content_type) ->
+      try Test.eq([path, content_type], ["/files/ab/cd/abcdef", "image/webp"])
+    _ -> try Test.assert(false, "a stored file is read back as stored")
+  end
+
+  initials = AvatarsWeb.decode(AvatarsWeb.encode(AvatarsWeb.Answer.Initials(svg)))
+  try Test.assert(initials.some?, "initials are read back")
+  case initials.unwrap!
+    AvatarsWeb.Answer.Initials(found) -> try Test.eq(found, svg)
+    _ -> try Test.assert(false, "initials are read back as initials")
+  end
+
+  missing = AvatarsWeb.decode(AvatarsWeb.encode(AvatarsWeb.Answer.Missing))
+  try Test.assert(missing.some?, "missing is read back")
+  for corrupt in ["", "X", "S", "S\nonly", "S\na\nb\nc", "I", "Mx"]
+    try Test.assert(AvatarsWeb.decode(corrupt).none?, "#{corrupt.inspect} is not an answer")
+  end
+
+  try Test.assert(PageCache.shared_spot(none, none, PageCache.AVATAR, "1").none?, "no cache, no spot")
+  PageCache.remember(none, "x")
+  try Test.assert(PageCache.recall(none).none?, "no cache, nothing kept")
+  return ok()
+end
+
+def avatar_answers_are_kept_for_their_version(
+  observer: Database.Observer,
+  writer: Db.Connection,
+  url: String,
+) -> Result[Void]
+  _ = url
+  pages = some(
+    PageCache.Pages(
+      store: Cache.memory(1_000_000),
+      people: Cache.memory(100_000),
+      search_slots: SLOTS,
+      cursor_slots: SLOTS,
+      observer: observer,
+    ),
+  )
+
+  first = PageCache.shared_spot(pages, some("v1"), PageCache.AVATAR, "7")
+  try Test.assert(PageCache.recall(first).none?, "nothing is kept yet")
+  PageCache.remember(first, "M")
+  try Test.eq(PageCache.recall(PageCache.shared_spot(pages, some("v1"), PageCache.AVATAR, "7")), some("M"))
+  try Test.assert(
+    PageCache.recall(PageCache.shared_spot(pages, some("v2"), PageCache.AVATAR, "7")).none?,
+    "a new version",
+  )
+
+  try Test.assert(
+    PageCache.recall(PageCache.shared_spot(pages, some("v1"), PageCache.AVATAR, "8")).none?,
+    "another user",
+  )
+
+  try Test.assert(PageCache.shared_spot(pages, some(""), PageCache.AVATAR, "7").none?, "an unreadable version")
+  _ = writer
+  return ok()
+end
+
 def run_in_dir(body: Fn[Database.Observer, Db.Connection, String, Result[Void]]) -> Result[Void]
   root = System.env("TMPDIR").unwrap_or("/tmp")
   dir = try Path.join([root, "campfire-pages-#{OpenSSL.Random.hex(8)}"])
@@ -512,6 +579,12 @@ end
 
 def main() -> Void
   Test.run([
+    Test.test("the kept form of an avatar answer reads back, and no cache keeps nothing") do
+      avatar_answers_round_trip()
+    end,
+    Test.test("an avatar answer is kept for its version and its user only") do
+      run_in_dir(&avatar_answers_are_kept_for_their_version)
+    end,
     Test.test("the version changes with a commit of another connection") do run_in_dir(&version_follows_commits) end,
     Test.test("tasks that read the version at once all get an answer, and a read after a commit sees the commit") do
       run_in_dir(&readers_share_the_connection)

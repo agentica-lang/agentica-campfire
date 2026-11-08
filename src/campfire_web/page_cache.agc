@@ -44,6 +44,10 @@
 ## looks the session up again. The person is looked up after the version was read, so what is kept under a version is
 ## that of the database at that version or later.
 ##
+## The answer of an avatar link (`AvatarsWeb`: the initials, or the file to send and its type, or none) is kept in the same
+## store under a key of the version and the user only (`shared_spot`), since it is the same for everybody who is signed
+## in; the token and the sign-in are checked before it is looked up.
+##
 ## Every page has a weak `ETag` (a digest of its bytes, as `Rack::ETag` writes it) and `Cache-Control: max-age=0,
 ## private, must-revalidate`, as Rails sends, and a request whose `If-None-Match` has the tag is a 304. The form of a
 ## room page carries a `client_message_id` drawn when the page is made, so two loads of one person at one version of the
