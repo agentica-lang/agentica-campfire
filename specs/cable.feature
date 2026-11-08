@@ -118,6 +118,23 @@ Feature: Live updates over /cable
     When client "bea" performs "refresh" in the channel "PresenceChannel" of the room 1
     Then client "bea" receives nothing for 300 milliseconds
 
+  Scenario: A presence action counts the person in the room of the subscription only, not in a room that it names
+    When I post to "/closed_rooms" the form:
+      | name | Secret |
+    And I sign in as "bea@example.com"
+    And client "bea" connects with the cookies of the browser
+    And client "bea" subscribes to the channel "PresenceChannel" of the room 2
+    Then client "bea" eventually receives a frame containing "reject_subscription"
+    When client "bea" performs "present" in the channel "PresenceChannel" of the room 2
+    And 300 milliseconds pass
+    And I sign in as "ana@example.com"
+    And I post to "/rooms/2/settings" the form:
+      | name   | Secret |
+      | member | 2      |
+    And I post to "/rooms/2/messages" the form:
+      | message[body] | Bea was never here |
+    Then the query "select count(*) from memberships where room_id = 2 and user_id = 2 and unread_at is not null" gives 1 within 2000 milliseconds
+
   Scenario: A presence subscription writes the room read only when it was unread or the database changed
     When I sign in as "bea@example.com"
     And client "bea1" connects with the cookies of the browser
