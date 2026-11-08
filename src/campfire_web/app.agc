@@ -97,7 +97,6 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   end
 
   mailer = try Mailer.start(config.smtp, config.mail_queue)
-  cable = try CableWeb.start(config, pool)
   messages = MessageCache.start(config.cache_mb)
   watched = PageCache.start(
     config.response_cache_mb,
@@ -108,7 +107,6 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   )
 
   if not watched.ok?
-    CableWeb.stop(cable)
     Mailer.stop(mailer)
     return error(
       "cannot open the database connection that watches for changes (CAMPFIRE_DATABASE_URL): #{watched.message}",
@@ -116,6 +114,15 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   end
 
   pages = watched.unwrap!
+  # The checks of the sockets keep what they read for a version of the database, which the cache's observer gives.
+  made = CableWeb.start(config, pool, pages)
+  if not made.ok?
+    PageCache.stop(pages)
+    Mailer.stop(mailer)
+    return error(made.message)
+  end
+
+  cable = made.unwrap!
   # A WebSocket holds a connection of the server for as long as its tab is open, so the limit is a setting.
   limits = HttpServerOptions(max_connections: config.max_connections)
   started = Bond.start_with(

@@ -300,6 +300,25 @@ Feature: Live updates over /cable
       {"type":"welcome"}
       """
 
+  Scenario: A database failure while a subscription is checked refuses that subscription only, never the person's other sockets
+    When I sign in as "bea@example.com"
+    And I get "/rooms/1"
+    And client "bea1" connects with the cookies of the browser
+    And client "bea2" connects with the cookies of the browser
+    And client "bea1" subscribes to the channel "HeartbeatChannel"
+    Then client "bea1" eventually receives a frame containing "confirm_subscription"
+    When I run the sql "alter table memberships rename to memberships_away"
+    And client "bea2" subscribes to the channel "PresenceChannel" of the room 1
+    Then client "bea2" eventually receives a frame containing "reject_subscription"
+    When client "bea2" subscribes to the streams of the last page
+    Then client "bea2" eventually receives a frame containing "reject_subscription"
+    And client "bea1" receives nothing for 500 milliseconds
+    When I run the sql "alter table memberships_away rename to memberships"
+    And client "bea2" subscribes to the channel "PresenceChannel" of the room 1
+    Then client "bea2" eventually receives a frame containing "confirm_subscription"
+    When client "bea1" performs "check" in the channel "HeartbeatChannel"
+    Then client "bea1" receives nothing for 300 milliseconds
+
   Scenario: A person who is taken out of a closed room stops hearing it, and is refused when the client comes back
     When I post to "/closed_rooms" the form:
       | name   | Council |

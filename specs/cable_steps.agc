@@ -50,6 +50,8 @@ export def steps() -> List[BDD.Step]
       "client {string} subscribes to the streams of the last page as the channel {string}",
       &subscribes_to_page_as,
     ),
+    BDD.step("{int} clients connect at once and subscribe to the streams of the last page", &burst_subscribes),
+    BDD.step("each of the {int} clients is confirmed for every stream of the last page", &burst_confirmed),
     BDD.step("client {string} receives:", &receives),
     BDD.step("client {string} eventually receives a frame containing {string}", &eventually_receives),
     BDD.step("client {string} receives nothing for {int} milliseconds", &receives_nothing),
@@ -243,6 +245,50 @@ end
 
 def subscribes_to_page_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return subscribe_sources(ctx, args[0], HttpSteps.last_body(ctx), args[1])
+end
+
+def burst_id(number: Int) -> String
+  return "burst #{number}"
+end
+
+# All the sockets are opened first and then all the subscriptions are sent, so the checks of the server meet together,
+# as in a page load of many tabs or the reconnect of a crowd.
+def burst_subscribes(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  count = args[0].to_i!
+  headers = {"Origin": "http://127.0.0.1:#{HttpSteps.port_of(ctx)}", "Cookie": HttpSteps.cookie_header(ctx)}
+  result = ctx
+  for number in 1..count
+    order = Order(op: "connect", id: burst_id(number), path: "/cable", headers: headers, protocols: SUBPROTOCOL)
+    answer = peer(result, order)
+    result = BDD.assert(result, int_of(answer, "status") == 101, "client #{number} was answered #{answer}")
+  end
+
+  for number in 1..count
+    result = subscribe_sources(result, burst_id(number), HttpSteps.last_body(result), "")
+  end
+
+  return result
+end
+
+# Every stream is confirmed, none is rejected and no socket is closed: a refusal for lack of a connection of the pool
+# would show here.
+def burst_confirmed(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  wanted = sources_of(HttpSteps.last_body(ctx)).size
+  result = ctx
+  for number in 1..args[0].to_i!
+    confirmed = 0
+    while confirmed < wanted
+      frame = next_frame(result, burst_id(number), RECEIVE_MS)
+      text = text_of(frame, "text")
+      if text.include?("confirm_subscription")
+        confirmed += 1
+      elsif not has?(frame, "text") or text.include?("reject_subscription")
+        return BDD.assert(result, false, "client #{number} got #{frame} after #{confirmed} of #{wanted} confirmations")
+      end
+    end
+  end
+
+  return BDD.assert(result, true, "")
 end
 
 def next_frame(ctx: BDD.Context, id: String, timeout_ms: Int) -> Json

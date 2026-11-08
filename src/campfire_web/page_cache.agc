@@ -246,6 +246,22 @@ export def watch(conn: Bond.Conn, pages: Optional[Pages]) -> Bond.Conn
   end
 end
 
+## The version of the database now, for a reader that keeps what it reads under it (the checks of `/cable`: what is
+## kept under a version is what the database held at that version or later, so a commit makes it a miss). `none` with
+## no cache, or when the observer cannot read the version: such a reader reads the database.
+export def current_version(pages: Optional[Pages]) -> Optional[String]
+  case pages
+    none -> return none
+    some(found) ->
+      version = Database.version(found.observer)
+      if not version.ok? or version.unwrap!.empty?
+        return none
+      end
+
+      return some(version.unwrap!)
+  end
+end
+
 ## The version that `watch` kept for the request, if it did (empty if the observer failed: the spots and the kept
 ## people take it as no version).
 export def seen(conn: Bond.Conn) -> Optional[String]

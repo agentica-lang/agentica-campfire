@@ -25,7 +25,7 @@ def probe(dir: String) -> Result[Void]
   # One connection, and a short wait for it. The pool belongs to the task of the test, which closes it.
   pool = try Database.open_pool(config.database_url, 1, CHECKOUT_MS)
   mailer = try Mailer.start(none, 1)
-  cable = try CableWeb.start(config, pool)
+  cable = try CableWeb.start(config, pool, none)
   app = Web.build(config, pool, schema.version, mailer, cable)
   started: Channel[Bool] = Channel.new(1)
   release: Channel[Bool] = Channel.new(1)
