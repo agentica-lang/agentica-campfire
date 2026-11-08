@@ -77,7 +77,8 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
 - Agentica 0.26.1 or later (`T.codec`, `Codec[T]`, Bond 0.9.0 and agentica-db 0.6.0 need it, and a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
-  with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in `.github/workflows/ci.yml`).
+  with its sha256 (the `version` and `sha256` inputs of `agentica-lang/setup-agentica` in `.github/workflows/ci.yml`;
+  bump the `AGENTICA_VERSION` and `AGENTICA_SHA256` ARGs of the `Dockerfile` with them).
 - To move Bond, agentica-db or bond-channels: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`), commit the lock.
   Keep Bond's tag the one that bond-channels asks for; if they differ, `override = true` on `bond` forces the tag.
   A new dependency is `agentica add NAME URL --tag TAG`.
