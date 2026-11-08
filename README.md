@@ -54,14 +54,15 @@ Agentica 0.27.0 with agentica-db 0.8.0 and Bond 0.10.0 (image `sha256:3187fa91`)
 | sidebar | 990.1 | 8213.8 | 9068.5 | 9.2x | 110% |
 | search | 970.8 | 8268.8 | 8850.6 | 9.1x | 107% |
 
-post_message is left out of this run (`--routes`): on this machine's disk, writes under load stalled for 3-6 seconds
-in Go and Agentica alike (Go fell from 1135 to 91-211 requests per second), so the number measured the disk, not the
-apps. The other routes of the run: avatar 4170.4 against Go's 20870.9 (20%), static_css 14323.0 against 23407.0
+post_message is left out of this run (`--routes`): on this machine, writes under load stalled for seconds (Go fell from
+1135 to 91-211 requests per second, with a p99 up to 3.8 s; Agentica answered some 503s), so the number did not measure
+the apps. The other routes of the run: avatar 4170.4 against Go's 20870.9 (20%), static_css 14323.0 against 23407.0
 (61%), up 21686.4 against 15261.4 (142%).
 
-Against run `20261107-171526-7` (Campfire e8ae07b on Agentica 0.26.1 and agentica-db 0.6.0), room_show went from
-4282.9 to 9408.5 (+120%), messages_page from 6576.8 to 9462.6 (+44%), sidebar from 8527.6 to 9068.5 (+6%) and search
-from 6898.3 to 8850.6 (+28%); Go moved by 0-3% between the two runs. Earlier steps are in the history of this file.
+Against run `20261107-171526-7` (Campfire e8ae07b on Agentica 0.26.1 and agentica-db 0.6.0), room_show went from 4282.9
+to 9408.5 (+120%), messages_page from 6576.8 to 9462.6 (+44%), sidebar from 8527.6 to 9068.5 (+6%) and search from
+6898.3 to 8850.6 (+28%); Go moved by 0-3% between the two runs. The app changed too between e8ae07b and e3ce2b9, so the
+gain is not Agentica 0.27.0 alone. Earlier steps are in the history of this file.
 
 To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
