@@ -16,7 +16,7 @@ Feature: The join link
     Then the status is 200
     And the body contains "https://campfire.test/join/aaaa-bbbb-cccc"
     And the header "cache-control" is "no-store"
-    And the header "referrer-policy" is "no-referrer"
+    And the header "referrer-policy" is "same-origin"
 
   Scenario: The link on the page lets a new person in
     When I get "/users"

@@ -331,3 +331,19 @@ Feature: The profile and the page of a user
     Then the status is 302
     And the header "location" is "/session/new"
     And the query "select count(*) from active_storage_attachments" gives 2
+
+  Scenario: The profile is saved over plain HTTP, where the browser sends the Origin of the page, and Origin null is refused
+    When I get "/users/me/profile"
+    Then the header "referrer-policy" is "same-origin"
+    Given the request header "origin" is the origin of the site
+    When I post to "/users/me/profile" the form:
+      | _method    | patch   |
+      | user[name] | Beatriz |
+    Then the status is 302
+    And the query "select count(*) from users where id = 2 and name = 'Beatriz'" gives 1
+    Given the request header "origin" is "null"
+    When I post to "/users/me/profile" the form:
+      | _method    | patch  |
+      | user[name] | Forged |
+    Then the status is 403
+    And the query "select count(*) from users where name = 'Forged'" gives 0

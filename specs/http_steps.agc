@@ -128,6 +128,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("the browser restores its saved cookies", &restore_cookies),
     BDD.step("the browser has the cookie {string} with the value {string}", &set_cookie),
     BDD.step("the request header {string} is {string}", &set_header),
+    BDD.step("the request header {string} is the origin of the site", &set_header_to_origin),
   ]
 end
 
@@ -601,6 +602,12 @@ end
 def set_header(ctx: BDD.Context, args: List[String]) -> BDD.Context
   state = browser(ctx)
   return BDD.set(ctx, BROWSER, JSON.from(state.with(headers: state.headers.put(args[0].downcase, args[1]))))
+end
+
+# What a browser sends on a post to its own page over plain HTTP: the `Origin` of the address it is on (the specs'
+# client sets `Host` to the same `127.0.0.1:PORT`) and no `Sec-Fetch-Site`.
+def set_header_to_origin(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return set_header(ctx, [args[0], "http://127.0.0.1:#{port_of(ctx)}"])
 end
 
 def remember_answer(ctx: BDD.Context, args: List[String]) -> BDD.Context

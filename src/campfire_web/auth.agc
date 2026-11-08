@@ -228,9 +228,12 @@ export def bot_api?(path: String) -> Bool
   return parts.size < BOT_BOOSTS_SEGMENTS or parts[5] == "boosts"
 end
 
-## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it.
+## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it. The policy
+## is `same-origin`, not `no-referrer`: with `no-referrer` a browser on plain HTTP sends `Origin: null` on the forms of
+## the page, which `Bond.csrf` refuses (a post to the page's own site carries its real `Origin`). A link to another site
+## still gets no `Referer`.
 export def private_page(conn: Bond.Conn) -> Bond.Conn
-  return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "no-referrer")
+  return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "same-origin")
 end
 
 # `Bond.csrf` refuses a post that a page of another site sent, judging by `Sec-Fetch-Site` and `Origin`. The messages

@@ -249,3 +249,27 @@ Feature: The account settings page
       | /account          |        | POST, PATCH          |
       | /account/users/2  | put    | POST, PATCH, DELETE  |
       | /account/users/2  |        | POST, PATCH, DELETE  |
+
+  Scenario Outline: An administrator saves the account forms over plain HTTP, where the browser sends the Origin of the page
+    When I get "/account/edit"
+    Then the status is 200
+    And the header "referrer-policy" is "same-origin"
+    Given the request header "origin" is the origin of the site
+    When I post to "<path>" the form:
+      | _method | patch   |
+      | <field> | <value> |
+    Then the status is 302
+    And the header "location" is "/account/edit"
+    And the query "<check>" gives 1
+    Given the request header "origin" is "null"
+    When I post to "<path>" the form:
+      | _method | patch      |
+      | <field> | <other>    |
+    Then the status is 403
+    And the query "<check>" gives 1
+
+    Examples:
+      | path             | field                                                         | value         | other  | check                                                                                                       |
+      | /account/users/2 | user[role]                                                    | administrator | member | select count(*) from users where id = 2 and role = 1                                                        |
+      | /account         | account[name]                                                 | Campfire HQ   | Other  | select count(*) from accounts where name = 'Campfire HQ'                                                    |
+      | /account         | account[settings][restrict_room_creation_to_administrators]   | true          | false  | select count(*) from accounts where json_extract(settings, '$.restrict_room_creation_to_administrators') = 1 |

@@ -53,7 +53,7 @@ random 256-bit token of which the table `password_resets` keeps only the SHA-256
   link alive until it expires.
 
 Opening the link only shows the form, so a mail scanner that opens it uses nothing up (the page is
-`no-store` with `Referrer-Policy: no-referrer`). Posting the form sets the new password under the
+`no-store` with `Referrer-Policy: same-origin`). Posting the form sets the new password under the
 rules and the hashing limit of the first run (a post that finds the slots busy gets `503` with the
 form again), deletes every session of that person, uses the link up and signs the browser in.
 

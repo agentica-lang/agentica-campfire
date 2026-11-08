@@ -32,7 +32,7 @@ Feature: Password reset
     And the mail server received a message to "ana@example.com" with the subject "Reset your Campfire password"
     When I open the link of the email
     Then the status is 200
-    And the header "referrer-policy" is "no-referrer"
+    And the header "referrer-policy" is "same-origin"
     And the header "cache-control" is "no-store"
     And the body contains "name=\"password\" type=\"password\""
     When I set the password "a brand new password" with the token of the link
@@ -101,7 +101,7 @@ Feature: Password reset
     And I set the password "a second new password" with the token of the link
     Then the status is 410
     And the header "cache-control" is "no-store"
-    And the header "referrer-policy" is "no-referrer"
+    And the header "referrer-policy" is "same-origin"
     When I open the link of the email
     Then the status is 410
     When I post to "/session" the form:
@@ -135,7 +135,7 @@ Feature: Password reset
     And I set the password "<password>" with the token of the link
     Then the status is 422
     And the header "cache-control" is "no-store"
-    And the header "referrer-policy" is "no-referrer"
+    And the header "referrer-policy" is "same-origin"
     And the body contains "<message>"
     And the body does not contain "<password>"
     And the query "select count(*) from password_resets" gives 1
