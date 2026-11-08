@@ -14,7 +14,8 @@ steps to set it up and run it, and what `bench/run.sh` does, are in [bench/READM
 - The server runs on CPUs 4-7 and the client on CPUs 0-3 (`--cpus 4-7 --client-cpus 0-3`, the
   defaults of `bench/run.sh`; the harness default is for 16 cores).
 - Nothing else may run on the machine while it measures.
-- The routes are `room_show`, `messages_page`, `sidebar`, `search` and `post_message`.
+- The routes are `room_show`, `messages_page`, `sidebar`, `search` and `post_message`. `bench/run.sh --routes a,b`
+  runs a subset; the latest run in the README leaves out `post_message` (the README says why).
 
 ## Reproduce
 
