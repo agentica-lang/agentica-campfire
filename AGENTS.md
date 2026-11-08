@@ -67,7 +67,7 @@ tools/          keys_check.js and room_check.js: the by-hand browser checks of t
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-channels by commit (`pool` comes with `db`, which pins it by commit), agentica.lock has their hashes
+agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by tag (`pool` comes with `db`, which pins it by commit), agentica.lock has their hashes
 ```
 
 ## Commands
@@ -78,8 +78,8 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   specs draw their own).
 - Agentica 0.26.1 or later (`T.codec`, `Codec[T]`, Bond 0.9.0 and agentica-db 0.6.0 need it, and a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (`AGENTICA_VERSION`, `AGENTICA_SHA256` in `.github/workflows/ci.yml`).
-- To move Bond or agentica-db: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`), commit the lock.
-  Bond has `override = true` while bond-channels (pinned by commit) still asks for an older tag; drop it when the pin moves.
+- To move Bond, agentica-db or bond-channels: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`), commit the lock.
+  Keep Bond's tag the one that bond-channels asks for; if they differ, `override = true` on `bond` forces the tag.
   A new dependency is `agentica add NAME URL --tag TAG`.
 
 ## Rules
