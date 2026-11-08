@@ -18,11 +18,13 @@
 import Bond from "pkg/bond/bond"
 import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
+import Cache from "std/cache"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
 import Boosts from "../campfire/boosts"
 import Database from "../campfire/repo/database"
 import Hangup from "hangup"
+import PageCache from "page_cache"
 import Presence from "../campfire/presence"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
@@ -40,6 +42,20 @@ ROOM_PREFIX = "room:"
 MEMBER_TRIES = 3
 MEMBER_PAUSE_MS = 50
 
+# The megabytes of the memberships that the checks keep for a version of the database.
+MEMBER_CACHE_MB = 1
+
+# The names of the counters of `Cable.reads`.
+SESSION_READS = "session_reads"
+MEMBER_READS = "member_reads"
+MARK_READS = "mark_reads"
+
+# What a membership says besides the version it was read at: not in the room (never kept), in it and read, in it and
+# unread.
+OUTSIDE = "outside"
+READ = "read"
+UNREAD = "unread"
+
 # How long `stop` waits for the connections to say goodbye, and how often it looks.
 GOODBYE_MS = 3_000
 GOODBYE_POLL_MS = 50
@@ -47,13 +63,40 @@ GOODBYE_POLL_MS = 50
 # The room that a presence subscription or a stream name names, as a number.
 NO_ROOM = -1
 
+BYTES_PER_MB = 1024 * 1024
+
 ## What the routes and the handlers share: the hub that carries the broadcasts, the key that signs the stream names, the
-## pool for the membership checks and the table of who is connected to which room.
+## pool for the membership checks, the table of who is connected to which room, and what the checks keep for a version
+## of the database: the page cache (its observer gives the version, and it keeps the people of the sessions) and the
+## memberships. With no page cache (`CAMPFIRE_RESPONSE_CACHE_MB=0`) nothing is kept and every check reads the database.
 export struct Cable
   hub: Channels.Hub
   key: Bytes
   pool: Database.Pool
   presence: Presence.Presence
+  pages: Optional[PageCache.Pages]
+  members: Cache.Store
+  reads: ATS[String, Int]
+end
+
+# What `/cable/stats` shows besides the hub's counts: the reads of the database that the checks made (not the ones a
+# kept answer saved) and the `mark_read` writes of the presence subscriptions, since the start.
+struct Counts
+  connections: Int
+  subscriptions: Int
+  drops: Int
+  lost: Int
+  session_reads: Int
+  member_reads: Int
+  mark_reads: Int
+end
+
+# What a check of the membership of a room found, and the version of the database it was read at ("" when it was read
+# with no version): the person is in the room (`member`), and the room is unread for them.
+struct Standing
+  member: Bool
+  unread: Bool
+  version: String
 end
 
 # Who a connection is: the person and the token of the session that opened it, which `check_session` looks up again.
@@ -93,7 +136,7 @@ end
 ## Starts the hub and derives the key of the stream names from `SECRET_KEY_BASE` (the secret of a Rails app: a name that
 ## Rails signed with it verifies), or from the session secret when that is not set. An `error` is a start that could
 ## not make either.
-export def start(config: Config, pool: Database.Pool) -> Result[Cable]
+export def start(config: Config, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Cable]
   secret = config.secret_key_base
   if secret.empty?
     secret = config.session_secret
@@ -101,7 +144,11 @@ export def start(config: Config, pool: Database.Pool) -> Result[Cable]
 
   key = try Channels.stream_key(secret)
   hub = try Channels.start_hub()
-  return ok(Cable(hub: hub, key: key, pool: pool, presence: Presence.new()))
+  members = Cache.memory(MEMBER_CACHE_MB * BYTES_PER_MB)
+  reads: ATS[String, Int] = ATS.new()
+  return ok(
+    Cable(hub: hub, key: key, pool: pool, presence: Presence.new(), pages: pages, members: members, reads: reads),
+  )
 end
 
 ## Ends the hub: its connections are told to reconnect and are closed. It waits until the hub task is over, and then
@@ -204,14 +251,28 @@ end
 
 # What the hub counted, for an administrator: the connections and subscriptions now, and the connections it dropped for
 # a full inbox and the broadcasts it could not queue since the start. A benchmark run reads there that no client was
-# dropped and no broadcast was lost. Anyone else gets the 404 of a path with no route.
+# dropped and no broadcast was lost; the reads of the checks are there for the specs that a kept answer is used.
+# Anyone else gets the 404 of a path with no route.
 def show_stats(conn: Bond.Conn, cable: Cable) -> Result[Bond.Conn]
   user = try AuthWeb.assigned_user(conn)
   case user
     some(person) if person.role == Rooms.ADMINISTRATOR_ROLE_NAME ->
-      return ok(Bond.json(conn, 200, JSON.from(Channels.stats(cable.hub))))
+      return ok(Bond.json(conn, 200, JSON.from(counts(cable))))
     _ -> return ok(Bond.text(conn, 404, Routes.MISSING))
   end
+end
+
+def counts(cable: Cable) -> Counts
+  hub = Channels.stats(cable.hub)
+  return Counts(
+    connections: hub.connections,
+    subscriptions: hub.subscriptions,
+    drops: hub.drops,
+    lost: hub.lost,
+    session_reads: ATS.get(cable.reads, SESSION_READS).unwrap_or(0),
+    member_reads: ATS.get(cable.reads, MEMBER_READS).unwrap_or(0),
+    mark_reads: ATS.get(cable.reads, MARK_READS).unwrap_or(0),
+  )
 end
 
 def source(cable: Cable, channel: String, name: String) -> String
@@ -253,29 +314,63 @@ def user_of(session: Channels.Session) -> Result[Auth.User]
   return ok(seat.user)
 end
 
-# True when the person has a membership of the room, whatever their involvement.
-def member?(cable: Cable, session: Channels.Session, room_id: Int) -> Result[Bool]
+# The membership of the person in the room, whatever their involvement, kept for the version of the database. The
+# version is read before the lookup, so what is kept under it is what the database held at that version or later; a
+# removal from the room, like any other commit, is another version, and the next check reads the database again. A
+# person who lost a room therefore never passes on a kept answer. With no version (no page cache, or an observer that
+# fails) the database is read every time.
+def standing(cable: Cable, session: Channels.Session, room_id: Int) -> Result[Standing]
   person = try user_of(session)
-  found = try Database.with_connection(cable.pool) do |db| Rooms.find(db, person.id, room_id) end
-  return ok(found.some?)
+  version = PageCache.current_version(cable.pages)
+  key = "member:#{person.id}:#{room_id}"
+  if version.some?
+    kept = Cache.get(cable.members, key).unwrap_or("").split("\n")
+    if kept.size == 2 and kept[0] == version.unwrap!
+      return ok(standing_of(version.unwrap!, kept[1]))
+    end
+  end
+
+  ATS.add(cable.reads, MEMBER_READS, 1)
+  found = try Database.with_connection(cable.pool) do |db| Rooms.membership(db, person.id, room_id) end
+  if version.none?
+    return ok(Standing(member: found.some?, unread: found.unwrap_or(false), version: ""))
+  end
+
+  # Only a membership is kept: an answer "outside" is asked for any room number a client names, so keeping it would let
+  # one client push the entries of the others out of the store. It costs a read, as it always did.
+  if found.none?
+    return ok(standing_of(version.unwrap!, OUTSIDE))
+  end
+
+  answer = READ
+  if found.unwrap!
+    answer = UNREAD
+  end
+
+  Cache.put(cable.members, key, "#{version.unwrap!}\n#{answer}")
+  return ok(standing_of(version.unwrap!, answer))
 end
 
-# The membership of a room, looked up again when the database fails (a reconnect burst can leave the pool without a
-# connection for a moment). A failure that stays is not "not a member": the person's sockets are told to reconnect, so
-# they ask again, and the failure is the answer (a subscription that fails is rejected, and the client keeps no stream
-# that it was not given).
-def checked_member(cable: Cable, session: Channels.Session, room_id: Int) -> Result[Bool]
+def standing_of(version: String, answer: String) -> Standing
+  return Standing(member: answer != OUTSIDE, unread: answer == UNREAD, version: version)
+end
+
+# `standing`, looked up again when the database fails (a reconnect burst can leave the pool without a connection for
+# a moment). A failure that stays is not "not a member": it is the answer, and it refuses this subscription only. The
+# client keeps no stream that it was not given, and the Turbo client does not ask again, so that tab has no live
+# stream of the room until its page is loaded again. The person's other sockets are not touched: they were checked
+# when they were made, and a failure of the database says nothing about their right to be there.
+def checked_standing(cable: Cable, session: Channels.Session, room_id: Int) -> Result[Standing]
   tries = 1
-  found = member?(cable, session, room_id)
+  found = standing(cable, session, room_id)
   while not found.ok? and tries < MEMBER_TRIES
     Task.sleep(MEMBER_PAUSE_MS * tries)
     tries += 1
-    found = member?(cable, session, room_id)
+    found = standing(cable, session, room_id)
   end
 
   if not found.ok?
     IO.warn("campfire: the membership of room #{room_id} could not be read: #{found.message}")
-    _ = Channels.disconnect(cable.hub, session.identity.id, true)
   end
 
   return found
@@ -289,7 +384,8 @@ def message_stream_allowed?(cable: Cable, session: Channels.Session, name: Strin
     return false
   end
 
-  return checked_member(cable, session, room_id).unwrap_or(false)
+  found = checked_standing(cable, session, room_id)
+  return found.ok? and found.unwrap!.member
 end
 
 def not_a_message_stream?(session: Channels.Session, name: String) -> Bool
@@ -347,12 +443,36 @@ end
 
 # The person of the session cookie, or an `error` that `/cable` answers with a `disconnect` that says not to retry.
 def identify(cable: Cable, conn: Bond.Conn) -> Result[Channels.Identity]
-  user = try AuthWeb.current_user(conn, cable.pool)
+  user = try session_person(cable, AuthWeb.session_token(conn))
   case user
     none -> return error("no signed-in person")
     some(person) ->
       seat = Seat(user: person, token: AuthWeb.session_token(conn))
       return ok(Channels.Identity(id: Hangup.identity_of(person.id), data: JSON.from(seat)))
+  end
+end
+
+# The person of the session with `token`, as `AuthWeb` finds them for a page: the one kept for the version of the
+# database (a sign-out, a deactivation, a ban or a change of the person is a commit, so another version), else the one
+# the database gives, which is then kept. A burst of sockets of one session reads it once.
+def session_person(cable: Cable, token: String) -> Result[Optional[Auth.User]]
+  if token.empty?
+    return ok(none)
+  end
+
+  seen = PageCache.current_version(cable.pages)
+  kept = PageCache.known_user(cable.pages, seen, token)
+  if kept.some?
+    return ok(kept)
+  end
+
+  ATS.add(cable.reads, SESSION_READS, 1)
+  found = try Database.with_connection(cable.pool) do |db| Auth.user_for(db, token) end
+  case found
+    some(session) ->
+      PageCache.remember_user(cable.pages, seen, token, session)
+      return ok(some(session.user))
+    none -> return ok(none)
   end
 end
 
@@ -386,17 +506,38 @@ end
 def present_in_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Channels.Subscription]
   room_id = room_id_of(params)
   person = try user_of(session)
-  if room_id == NO_ROOM or not try checked_member(cable, session, room_id)
+  if room_id == NO_ROOM
+    return ok(Channels.Subscription(rejected: true))
+  end
+
+  found = try checked_standing(cable, session, room_id)
+  if not found.member
     return ok(Channels.Subscription(rejected: true))
   end
 
   Presence.present(cable.presence, room_id, person.id, session.connection, Time.now_ms())
-  read = Database.with_connection(cable.pool) do |db| Rooms.mark_read(db, room_id, person.id) end
-  if not read.ok?
-    IO.warn("campfire: room #{room_id} could not be marked read: #{read.message}")
+  if should_mark_read?(cable, found)
+    ATS.add(cable.reads, MARK_READS, 1)
+    read = Database.with_connection(cable.pool) do |db| Rooms.mark_read(db, room_id, person.id) end
+    if not read.ok?
+      IO.warn("campfire: room #{room_id} could not be marked read: #{read.message}")
+    end
   end
 
   return ok(Channels.Subscription())
+end
+
+# False only when the room is known to be read: it was read when the membership was looked up, and the database has had
+# no commit since (the person is counted as present by now, so a message after that marks the room read itself). A
+# commit in between could be a message that came before the presence did, so the room is marked read, as it always is
+# with no version to compare.
+def should_mark_read?(cable: Cable, found: Standing) -> Bool
+  if found.unread or found.version.empty?
+    return true
+  end
+
+  now = PageCache.current_version(cable.pages)
+  return now.none? or now.unwrap! != found.version
 end
 
 def absent_from_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Void]

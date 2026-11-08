@@ -270,7 +270,10 @@ agentica.toml   the manifest; Bond and agentica-db are pinned by tag, bond-chann
   `/cable` is in `PUBLIC_PATHS` (a 302 on the handshake makes the Rails client retry in a loop) and `CableWeb.connect`
   looks the session up itself. A handler of a channel runs on the loop of its connection, so it does a database call
   and nothing that waits. Authorization is done when a subscription is made (`RoomMessagesChannel` checks the
-  membership of the room in the verified stream name, and `Turbo::StreamsChannel` refuses those names). A route
+  membership of the room in the verified stream name, and `Turbo::StreamsChannel` refuses those names). The session
+  of a connecting socket and the membership of a subscription are kept under the version of the database, like the
+  person of a page (`CableWeb.standing`, `session_person`), so any commit is a miss; keep it that way, and a check that
+  fails refuses that subscription only, never `Channels.disconnect` (that is for a right that was taken away). A route
   broadcasts after its database connection is back in the pool (`announced` in `web/rooms.agc`), and the fan-out of a
   notice to each member runs in a task of its own, and only while the hub has a connection
   (`CableWeb.message_created`). Who is connected lives in memory (`Presence`), never in

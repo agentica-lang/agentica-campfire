@@ -254,6 +254,24 @@ export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optio
   return ok(some(room_of(rows[0])))
 end
 
+## Whether the person is in the room, and if so whether it is unread for them: `none` for no membership (or a room that
+## is gone), else `some(unread)`. One indexed lookup of the membership alone, for the live checks of `/cable`, which do
+## not need the room's name; a page still goes through `find`.
+export def membership(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Bool]]
+  rows = try Db.query(
+    conn,
+    "select memberships.unread_at is not null as unread from memberships " +
+    "join rooms on rooms.id = memberships.room_id where memberships.user_id = ? and memberships.room_id = ?",
+    [Db.Value.Int(user_id), Db.Value.Int(room_id)],
+  )
+
+  if rows.empty?
+    return ok(none)
+  end
+
+  return ok(some(int_of(rows[0], "unread") == 1))
+end
+
 ## The room as the person's sidebar lists it (`visible`), `none` when they are not in it or have hidden it: what a live
 ## change to the sidebar shows them.
 export def visible_room(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]

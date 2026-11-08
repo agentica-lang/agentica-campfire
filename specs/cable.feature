@@ -118,6 +118,22 @@ Feature: Live updates over /cable
     When client "bea" performs "refresh" in the channel "PresenceChannel" of the room 1
     Then client "bea" receives nothing for 300 milliseconds
 
+  Scenario: A presence subscription writes the room read only when it was unread or the database changed
+    When I sign in as "bea@example.com"
+    And client "bea1" connects with the cookies of the browser
+    And client "bea2" connects with the cookies of the browser
+    And client "bea1" subscribes to the channel "PresenceChannel" of the room 1
+    Then client "bea1" eventually receives a frame containing "confirm_subscription"
+    When I sign in as "ana@example.com"
+    And I get "/cable/stats"
+    Then the cable made 0 mark reads
+    When I run the sql "update memberships set unread_at = strftime('%Y-%m-%d %H:%M:%f000', 'now') where room_id = 1 and user_id = 2"
+    And client "bea2" subscribes to the channel "PresenceChannel" of the room 1
+    Then client "bea2" eventually receives a frame containing "confirm_subscription"
+    And the query "select count(*) from memberships where room_id = 1 and user_id = 2 and unread_at is not null" gives 0
+    When I get "/cable/stats"
+    Then the cable made 1 mark reads
+
   Scenario: The heartbeat channel only confirms
     When client "ana" connects with the cookies of the browser
     And client "ana" subscribes to the channel "HeartbeatChannel"
@@ -299,6 +315,25 @@ Feature: Live updates over /cable
       """
       {"type":"welcome"}
       """
+
+  Scenario: A database failure while a subscription is checked refuses that subscription only, never the person's other sockets
+    When I sign in as "bea@example.com"
+    And I get "/rooms/1"
+    And client "bea1" connects with the cookies of the browser
+    And client "bea2" connects with the cookies of the browser
+    And client "bea1" subscribes to the channel "HeartbeatChannel"
+    Then client "bea1" eventually receives a frame containing "confirm_subscription"
+    When I run the sql "alter table memberships rename to memberships_away"
+    And client "bea2" subscribes to the channel "PresenceChannel" of the room 1
+    Then client "bea2" eventually receives a frame containing "reject_subscription"
+    When client "bea2" subscribes to the streams of the last page
+    Then client "bea2" eventually receives a frame containing "reject_subscription"
+    And client "bea1" receives nothing for 500 milliseconds
+    When I run the sql "alter table memberships_away rename to memberships"
+    And client "bea2" subscribes to the channel "PresenceChannel" of the room 1
+    Then client "bea2" eventually receives a frame containing "confirm_subscription"
+    When client "bea1" performs "check" in the channel "HeartbeatChannel"
+    Then client "bea1" receives nothing for 300 milliseconds
 
   Scenario: A person who is taken out of a closed room stops hearing it, and is refused when the client comes back
     When I post to "/closed_rooms" the form:

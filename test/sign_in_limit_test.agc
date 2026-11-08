@@ -45,7 +45,7 @@ def serve(dir: String, body: Fn[Site, Result[Void]]) -> Result[Void]
     return error(mailer.message)
   end
 
-  cable = CableWeb.start(config, pool)
+  cable = CableWeb.start(config, pool, none)
   if not cable.ok?
     Database.close_pool(pool)
     return error(cable.message)
