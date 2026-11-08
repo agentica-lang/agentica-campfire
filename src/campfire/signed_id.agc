@@ -46,7 +46,7 @@ export def key(secret_key_base: String) -> Result[Bytes]
     return error("signed id: SECRET_KEY_BASE is empty")
   end
 
-  return KDF.pbkdf2_hmac_sha256(secret_key_base.bytes, SALT.bytes, ITERATIONS, KEY_BYTES)
+  return OpenSSL.KDF.pbkdf2_hmac_sha256(secret_key_base.bytes, SALT.bytes, ITERATIONS, KEY_BYTES)
 end
 
 ## The token for `id` and `purpose` (`AVATAR_PURPOSE`), without an expiry, in the form of Rails 7.2 and later. A purpose
@@ -59,7 +59,7 @@ export def generate(key: Bytes, id: Int, purpose: String) -> Result[String]
 
   json = "{\"_rails\":{\"data\":#{id},\"pur\":\"#{purpose}\"}}"
   encoded = Base64.urlsafe_encode64(json.bytes, false)
-  return ok("#{encoded}#{SEPARATOR}#{HMAC.sha256_hexdigest(key, encoded.bytes)}")
+  return ok("#{encoded}#{SEPARATOR}#{OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes)}")
 end
 
 ## The id in `token` when it was signed with `key`, for `purpose`, and has not expired at `now_ms` (Unix milliseconds,
@@ -73,7 +73,7 @@ export def verify(key: Bytes, token: String, purpose: String, now_ms: Int) -> Op
 
   encoded = token.slice(0, cut)
   digest = token.slice(cut + SEPARATOR.length, DIGEST_LENGTH)
-  if not HMAC.secure_compare(HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
+  if not OpenSSL.HMAC.secure_compare(OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
     return none
   end
 

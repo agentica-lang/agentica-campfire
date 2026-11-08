@@ -113,7 +113,7 @@ export def verify(password: String, digest: String, library: String = "") -> Res
   name = try library_for(System.os(), library)
   crypt = try find_crypt(System.os(), name)
   made = try hashed(crypt, attempt, digest)
-  return ok(usable and HMAC.secure_compare(made.bytes, digest.bytes))
+  return ok(usable and OpenSSL.HMAC.secure_compare(made.bytes, digest.bytes))
 end
 
 # The address of `crypt_r` in the library `name`.

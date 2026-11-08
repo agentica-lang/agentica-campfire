@@ -445,7 +445,7 @@ end
 # the parts, so a part cannot hold it: that would be a text that contains its own digest, which nobody can make. A
 # check and a longer boundary would be a branch that no input reaches.
 def boundary_for(text: String, html: String) -> String
-  digest = Digest.sha256_hexdigest("#{text}\n#{html}".bytes)
+  digest = OpenSSL.Digest.sha256_hexdigest("#{text}\n#{html}".bytes)
   return "=_#{digest.slice(0, 32)}"
 end
 
@@ -525,5 +525,5 @@ def new_message_id(sender: String) -> String
   end
 
   domain = parsed.unwrap!.address.split("@")[1]
-  return "<#{SecureRandom.hex(16)}@#{domain}>"
+  return "<#{OpenSSL.Random.hex(16)}@#{domain}>"
 end

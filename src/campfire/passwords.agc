@@ -5,8 +5,8 @@
 import Bcrypt from "bcrypt"
 
 # OWASP's scrypt setting for a cost of 2^16 (64 MiB of memory) with two lanes. The call runs to its end on its
-# scheduler (see `KDF` in the library), so this is the time one sign-in takes of it. Since Agentica 0.24.0 it runs on
-# the compute pool; `Slots` in `AuthWeb` still bounds how many run at once, for their memory.
+# scheduler (see `OpenSSL.KDF` in the library), so this is the time one sign-in takes of it. Since Agentica 0.24.0 it
+# runs on the compute pool; `Slots` in `AuthWeb` still bounds how many run at once, for their memory.
 COST = 65_536
 BLOCK_SIZE = 8
 PARALLELISM = 2
@@ -38,8 +38,8 @@ end
 
 ## The digest of `password` with a new random salt. It never holds the password.
 export def hash(password: String) -> Result[String]
-  salt = SecureRandom.random_bytes(SALT_BYTES)
-  key = try KDF.scrypt(password.bytes, salt, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
+  salt = OpenSSL.Random.random_bytes(SALT_BYTES)
+  key = try OpenSSL.KDF.scrypt(password.bytes, salt, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
   return ok(
     "#{SCHEME}$#{COST}$#{BLOCK_SIZE}$#{PARALLELISM}$#{Base64.strict_encode64(salt)}$#{Base64.strict_encode64(key)}",
   )
@@ -61,7 +61,7 @@ end
 ## it for an email that no user has, so that the time does not tell whether the email is registered. Its result is
 ## ignored at the call sites: it exists for its cost.
 export def verify_nobody?() -> Bool
-  key = KDF.scrypt(NOBODY_PASSWORD.bytes, NOBODY_SALT.bytes, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
+  key = OpenSSL.KDF.scrypt(NOBODY_PASSWORD.bytes, NOBODY_SALT.bytes, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
   # A key is never empty (it has KEY_BYTES), so this is false; it reads the key so the work is not dropped.
   return key.ok? and key.unwrap!.empty?
 end
@@ -81,7 +81,7 @@ def verify_scrypt?(password: String, digest: String) -> Bool
     return false
   end
 
-  key = KDF.scrypt(
+  key = OpenSSL.KDF.scrypt(
     password.bytes,
     salt.unwrap!,
     cost.unwrap!,
@@ -90,5 +90,5 @@ def verify_scrypt?(password: String, digest: String) -> Bool
     expected.unwrap!.size,
   )
 
-  return key.ok? and HMAC.secure_compare(key.unwrap!, expected.unwrap!)
+  return key.ok? and OpenSSL.HMAC.secure_compare(key.unwrap!, expected.unwrap!)
 end

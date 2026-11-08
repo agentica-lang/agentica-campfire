@@ -61,7 +61,7 @@ def key(stored: Rooms.Stored, controls: Bool) -> String
     "#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
   )
 
-  return "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{Digest.sha256_hexdigest(text.bytes)}"
+  return "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{OpenSSL.Digest.sha256_hexdigest(text.bytes)}"
 end
 
 # The boosts as text that tells them apart: how many, and for each its id, its booster and its words, with the size of

@@ -205,9 +205,9 @@ export def search_spot(
         return none
       end
 
-      words = Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS)
+      words = OpenSSL.Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS)
       cookie = wanted.map do |id| id.to_s end.unwrap_or("")
-      place = Digest.sha256(query.bytes)[0] % found.search_slots
+      place = OpenSSL.Digest.sha256(query.bytes)[0] % found.search_slots
       return some(
         Spot(
           pages: found,
@@ -313,7 +313,7 @@ end
 
 ## The page for `html`, with its tag, kept at `spot` when there is one.
 export def keep(spot: Optional[Spot], html: String) -> Page
-  digest = Digest.sha256_hexdigest(html.bytes).slice(0, ETAG_DIGITS)
+  digest = OpenSSL.Digest.sha256_hexdigest(html.bytes).slice(0, ETAG_DIGITS)
   etag = "W/\"#{digest}\""
   case spot
     none -> return Page(etag: etag, body: html.bytes)
@@ -351,7 +351,7 @@ def cursor_spot(
       end
 
       scope = "#{room_id}:#{cursor}"
-      place = Digest.sha256(scope.bytes)[0] % found.cursor_slots
+      place = OpenSSL.Digest.sha256(scope.bytes)[0] % found.cursor_slots
       return some(
         Spot(
           pages: found,
@@ -384,7 +384,7 @@ end
 
 # A digest of the name and the role of the person: two states of one person do not share a page.
 def state_of(person: Auth.User) -> String
-  return Digest.sha256_hexdigest("#{person.role}\n#{person.name}".bytes).slice(0, SEEN_DIGITS)
+  return OpenSSL.Digest.sha256_hexdigest("#{person.role}\n#{person.name}".bytes).slice(0, SEEN_DIGITS)
 end
 
 # What goes before the tag in the cached text: the stamp and a line break, or nothing.

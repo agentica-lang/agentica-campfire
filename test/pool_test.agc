@@ -50,7 +50,7 @@ def main() -> Void
       "a request that waits too long for a connection is answered 503 with Retry-After, then the app serves",
     ) do
       root = System.env("TMPDIR").unwrap_or("/tmp")
-      dir = try Path.join([root, "campfire-pool-#{SecureRandom.hex(8)}"])
+      dir = try Path.join([root, "campfire-pool-#{OpenSSL.Random.hex(8)}"])
       try Dir.mkdir_private(dir)
       outcome = probe(dir)
       removed = Path.remove(dir)

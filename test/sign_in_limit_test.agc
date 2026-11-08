@@ -27,7 +27,7 @@ end
 # of the test, which closes it before it returns.
 def in_folder(body: Fn[Site, Result[Void]]) -> Result[Void]
   root = System.env("TMPDIR").unwrap_or("/tmp")
-  dir = try Path.join([root, "campfire-test-#{SecureRandom.hex(8)}"])
+  dir = try Path.join([root, "campfire-test-#{OpenSSL.Random.hex(8)}"])
   try Dir.mkdir_private(dir)
   outcome = serve(dir, body)
   removed = Path.remove(dir)
