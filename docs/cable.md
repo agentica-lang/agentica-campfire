@@ -93,9 +93,10 @@ The check is `PresenceChannel` `refresh` and `HeartbeatChannel` `check`, which a
 `sessions` table each. If the hub's inbox is full when a hang-up is asked, it is asked again 3 times before it is only logged; the check
 above is the net.
 A membership that cannot be read (no connection of the pool in time, a database error) is tried 3 times; if it still
-fails, that subscription is rejected (the client may subscribe again) and nothing else happens: the person's other
-sockets stay open, since a failure of the database says nothing about their right to be there. A person who really is
-not in the room is rejected as before.
+fails, that subscription is rejected and nothing else happens: the person's other sockets stay open, since a failure of
+the database says nothing about their right to be there. The Turbo client does not subscribe again after a rejection,
+so the tab whose subscription failed has no live stream of that room until its page is loaded again. A person who
+really is not in the room is rejected as before.
 
 The checks of a subscription do not read the database each time when the page cache is on
 (`CAMPFIRE_RESPONSE_CACHE_MB` above 0): the session of a connecting socket and the membership of a room (and whether
@@ -103,7 +104,9 @@ it is unread) are kept for the version of the database (`PRAGMA data_version` of
 person of a page is. Any commit, a removal from a room included, is another version, so the next check reads the
 database and a person who lost a room is never let in by a kept answer. `PresenceChannel` marks the room read only when
 it was unread or the database has had a commit since the membership was looked up; a read room is not written again.
-A burst of sockets of one person therefore costs a few reads, not four for each socket.
+Only a membership is kept, never "not in the room" (a client can ask for any room number). A burst of sockets of one
+person therefore costs a few reads, not four for each socket; `/cable/stats` shows `session_reads`, `member_reads` and
+`mark_reads` (the `mark_read` writes of presence subscriptions) so a spec or a benchmark can check it.
 
 Connected people live in memory (`src/campfire/presence.agc`), not in `memberships.connected_at`. A new message
 still sets `unread_at` for everyone in the room but its author (and the people who hid the room), as `Room#receive`

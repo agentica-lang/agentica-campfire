@@ -52,6 +52,8 @@ export def steps() -> List[BDD.Step]
     ),
     BDD.step("{int} clients connect at once and subscribe to the streams of the last page", &burst_subscribes),
     BDD.step("each of the {int} clients is confirmed for every stream of the last page", &burst_confirmed),
+    BDD.step("the cable made at most {int} session reads and {int} membership reads", &reads_at_most),
+    BDD.step("the cable made {int} mark reads", &mark_reads_are),
     BDD.step("client {string} receives:", &receives),
     BDD.step("client {string} eventually receives a frame containing {string}", &eventually_receives),
     BDD.step("client {string} receives nothing for {int} milliseconds", &receives_nothing),
@@ -265,6 +267,7 @@ def burst_subscribes(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   for number in 1..count
     result = subscribe_sources(result, burst_id(number), HttpSteps.last_body(result), "")
+    result = send_text(result, burst_id(number), subscribe_command(room_identifier("PresenceChannel", 1)))
   end
 
   return result
@@ -273,7 +276,7 @@ end
 # Every stream is confirmed, none is rejected and no socket is closed: a refusal for lack of a connection of the pool
 # would show here.
 def burst_confirmed(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  wanted = sources_of(HttpSteps.last_body(ctx)).size
+  wanted = sources_of(HttpSteps.last_body(ctx)).size + 1
   result = ctx
   for number in 1..args[0].to_i!
     confirmed = 0
@@ -289,6 +292,27 @@ def burst_confirmed(ctx: BDD.Context, args: List[String]) -> BDD.Context
   end
 
   return BDD.assert(result, true, "")
+end
+
+# The counters of `/cable/stats`, in the last answer.
+def stats_int(ctx: BDD.Context, name: String) -> Int
+  stats = JSON.parse(HttpSteps.last_body(ctx)).unwrap_or(JSON.from(0))
+  return int_of(stats, name)
+end
+
+def reads_at_most(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  sessions = stats_int(ctx, "session_reads")
+  members = stats_int(ctx, "member_reads")
+  return BDD.assert(
+    ctx,
+    sessions <= args[0].to_i! and members <= args[1].to_i!,
+    "the cable read the session #{sessions} times and a membership #{members} times",
+  )
+end
+
+def mark_reads_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  marks = stats_int(ctx, "mark_reads")
+  return BDD.assert(ctx, marks == args[0].to_i!, "the cable marked a room read #{marks} times, expected #{args[0]}")
 end
 
 def next_frame(ctx: BDD.Context, id: String, timeout_ms: Int) -> Json
