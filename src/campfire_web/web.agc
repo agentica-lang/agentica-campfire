@@ -28,6 +28,10 @@ UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body><
 # The biggest file that the assets folder serves: 4 MiB, far above a stylesheet or a script of this app.
 STYLESHEET_MAX_BYTES = 4 * 1024 * 1024
 
+# The 3xx statuses: a redirect, whose body (if any) is not a page.
+REDIRECT_FIRST = 300
+REDIRECT_END = 400
+
 struct Health
   status: String
   schema_version: Int
@@ -70,9 +74,27 @@ export def build(
     |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, pool) end
     |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
     |> Bond.get(Routes.UP) do |conn| up(conn) end
+    |> Bond.after() do |conn| revalidate(conn) end
     |> Bond.not_found() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
     |> Bond.on_error() do |conn, message| ok(Failure.answer(conn, message)) end
   )
+end
+
+# An HTML page or a redirect that has no `Cache-Control` of its own gets the Rails default, so a browser never shows
+# an old page (which links an old fingerprinted stylesheet) after a deploy. A handler's own header stays: `no-store`
+# of the pages with a token, the cache policy of the room pages, the year of /assets and the avatars.
+def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
+  named = conn.response_headers.any? do |header| header.name.downcase == "cache-control" end
+  page = conn.response_headers.any? do |header|
+    header.name.downcase == "content-type" and header.value.downcase.start_with?("text/html")
+  end
+
+  redirect = conn.status >= REDIRECT_FIRST and conn.status < REDIRECT_END
+  if named or not (page or redirect)
+    return ok(conn)
+  end
+
+  return ok(Bond.header(conn, "cache-control", PageCache.CACHE_CONTROL))
 end
 
 # For a load balancer or a container check: 200 while the process serves, and the schema that it started on.
