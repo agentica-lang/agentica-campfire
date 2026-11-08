@@ -60,11 +60,12 @@ the apps. The other routes of the run: avatar 7646.4 against Go's 21185.9 (36%),
 (72%), up 21693.1 against 15314.7 (142%).
 
 Against run `20261108-212335-7` (Campfire e3ce2b9 with Bond 0.10.0, the same day), the avatar answer cache of
-[#143](https://github.com/agentica-lang/agentica-campfire/pull/143) took avatar from 4170.4 to 7646.4 (+83%), and the
-header work of Bond 0.10.1 took static_css from 14323.0 to 18006.9 (+26%); the four pages moved by 1-3%. Against run
-`20261107-171526-7` (Campfire e8ae07b on Agentica 0.26.1 and agentica-db 0.6.0), room_show went from 4282.9 to 9500.9,
-messages_page from 6576.8 to 9536.0, sidebar from 8527.6 to 9357.9 and search from 6898.3 to 8953.4; the app changed too
-between e8ae07b and 8a7616e, so the gain is not Agentica 0.27.0 alone. Earlier steps are in the history of this file.
+[#143](https://github.com/agentica-lang/agentica-campfire/pull/143) and the header work of Bond 0.10.1 changed avatar
+from 4170.4 to 7646.4 (+83%) and static_css from 14323.0 to 18006.9 (+26%; against Go, from 61% to 72%); Agentica's four
+pages moved by 1-3%. Against run `20261107-171526-7` (Campfire e8ae07b on Agentica 0.26.1 and agentica-db 0.6.0),
+room_show went from 4282.9 to 9500.9, messages_page from 6576.8 to 9536.0, sidebar from 8527.6 to 9357.9 and search from
+6898.3 to 8953.4; the app changed too between e8ae07b and 8a7616e, so the gain is not Agentica 0.27.0 alone. Earlier
+steps are in the history of this file.
 
 To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
