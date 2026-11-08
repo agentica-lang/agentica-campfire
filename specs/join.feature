@@ -19,7 +19,7 @@ Feature: Joining with the link
     And the body contains "name=\"email\" type=\"email\""
     And the body contains "name=\"password\" type=\"password\""
     And the header "cache-control" is "no-store"
-    And the header "referrer-policy" is "no-referrer"
+    And the header "referrer-policy" is "same-origin"
 
   Scenario: A person who joins is in every open room, none of the closed ones, and is signed in
     Given I post to "/rooms" the form:
@@ -188,3 +188,23 @@ Feature: Joining with the link
     When I get "/join"
     Then the status is 302
     And the header "location" is "/session/new"
+
+  Scenario: The join form is accepted over plain HTTP, where the browser sends the Origin of the page, and Origin null is refused
+    Given the browser has no cookies
+    When I get "/join/aaaa-bbbb-cccc"
+    Then the header "referrer-policy" is "same-origin"
+    Given the request header "origin" is "null"
+    When I submit the join form of the page with:
+      | name     | Bea                   |
+      | email    | bea@example.com       |
+      | password | another long password |
+    Then the status is 403
+    And the query "select count(*) from users" gives 1
+    Given the request header "origin" is the origin of the site
+    When I get "/join/aaaa-bbbb-cccc"
+    And I submit the join form of the page with:
+      | name     | Bea                   |
+      | email    | bea@example.com       |
+      | password | another long password |
+    Then the status is 302
+    And the query "select count(*) from users where email_address = 'bea@example.com'" gives 1

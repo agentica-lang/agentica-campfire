@@ -26,7 +26,12 @@ behind a proxy it is the proxy's, because the app does not trust `X-Forwarded-Fo
 Forms are protected against other sites with Bond's `Sec-Fetch-Site` and `Origin` check, with no
 token: a post with `Sec-Fetch-Site: same-origin` or `none` passes, `same-site` and `cross-site` get
 `403`, and a request with neither header and no `Origin` (a tool such as `curl` or the Rails benchmark
-harness, which sends only `Sec-Fetch-Site: same-origin`) passes too. The one exception is the messages API of the chat
+harness, which sends only `Sec-Fetch-Site: same-origin`) passes too. Over plain HTTP a browser sends no
+`Sec-Fetch-Site` (only a secure origin gets it), so the check falls to `Origin`: it passes when the host of the
+`Origin` is the `Host` of the request, which works behind a proxy that keeps `Host`. `Origin: null` means the browser
+hid the origin (a form on a page sent with `Referrer-Policy: no-referrer` does that, and so does a sandboxed frame); it
+is refused, so the private pages send `Referrer-Policy: same-origin`, which keeps their tokens and codes out of the
+`Referer` of any other site and lets a form carry the real `Origin`. The one exception is the messages API of the chat
 bots (`/rooms/ID/KEY/messages`, see [people.md](people.md#the-messages-api)): the key in the path is the whole login and
 no cookie is read, so a page of another site has nothing to forge with, and Rails lets a request with a bot key skip
 the check as well. The two headers are taken off such a request before the check; the browser routes (a path like
@@ -126,7 +131,7 @@ is reachable by anyone else.
 
 The code (`a1b2-c3d4-e5f6`) is 48 random bits. A wrong code, an old one of a regenerated code
 included, answers the `404` of a page that does not exist. The pages that show the code are
-`no-store` with `Referrer-Policy: no-referrer`. Regenerate the link when it is no longer wanted;
+`no-store` with `Referrer-Policy: same-origin`. Regenerate the link when it is no longer wanted;
 the old one stops working at once.
 
 ## Email addresses

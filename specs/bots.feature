@@ -22,7 +22,7 @@ Feature: The chat bots of the account
     When I get "/account/bots"
     Then the status is 200
     And the header "cache-control" is "no-store"
-    And the header "referrer-policy" is "no-referrer"
+    And the header "referrer-policy" is "same-origin"
     And the body contains "<h1>Chat bots</h1>"
     And the body contains "There are no chat bots yet."
     And the body contains "<a href=\"/account/bots/new\">Add a chat bot</a>"
@@ -72,7 +72,7 @@ Feature: The chat bots of the account
     When I get "/account/bots/3/edit"
     Then the status is 200
     And the header "cache-control" is "no-store"
-    And the header "referrer-policy" is "no-referrer"
+    And the header "referrer-policy" is "same-origin"
     And the body contains "<h1>Edit chat bot</h1>"
     And the body contains "value=\"Robo\""
     And the body contains "<code>3-aaaaBBBB1111</code>"
