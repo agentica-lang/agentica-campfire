@@ -46,3 +46,10 @@ Feature: Cache-Control of the pages
     When I sign in as "ana@example.com"
     And I get "/users"
     Then the header "cache-control" is "no-store"
+
+  Scenario: A HEAD request gets the same header as the GET
+    Given the first admin exists
+    When the browser has no cookies
+    And I send a HEAD to "/session/new"
+    Then the status is 200
+    And the header "cache-control" is "max-age=0, private, must-revalidate"

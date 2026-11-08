@@ -77,6 +77,7 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
     BDD.step("I post nothing to {string}", &post_nothing),
     BDD.step("I send a DELETE to {string}", &delete_to),
+    BDD.step("I send a HEAD to {string}", &head_to),
     BDD.step("I send {string} to {string} the text {string}", &send_text),
     BDD.step("I send {string} to {string} a text of {int} characters", &send_text_of_length),
     BDD.step("I send {string} to {string} the text {string} with the Host {string}", &send_text_with_host),
@@ -440,6 +441,10 @@ def send_open_list(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 # The method that a browser form cannot send, with no body.
+def head_to(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return send(ctx, "HEAD", args[0], "")
+end
+
 def delete_to(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return send(ctx, "DELETE", args[0], "")
 end

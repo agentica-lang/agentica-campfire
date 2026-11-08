@@ -28,9 +28,11 @@ UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body><
 # The biggest file that the assets folder serves: 4 MiB, far above a stylesheet or a script of this app.
 STYLESHEET_MAX_BYTES = 4 * 1024 * 1024
 
-# The 3xx statuses: a redirect, whose body (if any) is not a page.
-REDIRECT_FIRST = 300
-REDIRECT_END = 400
+# The statuses of a redirect (not 304, which answers a conditional request and keeps the headers of the cached copy).
+REDIRECTS = [301, 302, 303, 307, 308]
+NOT_MODIFIED = 304
+CACHE_CONTROL_NAME_LENGTH = 13
+CONTENT_TYPE_NAME_LENGTH = 12
 
 struct Health
   status: String
@@ -80,21 +82,30 @@ export def build(
   )
 end
 
-# An HTML page or a redirect that has no `Cache-Control` of its own gets the Rails default, so a browser never shows
-# an old page (which links an old fingerprinted stylesheet) after a deploy. A handler's own header stays: `no-store`
-# of the pages with a token, the cache policy of the room pages, the year of /assets and the avatars.
-def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
-  named = conn.response_headers.any? do |header| header.name.downcase == "cache-control" end
-  page = conn.response_headers.any? do |header|
-    header.name.downcase == "content-type" and header.value.downcase.start_with?("text/html")
+## An HTML page or a redirect that has no `Cache-Control` of its own gets the Rails default, so a browser never shows
+## an old page (which links an old fingerprinted stylesheet) after a deploy. A handler's own header stays, in any
+## casing: `no-store` of the pages with a token, the cache policy of the room pages, the year of /assets and the
+## avatars. A 304 and every other status are left as they are. It runs on every answer, so it reads the header list
+## once and compares the length of a name before it lowercases it (Bond writes `content-type: text/html;
+## charset=utf-8` exactly, so the value is compared as written).
+export def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
+  page = false
+  for header in conn.response_headers
+    name = header.name
+    if name.length == CACHE_CONTROL_NAME_LENGTH and name.downcase == "cache-control"
+      return ok(conn)
+    end
+
+    if name.length == CONTENT_TYPE_NAME_LENGTH and name.downcase == "content-type"
+      page = header.value.start_with?("text/html")
+    end
   end
 
-  redirect = conn.status >= REDIRECT_FIRST and conn.status < REDIRECT_END
-  if named or not (page or redirect)
-    return ok(conn)
+  if (page and conn.status != NOT_MODIFIED) or REDIRECTS.include?(conn.status)
+    return ok(Bond.header(conn, "cache-control", PageCache.CACHE_CONTROL))
   end
 
-  return ok(Bond.header(conn, "cache-control", PageCache.CACHE_CONTROL))
+  return ok(conn)
 end
 
 # For a load balancer or a container check: 200 while the process serves, and the schema that it started on.
