@@ -53,9 +53,7 @@ export def start(config: Config) -> Result[Running]
   end
 
   opened = Database.open_pool(config.database_url, config.db_pool_size, config.db_checkout_ms)
-  if not opened.ok?
-    return error("cannot open the database connections (CAMPFIRE_DATABASE_URL): #{opened.message}")
-  end
+  return error("cannot open the database connections (CAMPFIRE_DATABASE_URL): #{opened.message}") if not opened.ok?
 
   pool = opened.unwrap!
   running = listen(config, pool, schema.version)
@@ -63,7 +61,7 @@ export def start(config: Config) -> Result[Running]
     Database.close_pool(pool)
   end
 
-  return running
+  running
 end
 
 ## Stops the hub (its connections are told to reconnect and are closed), then the server, then the mailer, which sends
@@ -85,7 +83,7 @@ export def run(config: Config) -> Result[Void]
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
   Database.close_pool(running.pool)
-  return waited
+  waited
 end
 
 # The mailer, then the server on the pool. The caller closes the pool when this fails.
@@ -143,23 +141,19 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  return ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable))
+  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable))
 end
 
 # A cookie without `Secure` travels over plain HTTP, so the line tells a person who forgot the setting behind HTTPS.
 def cookie_line(secure_cookies: Bool) -> String
-  if secure_cookies
-    return "session cookie: Secure, with the __Host- prefix"
-  end
+  return "session cookie: Secure, with the __Host- prefix" if secure_cookies
 
-  return "session cookie: not Secure (set CAMPFIRE_SECURE_COOKIES=true behind HTTPS)"
+  "session cookie: not Secure (set CAMPFIRE_SECURE_COOKIES=true behind HTTPS)"
 end
 
 # `http://HOST:PORT`, with the brackets that a URL needs round an IPv6 host.
 def origin(host: String, port: Int) -> String
-  if host.include?(":")
-    return "http://[#{host}]:#{port}"
-  end
+  return "http://[#{host}]:#{port}" if host.include?(":")
 
-  return "http://#{host}:#{port}"
+  "http://#{host}:#{port}"
 end

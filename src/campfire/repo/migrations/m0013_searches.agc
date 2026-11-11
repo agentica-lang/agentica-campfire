@@ -4,15 +4,11 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 13: create searches.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
-    13,
-    "create searches",
-    [searches(), "create index index_searches_on_user_id on searches (user_id)"],
-  )
+  Migrate.sql(13, "create searches", [searches(), "create index index_searches_on_user_id on searches (user_id)"])
 end
 
 def searches() -> String
-  return <<~SQL
+  <<~SQL
     create table searches (
       id integer primary key autoincrement not null,
       created_at datetime(6) not null,

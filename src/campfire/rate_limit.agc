@@ -34,7 +34,7 @@ PREFIX_GROUPS = 4
 ## A new table of windows, shared by every task that gets the handle.
 export def new() -> ATS[String, Int]
   windows: ATS[String, Int] = ATS.new()
-  return windows
+  windows
 end
 
 ## Counts an attempt of the client at `address` at `now_ms` (a monotonic clock). It gives 0 when the attempt is one of
@@ -50,27 +50,21 @@ export def hit(windows: ATS[String, Int], address: String, now_ms: Int, limit: I
     return count(windows, OVERFLOW, now_ms, limit * OVERFLOW_FACTOR, window_ms)
   end
 
-  return count(windows, key, now_ms, limit, window_ms)
+  count(windows, key, now_ms, limit, window_ms)
 end
 
 ## The key of the client at `address`: an IPv4 address (or any text that is not IPv6) as it is, an IPv4-mapped IPv6
 ## address as its IPv4 address, and any other IPv6 address as its first 64 bits, `2001:db8:0:1::/64` written out in
 ## full. The system writes the address of a peer in lowercase and in one form, so no case or zero folding is done.
 export def key_of(address: String) -> String
-  if not address.include?(":")
-    return address
-  end
+  return address if not address.include?(":")
 
-  if address.include?(".")
-    return address.split(":").last
-  end
+  return address.split(":").last if address.include?(".")
 
   groups = expand(address)
-  if groups.size != IPV6_GROUPS
-    return address
-  end
+  return address if groups.size != IPV6_GROUPS
 
-  return "#{groups.take(PREFIX_GROUPS).join(":")}::/64"
+  "#{groups.take(PREFIX_GROUPS).join(":")}::/64"
 end
 
 # Counts an attempt of the client `key` in its current window; the result is that of `hit`.
@@ -79,11 +73,9 @@ def count(windows: ATS[String, Int], key: String, now_ms: Int, limit: Int, windo
   ATS.put_new(windows, start_key, now_ms)
   began = ATS.get(windows, start_key).unwrap_or(now_ms)
   number = window_of(began, now_ms, window_ms)
-  if ATS.add(windows, "#{key}#{COUNT}#{number}", 1) <= limit
-    return 0
-  end
+  return 0 if ATS.add(windows, "#{key}#{COUNT}#{number}", 1) <= limit
 
-  return seconds_up(began + (number + 1) * window_ms - now_ms)
+  seconds_up(began + (number + 1) * window_ms - now_ms)
 end
 
 # The eight groups of an IPv6 address, with the `::` filled in with zeros; fewer or more than eight when the text
@@ -96,9 +88,7 @@ def expand(address: String) -> List[String]
     left = groups_of(halves[0])
   end
 
-  if not address.include?("::")
-    return left
-  end
+  return left if not address.include?("::")
 
   # "2001:db8::" splits into one half, and "::1" into an empty one and "1".
   right: List[String] = []
@@ -107,40 +97,28 @@ def expand(address: String) -> List[String]
   end
 
   missing = IPV6_GROUPS - left.size - right.size
-  if missing < 0 or halves.size > 2
-    return left.concat(right)
-  end
+  return left.concat(right) if missing < 0 or halves.size > 2
 
-  return left.concat(List.repeat("0", missing)).concat(right)
+  left.concat(List.repeat("0", missing)).concat(right)
 end
 
-def groups_of(text: String) -> List[String]
-  return text.split(":").select do |group| not group.empty? end
-end
+def groups_of(text: String) -> List[String] = text.split(":").select do |group| not group.empty? end
 
 def window_of(began: Int, now_ms: Int, window_ms: Int) -> Int
-  if now_ms <= began
-    return 0
-  end
+  return 0 if now_ms <= began
 
-  return (now_ms - began) / window_ms
+  (now_ms - began) / window_ms
 end
 
-def seconds_up(ms: Int) -> Int
-  return (ms + MS_PER_SECOND - 1) / MS_PER_SECOND
-end
+def seconds_up(ms: Int) -> Int = (ms + MS_PER_SECOND - 1) / MS_PER_SECOND
 
 # Once per window, drops what no attempt can count in again: the counts of windows that ended (and those of a client
 # whose start is gone), and the start of a client that made no attempt in its current and previous windows. Entries of
 # a window that is still open are never touched.
 def sweep(windows: ATS[String, Int], now_ms: Int, window_ms: Int) -> Void
-  if ATS.put_new(windows, SWEEP, now_ms)
-    return
-  end
+  return if ATS.put_new(windows, SWEEP, now_ms)
 
-  if now_ms - ATS.get(windows, SWEEP).unwrap_or(now_ms) < window_ms
-    return
-  end
+  return if now_ms - ATS.get(windows, SWEEP).unwrap_or(now_ms) < window_ms
 
   ATS.put(windows, SWEEP, now_ms)
   for name in ATS.keys(windows)
@@ -162,9 +140,7 @@ end
 
 def drop_start(windows: ATS[String, Int], key: String, now_ms: Int, window_ms: Int) -> Void
   began = ATS.get(windows, "#{key}#{START}")
-  if not began.ok?
-    return
-  end
+  return if not began.ok?
 
   number = window_of(began.unwrap!, now_ms, window_ms)
   recent = ATS.has_key?(windows, "#{key}#{COUNT}#{number}") or ATS.has_key?(windows, "#{key}#{COUNT}#{number - 1}")

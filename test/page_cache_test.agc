@@ -15,19 +15,13 @@ COMMITS = 50
 HOUR_MS = 3_600_000
 PAGE = "é<p>café 日本</p>"
 
-def ana() -> Auth.User
-  return Auth.User(id: 1, name: "Ana", role: "member")
-end
+def ana() -> Auth.User = Auth.User(id: 1, name: "Ana", role: "member")
 
 # The body of a kept page as text; the bodies of the tests hold non-ASCII text, which `unpack` must cut out by bytes.
-def text_of(body: Bytes) -> String
-  return body.decode("utf-8").unwrap!
-end
+def text_of(body: Bytes) -> String = body.decode("utf-8").unwrap!
 
 # The session of `person` that ends `ms` from now.
-def lasting(person: Auth.User, ms: Int) -> Auth.Session
-  return Auth.Session(user: person, ends_at_ms: Time.now_ms() + ms)
-end
+def lasting(person: Auth.User, ms: Int) -> Auth.Session = Auth.Session(user: person, ends_at_ms: Time.now_ms() + ms)
 
 # `pages` for a database that was made and has one table, and a connection of its own to write with.
 def with_database(dir: String, body: Fn[Database.Observer, Db.Connection, String, Result[Void]]) -> Result[Void]
@@ -38,7 +32,7 @@ def with_database(dir: String, body: Fn[Database.Observer, Db.Connection, String
   outcome = body.call(observer, writer, url)
   Database.close_observer(observer)
   Db.close(writer)
-  return outcome
+  outcome
 end
 
 def version_follows_commits(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
@@ -48,7 +42,7 @@ def version_follows_commits(observer: Database.Observer, writer: Db.Connection, 
   try Db.execute(writer, "insert into notes (body) values ('x')", [])
   second = try Database.version(observer)
   try Test.assert(second != first, "a commit by another connection left the version as it was")
-  return ok()
+  ok()
 end
 
 # Reads the version `READS` times and checks that it never goes back.
@@ -60,7 +54,7 @@ def read_often(observer: Database.Observer) -> Result[Int]
     last = now
   end
 
-  return ok(last)
+  ok(last)
 end
 
 # Several tasks read at once while this one commits: every read answers, none goes back, and a read after a commit
@@ -80,7 +74,7 @@ def readers_share_the_connection(observer: Database.Observer, writer: Db.Connect
     try Task.await(reader)
   end
 
-  return ok()
+  ok()
 end
 
 # A holder that has the turn and does not give it back (here the test itself) makes a reader time out into an error,
@@ -96,7 +90,7 @@ def a_stalled_holder_makes_no_second_token(
   try Test.error?(Database.version(observer))
   try Test.assert(not observer.turn.recv(0).ok?, "a reader that timed out put a token back")
   try observer.turn.send(true, 0)
-  return Test.assert(Database.version(observer).ok?, "no version once the holder gave the turn back")
+  Test.assert(Database.version(observer).ok?, "no version once the holder gave the turn back")
 end
 
 def read_until_closed(observer: Database.Observer) -> Result[Void]
@@ -104,7 +98,7 @@ def read_until_closed(observer: Database.Observer) -> Result[Void]
     _ = Database.version(observer)
   end
 
-  return ok()
+  ok()
 end
 
 # A close while readers are at work: each read answers or is refused, none hangs or stops a task, and a read after
@@ -121,7 +115,7 @@ def close_with_readers_waiting(observer: Database.Observer, writer: Db.Connectio
 
   started = Time.now_ms()
   try Test.error?(Database.version(observer))
-  return Test.assert(Time.now_ms() - started < 500, "a read after the close waited for the turn")
+  Test.assert(Time.now_ms() - started < 500, "a read after the close waited for the turn")
 end
 
 def refuses_urls_that_cannot_be_watched() -> Result[Void]
@@ -129,7 +123,7 @@ def refuses_urls_that_cannot_be_watched() -> Result[Void]
     try Test.error?(Database.open_observer(url))
   end
 
-  return ok()
+  ok()
 end
 
 def spots_follow_the_person(observer: Database.Observer, writer: Db.Connection, url: String) -> Result[Void]
@@ -163,7 +157,7 @@ def spots_follow_the_person(observer: Database.Observer, writer: Db.Connection, 
 
   try Test.assert(PageCache.spot(pages, none, PageCache.ROOM, ana(), none, none).none?, "a room that is no number")
   older = PageCache.spot(pages, none, PageCache.MESSAGES, ana(), some(1), some(5))
-  return Test.assert(older.some?, "no spot for older messages")
+  Test.assert(older.some?, "no spot for older messages")
 end
 
 # The sidebar and the search are kept for their person (and the words), and the person of a session for one version.
@@ -214,7 +208,7 @@ def sidebar_search_and_person_are_kept(observer: Database.Observer, writer: Db.C
   try Db.execute(writer, "insert into notes (body) values ('x')", [])
   later = some(try Database.version(observer))
   try Test.assert(PageCache.known_user(pages, later, "token").none?, "a person kept across a commit")
-  return Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, later, ana())).none?, "a sidebar across a commit")
+  Test.assert(PageCache.lookup(PageCache.sidebar_spot(pages, later, ana())).none?, "a sidebar across a commit")
 end
 
 # The session that `Auth.user_for` reads from a row is kept as it is and found again. Its end is in Unix ms, which
@@ -250,7 +244,7 @@ def fresh_session_is_kept_and_found(observer: Database.Observer, writer: Db.Conn
 
   seen = some(try Database.version(observer))
   PageCache.remember_user(pages, seen, token, session)
-  return Test.eq(PageCache.known_user(pages, seen, token).unwrap!.name, "Ana")
+  Test.eq(PageCache.known_user(pages, seen, token).unwrap!.name, "Ana")
 end
 
 # A person has `search_slots` places for search pages whatever they type: the pages of more queries write over each
@@ -302,7 +296,7 @@ def searches_are_bounded_per_person(observer: Database.Observer, writer: Db.Conn
     "a search page for another last room",
   )
 
-  return Test.assert(
+  Test.assert(
     PageCache.lookup(PageCache.search_spot(pages, some("0:other"), ana(), last, none)).none?,
     "a search page of another version",
   )
@@ -358,7 +352,7 @@ def cursor_pages_are_bounded_per_person(
   other = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, bea, some(1), some(7)))
   try Test.eq(text_of(other.unwrap!.body), "<p>Bea before</p>")
   after = PageCache.lookup(PageCache.spot(pages, seen, PageCache.AFTER, bea, some(1), some(7)))
-  return Test.eq(text_of(after.unwrap!.body), "<p>Bea after</p>")
+  Test.eq(text_of(after.unwrap!.body), "<p>Bea after</p>")
 end
 
 # A page in a place of the person is a miss for any other stamp (the version, the state of the person, the room, the
@@ -425,7 +419,7 @@ def cursor_stamp_mismatch_is_a_miss(observer: Database.Observer, writer: Db.Conn
   )
 
   six = PageCache.lookup(PageCache.spot(pages, seen, PageCache.MESSAGES, ana(), some(1), some(6)))
-  return Test.eq(text_of(six.unwrap!.body), "<p>six</p>")
+  Test.eq(text_of(six.unwrap!.body), "<p>six</p>")
 end
 
 # Only the pages that the cache keeps make the sign-in filter read the version.
@@ -441,7 +435,7 @@ def cached_paths() -> Result[Void]
     try Test.assert(not PageCache.cached?(path), "#{path} is not kept")
   end
 
-  return ok()
+  ok()
 end
 
 # A version that cannot be read (the observer is closed or lost) makes no spot: the page is made and nothing is kept.
@@ -465,18 +459,16 @@ def failing_observer_keeps_nothing(observer: Database.Observer, writer: Db.Conne
   try Test.assert(PageCache.lookup(spot).none?, "a page without a spot")
   page = PageCache.keep(spot, "<p>made</p>")
   try Test.eq(text_of(page.body), "<p>made</p>")
-  return Test.eq(Cache.bytes(store), 0)
+  Test.eq(Cache.bytes(store), 0)
 end
 
-def sent_page(conn: Bond.Conn) -> Result[Bond.Conn]
-  return ok(PageCache.respond(conn, PageCache.keep(none, PAGE)))
-end
+def sent_page(conn: Bond.Conn) -> Result[Bond.Conn] = ok(PageCache.respond(conn, PageCache.keep(none, PAGE)))
 
 # What the page cache sent before the body was `Bytes`: `Bond.html` and the two headers.
 def html_page(conn: Bond.Conn) -> Result[Bond.Conn]
   tag = PageCache.keep(none, PAGE).etag
   html = Bond.html(conn, 200, PAGE)
-  return ok(Bond.header(Bond.header(html, "etag", tag), "cache-control", "max-age=0, private, must-revalidate"))
+  ok(Bond.header(Bond.header(html, "etag", tag), "cache-control", "max-age=0, private, must-revalidate"))
 end
 
 # `respond` answers with the status, headers and bytes of `Bond.html`, and a 304 without a body for the tag it sent.
@@ -498,7 +490,7 @@ def respond_matches_html() -> Result[Void]
   same = Testing.request(app, "GET", "/sent", [Header(name: "if-none-match", value: tag)])
   try Test.eq(same.status, 304)
   try Test.assert(same.body.empty?, "a 304 has no body")
-  return Test.eq(HTTP.header_values(same.headers, "etag"), [tag])
+  Test.eq(HTTP.header_values(same.headers, "etag"), [tag])
 end
 
 # The kept form of an avatar answer reads back as it was written, a text that is not one reads as none, and the shared
@@ -529,7 +521,7 @@ def avatar_answers_round_trip() -> Result[Void]
   try Test.assert(PageCache.shared_spot(none, none, PageCache.AVATAR, "1").none?, "no cache, no spot")
   PageCache.remember(none, "x")
   try Test.assert(PageCache.recall(none).none?, "no cache, nothing kept")
-  return ok()
+  ok()
 end
 
 def avatar_answers_are_kept_for_their_version(
@@ -564,7 +556,7 @@ def avatar_answers_are_kept_for_their_version(
 
   try Test.assert(PageCache.shared_spot(pages, some(""), PageCache.AVATAR, "7").none?, "an unreadable version")
   _ = writer
-  return ok()
+  ok()
 end
 
 def run_in_dir(body: Fn[Database.Observer, Db.Connection, String, Result[Void]]) -> Result[Void]
@@ -574,7 +566,7 @@ def run_in_dir(body: Fn[Database.Observer, Db.Connection, String, Result[Void]])
   outcome = with_database(dir, body)
   removed = Path.remove(dir)
   try outcome
-  return removed
+  removed
 end
 
 def main() -> Void

@@ -6,7 +6,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 3: create sessions.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     3,
     "create sessions",
     [
@@ -18,7 +18,7 @@ export def migration() -> Migrate.Migration
 end
 
 def sessions() -> String
-  return <<~SQL
+  <<~SQL
     create table sessions (
       id integer primary key autoincrement not null,
       created_at datetime(6) not null,

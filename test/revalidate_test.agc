@@ -5,24 +5,16 @@ import Web from "../src/campfire_web/web"
 
 # A handler that names its own policy with the name in the casing it likes: Bond keeps the name as written.
 def own(conn: Bond.Conn) -> Result[Bond.Conn]
-  return ok(Bond.header(Bond.html(conn, 200, "<p>a</p>"), "Cache-Control", "no-store"))
+  ok(Bond.header(Bond.html(conn, 200, "<p>a</p>"), "Cache-Control", "no-store"))
 end
 
-def plain(conn: Bond.Conn) -> Result[Bond.Conn]
-  return ok(Bond.html(conn, 200, "<p>a</p>"))
-end
+def plain(conn: Bond.Conn) -> Result[Bond.Conn] = ok(Bond.html(conn, 200, "<p>a</p>"))
 
-def moved(conn: Bond.Conn) -> Result[Bond.Conn]
-  return ok(Bond.redirect(conn, "/plain"))
-end
+def moved(conn: Bond.Conn) -> Result[Bond.Conn] = ok(Bond.redirect(conn, "/plain"))
 
-def not_changed(conn: Bond.Conn) -> Result[Bond.Conn]
-  return ok(Bond.html(conn, 200, "<p>a</p>").with(status: 304))
-end
+def not_changed(conn: Bond.Conn) -> Result[Bond.Conn] = ok(Bond.html(conn, 200, "<p>a</p>").with(status: 304))
 
-def json(conn: Bond.Conn) -> Result[Bond.Conn]
-  return ok(Bond.text(conn, 200, "x"))
-end
+def json(conn: Bond.Conn) -> Result[Bond.Conn] = ok(Bond.text(conn, 200, "x"))
 
 def main() -> Void
   Test.run([

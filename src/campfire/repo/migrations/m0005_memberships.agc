@@ -8,7 +8,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 5: create memberships.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     5,
     "create memberships",
     [
@@ -22,7 +22,7 @@ export def migration() -> Migrate.Migration
 end
 
 def memberships() -> String
-  return <<~SQL
+  <<~SQL
     create table memberships (
       id integer primary key autoincrement not null,
       connected_at datetime(6),

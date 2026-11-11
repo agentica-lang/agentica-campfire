@@ -58,7 +58,7 @@ end
 
 # The bodies of Action Text and what the people of a chat write: markup that stays as it is, but for its attributes.
 def action_text_cases() -> List[Case]
-  return [
+  [
     Case(input: "plain text", want: "plain text"),
     Case(input: "<p>Hello <strong>world</strong></p>", want: "<p>Hello <strong>world</strong></p>"),
     Case(
@@ -101,7 +101,7 @@ end
 
 # Text that is not markup is escaped, and what is left open or mis-nested is closed.
 def well_formed_cases() -> List[Case]
-  return [
+  [
     Case(input: "a < b > c & d", want: "a &lt; b &gt; c &amp; d"),
     Case(input: "1 <2 and 3< 4 <", want: "1 &lt;2 and 3&lt; 4 &lt;"),
     Case(input: "&amp; &lt; &gt; &quot; &#39; &#x27; &nbsp;", want: "&amp; &lt; &gt; &quot; &#39; &#x27; &nbsp;"),
@@ -145,7 +145,7 @@ end
 # The text is read between its `<`: the text after a tag, whichever way the tag was read, is escaped like any other,
 # and a tag that goes on past a `<` (in a quoted value) ends where it ends.
 def between_tags_cases() -> List[Case]
-  return [
+  [
     Case(input: "<P>Up</P><B>b</B>", want: "<p>Up</p><b>b</b>"),
     Case(input: "<p>a &amp; b > c &bogus; &</p>&", want: "<p>a &amp; b &gt; c &bogus; &amp;</p>&amp;"),
     Case(
@@ -165,7 +165,7 @@ end
 
 # What is dropped with what is in it, and what is dropped and leaves its text.
 def dropped_cases() -> List[Case]
-  return [
+  [
     Case(input: "<script>alert(1)</script>x", want: "x"),
     Case(input: "a<style>p { color: red }</style>b", want: "ab"),
     Case(input: "<SCRIPT SRC=http://example.com/x.js></SCRIPT>ok", want: "ok"),
@@ -197,7 +197,7 @@ end
 
 # The filter evasion tricks of the OWASP cheat sheet and their kin.
 def xss_cases() -> List[Case]
-  return [
+  [
     Case(input: "<IMG SRC=\"javascript:alert('XSS');\">", want: ""),
     Case(input: "<img src=x onerror=alert(1)>t", want: "t"),
     Case(input: "<IMG SRC=x onerror=\"alert(1)\"/>t", want: "t"),
@@ -248,7 +248,7 @@ def editor_tag_cases() -> List[Case]
     Case(input: "<#{t} onclick=\"alert(1)\" style=\"x:expression(alert(1))\" class=x>a</#{t}>", want: "<#{t}>a</#{t}>")
   end
 
-  return (
+  (
     cases.concat([
       Case(input: "<hr onclick=\"alert(1)\" style=\"x\"/>t", want: "<hr>t"),
       Case(input: "<hr><script>alert(1)</script></hr>t", want: "<hr>t"),
@@ -260,7 +260,7 @@ end
 
 # The language of a code block is the one attribute besides a link's that is kept, on a `pre` and as a short name.
 def code_block_cases() -> List[Case]
-  return [
+  [
     Case(
       input: "<PRE onclick=x DATA-LANGUAGE=ruby><code>def x\n  1 &lt; 2\nend</code></PRE>",
       want: "<pre data-language=\"ruby\"><code>def x\n  1 &lt; 2\nend</code></pre>",
@@ -281,7 +281,7 @@ end
 
 # The scheme of a link, written in every way that a browser reads as that scheme.
 def scheme_cases() -> List[Case]
-  return [
+  [
     Case(input: "<a href=\"javascript:alert(1)\">x</a>", want: "x"),
     Case(input: "<a href=\"JaVaScRiPt:alert(1)\">x</a>", want: "x"),
     Case(input: "<a href=\"  javascript:alert(1)\">x</a>", want: "x"),
@@ -318,12 +318,10 @@ end
 def run_cases(cases: List[Case]) -> Result[Void]
   for c in cases
     got = HtmlSanitizer.sanitize(c.input)
-    if got != c.want
-      return error("sanitize(#{c.input.inspect}) is #{got.inspect}, want #{c.want.inspect}")
-    end
+    return error("sanitize(#{c.input.inspect}) is #{got.inspect}, want #{c.want.inspect}") if got != c.want
   end
 
-  return ok()
+  ok()
 end
 
 # Every `<` of the output opens an allowed tag; only a link has attributes, and they are the two that it writes, and a
@@ -331,43 +329,33 @@ end
 def only_allowed_markup?(html: String) -> Bool
   for piece in html.split("<").drop(1)
     tag = piece.split(">")[0]
-    if not piece.include?(">")
-      return false
-    end
+    return false if not piece.include?(">")
 
     name = tag.split(" ")[0].split("/").join("")
-    if not OUTPUT_TAGS.include?(name)
-      return false
-    end
+    return false if not OUTPUT_TAGS.include?(name)
 
-    if tag.include?(" ") and not link_tag?(tag) and not code_tag?(tag)
-      return false
-    end
+    return false if tag.include?(" ") and not link_tag?(tag) and not code_tag?(tag)
   end
 
-  return true
+  true
 end
 
 def code_tag?(tag: String) -> Bool
-  if not (tag.start_with?("pre data-language=\"") and tag.end_with?("\""))
-    return false
-  end
+  return false if not (tag.start_with?("pre data-language=\"") and tag.end_with?("\""))
 
   language = tag.slice(19, tag.length - 20)
-  return not language.empty? and language.length <= 32 and language.split("").all? do |c| language_char?(c) end
+  not language.empty? and language.length <= 32 and language.split("").all? do |c| language_char?(c) end
 end
 
 def language_char?(c: String) -> Bool
-  return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+#.-".include?(c)
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+#.-".include?(c)
 end
 
 def link_tag?(tag: String) -> Bool
-  if not (tag.start_with?("a href=\"") and tag.end_with?("\" #{LINK_REL}"))
-    return false
-  end
+  return false if not (tag.start_with?("a href=\"") and tag.end_with?("\" #{LINK_REL}"))
 
   address = tag.slice(8, tag.length - 8 - LINK_REL.length - 2)
-  return not address.include?("\"") and not address.include?("<") and not address.include?(">")
+  not address.include?("\"") and not address.include?("<") and not address.include?(">")
 end
 
 # Whatever comes in, the output is safe markup, and sanitizing it again changes nothing.
@@ -384,7 +372,7 @@ def run_invariants(cases: List[Case]) -> Result[Void]
     end
   end
 
-  return ok()
+  ok()
 end
 
 # The steps of one sanitize of `piece` repeated `times` times.
@@ -392,7 +380,7 @@ def steps_of(piece: String, times: Int) -> Int
   input = List.repeat(piece, times).join("")
   before = Profile.steps()
   HtmlSanitizer.sanitize(input)
-  return Profile.steps() - before
+  Profile.steps() - before
 end
 
 # Four times the input must cost about four times the steps; a scan that starts again at each tag or each end tag
@@ -400,7 +388,7 @@ end
 def linear?(piece: String) -> Result[Void]
   small = steps_of(piece, 200)
   large = steps_of(piece, 800)
-  return Test.assert(large < small * 5, "#{piece.inspect}: #{small} steps for 200 and #{large} for 800")
+  Test.assert(large < small * 5, "#{piece.inspect}: #{small} steps for 200 and #{large} for 800")
 end
 
 # The milliseconds of one sanitize of `piece` repeated `times` times.
@@ -408,7 +396,7 @@ def milliseconds_of(piece: String, times: Int) -> Int
   input = List.repeat(piece, times).join("")
   start = Time.monotonic_ms()
   HtmlSanitizer.sanitize(input)
-  return Time.monotonic_ms() - start
+  Time.monotonic_ms() - start
 end
 
 # Steps do not count what a builtin costs: cutting a slice out of text that is not ASCII takes longer the further it
@@ -418,7 +406,7 @@ def not_slower_than_ascii?(piece: String) -> Result[Void]
   ascii = piece.replace("é", "e")
   plain = [milliseconds_of(ascii, 800), milliseconds_of(ascii, 800), milliseconds_of(ascii, 800)].min.unwrap!
   other = [milliseconds_of(piece, 800), milliseconds_of(piece, 800), milliseconds_of(piece, 800)].min.unwrap!
-  return Test.assert(other < plain * 8 + 60, "#{plain} ms for ASCII text and #{other} ms for the same text with é")
+  Test.assert(other < plain * 8 + 60, "#{plain} ms for ASCII text and #{other} ms for the same text with é")
 end
 
 def main() -> Void

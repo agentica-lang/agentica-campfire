@@ -59,26 +59,20 @@ end
 
 ## What is wrong with the text of a boost, or "". The caller strips it first.
 export def content_problem(content: String) -> String
-  if content.empty? or content.length > MAX_CONTENT_LENGTH
-    return "A boost is 1 to #{MAX_CONTENT_LENGTH} characters"
-  end
+  return "A boost is 1 to #{MAX_CONTENT_LENGTH} characters" if content.empty? or content.length > MAX_CONTENT_LENGTH
 
-  return ""
+  ""
 end
 
 ## The boosts that the column `COLUMN` of a message query holds, oldest first.
 export def parse(text: String) -> List[Boost]
-  if text == "[]" or text.empty?
-    return []
-  end
+  return [] if text == "[]" or text.empty?
 
   # SQLite wrote this text with its JSON functions, so it decodes; a column that is not that shows no boosts.
   listing = JSON.decode("{\"boosts\":#{text}}", Listing)
-  if not listing.ok?
-    return []
-  end
+  return [] if not listing.ok?
 
-  return listing.unwrap!.boosts
+  listing.unwrap!.boosts
 end
 
 ## The message of the person's rooms with this id, or `none` for a room the person is not in and for a message that
@@ -91,11 +85,9 @@ export def reach(conn: Db.Connection, user_id: Int, message_id: Int) -> Result[O
     [Db.Value.Int(user_id), Db.Value.Int(message_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(Reach(message_id: int_of(rows[0], "id"), room_id: int_of(rows[0], "room_id"))))
+  ok(some(Reach(message_id: int_of(rows[0], "id"), room_id: int_of(rows[0], "room_id"))))
 end
 
 ## The boosts of a message, oldest first.
@@ -109,7 +101,7 @@ export def of_message(conn: Db.Connection, message_id: Int) -> Result[List[Boost
     [Db.Value.Int(message_id)],
   )
 
-  return ok(rows.map do |row| boost_of(row) end)
+  ok(rows.map do |row| boost_of(row) end)
 end
 
 ## Stores a boost of the person on the message and gives it, or `none` when the person is not active, is not in the
@@ -117,7 +109,7 @@ end
 ## caller's check stores nothing. The message and its room are touched in the same transaction. `content` is checked
 ## by the caller (`content_problem`).
 export def add(conn: Db.Connection, user_id: Int, message_id: Int, content: String) -> Result[Optional[Boost]]
-  return Db.transaction(conn) do |tx| add_in(tx, user_id, message_id, content) end
+  Db.transaction(conn) do |tx| add_in(tx, user_id, message_id, content) end
 end
 
 ## Takes the person's own boost off the message. It gives false, and changes nothing, for a boost of somebody else
@@ -125,13 +117,13 @@ end
 ## boost of another message, one that is gone, and a person who is no longer active or in the room. The message and its
 ## room are touched in the same transaction.
 export def remove(conn: Db.Connection, user_id: Int, message_id: Int, boost_id: Int) -> Result[Bool]
-  return Db.transaction(conn) do |tx| remove_in(tx, user_id, message_id, boost_id) end
+  Db.transaction(conn) do |tx| remove_in(tx, user_id, message_id, boost_id) end
 end
 
 # Whether the person is active and in the room of the message, as SQL for the `where` of a write, with its two
 # parameters (`message_id`, `user_id`) given by the caller in that order.
 def allowed_sql() -> String
-  return (
+  (
     "exists (select 1 from memberships join messages on messages.room_id = memberships.room_id " +
     "where messages.id = ? and memberships.user_id = ?) " +
     "and exists (select 1 from users where users.id = ? and users.status = #{Rails.ACTIVE})"
@@ -155,12 +147,10 @@ def add_in(tx: Db.Connection, user_id: Int, message_id: Int, content: String) ->
     ],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
   try touch(tx, message_id)
-  return ok(some(boost_of(rows[0])))
+  ok(some(boost_of(rows[0])))
 end
 
 def remove_in(tx: Db.Connection, user_id: Int, message_id: Int, boost_id: Int) -> Result[Bool]
@@ -177,12 +167,10 @@ def remove_in(tx: Db.Connection, user_id: Int, message_id: Int, boost_id: Int) -
     ],
   )
 
-  if changed != 1
-    return ok(false)
-  end
+  return ok(false) if changed != 1
 
   try touch(tx, message_id)
-  return ok(true)
+  ok(true)
 end
 
 # `touch: true` of Rails, twice over: the message, and the room through it.
@@ -195,11 +183,11 @@ def touch(tx: Db.Connection, message_id: Int) -> Result[Void]
     [id],
   )
 
-  return ok()
+  ok()
 end
 
 def boost_of(row: Db.Row) -> Boost
-  return Boost(
+  Boost(
     id: int_of(row, "id"),
     booster_id: int_of(row, "booster_id"),
     booster: text_of(row, "booster"),

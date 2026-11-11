@@ -5,23 +5,21 @@ BUSY = "sqlite error 5: database is locked"
 # One try of a step that fails `failing` times with `message` and then works; the table counts the tries.
 def attempt(tries: ATS[String, Int], failing: Int, message: String) -> Result[Int]
   n = tries.add("calls", 1)
-  if n <= failing
-    return error(message)
-  end
+  return error(message) if n <= failing
 
-  return ok(n)
+  ok(n)
 end
 
 # What `retry` gives for a step that fails `failing` times, and how many times it ran.
 def outcome(failing: Int, message: String) -> Result[Int]
   tries: ATS[String, Int] = ATS.new()
-  return RoomDeletion.retry(5, 1) do attempt(tries, failing, message) end
+  RoomDeletion.retry(5, 1) do attempt(tries, failing, message) end
 end
 
 def runs(failing: Int, message: String) -> Int
   tries: ATS[String, Int] = ATS.new()
   _ = RoomDeletion.retry(5, 1) do attempt(tries, failing, message) end
-  return tries.get("calls").unwrap_or(0)
+  tries.get("calls").unwrap_or(0)
 end
 
 def main() -> Void

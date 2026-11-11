@@ -26,7 +26,7 @@ export def new() -> Presence
   connections: ATS[String, Int] = ATS.new()
   connected_at: ATS[String, Int] = ATS.new()
   held: ATS[String, Int] = ATS.new()
-  return Presence(connections: connections, connected_at: connected_at, held: held)
+  Presence(connections: connections, connected_at: connected_at, held: held)
 end
 
 ## A tab of the person opened the room page: one more connection, or the first one when the person was not connected.
@@ -55,15 +55,11 @@ end
 ## counted (it never said it was there, or already left) changes nothing, so a repeat cannot take away another tab.
 export def absent(presence: Presence, room_id: Int, user_id: Int, connection: Int, now_ms: Int) -> Void
   held = held_key(room_id, user_id, connection)
-  if not presence.held.has_key?(held)
-    return
-  end
+  return if not presence.held.has_key?(held)
 
   presence.held.delete(held)
   key = key_of(room_id, user_id)
-  if not presence.connections.has_key?(key)
-    return
-  end
+  return if not presence.connections.has_key?(key)
 
   left = 0
   if connected?(presence, room_id, user_id, now_ms)
@@ -85,16 +81,14 @@ end
 ## True when the person was last seen in the room less than `TTL_MS` ago.
 export def connected?(presence: Presence, room_id: Int, user_id: Int, now_ms: Int) -> Bool
   seen = presence.connected_at.get(key_of(room_id, user_id))
-  return seen.ok? and now_ms - seen.unwrap! < TTL_MS
+  seen.ok? and now_ms - seen.unwrap! < TTL_MS
 end
 
 ## How many tabs of the person are in the room, 0 when they are not connected.
 export def tabs(presence: Presence, room_id: Int, user_id: Int, now_ms: Int) -> Int
-  if not connected?(presence, room_id, user_id, now_ms)
-    return 0
-  end
+  return 0 if not connected?(presence, room_id, user_id, now_ms)
 
-  return presence.connections.get(key_of(room_id, user_id)).unwrap_or(0)
+  presence.connections.get(key_of(room_id, user_id)).unwrap_or(0)
 end
 
 # A counted tab that refreshes: the time moves, and a person whose time had run out has this tab only.
@@ -106,10 +100,6 @@ def refresh_counted(presence: Presence, key: String, room_id: Int, user_id: Int,
   presence.connected_at.put(key, now_ms)
 end
 
-def key_of(room_id: Int, user_id: Int) -> String
-  return "#{room_id}:#{user_id}"
-end
+def key_of(room_id: Int, user_id: Int) -> String = "#{room_id}:#{user_id}"
 
-def held_key(room_id: Int, user_id: Int, connection: Int) -> String
-  return "#{room_id}:#{user_id}:#{connection}"
-end
+def held_key(room_id: Int, user_id: Int, connection: Int) -> String = "#{room_id}:#{user_id}:#{connection}"

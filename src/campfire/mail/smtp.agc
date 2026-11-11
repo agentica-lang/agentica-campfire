@@ -139,7 +139,7 @@ export def send(message: Mail.Message, options: Options) -> Result[Void]
 
   # The message is delivered; a server that answers QUIT badly does not undo that.
   _ = quit(client)
-  return ok()
+  ok()
 end
 
 ## Opens the connection, reads the greeting, says EHLO, upgrades with STARTTLS (for `Security.Starttls`) and logs in
@@ -147,7 +147,7 @@ end
 ## password: it is not needed once the login is done.
 export def connect(options: Options) -> Result[Client]
   opened = try open(options)
-  return setup(opened)
+  setup(opened)
 end
 
 ## Opens a TCP connection (TLS from the start for `Security.Implicit`) and reads the greeting of the server. The
@@ -158,9 +158,7 @@ export def open(options: Options) -> Result[Client]
     return error("smtp: a plain connection is only allowed to this machine, not to #{host}")
   end
 
-  if options.timeout_ms <= 0
-    return error("smtp: the timeout must be more than 0 milliseconds")
-  end
+  return error("smtp: the timeout must be more than 0 milliseconds") if options.timeout_ms <= 0
 
   stripped = options.with(host: host)
   socket = try connect_socket(stripped)
@@ -177,7 +175,7 @@ export def open(options: Options) -> Result[Client]
     return error(checked.message)
   end
 
-  return ok(client)
+  ok(client)
 end
 
 ## Says EHLO and keeps the features that the server lists (`STARTTLS`, `AUTH PLAIN LOGIN`). The connection is closed
@@ -198,7 +196,7 @@ export def ehlo(client: Client) -> Result[Client]
   reply = asked.unwrap!
   # The first line is the server's greeting, the others are its features.
   features = reply.lines.drop(1).map do |line| line.strip.upcase end
-  return ok(client.with(features: features))
+  ok(client.with(features: features))
 end
 
 ## Upgrades the connection with STARTTLS, which the server must have offered, and says EHLO again, since what a server
@@ -208,9 +206,7 @@ end
 ## without STARTTLS, which is no reason to give up the connection (but nothing is sent over it either), and the one
 ## for a connection that is already encrypted, which nothing was sent over.
 export def starttls(client: Client) -> Result[Client]
-  if client.secure
-    return error("smtp: the connection is already encrypted")
-  end
+  return error("smtp: the connection is already encrypted") if client.secure
 
   if not offers?(client, "STARTTLS")
     return error("smtp: the server does not offer STARTTLS, so nothing is sent over a plain connection")
@@ -222,7 +218,7 @@ export def starttls(client: Client) -> Result[Client]
     close(client)
   end
 
-  return upgraded
+  upgraded
 end
 
 ## Logs in with AUTH PLAIN, or AUTH LOGIN when the server only has that. A server that offers neither, and a login
@@ -251,7 +247,7 @@ export def login(client: Client, username: String, password: String) -> Result[V
     close(client)
   end
 
-  return outcome
+  outcome
 end
 
 ## Sends a message on the connection: `MAIL FROM`, `RCPT TO` for each recipient, then the message. If the server
@@ -261,18 +257,16 @@ end
 ## connection that is plain to a host that is not this machine (nothing is sent: use `starttls`), leave it as it is.
 export def send_message(client: Client, message: Mail.Message) -> Result[Void]
   prepared = try prepare(message)
-  return deliver(client, prepared)
+  deliver(client, prepared)
 end
 
 ## Says QUIT and closes the connection, even when the server does not answer.
 export def quit(client: Client) -> Result[Void]
   reply = ask(client, "QUIT", "QUIT", [CODE_CLOSING], "QUIT refused")
   close(client)
-  if not reply.ok?
-    return error(reply.message)
-  end
+  return error(reply.message) if not reply.ok?
 
-  return ok()
+  ok()
 end
 
 ## Closes the connection without saying QUIT.
@@ -284,16 +278,12 @@ end
 ## broken connection, a bad message).
 export def error_code(message: String) -> Optional[Int]
   colon = ERROR_PREFIX.length + ERROR_CODE_DIGITS
-  if not message.start_with?(ERROR_PREFIX) or message.length <= colon or message.slice(colon, 1) != ":"
-    return none
-  end
+  return none if not message.start_with?(ERROR_PREFIX) or message.length <= colon or message.slice(colon, 1) != ":"
 
   code = message.slice(ERROR_PREFIX.length, ERROR_CODE_DIGITS).to_i
-  if not code.ok?
-    return none
-  end
+  return none if not code.ok?
 
-  return some(code.unwrap!)
+  some(code.unwrap!)
 end
 
 ## What of an `error` of this module is safe for a log that many people read: the code and the label of a refusal
@@ -302,52 +292,38 @@ end
 ## not valid, whose error names what is wrong with it, such as an address) is `the message was not valid`.
 export def error_summary(message: String) -> String
   parts = message.split(": ")
-  if error_code(message).some? and parts.size > 1
-    return "#{parts[0]}: #{parts[1]}"
-  end
+  return "#{parts[0]}: #{parts[1]}" if error_code(message).some? and parts.size > 1
 
-  if message.start_with?("smtp: ") and parts.size > 1
-    return "#{parts[0]}: #{parts[1]}"
-  end
+  return "#{parts[0]}: #{parts[1]}" if message.start_with?("smtp: ") and parts.size > 1
 
-  return "the message was not valid"
+  "the message was not valid"
 end
 
 ## True for a host on this machine: `localhost`, an address of `127.0.0.0/8` and `::1`. A name that only starts with
 ## `127.` is not.
 export def loopback?(host: String) -> Bool
   name = host.strip.downcase
-  if name == "localhost" or name == "::1" or name == "[::1]"
-    return true
-  end
+  return true if name == "localhost" or name == "::1" or name == "[::1]"
 
   parts = name.split(".")
-  if parts.size != 4 or parts[0] != "127"
-    return false
-  end
+  return false if parts.size != 4 or parts[0] != "127"
 
-  return parts.all? do |part| octet?(part) end
+  parts.all? do |part| octet?(part) end
 end
 
 def octet?(part: String) -> Bool
-  if part.empty? or part.length > 3 or not part.split("").all? do |char| digit?(char) end
-    return false
-  end
+  return false if part.empty? or part.length > 3 or not part.split("").all? do |char| digit?(char) end
 
-  return part.to_i!() <= 255
+  part.to_i!() <= 255
 end
 
-def digit?(char: String) -> Bool
-  return char.code >= 48 and char.code <= 57
-end
+def digit?(char: String) -> Bool = char.code >= 48 and char.code <= 57
 
 def upgrade(client: Client) -> Result[Client]
   _ = try ask(client, "STARTTLS", "STARTTLS", [CODE_READY], "STARTTLS refused")
   context = try tls_context(client.options)
   encrypted = TLS.upgrade(client.socket, context, tls_host(client.options.host), client.options.timeout_ms)
-  if not encrypted.ok?
-    return error(network_failure(encrypted.message, "upgrading to TLS"))
-  end
+  return error(network_failure(encrypted.message, "upgrading to TLS")) if not encrypted.ok?
 
   upgraded = encrypted.unwrap!
   secure = client.with(socket: upgraded, secure: true, features: [])
@@ -356,14 +332,14 @@ def upgrade(client: Client) -> Result[Client]
     close(secure)
   end
 
-  return said
+  said
 end
 
 def prepare(message: Mail.Message) -> Result[Prepared]
   complete = Mail.complete(message)
   envelope = try Mail.envelope(complete)
   data = try Mail.render(complete)
-  return ok(Prepared(envelope: envelope, data: data))
+  ok(Prepared(envelope: envelope, data: data))
 end
 
 # Each step that fails closes the client it started from (the one before an upgrade, which `starttls` closes itself),
@@ -386,9 +362,7 @@ def setup(opened: Client) -> Result[Client]
     client = upgraded.unwrap!
   end
 
-  if client.options.username.empty?
-    return ok(client)
-  end
+  return ok(client) if client.options.username.empty?
 
   logged = login(client, client.options.username, client.options.password)
   if not logged.ok?
@@ -396,7 +370,7 @@ def setup(opened: Client) -> Result[Client]
     return error(logged.message)
   end
 
-  return ok(client.with(options: client.options.with(password: "")))
+  ok(client.with(options: client.options.with(password: "")))
 end
 
 def connect_socket(options: Options) -> Result[Socket]
@@ -405,58 +379,48 @@ def connect_socket(options: Options) -> Result[Socket]
     return connected(TLS.connect(tls_host(options.host), options.port, context, options.timeout_ms))
   end
 
-  return connected(TCP.connect(tls_host(options.host), options.port, options.timeout_ms))
+  connected(TCP.connect(tls_host(options.host), options.port, options.timeout_ms))
 end
 
 # The system's message names the host and the port, and is more than one line: it goes after the part that a summary
 # keeps.
 def connected(socket: Result[Socket]) -> Result[Socket]
-  if socket.ok?
-    return socket
-  end
+  return socket if socket.ok?
 
-  return error(network_failure(socket.message, "connecting"))
+  error(network_failure(socket.message, "connecting"))
 end
 
 def tls_context(options: Options) -> Result[TlsContext]
   context = TLS.client_context(TlsClientOptions(ca_file: options.ca_file))
-  if not context.ok?
-    return error(network_failure(context.message, "setting up TLS"))
-  end
+  return error(network_failure(context.message, "setting up TLS")) if not context.ok?
 
-  return context
+  context
 end
 
 # `[::1]` is how a url writes an IPv6 host; the socket calls take it without the brackets.
 def tls_host(host: String) -> String
-  if host.start_with?("[") and host.end_with?("]")
-    return host.slice(1, host.length - 2)
-  end
+  return host.slice(1, host.length - 2) if host.start_with?("[") and host.end_with?("]")
 
-  return host
+  host
 end
 
-def offers?(client: Client, feature: String) -> Bool
-  return client.features.any? do |line| line == feature end
-end
+def offers?(client: Client, feature: String) -> Bool = client.features.any? do |line| line == feature end
 
 # A feature line is `AUTH PLAIN LOGIN` (or the old `AUTH=PLAIN LOGIN`).
 def offers_auth?(client: Client, mechanism: String) -> Bool
-  return client.features.any? do |line| auth_line?(line, mechanism) end
+  client.features.any? do |line| auth_line?(line, mechanism) end
 end
 
 def auth_line?(line: String, mechanism: String) -> Bool
-  if not line.start_with?("AUTH ") and not line.start_with?("AUTH=")
-    return false
-  end
+  return false if not line.start_with?("AUTH ") and not line.start_with?("AUTH=")
 
-  return line.slice(5, line.length - 5).split(" ").include?(mechanism)
+  line.slice(5, line.length - 5).split(" ").include?(mechanism)
 end
 
 def auth_plain(client: Client, username: String, password: String) -> Result[Void]
   secret = Base64.strict_encode64("#{NUL}#{username}#{NUL}#{password}".bytes)
   _ = try ask(client, "AUTH PLAIN #{secret}", "AUTH", [CODE_AUTHENTICATED], AUTH_FAILED)
-  return ok()
+  ok()
 end
 
 # The user and the password each answer a 334 challenge.
@@ -464,7 +428,7 @@ def auth_login(client: Client, username: String, password: String) -> Result[Voi
   _ = try ask(client, "AUTH LOGIN", "AUTH", [CODE_CHALLENGE], AUTH_FAILED)
   _ = try ask(client, Base64.strict_encode64(username.bytes), "AUTH", [CODE_CHALLENGE], AUTH_FAILED)
   _ = try ask(client, Base64.strict_encode64(password.bytes), "AUTH", [CODE_AUTHENTICATED], AUTH_FAILED)
-  return ok()
+  ok()
 end
 
 # The transaction of one message. After a refusal the connection gets RSET, so the next message starts clean. A lost
@@ -476,36 +440,34 @@ def deliver(client: Client, prepared: Prepared) -> Result[Void]
   end
 
   sent = transact(client, prepared)
-  if sent.ok?
-    return sent
-  end
+  return sent if sent.ok?
 
   if lost?(sent.message) or not reset(client)
     close(client)
   end
 
-  return sent
+  sent
 end
 
 # True when the server accepted RSET. A server that does not (a refusal, silence, a line that is no reply) leaves a
 # dialogue in a state that nobody knows, so the connection is not used again.
 def reset(client: Client) -> Bool
   reply = command(client, "RSET", "RSET")
-  return reply.ok? and reply.unwrap!.code == CODE_OK
+  reply.ok? and reply.unwrap!.code == CODE_OK
 end
 
 # True for an error that leaves the dialogue in a state that nobody knows (no reply came, or the server says it is
 # going away with a 421), and so for a connection to close.
 def lost?(message: String) -> Bool
   code = error_code(message)
-  return code.none? or code.unwrap! == CODE_UNAVAILABLE
+  code.none? or code.unwrap! == CODE_UNAVAILABLE
 end
 
 # A coded reply during AUTH that is neither the one awaited nor a refusal (4xx or 5xx): the server and the client no
 # longer agree on where the exchange is, so nothing more is said on this connection.
 def out_of_step?(message: String) -> Bool
   code = error_code(message)
-  return code.some? and code.unwrap! < CODE_FIRST_REFUSAL
+  code.some? and code.unwrap! < CODE_FIRST_REFUSAL
 end
 
 def close_when_lost(client: Client, message: String) -> Void
@@ -527,51 +489,43 @@ def transact(client: Client, prepared: Prepared) -> Result[Void]
   try write(client, "#{dot_stuff(prepared.data)}.#{CRLF}", "the message")
   done = try read_reply_within(client, "the end of the message", client.options.data_timeout_ms)
   _ = try expect(done, [CODE_OK], "the message was refused")
-  return ok()
+  ok()
 end
 
 # The refusal of a command about an address says the address after the server text, so that the label before it holds
 # no address and `error_summary` can keep the label alone.
 def about(outcome: Result[Reply], address: String) -> Result[Reply]
-  if outcome.ok?
-    return outcome
-  end
+  return outcome if outcome.ok?
 
-  return error("#{outcome.message} (#{address})")
+  error("#{outcome.message} (#{address})")
 end
 
 # A line of the message that starts with a dot gets another one, so that it is not taken for the end `.` (RFC 5321
 # 4.5.2). The data ends with CRLF, so the last piece is empty and the join writes that line end again.
-def dot_stuff(data: String) -> String
-  return data.split(CRLF).map do |line| stuffed(line) end.join(CRLF)
-end
+def dot_stuff(data: String) -> String = data.split(CRLF).map do |line| stuffed(line) end.join(CRLF)
 
 def stuffed(line: String) -> String
-  if line.start_with?(".")
-    return ".#{line}"
-  end
+  return ".#{line}" if line.start_with?(".")
 
-  return line
+  line
 end
 
 # Sends a command and gives its reply when its code is one of `accepted`, else the `error` of the refusal.
 def ask(client: Client, line: String, name: String, accepted: List[Int], refusal: String) -> Result[Reply]
   reply = try command(client, line, name)
-  return expect(reply, accepted, refusal)
+  expect(reply, accepted, refusal)
 end
 
 def command(client: Client, line: String, name: String) -> Result[Reply]
   try write(client, "#{line}#{CRLF}", name)
-  return read_reply(client, "the reply to #{name}")
+  read_reply(client, "the reply to #{name}")
 end
 
 # The reply when it has one of the codes, else an `error` with the code, what was refused and what the server said.
 def expect(reply: Reply, accepted: List[Int], refusal: String) -> Result[Reply]
-  if accepted.include?(reply.code)
-    return ok(reply)
-  end
+  return ok(reply) if accepted.include?(reply.code)
 
-  return error("#{ERROR_PREFIX}#{reply.code}: #{refusal}: #{server_text(reply.lines.join(" "))}")
+  error("#{ERROR_PREFIX}#{reply.code}: #{refusal}: #{server_text(reply.lines.join(" "))}")
 end
 
 # What the server said, as text for an error: without control characters (a terminal would obey an escape sequence in
@@ -579,15 +533,13 @@ end
 # and cut to a length that a log can hold.
 def server_text(text: String) -> String
   clean = text.split("").select do |char| not control_code?(char.code) end.join("")
-  if clean.length > MAX_ERROR_TEXT
-    return "#{clean.slice(0, MAX_ERROR_TEXT)}..."
-  end
+  return "#{clean.slice(0, MAX_ERROR_TEXT)}..." if clean.length > MAX_ERROR_TEXT
 
-  return clean
+  clean
 end
 
 def control_code?(code: Int) -> Bool
-  return (
+  (
     code < 32 or
     (code >= 127 and code <= 159) or
     code == ARABIC_LETTER_MARK or
@@ -603,18 +555,16 @@ end
 
 def write(client: Client, text: String, what: String) -> Result[Void]
   sent = TCP.send(client.socket, text, client.options.timeout_ms)
-  if sent.ok?
-    return sent
-  end
+  return sent if sent.ok?
 
-  return error(network_failure(sent.message, "sending #{what}"))
+  error(network_failure(sent.message, "sending #{what}"))
 end
 
 # A reply is one or more lines `250-text`, and the last one is `250 text` or just `250` (RFC 5321 4.2). Every line has
 # the same code, three digits that start with 2 to 5. The timeout is for the whole reply, so a server that sends a line
 # now and then cannot keep the client waiting; the socket is closed when the time is up, as a timeout of a read does.
 def read_reply(client: Client, what: String) -> Result[Reply]
-  return read_reply_within(client, what, client.options.timeout_ms)
+  read_reply_within(client, what, client.options.timeout_ms)
 end
 
 def read_reply_within(client: Client, what: String, timeout_ms: Int) -> Result[Reply]
@@ -630,9 +580,7 @@ def read_reply_within(client: Client, what: String, timeout_ms: Int) -> Result[R
     end
 
     read = TCP.read_line(client.socket, remaining)
-    if not read.ok?
-      return error(network_failure(read.message, "waiting for #{what}"))
-    end
+    return error(network_failure(read.message, "waiting for #{what}")) if not read.ok?
 
     line = read.unwrap!
     received += line.bytesize
@@ -653,38 +601,28 @@ def read_reply_within(client: Client, what: String, timeout_ms: Int) -> Result[R
     end
 
     lines = lines.push(text)
-    if line.length == 3 or line.slice(3, 1) == " "
-      return ok(Reply(code: code, lines: lines))
-    end
+    return ok(Reply(code: code, lines: lines)) if line.length == 3 or line.slice(3, 1) == " "
   end
 
   close(client)
-  return error("smtp: #{what} has more than #{MAX_REPLY_LINES} lines")
+  error("smtp: #{what} has more than #{MAX_REPLY_LINES} lines")
 end
 
 # The code of a reply line, or -1 when the line is not one: three digits, the first from 2 to 5, then nothing, a space
 # or a hyphen.
 def reply_code(line: String) -> Int
-  if line.length < 3 or not line.slice(0, 3).split("").all? do |char| digit?(char) end
-    return -1
-  end
+  return -1 if line.length < 3 or not line.slice(0, 3).split("").all? do |char| digit?(char) end
 
-  if line.length > 3 and line.slice(3, 1) != " " and line.slice(3, 1) != "-"
-    return -1
-  end
+  return -1 if line.length > 3 and line.slice(3, 1) != " " and line.slice(3, 1) != "-"
 
   code = line.slice(0, 3).to_i!()
-  if code < MIN_REPLY_CODE or code > MAX_REPLY_CODE
-    return -1
-  end
+  return -1 if code < MIN_REPLY_CODE or code > MAX_REPLY_CODE
 
-  return code
+  code
 end
 
 def network_failure(message: String, doing: String) -> String
-  if message.include?("timed out")
-    return "smtp: timed out #{doing}"
-  end
+  return "smtp: timed out #{doing}" if message.include?("timed out")
 
-  return "smtp: the connection failed while #{doing}: #{message}"
+  "smtp: the connection failed while #{doing}: #{message}"
 end

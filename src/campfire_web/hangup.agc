@@ -16,9 +16,7 @@ TRIES = 3
 PAUSE_MS = 100
 
 ## The `Identity.id` that `/cable` gives to the connections of a person.
-export def identity_of(user_id: Int) -> String
-  return "#{user_id}"
-end
+export def identity_of(user_id: Int) -> String = "#{user_id}"
 
 ## Ends every connection of the person. A hub whose inbox stays full is asked again a few times, with a longer pause
 ## each time; when it still does not take the request it is logged, and the sockets stay until the next check of the

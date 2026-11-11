@@ -54,7 +54,7 @@ end
 
 ## The steps of the mail server and of the links that it receives.
 export def steps() -> List[BDD.Step]
-  return [
+  [
     BDD.step("the mail server offers AUTH {string}", &server_offers_auth),
     BDD.step("the mail server never answers {string}", &server_never_answers),
     BDD.step("the mail server refuses the recipient {string}", &server_refuses_recipient),
@@ -96,45 +96,33 @@ export def app_environment(ctx: BDD.Context) -> Map[String, String]
   end
 
   queue = text_of(ctx, QUEUE)
-  return {"CAMPFIRE_SMTP_URL": url, "CAMPFIRE_BASE_URL": address, "CAMPFIRE_MAIL_QUEUE_SIZE": queue}
+  {"CAMPFIRE_SMTP_URL": url, "CAMPFIRE_BASE_URL": address, "CAMPFIRE_MAIL_QUEUE_SIZE": queue}
 end
 
 ## The token in the link of the last email that a step opened.
-export def link_token(ctx: BDD.Context) -> String
-  return text_of(ctx, LINK)
-end
+export def link_token(ctx: BDD.Context) -> String = text_of(ctx, LINK)
 
-def server_offers_auth(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(ctx, AUTH, JSON.from(args[0]))
-end
+def server_offers_auth(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.set(ctx, AUTH, JSON.from(args[0]))
 
-def app_queues(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(ctx, QUEUE, JSON.from(args[0]))
-end
+def app_queues(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.set(ctx, QUEUE, JSON.from(args[0]))
 
-def server_never_answers(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(ctx, STALL, JSON.from(args[0]))
-end
+def server_never_answers(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.set(ctx, STALL, JSON.from(args[0]))
 
 def server_refuses_recipient(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(ctx, REFUSED, JSON.from(args[0]))
+  BDD.set(ctx, REFUSED, JSON.from(args[0]))
 end
 
-def app_has_address(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(ctx, ADDRESS, JSON.from(args[0]))
-end
+def app_has_address(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.set(ctx, ADDRESS, JSON.from(args[0]))
 
-def app_uses_server(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(ctx, ENABLED, JSON.from(true))
-end
+def app_uses_server(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.set(ctx, ENABLED, JSON.from(true))
 
 # Port 1 is never open on a machine that runs the specs, and a connection to it is refused at once.
 def app_uses_closed_port(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(BDD.set(ctx, ENABLED, JSON.from(true)), PORT, JSON.from(CLOSED_PORT))
+  BDD.set(BDD.set(ctx, ENABLED, JSON.from(true)), PORT, JSON.from(CLOSED_PORT))
 end
 
 def app_logs_in(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return BDD.set(BDD.set(ctx, USER, JSON.from(args[0])), PASSWORD, JSON.from(args[1]))
+  BDD.set(BDD.set(ctx, USER, JSON.from(args[0])), PASSWORD, JSON.from(args[1]))
 end
 
 # The peer serves `PEER_CONNECTIONS` connections one after the other, so a scenario can send a few emails (the mailer
@@ -150,10 +138,8 @@ def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
     "SMTP_PEER_CONNECTIONS": "#{PEER_CONNECTIONS}",
   }
 
-  started = Process.spawn_captured("agentica", [Path.join([root, PEER]).unwrap!], ".", 30_000, env)
-  if not started.ok?
-    return BDD.assert(ctx, false, "cannot start the mail server: #{started.message}")
-  end
+  started = Process.spawn_captured("agentica", [Path.join([root, PEER]).unwrap!], Process.Options(env: env))
+  return BDD.assert(ctx, false, "cannot start the mail server: #{started.message}") if not started.ok?
 
   peer = started.unwrap!
   line = Process.read_line(peer, STARTUP_MS)
@@ -163,12 +149,12 @@ def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   port = line.unwrap!.slice(LISTENING.length, line.unwrap!.length - LISTENING.length).to_i!
   kept = BDD.keep(ctx, SERVICE) do |request| answer(peer, request) end
-  return BDD.set(kept, PORT, JSON.from(port))
+  BDD.set(kept, PORT, JSON.from(port))
 end
 
 def answer(peer: Process, request: Json) -> Result[Json]
   asked = try JSON.decode(request, Request)
-  return ok(JSON.from(read_transcript(peer, asked)))
+  ok(JSON.from(read_transcript(peer, asked)))
 end
 
 # The lines of the dialogue up to `closed`, which the peer says once the client has hung up, or up to the line that
@@ -177,26 +163,20 @@ def read_transcript(peer: Process, asked: Request) -> Transcript
   lines: List[String] = []
   for _ in 0...1000
     line = Process.read_line(peer, asked.wait_ms)
-    if not line.ok?
-      return Transcript(lines: lines, ended: false)
-    end
+    return Transcript(lines: lines, ended: false) if not line.ok?
 
-    if line.unwrap! == CLOSED
-      return Transcript(lines: lines, ended: true)
-    end
+    return Transcript(lines: lines, ended: true) if line.unwrap! == CLOSED
 
     lines = lines.push(line.unwrap!)
-    if not asked.until.empty? and line.unwrap!.start_with?(asked.until)
-      return Transcript(lines: lines, ended: false)
-    end
+    return Transcript(lines: lines, ended: false) if not asked.until.empty? and line.unwrap!.start_with?(asked.until)
   end
 
-  return Transcript(lines: lines, ended: false)
+  Transcript(lines: lines, ended: false)
 end
 
 def transcript_of(ctx: BDD.Context, wait_ms: Int, until: String = "") -> Result[Transcript]
   said = try BDD.call(ctx, SERVICE, JSON.from(Request(wait_ms: wait_ms, until: until)))
-  return JSON.decode(said, Transcript)
+  JSON.decode(said, Transcript)
 end
 
 # A state that a scenario can wait for instead of a time: the app has connected and said this command. The lines up to
@@ -204,26 +184,22 @@ end
 def server_heard(ctx: BDD.Context, args: List[String]) -> BDD.Context
   prefix = "#{CLIENT}#{args[0]}"
   read = transcript_of(ctx, STARTUP_MS, prefix)
-  if not read.ok?
-    return BDD.assert(ctx, false, "cannot read the mail server: #{read.message}")
-  end
+  return BDD.assert(ctx, false, "cannot read the mail server: #{read.message}") if not read.ok?
 
   lines = read.unwrap!.lines
   found = lines.any? do |line| line.start_with?(prefix) end
-  return BDD.assert(ctx, found, "the mail server saw:\n#{lines.join("\n")}")
+  BDD.assert(ctx, found, "the mail server saw:\n#{lines.join("\n")}")
 end
 
 # A message that the app sends takes a moment (the sending is off the request), so the wait is generous.
 def server_received(ctx: BDD.Context, args: List[String]) -> BDD.Context
   read = transcript_of(ctx, STARTUP_MS)
-  if not read.ok?
-    return BDD.assert(ctx, false, "cannot read the mail server: #{read.message}")
-  end
+  return BDD.assert(ctx, false, "cannot read the mail server: #{read.message}") if not read.ok?
 
   lines = read.unwrap!.lines
   subject = "C: Subject: #{args[1]}"
   found = lines.include?("C: RCPT TO:<#{args[0]}>") and lines.include?(subject)
-  return BDD.assert(
+  BDD.assert(
     BDD.set(ctx, MESSAGE, JSON.from(body_of(lines).join("\n"))),
     found,
     "the mail server saw:\n#{lines.join("\n")}",
@@ -237,9 +213,7 @@ def server_got_messages(ctx: BDD.Context, args: List[String]) -> BDD.Context
   wait_ms = STARTUP_MS
   for _ in 0...PEER_CONNECTIONS
     read = transcript_of(ctx, wait_ms)
-    if not read.ok? or read.unwrap!.lines.empty?
-      break
-    end
+    break if not read.ok? or read.unwrap!.lines.empty?
 
     if read.unwrap!.lines.include?("C: DATA")
       sent += 1
@@ -248,17 +222,15 @@ def server_got_messages(ctx: BDD.Context, args: List[String]) -> BDD.Context
     wait_ms = COUNT_SEGMENTS_MS
   end
 
-  return BDD.assert(ctx, sent == args[0].to_i!, "the mail server got #{sent} messages, not #{args[0]}")
+  BDD.assert(ctx, sent == args[0].to_i!, "the mail server got #{sent} messages, not #{args[0]}")
 end
 
 def server_received_nothing(ctx: BDD.Context, args: List[String]) -> BDD.Context
   read = transcript_of(ctx, args[0].to_i!)
-  if not read.ok?
-    return BDD.assert(ctx, false, "cannot read the mail server: #{read.message}")
-  end
+  return BDD.assert(ctx, false, "cannot read the mail server: #{read.message}") if not read.ok?
 
   lines = read.unwrap!.lines
-  return BDD.assert(ctx, not lines.any? do |line| line.start_with?("C: MAIL FROM") end, "the server saw:\n#{lines}")
+  BDD.assert(ctx, not lines.any? do |line| line.start_with?("C: MAIL FROM") end, "the server saw:\n#{lines}")
 end
 
 # What the client sent between DATA and the final dot, decoded from quoted-printable (a line that ends with `=` goes on
@@ -268,7 +240,7 @@ def body_of(lines: List[String]) -> List[String]
     .map do |line| line.slice(CLIENT.length, line.length - CLIENT.length) end
 
   inside = sent.drop_while do |line| line != "DATA" end.drop(1).take_while do |line| line != "." end
-  return unfold(inside).map do |line| unescape(line) end
+  unfold(inside).map do |line| unescape(line) end
 end
 
 def unfold(lines: List[String]) -> List[String]
@@ -283,7 +255,7 @@ def unfold(lines: List[String]) -> List[String]
     end
   end
 
-  return joined
+  joined
 end
 
 # `=XX` is the character with that code, for the ASCII that a link is made of.
@@ -301,17 +273,15 @@ def unescape(line: String) -> String
     end
   end
 
-  return out.join("")
+  out.join("")
 end
 
 def hex_value(high: String, low: String) -> Int
   first = HEX_DIGITS.index_of(high.upcase).unwrap_or(-1)
   second = HEX_DIGITS.index_of(low.upcase).unwrap_or(-1)
-  if first < 0 or second < 0 or high.length != 1 or low.length != 1
-    return -1
-  end
+  return -1 if first < 0 or second < 0 or high.length != 1 or low.length != 1
 
-  return first * 16 + second
+  first * 16 + second
 end
 
 def open_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -324,43 +294,37 @@ def open_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
   link = found.unwrap!.strip
   token = link.slice(LINK_PREFIX.length, link.length - LINK_PREFIX.length)
   kept = BDD.set(ctx, LINK, JSON.from(token))
-  return HttpSteps.get(kept, [link.slice(BASE_URL.length, link.length - BASE_URL.length)])
+  HttpSteps.get(kept, [link.slice(BASE_URL.length, link.length - BASE_URL.length)])
 end
 
 def set_password_with_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return submit(ctx, args[0], text_of(ctx, LINK))
+  submit(ctx, args[0], text_of(ctx, LINK))
 end
 
 def set_password_at_once(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return HttpSteps.post_at_once(ctx, UPDATE_PATH, form_of(args[0], text_of(ctx, LINK)), args[1].to_i!)
+  HttpSteps.post_at_once(ctx, UPDATE_PATH, form_of(args[0], text_of(ctx, LINK)), args[1].to_i!)
 end
 
-def set_password(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return submit(ctx, args[0], args[1])
-end
+def set_password(ctx: BDD.Context, args: List[String]) -> BDD.Context = submit(ctx, args[0], args[1])
 
 def submit(ctx: BDD.Context, password: String, token: String) -> BDD.Context
-  return HttpSteps.post(ctx, UPDATE_PATH, form_of(password, token))
+  HttpSteps.post(ctx, UPDATE_PATH, form_of(password, token))
 end
 
 def form_of(password: String, token: String) -> String
-  return URI.encode_www_form([URI.Pair(name: "token", value: token), URI.Pair(name: "password", value: password)])
+  URI.encode_www_form([URI.Pair(name: "token", value: token), URI.Pair(name: "password", value: password)])
 end
 
 def text_of(ctx: BDD.Context, name: String) -> String
   value = BDD.get(ctx, name)
-  if not value.ok?
-    return ""
-  end
+  return "" if not value.ok?
 
-  return JSON.string(value.unwrap!).unwrap_or("")
+  JSON.string(value.unwrap!).unwrap_or("")
 end
 
 def flag(ctx: BDD.Context, name: String) -> Bool
   value = BDD.get(ctx, name)
-  if not value.ok?
-    return false
-  end
+  return false if not value.ok?
 
-  return JSON.bool(value.unwrap!).unwrap_or(false)
+  JSON.bool(value.unwrap!).unwrap_or(false)
 end

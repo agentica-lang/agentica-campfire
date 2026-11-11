@@ -4,7 +4,7 @@ DATE = "Tue, 03 Nov 2026 10:55:02 +0000"
 ID = "<t@example.com>"
 
 def message(subject: String, text: String) -> Mail.Message
-  return Mail.Message(
+  Mail.Message(
     from: "ana@example.com",
     to: ["bob@example.com"],
     subject: subject,
@@ -15,19 +15,17 @@ def message(subject: String, text: String) -> Mail.Message
 end
 
 # The lines of the rendered message, so that a test reads them one by one.
-def lines_of(rendered: Result[String]) -> List[String]
-  return rendered.unwrap!.split("\r\n")
-end
+def lines_of(rendered: Result[String]) -> List[String] = rendered.unwrap!.split("\r\n")
 
 # The words of an RFC 2047 header value `=?UTF-8?B?...?= =?UTF-8?B?...?=`, decoded and joined.
 def decode_words(value: String) -> String
   pieces = value.split(" ").map do |word| decode_word(word) end
-  return pieces.join("")
+  pieces.join("")
 end
 
 def decode_word(word: String) -> String
   body = word.slice(10, word.length - 12)
-  return String.from_bytes(Base64.strict_decode64(body).unwrap!).unwrap!
+  String.from_bytes(Base64.strict_decode64(body).unwrap!).unwrap!
 end
 
 # The lines of one header as the rendered message has them, from `Name:` to the next line that does not start with a
@@ -36,12 +34,10 @@ def unfolded(rendered: Result[String], name: String) -> String
   lines = lines_of(rendered)
   first = lines.drop_while do |line| not line.start_with?("#{name}:") end
   rest = first.drop(1).take_while do |line| line.start_with?(" ") or line.start_with?("\t") end
-  return [first[0]].concat(rest).join("")
+  [first[0]].concat(rest).join("")
 end
 
-def long_text(size: Int) -> String
-  return List.repeat("a", size).join("")
-end
+def long_text(size: Int) -> String = List.repeat("a", size).join("")
 
 def main() -> Void
   Test.run([
@@ -259,5 +255,5 @@ end
 # The display name of the From line, decoded: an encoded word before ` <ana@example.com>`.
 def decode_name(lines: List[String]) -> String
   line = lines.find do |candidate| candidate.start_with?("From: ") end.unwrap!
-  return line.slice(6, line.length - 6 - " <ana@example.com>".length)
+  line.slice(6, line.length - 6 - " <ana@example.com>".length)
 end

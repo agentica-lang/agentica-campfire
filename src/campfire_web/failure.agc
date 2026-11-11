@@ -12,9 +12,7 @@ INTERNAL = "Internal Server Error"
 
 ## The answer to `conn` for a failure with this message (Bond has written it to stderr already; it is never sent).
 export def answer(conn: Bond.Conn, message: String) -> Bond.Conn
-  if Database.busy?(message)
-    return Bond.header(Bond.text(conn, 503, BUSY), "retry-after", RETRY_AFTER_SECONDS)
-  end
+  return Bond.header(Bond.text(conn, 503, BUSY), "retry-after", RETRY_AFTER_SECONDS) if Database.busy?(message)
 
-  return Bond.text(conn, 500, INTERNAL)
+  Bond.text(conn, 500, INTERNAL)
 end

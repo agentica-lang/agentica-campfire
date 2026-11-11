@@ -25,24 +25,18 @@ export MAX_BYTES = 256
 
 ## What is wrong with `password` as a new password, or "" when it is fine.
 export def problem(password: String) -> String
-  if password.length < MIN_LENGTH
-    return "The password needs at least #{MIN_LENGTH} characters"
-  end
+  return "The password needs at least #{MIN_LENGTH} characters" if password.length < MIN_LENGTH
 
-  if password.bytes.size > MAX_BYTES
-    return "The password can have at most #{MAX_BYTES} bytes"
-  end
+  return "The password can have at most #{MAX_BYTES} bytes" if password.bytes.size > MAX_BYTES
 
-  return ""
+  ""
 end
 
 ## The digest of `password` with a new random salt. It never holds the password.
 export def hash(password: String) -> Result[String]
   salt = OpenSSL.Random.random_bytes(SALT_BYTES)
   key = try OpenSSL.KDF.scrypt(password.bytes, salt, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
-  return ok(
-    "#{SCHEME}$#{COST}$#{BLOCK_SIZE}$#{PARALLELISM}$#{Base64.strict_encode64(salt)}$#{Base64.strict_encode64(key)}",
-  )
+  ok("#{SCHEME}$#{COST}$#{BLOCK_SIZE}$#{PARALLELISM}$#{Base64.strict_encode64(salt)}$#{Base64.strict_encode64(key)}")
 end
 
 ## True when `password` is the one that made `digest`, an scrypt digest of ours or a bcrypt one (`$2a$`, `$2b$`,
@@ -50,11 +44,9 @@ end
 ## bcrypt digest on a system that cannot check it (see `Bcrypt.verify`), which says nothing about the password. The
 ## keys are compared in constant time. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY` ("" for the default).
 export def verify(password: String, digest: String, bcrypt_library: String = "") -> Result[Bool]
-  if digest.start_with?(BCRYPT_PREFIX)
-    return Bcrypt.verify(password, digest, bcrypt_library)
-  end
+  return Bcrypt.verify(password, digest, bcrypt_library) if digest.start_with?(BCRYPT_PREFIX)
 
-  return ok(verify_scrypt?(password, digest))
+  ok(verify_scrypt?(password, digest))
 end
 
 ## Does the work of `verify` for a password that nobody has, with the cost of `hash`, and gives false. Sign-in calls
@@ -63,23 +55,19 @@ end
 export def verify_nobody?() -> Bool
   key = OpenSSL.KDF.scrypt(NOBODY_PASSWORD.bytes, NOBODY_SALT.bytes, COST, BLOCK_SIZE, PARALLELISM, KEY_BYTES)
   # A key is never empty (it has KEY_BYTES), so this is false; it reads the key so the work is not dropped.
-  return key.ok? and key.unwrap!.empty?
+  key.ok? and key.unwrap!.empty?
 end
 
 def verify_scrypt?(password: String, digest: String) -> Bool
   parts = digest.split("$")
-  if parts.size != DIGEST_PARTS or parts[0] != SCHEME
-    return false
-  end
+  return false if parts.size != DIGEST_PARTS or parts[0] != SCHEME
 
   cost = parts[1].to_i
   block_size = parts[2].to_i
   parallelism = parts[3].to_i
   salt = Base64.strict_decode64(parts[4])
   expected = Base64.strict_decode64(parts[5])
-  if not (cost.ok? and block_size.ok? and parallelism.ok? and salt.ok? and expected.ok?)
-    return false
-  end
+  return false if not (cost.ok? and block_size.ok? and parallelism.ok? and salt.ok? and expected.ok?)
 
   key = OpenSSL.KDF.scrypt(
     password.bytes,
@@ -90,5 +78,5 @@ def verify_scrypt?(password: String, digest: String) -> Bool
     expected.unwrap!.size,
   )
 
-  return key.ok? and OpenSSL.HMAC.secure_compare(key.unwrap!, expected.unwrap!)
+  key.ok? and OpenSSL.HMAC.secure_compare(key.unwrap!, expected.unwrap!)
 end

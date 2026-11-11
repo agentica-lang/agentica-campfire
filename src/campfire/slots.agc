@@ -10,17 +10,15 @@ COUNT = "running"
 ## A new set of slots, shared by every task that gets the handle.
 export def new() -> ATS[String, Int]
   slots: ATS[String, Int] = ATS.new()
-  return slots
+  slots
 end
 
 ## Takes a slot when fewer than `limit` are taken, and says whether it did. The caller that gets true must `release`.
 export def take?(slots: ATS[String, Int], limit: Int) -> Bool
-  if ATS.add(slots, COUNT, 1) <= limit
-    return true
-  end
+  return true if ATS.add(slots, COUNT, 1) <= limit
 
   ATS.add(slots, COUNT, -1)
-  return false
+  false
 end
 
 ## Gives a slot back.

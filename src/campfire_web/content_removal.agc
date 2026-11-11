@@ -20,7 +20,7 @@ end
 ## Starts the task for the person and gives it. It does not wait; the task logs a failure and ends. The handle is for a
 ## caller that wants to wait for the end (a spec); a request does not.
 export def start(pool: Database.Pool, cable: CableWeb.Cable, user_id: Int) -> Task[Result[Void]]
-  return Task.spawn(&run, Job(pool: pool, cable: cable, user_id: user_id))
+  Task.spawn(&run, Job(pool: pool, cable: cable, user_id: user_id))
 end
 
 def run(job: Job) -> Result[Void]
@@ -29,7 +29,7 @@ def run(job: Job) -> Result[Void]
     IO.warn("campfire: removing the messages of person #{job.user_id} stopped, what is left stays: #{done.message}")
   end
 
-  return done
+  done
 end
 
 def remove_all(job: Job) -> Result[Void]
@@ -42,9 +42,9 @@ def remove_all(job: Job) -> Result[Void]
     end
   end
 
-  return ok()
+  ok()
 end
 
 def next_message(job: Job) -> Result[Optional[Bans.Gone]]
-  return Database.with_connection(job.pool) do |db| Bans.delete_next_message(db, job.user_id) end
+  Database.with_connection(job.pool) do |db| Bans.delete_next_message(db, job.user_id) end
 end

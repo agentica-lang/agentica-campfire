@@ -33,7 +33,7 @@ NOT_WORD = /[^0-9A-Za-z_\x{80}-\x{10FFFF}]+/
 ## not a letter, digit or `_` is a separator, as `SearchesController#query` does. At most `MAX_WORDS` are kept. It is "" when nothing is left.
 export def words(typed: String) -> String
   spaced = Regex.replace(typed, NOT_WORD, " ")
-  return spaced.unwrap_or("").strip.split(" ").take(MAX_WORDS).join(" ")
+  spaced.unwrap_or("").strip.split(" ").take(MAX_WORDS).join(" ")
 end
 
 ## The FTS5 expression for `query` (the result of `words`): each word in double quotes, so FTS5 reads it as text and
@@ -41,7 +41,7 @@ end
 ## space, which FTS5 reads as `AND`. `words` has no quote left, so the doubling is a second guard.
 export def match(query: String) -> String
   parts = query.split(" ").select do |word| not word.empty? end
-  return parts.map do |word| "\"#{word.replace("\"", "\"\"")}\"" end.join(" ")
+  parts.map do |word| "\"#{word.replace("\"", "\"\"")}\"" end.join(" ")
 end
 
 ## The newest `MAX_MESSAGES` messages of the rooms that the person is in (any involvement) that match `query`, oldest
@@ -49,9 +49,7 @@ end
 ## search for, and no message is read. The order is the index's `rowid`, which is the message id, so SQLite can read the
 ## index from its newest end, but matches in rooms the person is not in are read and skipped.
 export def messages(conn: Db.Connection, user_id: Int, query: String) -> Result[List[Rooms.Message]]
-  if query.empty?
-    return ok([])
-  end
+  return ok([]) if query.empty?
 
   rows = try Db.query(
     conn,
@@ -61,13 +59,13 @@ export def messages(conn: Db.Connection, user_id: Int, query: String) -> Result[
     [Db.Value.Text(match(query)), Db.Value.Int(user_id), Db.Value.Int(MAX_MESSAGES)],
   )
 
-  return ok(rows.map do |row| Rooms.message_of(row) end.reverse)
+  ok(rows.map do |row| Rooms.message_of(row) end.reverse)
 end
 
 ## Remembers `query` (the result of `words`) for the person: one that they searched for before moves to the front, and
 ## only the `RECENT` last are kept. The three statements are one transaction, so two searches at once do not keep more.
 export def record(conn: Db.Connection, user_id: Int, query: String) -> Result[Void]
-  return Db.transaction(conn) do |tx| record_in(tx, user_id, query) end
+  Db.transaction(conn) do |tx| record_in(tx, user_id, query) end
 end
 
 ## The queries that the person searched for, the latest first.
@@ -78,13 +76,13 @@ export def recent(conn: Db.Connection, user_id: Int) -> Result[List[String]]
     [Db.Value.Int(user_id), Db.Value.Int(RECENT)],
   )
 
-  return ok(rows.map do |row| text_of(row, "query") end)
+  ok(rows.map do |row| text_of(row, "query") end)
 end
 
 ## Forgets every recent search of the person and no one else's (`Current.user.searches.destroy_all` of
 ## `SearchesController#clear`). It gives how many it removed.
 export def clear(conn: Db.Connection, user_id: Int) -> Result[Int]
-  return Db.execute(conn, "delete from searches where user_id = ?", [Db.Value.Int(user_id)])
+  Db.execute(conn, "delete from searches where user_id = ?", [Db.Value.Int(user_id)])
 end
 
 def record_in(tx: Db.Connection, user_id: Int, query: String) -> Result[Void]
@@ -109,5 +107,5 @@ def record_in(tx: Db.Connection, user_id: Int, query: String) -> Result[Void]
     [Db.Value.Int(user_id), Db.Value.Int(user_id), Db.Value.Int(RECENT)],
   )
 
-  return ok()
+  ok()
 end

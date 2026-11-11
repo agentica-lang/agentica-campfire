@@ -5,12 +5,10 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 4: create rooms.
-export def migration() -> Migrate.Migration
-  return Migrate.sql(4, "create rooms", [rooms()])
-end
+export def migration() -> Migrate.Migration = Migrate.sql(4, "create rooms", [rooms()])
 
 def rooms() -> String
-  return <<~SQL
+  <<~SQL
     create table rooms (
       id integer primary key autoincrement not null,
       created_at datetime(6) not null,

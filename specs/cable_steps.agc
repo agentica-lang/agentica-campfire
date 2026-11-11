@@ -36,7 +36,7 @@ struct Source
 end
 
 export def steps() -> List[BDD.Step]
-  return [
+  [
     BDD.step("the cable peer starts", &peer_starts),
     BDD.step("client {string} connects with the cookies of the browser", &connects),
     BDD.step("the handshake of {string} is answered {int}", &handshake_is),
@@ -73,34 +73,26 @@ end
 def ask(process: Process, request: Json) -> Result[Json]
   try Process.send(process, JSON.encode(request) + "\n", ANSWER_MS)
   line = try Process.read_line(process, ANSWER_MS)
-  return JSON.parse(line)
+  JSON.parse(line)
 end
 
-def serving(f: Fn[Json, Result[Json]]) -> Fn[Json, Result[Json]]
-  return f
-end
+def serving(f: Fn[Json, Result[Json]]) -> Fn[Json, Result[Json]] = f
 
 def peer_starts(ctx: BDD.Context, _args: List[String]) -> BDD.Context
   process = Process.spawn_captured("python3", [PEER_PROGRAM, "#{HttpSteps.port_of(ctx)}"]).unwrap!
   service = serving() do |request| ask(process, request) end
-  return BDD.keep(ctx, PEER, service)
+  BDD.keep(ctx, PEER, service)
 end
 
-def peer(ctx: BDD.Context, order: Order) -> Json
-  return BDD.call(ctx, PEER, JSON.from(order)).unwrap!
-end
+def peer(ctx: BDD.Context, order: Order) -> Json = BDD.call(ctx, PEER, JSON.from(order)).unwrap!
 
 def text_of(answer: Json, name: String) -> String
-  return JSON.string(JSON.get(answer, name).unwrap_or(JSON.from(""))).unwrap_or("")
+  JSON.string(JSON.get(answer, name).unwrap_or(JSON.from(""))).unwrap_or("")
 end
 
-def int_of(answer: Json, name: String) -> Int
-  return JSON.int(JSON.get(answer, name).unwrap_or(JSON.from(0))).unwrap_or(0)
-end
+def int_of(answer: Json, name: String) -> Int = JSON.int(JSON.get(answer, name).unwrap_or(JSON.from(0))).unwrap_or(0)
 
-def has?(answer: Json, name: String) -> Bool
-  return JSON.get(answer, name).ok?
-end
+def has?(answer: Json, name: String) -> Bool = JSON.get(answer, name).ok?
 
 # The Origin is the page of the app, as a browser sends it; without cookies there is no Cookie header at all.
 def connects(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -112,7 +104,7 @@ def connects(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   order = Order(op: "connect", id: args[0], path: "/cable", headers: headers, protocols: SUBPROTOCOL)
   answer = peer(ctx, order)
-  return BDD.set(ctx, "status #{args[0]}", JSON.get(answer, "status").unwrap!)
+  BDD.set(ctx, "status #{args[0]}", JSON.get(answer, "status").unwrap!)
 end
 
 # A page of another site: the same cookies, and the Origin that its script would send.
@@ -125,37 +117,33 @@ def connects_from(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   order = Order(op: "connect", id: args[0], path: "/cable", headers: headers, protocols: SUBPROTOCOL)
   answer = peer(ctx, order)
-  return BDD.set(ctx, "status #{args[0]}", JSON.get(answer, "status").unwrap!)
+  BDD.set(ctx, "status #{args[0]}", JSON.get(answer, "status").unwrap!)
 end
 
 def handshake_is(ctx: BDD.Context, args: List[String]) -> BDD.Context
   status = JSON.int(BDD.get(ctx, "status #{args[0]}").unwrap!).unwrap!
-  return BDD.assert(ctx, status == args[1].to_i!, "the handshake of #{args[0]} was answered #{status}")
+  BDD.assert(ctx, status == args[1].to_i!, "the handshake of #{args[0]} was answered #{status}")
 end
 
 def send_text(ctx: BDD.Context, id: String, text: String) -> BDD.Context
   _ = peer(ctx, Order(op: "send", id: id, text: text))
-  return ctx
+  ctx
 end
 
-def sends(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return send_text(ctx, args[0], BDD.doc_string(ctx))
-end
+def sends(ctx: BDD.Context, args: List[String]) -> BDD.Context = send_text(ctx, args[0], BDD.doc_string(ctx))
 
-def subscribe_command(identifier: String) -> String
-  return JSON.encode({"command": "subscribe", "identifier": identifier})
-end
+def subscribe_command(identifier: String) -> String = JSON.encode({"command": "subscribe", "identifier": identifier})
 
 def subscribes(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return send_text(ctx, args[0], subscribe_command(JSON.encode({"channel": args[1]})))
+  send_text(ctx, args[0], subscribe_command(JSON.encode({"channel": args[1]})))
 end
 
 def room_identifier(channel: String, room_id: Int) -> String
-  return JSON.encode({"channel": JSON.from(channel), "room_id": JSON.from(room_id)})
+  JSON.encode({"channel": JSON.from(channel), "room_id": JSON.from(room_id)})
 end
 
 def subscribes_in_room(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return send_text(ctx, args[0], subscribe_command(room_identifier(args[1], args[2].to_i!)))
+  send_text(ctx, args[0], subscribe_command(room_identifier(args[1], args[2].to_i!)))
 end
 
 def performs(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -165,7 +153,7 @@ def performs(ctx: BDD.Context, args: List[String]) -> BDD.Context
     "data": JSON.from(JSON.encode({"action": args[1]})),
   })
 
-  return send_text(ctx, args[0], command)
+  send_text(ctx, args[0], command)
 end
 
 def performs_alone(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -175,7 +163,7 @@ def performs_alone(ctx: BDD.Context, args: List[String]) -> BDD.Context
     "data": JSON.from(JSON.encode({"action": args[1]})),
   })
 
-  return send_text(ctx, args[0], command)
+  send_text(ctx, args[0], command)
 end
 
 # The streams that a page names with `<turbo-cable-stream-source channel="X" signed-stream-name="Y">`, which the
@@ -184,20 +172,16 @@ def sources_of(body: String) -> List[Source]
   found: List[Source] = []
   for part in body.split(SOURCE_START).drop(1)
     channel_end = part.index_of(NAME_START).unwrap_or(-1)
-    if channel_end < 0
-      next
-    end
+    next if channel_end < 0
 
     rest = part.slice(channel_end + NAME_START.length, part.length - channel_end - NAME_START.length)
     name_end = rest.index_of(NAME_END).unwrap_or(-1)
-    if name_end < 0
-      next
-    end
+    next if name_end < 0
 
     found = found.push(Source(channel: part.slice(0, channel_end), signed: rest.slice(0, name_end)))
   end
 
-  return found
+  found
 end
 
 def subscribe_sources(ctx: BDD.Context, id: String, body: String, channel: String) -> BDD.Context
@@ -213,15 +197,15 @@ def subscribe_sources(ctx: BDD.Context, id: String, body: String, channel: Strin
     result = send_text(result, id, subscribe_command(identifier))
   end
 
-  return result
+  result
 end
 
 def subscribes_to_page(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return subscribe_sources(ctx, args[0], HttpSteps.last_body(ctx), "")
+  subscribe_sources(ctx, args[0], HttpSteps.last_body(ctx), "")
 end
 
 def subscribes_to_remembered(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return subscribe_sources(ctx, args[0], HttpSteps.remembered_body(ctx), "")
+  subscribe_sources(ctx, args[0], HttpSteps.remembered_body(ctx), "")
 end
 
 # The signature is the part after `--`: its last digit is changed, so the name is one that nobody signed.
@@ -232,7 +216,7 @@ def tampered(signed: String) -> String
     other = "1"
   end
 
-  return signed.slice(0, signed.length - 1) + other
+  signed.slice(0, signed.length - 1) + other
 end
 
 def subscribes_tampered(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -242,16 +226,14 @@ def subscribes_tampered(ctx: BDD.Context, args: List[String]) -> BDD.Context
     result = send_text(result, args[0], subscribe_command(identifier))
   end
 
-  return result
+  result
 end
 
 def subscribes_to_page_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  return subscribe_sources(ctx, args[0], HttpSteps.last_body(ctx), args[1])
+  subscribe_sources(ctx, args[0], HttpSteps.last_body(ctx), args[1])
 end
 
-def burst_id(number: Int) -> String
-  return "burst #{number}"
-end
+def burst_id(number: Int) -> String = "burst #{number}"
 
 # All the sockets are opened first and then all the subscriptions are sent, so the checks of the server meet together,
 # as in a page load of many tabs or the reconnect of a crowd.
@@ -270,7 +252,7 @@ def burst_subscribes(ctx: BDD.Context, args: List[String]) -> BDD.Context
     result = send_text(result, burst_id(number), subscribe_command(room_identifier("PresenceChannel", 1)))
   end
 
-  return result
+  result
 end
 
 # Every stream is confirmed, none is rejected and no socket is closed: a refusal for lack of a connection of the pool
@@ -291,19 +273,19 @@ def burst_confirmed(ctx: BDD.Context, args: List[String]) -> BDD.Context
     end
   end
 
-  return BDD.assert(result, true, "")
+  BDD.assert(result, true, "")
 end
 
 # The counters of `/cable/stats`, in the last answer.
 def stats_int(ctx: BDD.Context, name: String) -> Int
   stats = JSON.parse(HttpSteps.last_body(ctx)).unwrap_or(JSON.from(0))
-  return int_of(stats, name)
+  int_of(stats, name)
 end
 
 def reads_at_most(ctx: BDD.Context, args: List[String]) -> BDD.Context
   sessions = stats_int(ctx, "session_reads")
   members = stats_int(ctx, "member_reads")
-  return BDD.assert(
+  BDD.assert(
     ctx,
     sessions <= args[0].to_i! and members <= args[1].to_i!,
     "the cable read the session #{sessions} times and a membership #{members} times",
@@ -312,33 +294,29 @@ end
 
 def mark_reads_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
   marks = stats_int(ctx, "mark_reads")
-  return BDD.assert(ctx, marks == args[0].to_i!, "the cable marked a room read #{marks} times, expected #{args[0]}")
+  BDD.assert(ctx, marks == args[0].to_i!, "the cable marked a room read #{marks} times, expected #{args[0]}")
 end
 
 def next_frame(ctx: BDD.Context, id: String, timeout_ms: Int) -> Json
-  return peer(ctx, Order(op: "recv", id: id, timeout_ms: timeout_ms))
+  peer(ctx, Order(op: "recv", id: id, timeout_ms: timeout_ms))
 end
 
 def receives(ctx: BDD.Context, args: List[String]) -> BDD.Context
   frame = next_frame(ctx, args[0], RECEIVE_MS)
   expected = BDD.doc_string(ctx)
-  return BDD.assert(ctx, text_of(frame, "text") == expected, "#{args[0]} got #{frame}, expected #{expected}")
+  BDD.assert(ctx, text_of(frame, "text") == expected, "#{args[0]} got #{frame}, expected #{expected}")
 end
 
 # Skips what comes before (the confirmations, a ping): a scenario states what it must hear.
 def eventually_receives(ctx: BDD.Context, args: List[String]) -> BDD.Context
   for _skipped in 1..SKIPPED_FRAMES
     frame = next_frame(ctx, args[0], RECEIVE_MS)
-    if text_of(frame, "text").include?(args[1])
-      return BDD.assert(ctx, true, "")
-    end
+    return BDD.assert(ctx, true, "") if text_of(frame, "text").include?(args[1])
 
-    if not has?(frame, "text")
-      return BDD.assert(ctx, false, "#{args[0]} got #{frame} before a frame with #{args[1]}")
-    end
+    return BDD.assert(ctx, false, "#{args[0]} got #{frame} before a frame with #{args[1]}") if not has?(frame, "text")
   end
 
-  return BDD.assert(ctx, false, "#{args[0]} heard no frame with #{args[1]} in #{SKIPPED_FRAMES} frames")
+  BDD.assert(ctx, false, "#{args[0]} heard no frame with #{args[1]} in #{SKIPPED_FRAMES} frames")
 end
 
 # The Action Cable ping that the server sends every 3 s is not something the scenario waits for: a step that follows
@@ -347,21 +325,17 @@ def receives_nothing(ctx: BDD.Context, args: List[String]) -> BDD.Context
   deadline = Time.monotonic_ms() + args[1].to_i!
   while true
     left = deadline - Time.monotonic_ms()
-    if left <= 0
-      return BDD.assert(ctx, true, "")
-    end
+    return BDD.assert(ctx, true, "") if left <= 0
 
     frame = next_frame(ctx, args[0], left)
-    if has?(frame, "timeout")
-      return BDD.assert(ctx, true, "")
-    end
+    return BDD.assert(ctx, true, "") if has?(frame, "timeout")
 
     if not text_of(frame, "text").include?("\"type\":\"ping\"")
       return BDD.assert(ctx, false, "#{args[0]} got #{frame}, expected nothing")
     end
   end
 
-  return BDD.assert(ctx, true, "")
+  BDD.assert(ctx, true, "")
 end
 
 def closed_with(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -373,21 +347,21 @@ def closed_with(ctx: BDD.Context, args: List[String]) -> BDD.Context
     end
   end
 
-  return BDD.assert(ctx, false, "#{args[0]} was not closed")
+  BDD.assert(ctx, false, "#{args[0]} was not closed")
 end
 
 def closes(ctx: BDD.Context, args: List[String]) -> BDD.Context
   _ = peer(ctx, Order(op: "close", id: args[0]))
-  return ctx
+  ctx
 end
 
 def waits(ctx: BDD.Context, args: List[String]) -> BDD.Context
   Task.sleep(args[0].to_i!)
-  return ctx
+  ctx
 end
 
 # No close frame: what a laptop that is shut or a network that is lost does.
 def drops(ctx: BDD.Context, args: List[String]) -> BDD.Context
   _ = peer(ctx, Order(op: "drop", id: args[0]))
-  return ctx
+  ctx
 end

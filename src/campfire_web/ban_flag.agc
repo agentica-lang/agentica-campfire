@@ -13,18 +13,14 @@ CHANGES = "changes"
 ## A new flag, unknown, shared by every task that gets the handle.
 export def new() -> ATS[String, Int]
   flag: ATS[String, Int] = ATS.new()
-  return flag
+  flag
 end
 
 ## True once the flag has been read or set.
-export def known?(flag: ATS[String, Int]) -> Bool
-  return ATS.has_key?(flag, KNOWN)
-end
+export def known?(flag: ATS[String, Int]) -> Bool = ATS.has_key?(flag, KNOWN)
 
 ## True when a ban may exist. An unknown flag says true: the caller reads the table.
-export def any?(flag: ATS[String, Int]) -> Bool
-  return not known?(flag) or ATS.get(flag, ANY).unwrap_or(0) > 0
-end
+export def any?(flag: ATS[String, Int]) -> Bool = not known?(flag) or ATS.get(flag, ANY).unwrap_or(0) > 0
 
 ## Sets the flag to `value`. Setting it true counts as a change that a `refresh` in progress must not undo.
 export def mark(flag: ATS[String, Int], value: Bool) -> Void
@@ -50,9 +46,7 @@ export def refresh(flag: ATS[String, Int], conn: Db.Connection) -> Result[Bool]
     return ok(true)
   end
 
-  if ATS.get(flag, CHANGES).unwrap_or(0) != before
-    return ok(true)
-  end
+  return ok(true) if ATS.get(flag, CHANGES).unwrap_or(0) != before
 
   mark(flag, false)
   if ATS.get(flag, CHANGES).unwrap_or(0) != before
@@ -60,5 +54,5 @@ export def refresh(flag: ATS[String, Int], conn: Db.Connection) -> Result[Bool]
     return ok(true)
   end
 
-  return ok(false)
+  ok(false)
 end

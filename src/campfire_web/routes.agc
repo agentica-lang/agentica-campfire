@@ -185,132 +185,82 @@ export USER_REACTIVATE = "/users/:id/reactivate"
 export JOIN_CODE = "/account/join_code"
 
 ## The path of the results of a search for `query`, the words that `Searches.words` made.
-export def search_path(query: String) -> String
-  return "/searches?q=#{URI.encode_www_form_component(query)}"
-end
+export def search_path(query: String) -> String = "/searches?q=#{URI.encode_www_form_component(query)}"
 
 ## The path of the room page.
-export def room_path(room_id: Int) -> String
-  return "/rooms/#{room_id}"
-end
+export def room_path(room_id: Int) -> String = "/rooms/#{room_id}"
 
 ## The path of the page of the messages that come before `before` in the room.
-export def room_before_path(room_id: Int, before: Int) -> String
-  return "/rooms/#{room_id}?before=#{before}"
-end
+export def room_before_path(room_id: Int, before: Int) -> String = "/rooms/#{room_id}?before=#{before}"
 
 ## The path that a message of the room is posted to.
-export def room_messages_path(room_id: Int) -> String
-  return "/rooms/#{room_id}/messages"
-end
+export def room_messages_path(room_id: Int) -> String = "/rooms/#{room_id}/messages"
 
 ## The path of a message, which is where its edit form posts.
-export def room_message_path(room_id: Int, message_id: Int) -> String
-  return "/rooms/#{room_id}/messages/#{message_id}"
-end
+export def room_message_path(room_id: Int, message_id: Int) -> String = "/rooms/#{room_id}/messages/#{message_id}"
 
 ## The path of the page that edits a message.
 export def room_message_edit_path(room_id: Int, message_id: Int) -> String
-  return "/rooms/#{room_id}/messages/#{message_id}/edit"
+  "/rooms/#{room_id}/messages/#{message_id}/edit"
 end
 
 ## The path of the boosts of a message, which is where a boost is added.
-export def message_boosts_path(message_id: Int) -> String
-  return "/messages/#{message_id}/boosts"
-end
+export def message_boosts_path(message_id: Int) -> String = "/messages/#{message_id}/boosts"
 
 ## The path of the page that adds a boost to a message.
-export def message_boosts_new_path(message_id: Int) -> String
-  return "/messages/#{message_id}/boosts/new"
-end
+export def message_boosts_new_path(message_id: Int) -> String = "/messages/#{message_id}/boosts/new"
 
 ## The path of a boost, which is where its removal posts.
-export def message_boost_path(message_id: Int, boost_id: Int) -> String
-  return "/messages/#{message_id}/boosts/#{boost_id}"
-end
+export def message_boost_path(message_id: Int, boost_id: Int) -> String = "/messages/#{message_id}/boosts/#{boost_id}"
 
 ## The path of the settings of an open or closed room, which is also where its form posts.
-export def room_settings_path(room_id: Int) -> String
-  return "/rooms/#{room_id}/settings"
-end
+export def room_settings_path(room_id: Int) -> String = "/rooms/#{room_id}/settings"
 
 ## The path of the sidebar setting of a room, which is also where their form posts.
-export def room_involvement_path(room_id: Int) -> String
-  return "/rooms/#{room_id}/involvement"
-end
+export def room_involvement_path(room_id: Int) -> String = "/rooms/#{room_id}/involvement"
 
 ## The path of the settings drawn as the form of `kind` (`open` or `closed`), which is how a room is converted: the form
 ## that is saved says what the room is to be (`SETTINGS_OPEN`, `SETTINGS_CLOSED`).
-export def room_settings_kind_path(room_id: Int, kind: String) -> String
-  return "/rooms/#{room_id}/settings?type=#{kind}"
-end
+export def room_settings_kind_path(room_id: Int, kind: String) -> String = "/rooms/#{room_id}/settings?type=#{kind}"
 
 ## The path of the room page around a message.
-export def room_at_path(room_id: Int, message_id: Int) -> String
-  return "/rooms/#{room_id}/@#{message_id}"
-end
+export def room_at_path(room_id: Int, message_id: Int) -> String = "/rooms/#{room_id}/@#{message_id}"
 
 ## The path of the changes of a room since `millis`.
-export def room_refresh_path(room_id: Int, millis: Int) -> String
-  return "/rooms/#{room_id}/refresh?since=#{millis}"
-end
+export def room_refresh_path(room_id: Int, millis: Int) -> String = "/rooms/#{room_id}/refresh?since=#{millis}"
 
 ## The path of the messages API of the bot with this key in a room.
-export def bot_messages_path(room_id: Int, key: String) -> String
-  return "/rooms/#{room_id}/#{key}/messages"
-end
+export def bot_messages_path(room_id: Int, key: String) -> String = "/rooms/#{room_id}/#{key}/messages"
 
 ## The path of the join page of this code, which is also where its form posts.
-export def join_path(code: String) -> String
-  return "/join/#{code}"
-end
+export def join_path(code: String) -> String = "/join/#{code}"
 
 ## The path of a person under the account, which is where the forms of their role and of their removal post.
-export def account_user_path(user_id: Int) -> String
-  return "/account/users/#{user_id}"
-end
+export def account_user_path(user_id: Int) -> String = "/account/users/#{user_id}"
 
 ## The path of a bot, which is where its forms post, and of the page that edits it and of its key.
-export def bot_path(bot_id: Int) -> String
-  return "/account/bots/#{bot_id}"
-end
+export def bot_path(bot_id: Int) -> String = "/account/bots/#{bot_id}"
 
 ## The path of the page that edits a bot.
-export def bot_edit_path(bot_id: Int) -> String
-  return "/account/bots/#{bot_id}/edit"
-end
+export def bot_edit_path(bot_id: Int) -> String = "/account/bots/#{bot_id}/edit"
 
 ## The path that makes a new key for a bot.
-export def bot_key_path(bot_id: Int) -> String
-  return "/account/bots/#{bot_id}/key"
-end
+export def bot_key_path(bot_id: Int) -> String = "/account/bots/#{bot_id}/key"
 
 ## The path of the page of a user.
-export def user_path(user_id: Int) -> String
-  return "/users/#{user_id}"
-end
+export def user_path(user_id: Int) -> String = "/users/#{user_id}"
 
 ## The path of the profile of the person who is signed in, which is also where its form posts.
-export def profile_path() -> String
-  return "/users/me/profile"
-end
+export def profile_path() -> String = "/users/me/profile"
 
 ## The path of the picture of the person who is signed in, which is where the button that removes it posts.
-export def own_avatar_path() -> String
-  return "/users/me/avatar"
-end
+export def own_avatar_path() -> String = "/users/me/avatar"
 
 ## The path of the ban of this user, which is where the forms of the ban and of its lifting post.
-export def user_ban_path(user_id: Int) -> String
-  return "/users/#{user_id}/ban"
-end
+export def user_ban_path(user_id: Int) -> String = "/users/#{user_id}/ban"
 
 ## The path that deactivates this user.
-export def user_deactivate_path(user_id: Int) -> String
-  return "/users/#{user_id}/deactivate"
-end
+export def user_deactivate_path(user_id: Int) -> String = "/users/#{user_id}/deactivate"
 
 ## The path that reactivates this user.
-export def user_reactivate_path(user_id: Int) -> String
-  return "/users/#{user_id}/reactivate"
-end
+export def user_reactivate_path(user_id: Int) -> String = "/users/#{user_id}/reactivate"

@@ -22,5 +22,5 @@ export def ensure(path: String) -> Result[Void]
     end
   end
 
-  return ok()
+  ok()
 end

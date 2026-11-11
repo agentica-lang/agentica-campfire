@@ -120,7 +120,7 @@ end
 ## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at
 ## the room, and `config` says where the links of the answers start (`origin`).
 export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config) -> Bond.App
-  return (
+  (
     app
     |> Bond.get(Routes.BOT_MESSAGES) do |conn|
       serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
@@ -152,41 +152,29 @@ end
 ## The links go to the one who asked and are never stored or sent by email, but a `Host` with a byte that a header
 ## cannot carry would make the answer fail after the message is stored, and the bot would post it twice.
 export def origin(conn: Bond.Conn, config: Config) -> String
-  if config.base_url != ""
-    return config.base_url
-  end
+  return config.base_url if config.base_url != ""
 
   host = Bond.request_header(conn, "host").unwrap_or("")
-  if not host_text?(host)
-    return ""
-  end
+  return "" if not host_text?(host)
 
-  if config.secure_cookies
-    return "https://#{host}"
-  end
+  return "https://#{host}" if config.secure_cookies
 
-  return "http://#{host}"
+  "http://#{host}"
 end
 
 # `name`, `name:port`, `1.2.3.4:port` or `[v6]:port`, written with the characters of a host and nothing else.
 def host_text?(host: String) -> Bool
-  if host.empty?
-    return false
-  end
+  return false if host.empty?
 
   name = host
   port = ""
   if host.start_with?("[")
     close = host.index_of("]")
-    if close.none?
-      return false
-    end
+    return false if close.none?
 
     name = host.slice(1, close.unwrap! - 1)
     port = host.slice(close.unwrap! + 1, host.length - close.unwrap! - 1)
-    if not port.empty? and not port.start_with?(":")
-      return false
-    end
+    return false if not port.empty? and not port.start_with?(":")
 
     return not name.empty? and name.split("").all? do |ch| HOST_V6_CHARS.include?(ch) end and port_text?(port)
   end
@@ -197,17 +185,15 @@ def host_text?(host: String) -> Bool
     port = host.slice(at.unwrap!, host.length - at.unwrap!)
   end
 
-  return not name.empty? and name.split("").all? do |ch| HOST_CHARS.include?(ch) end and port_text?(port)
+  not name.empty? and name.split("").all? do |ch| HOST_CHARS.include?(ch) end and port_text?(port)
 end
 
 # Nothing, or a colon and digits.
 def port_text?(port: String) -> Bool
-  if port.empty?
-    return true
-  end
+  return true if port.empty?
 
   digits = port.slice(1, port.length - 1)
-  return port.start_with?(":") and not digits.empty? and digits.split("").all? do |ch| DIGITS.include?(ch) end
+  port.start_with?(":") and not digits.empty? and digits.split("").all? do |ch| DIGITS.include?(ch) end
 end
 
 # The key, then the room, with one connection of the pool for the work of `handle`; then the broadcast and the answer.
@@ -218,7 +204,7 @@ def serve(
   handle: Fn[Db.Connection, Bots.Bot, Rooms.Room, Result[Answer]],
 ) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| keyed(conn, db, handle) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def keyed(
@@ -228,8 +214,8 @@ def keyed(
 ) -> Result[Answer]
   found = try Bots.authenticate(db, Bond.param(conn, KEY).unwrap_or(""))
   case found
-    none -> return ok(Answer.NotFound)
-    some(bot) -> return in_room(conn, db, bot, handle)
+    none -> ok(Answer.NotFound)
+    some(bot) -> in_room(conn, db, bot, handle)
   end
 end
 
@@ -240,14 +226,12 @@ def in_room(
   handle: Fn[Db.Connection, Bots.Bot, Rooms.Room, Result[Answer]],
 ) -> Result[Answer]
   id = Bond.param_int(conn, "id")
-  if not id.ok?
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not id.ok?
 
   room = try Rooms.find(db, bot.id, id.unwrap!)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) -> return handle.call(db, bot, found)
+    none -> ok(Answer.NotFound)
+    some(found) -> handle.call(db, bot, found)
   end
 end
 
@@ -256,8 +240,8 @@ def list_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.R
   after = try RoomsWeb.cursor(conn, "after")
   window = try window_of(db, room.id, before, after)
   case window
-    none -> return ok(Answer.NotFound)
-    some(page) -> return listed(db, bot, room, origin, page)
+    none -> ok(Answer.NotFound)
+    some(page) -> listed(db, bot, room, origin, page)
   end
 end
 
@@ -273,30 +257,24 @@ def listed(db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, origin: String, p
     link = "#{origin}#{Routes.bot_messages_path(room.id, bot.key)}?#{page.next}"
   end
 
-  return ok(Answer.Listed(JSON.from(messages), total, link))
+  ok(Answer.Listed(JSON.from(messages), total, link))
 end
 
 # The messages that the query asks for, as `find_paged_messages` of Rails picks them: `before` wins over `after`, and
 # with neither the newest page. A cursor that is no message of the room is `none`, which is a 404 as `find`
 # raises there.
 def window_of(db: Db.Connection, room_id: Int, before: Optional[Int], after: Optional[Int]) -> Result[Optional[Window]]
-  if before.some?
-    return older_window(db, room_id, before)
-  end
+  return older_window(db, room_id, before) if before.some?
 
-  if after.some?
-    return newer_window(db, room_id, after.unwrap!)
-  end
+  return newer_window(db, room_id, after.unwrap!) if after.some?
 
-  return older_window(db, room_id, none)
+  older_window(db, room_id, none)
 end
 
 def older_window(db: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Optional[Window]]
   if before.some?
     anchor = try Rooms.find_message(db, room_id, before.unwrap!)
-    if anchor.none?
-      return ok(none)
-    end
+    return ok(none) if anchor.none?
   end
 
   page = try Rooms.page(db, room_id, before)
@@ -305,14 +283,12 @@ def older_window(db: Db.Connection, room_id: Int, before: Optional[Int]) -> Resu
     next = "before=#{page.older.unwrap!}"
   end
 
-  return ok(some(Window(messages: page.messages, next: next)))
+  ok(some(Window(messages: page.messages, next: next)))
 end
 
 def newer_window(db: Db.Connection, room_id: Int, after: Int) -> Result[Optional[Window]]
   anchor = try Rooms.find_message(db, room_id, after)
-  if anchor.none?
-    return ok(none)
-  end
+  return ok(none) if anchor.none?
 
   messages = try Rooms.page_after(db, room_id, after)
   next = ""
@@ -323,7 +299,7 @@ def newer_window(db: Db.Connection, room_id: Int, after: Int) -> Result[Optional
     end
   end
 
-  return ok(some(Window(messages: messages, next: next)))
+  ok(some(Window(messages: messages, next: next)))
 end
 
 def create_answer(
@@ -333,32 +309,28 @@ def create_answer(
   room: Rooms.Room,
   config: Config,
 ) -> Result[Answer]
-  if upload?(conn)
-    return ok(Answer.Unsupported)
-  end
+  return ok(Answer.Unsupported) if upload?(conn)
 
   body = (try Bond.body_text(conn)).strip
   problem = Rooms.body_problem(body, config.max_message_length)
-  if problem != ""
-    return ok(Answer.Refused(problem))
-  end
+  return ok(Answer.Refused(problem)) if problem != ""
 
   # The body is the HTML of the message, as Action Text takes it in Rails; `Rooms.post` cleans it. A post stores
   # nothing for a bot that was deactivated since the key was checked, nor in a room that was deleted since: the key is
   # gone too.
   stored = try Rooms.post(db, room.id, bot.id, OpenSSL.Random.hex(CLIENT_ID_BYTES), body)
   case stored
-    none -> return ok(Answer.NotFound)
-    some(message) -> return ok(Answer.Created(room, message, message_url(origin(conn, config), room.id, message.id)))
+    none -> ok(Answer.NotFound)
+    some(message) -> ok(Answer.Created(room, message, message_url(origin(conn, config), room.id, message.id)))
   end
 end
 
 def edit_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, config: Config) -> Result[Answer]
   located = try own_message(conn, db, bot, room)
   case located
-    Located.Missing -> return ok(Answer.NotFound)
-    Located.Refused -> return ok(Answer.Forbidden)
-    Located.Found(message) -> return saved(conn, db, bot, room, config, message)
+    Located.Missing -> ok(Answer.NotFound)
+    Located.Refused -> ok(Answer.Forbidden)
+    Located.Found(message) -> saved(conn, db, bot, room, config, message)
   end
 end
 
@@ -370,47 +342,37 @@ def saved(
   config: Config,
   message: Rooms.Stored,
 ) -> Result[Answer]
-  if upload?(conn)
-    return ok(Answer.Unsupported)
-  end
+  return ok(Answer.Unsupported) if upload?(conn)
 
   body = (try Bond.body_text(conn)).strip
   problem = Rooms.body_problem(body, config.max_message_length)
-  if problem != ""
-    return ok(Answer.Refused(problem))
-  end
+  return ok(Answer.Refused(problem)) if problem != ""
 
   changed = try Rooms.update_message(db, room.id, message.id, bot.id, body)
-  if not changed
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not changed
 
   # The message as it is stored now, which is what the people who look at the room are shown.
   stored = try Rooms.find_message(db, room.id, message.id)
-  if stored.none?
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if stored.none?
 
   edited = Rooms.clean(stored.unwrap!)
-  return ok(Answer.Edited(room, edited, JSON.from(message_json(origin(conn, config), edited, BOT_ROLE))))
+  ok(Answer.Edited(room, edited, JSON.from(message_json(origin(conn, config), edited, BOT_ROLE))))
 end
 
 def remove_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room) -> Result[Answer]
   located = try own_message(conn, db, bot, room)
   case located
-    Located.Missing -> return ok(Answer.NotFound)
-    Located.Refused -> return ok(Answer.Forbidden)
-    Located.Found(message) -> return removed(db, bot, room, message)
+    Located.Missing -> ok(Answer.NotFound)
+    Located.Refused -> ok(Answer.Forbidden)
+    Located.Found(message) -> removed(db, bot, room, message)
   end
 end
 
 def removed(db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, message: Rooms.Stored) -> Result[Answer]
   gone = try Rooms.delete_message(db, room.id, message.id, bot.id)
-  if not gone
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not gone
 
-  return ok(Answer.Removed(room, message.id))
+  ok(Answer.Removed(room, message.id))
 end
 
 # The message that the path names, when it is in the room and the bot wrote it. A bot is never an administrator, so the
@@ -418,27 +380,25 @@ end
 def own_message(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room) -> Result[Located]
   stored = try room_message(conn, db, room)
   case stored
-    none -> return ok(Located.Missing)
-    some(one) if one.creator_id != bot.id -> return ok(Located.Refused)
-    some(one) -> return ok(Located.Found(one))
+    none -> ok(Located.Missing)
+    some(one) if one.creator_id != bot.id -> ok(Located.Refused)
+    some(one) -> ok(Located.Found(one))
   end
 end
 
 # The message that the path names, when it is in the room, whoever wrote it.
 def room_message(conn: Bond.Conn, db: Db.Connection, room: Rooms.Room) -> Result[Optional[Rooms.Stored]]
   id = Bond.param_int(conn, MESSAGE)
-  if not id.ok?
-    return ok(none)
-  end
+  return ok(none) if not id.ok?
 
-  return Rooms.find_message(db, room.id, id.unwrap!)
+  Rooms.find_message(db, room.id, id.unwrap!)
 end
 
 def boost_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, origin: String) -> Result[Answer]
   stored = try room_message(conn, db, room)
   case stored
-    none -> return ok(Answer.NotFound)
-    some(message) -> return boosted(conn, db, bot, room, origin, message)
+    none -> ok(Answer.NotFound)
+    some(message) -> boosted(conn, db, bot, room, origin, message)
   end
 end
 
@@ -450,31 +410,27 @@ def boosted(
   origin: String,
   message: Rooms.Stored,
 ) -> Result[Answer]
-  if upload?(conn)
-    return ok(Answer.Unsupported)
-  end
+  return ok(Answer.Unsupported) if upload?(conn)
 
   content = (try Bond.body_text(conn)).strip
   problem = Boosts.content_problem(content)
-  if problem != ""
-    return ok(Answer.Refused(problem))
-  end
+  return ok(Answer.Refused(problem)) if problem != ""
 
   # Nothing is stored for a bot that was deactivated since the key was checked, nor for a message that was deleted.
   added = try Boosts.add(db, bot.id, message.id, content)
   case added
-    none -> return ok(Answer.NotFound)
+    none -> ok(Answer.NotFound)
     some(boost) ->
       reach = Boosts.Reach(message_id: message.id, room_id: room.id)
-      return ok(Answer.Boosted(reach, boost, JSON.from(boost_json(origin, bot, boost, reach))))
+      ok(Answer.Boosted(reach, boost, JSON.from(boost_json(origin, bot, boost, reach))))
   end
 end
 
 def unboost_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room) -> Result[Answer]
   stored = try room_message(conn, db, room)
   case stored
-    none -> return ok(Answer.NotFound)
-    some(message) -> return unboosted(conn, db, bot, room, message)
+    none -> ok(Answer.NotFound)
+    some(message) -> unboosted(conn, db, bot, room, message)
   end
 end
 
@@ -486,26 +442,22 @@ def unboosted(
   message: Rooms.Stored,
 ) -> Result[Answer]
   id = Bond.param_int(conn, BOOST)
-  if not id.ok?
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not id.ok?
 
   gone = try Boosts.remove(db, bot.id, message.id, id.unwrap!)
-  if not gone
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not gone
 
-  return ok(Answer.Unboosted(Boosts.Reach(message_id: message.id, room_id: room.id), id.unwrap!))
+  ok(Answer.Unboosted(Boosts.Reach(message_id: message.id, room_id: room.id), id.unwrap!))
 end
 
 # A file upload (`curl -F attachment=@file`) is a form that would be posted as the text of the message.
 def upload?(conn: Bond.Conn) -> Bool
   type = Bond.request_header(conn, "content-type").unwrap_or("")
-  return type.downcase.start_with?(UPLOAD_TYPE)
+  type.downcase.start_with?(UPLOAD_TYPE)
 end
 
 def message_json(origin: String, message: Rooms.Message, role: String) -> MessageJson
-  return MessageJson(
+  MessageJson(
     id: message.id,
     created_at: message.created_at,
     body: Body(plain_text: HtmlSanitizer.plain_text_of_clean(message.body), html: message.body),
@@ -516,7 +468,7 @@ def message_json(origin: String, message: Rooms.Message, role: String) -> Messag
 end
 
 def boost_json(origin: String, bot: Bots.Bot, boost: Boosts.Boost, reach: Boosts.Reach) -> BoostJson
-  return BoostJson(
+  BoostJson(
     id: boost.id,
     content: boost.content,
     created_at: boost.created_at,
@@ -526,7 +478,7 @@ def boost_json(origin: String, bot: Bots.Bot, boost: Boosts.Boost, reach: Boosts
 end
 
 def message_url(origin: String, room_id: Int, message_id: Int) -> String
-  return "#{origin}#{Routes.room_message_path(room_id, message_id)}"
+  "#{origin}#{Routes.room_message_path(room_id, message_id)}"
 end
 
 def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Conn
@@ -539,30 +491,28 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
     _ -> return answered(conn, answer)
   end
 
-  return answered(conn, answer)
+  answered(conn, answer)
 end
 
 def answered(conn: Bond.Conn, answer: Answer) -> Bond.Conn
-  return Bond.header(reply(conn, answer), "cache-control", "no-store")
+  Bond.header(reply(conn, answer), "cache-control", "no-store")
 end
 
 def reply(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
     Answer.Listed(messages, total, link) ->
       page = Bond.header(Bond.json(conn, 200, messages), "x-total-count", total.to_s)
-      if link == ""
-        return page
-      end
+      return page if link == ""
 
-      return Bond.header(page, "link", "<#{link}>; rel=\"next\"")
-    Answer.Created(_, _, location) -> return Bond.header(Bond.status(conn, 201), "location", location)
-    Answer.Edited(_, _, message) -> return Bond.json(conn, 200, message)
-    Answer.Removed(_, _) -> return Bond.status(conn, 204)
-    Answer.Boosted(_, _, boost) -> return Bond.json(conn, 201, boost)
-    Answer.Unboosted(_, _) -> return Bond.status(conn, 204)
-    Answer.Refused(problem) -> return Bond.text(conn, 422, problem)
-    Answer.Unsupported -> return Bond.text(conn, 415, UPLOAD_REFUSED)
-    Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
-    Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
+      Bond.header(page, "link", "<#{link}>; rel=\"next\"")
+    Answer.Created(_, _, location) -> Bond.header(Bond.status(conn, 201), "location", location)
+    Answer.Edited(_, _, message) -> Bond.json(conn, 200, message)
+    Answer.Removed(_, _) -> Bond.status(conn, 204)
+    Answer.Boosted(_, _, boost) -> Bond.json(conn, 201, boost)
+    Answer.Unboosted(_, _) -> Bond.status(conn, 204)
+    Answer.Refused(problem) -> Bond.text(conn, 422, problem)
+    Answer.Unsupported -> Bond.text(conn, 415, UPLOAD_REFUSED)
+    Answer.NotFound -> Bond.text(conn, 404, Routes.MISSING)
+    Answer.Forbidden -> Bond.text(conn, 403, "Forbidden")
   end
 end

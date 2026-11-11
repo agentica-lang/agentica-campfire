@@ -32,7 +32,7 @@ def in_folder(body: Fn[Site, Result[Void]]) -> Result[Void]
   outcome = serve(dir, body)
   removed = Path.remove(dir)
   try outcome
-  return removed
+  removed
 end
 
 def serve(dir: String, body: Fn[Site, Result[Void]]) -> Result[Void]
@@ -55,13 +55,13 @@ def serve(dir: String, body: Fn[Site, Result[Void]]) -> Result[Void]
   outcome = body.call(Site(dir: dir, app: built))
   CableWeb.stop(cable.unwrap!)
   Database.close_pool(pool)
-  return outcome
+  outcome
 end
 
 # A post with no password: the handler refuses it at once (400) without hashing, so the limit is reached in no time.
 # The limit counts it all the same, as it counts every post to the route.
 def attempt(app: Bond.App, client: String, target: String) -> HttpResponse
-  return Testing.request_from(app, client, "POST", target, FORM, "email=nobody%40example.com")
+  Testing.request_from(app, client, "POST", target, FORM, "email=nobody%40example.com")
 end
 
 # The cookie of the first administrator, so that a request is signed in and reaches the handlers of public routes.
@@ -69,7 +69,7 @@ def sign_up(app: Bond.App) -> Result[Header]
   form = "name=Ana&email=ana%40example.com&password=correct+horse+battery"
   made = Testing.request_from(app, FIRST_CLIENT, "POST", "/first_run", FORM, form)
   try Test.eq(made.status, 302)
-  return ok(Header(name: "cookie", value: HTTP.header_values(made.headers, "set-cookie")[0].split(";")[0]))
+  ok(Header(name: "cookie", value: HTTP.header_values(made.headers, "set-cookie")[0].split(";")[0]))
 end
 
 def main() -> Void

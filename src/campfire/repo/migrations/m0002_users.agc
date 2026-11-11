@@ -7,7 +7,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 2: create users.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     2,
     "create users",
     [
@@ -19,7 +19,7 @@ export def migration() -> Migrate.Migration
 end
 
 def users() -> String
-  return <<~SQL
+  <<~SQL
     create table users (
       id integer primary key autoincrement not null,
       bio text,

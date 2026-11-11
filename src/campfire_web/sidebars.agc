@@ -16,7 +16,7 @@ import Views from "views"
 ## Adds the route of the sidebar to `app`. It is not in `AuthWeb.PUBLIC_PATHS`, so it needs a sign-in. The page is kept
 ## whole in `pages` for one person and one version of the database (`PageCache`), as the room page is.
 export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, pages: Optional[PageCache.Pages]) -> Bond.App
-  return app |> Bond.get(Routes.SIDEBAR) do |conn| show(conn, pool, cable, pages) end
+  app |> Bond.get(Routes.SIDEBAR) do |conn| show(conn, pool, cable, pages) end
 end
 
 # `none` for a request that has no person, which the sign-in filter does not let through.
@@ -28,8 +28,8 @@ def show(
 ) -> Result[Bond.Conn]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Bond.redirect(conn, Routes.SIGN_IN))
-    some(person) -> return shown(conn, pool, cable, pages, person)
+    none -> ok(Bond.redirect(conn, Routes.SIGN_IN))
+    some(person) -> shown(conn, pool, cable, pages, person)
   end
 end
 
@@ -45,8 +45,8 @@ def shown(
   spot = PageCache.sidebar_spot(pages, PageCache.seen(conn), person)
   kept = PageCache.lookup(spot)
   case kept
-    some(page) -> return ok(PageCache.respond(conn, page))
-    none -> return made(conn, pool, cable, spot, person)
+    some(page) -> ok(PageCache.respond(conn, page))
+    none -> made(conn, pool, cable, spot, person)
   end
 end
 
@@ -58,10 +58,10 @@ def made(
   person: Auth.User,
 ) -> Result[Bond.Conn]
   html = try Database.with_connection(pool) do |db| page_of(db, cable, person) end
-  return ok(PageCache.respond(conn, PageCache.keep(spot, html)))
+  ok(PageCache.respond(conn, PageCache.keep(spot, html)))
 end
 
 def page_of(db: Db.Connection, cable: CableWeb.Cable, person: Auth.User) -> Result[String]
   sources = CableWeb.sidebar_sources(cable, person.id)
-  return ok(Views.sidebar_page(try RoomsWeb.sidebar_of(db, person), sources))
+  ok(Views.sidebar_page(try RoomsWeb.sidebar_of(db, person), sources))
 end

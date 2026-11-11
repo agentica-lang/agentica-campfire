@@ -39,7 +39,7 @@ def start(config: Config.Config) -> App.Running
     fail(started.message)
   end
 
-  return started.unwrap!
+  started.unwrap!
 end
 
 def fail(message: String) -> Void

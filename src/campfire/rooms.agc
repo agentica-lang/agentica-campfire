@@ -149,40 +149,32 @@ end
 
 ## What is wrong with a room name, or "". The caller strips it first.
 export def name_problem(name: String) -> String
-  if name.empty? or name.length > MAX_NAME_LENGTH
-    return NAME_PROBLEM
-  end
+  return NAME_PROBLEM if name.empty? or name.length > MAX_NAME_LENGTH
 
-  return ""
+  ""
 end
 
 ## What is wrong with the people of a direct message, or "": it needs one besides the person who starts it.
 export def people_problem(chosen: List[Int]) -> String
-  if chosen.empty?
-    return NO_PEOPLE
-  end
+  return NO_PEOPLE if chosen.empty?
 
-  return ""
+  ""
 end
 
 ## What is wrong with a message body, or "": it is blank, or it has more than `max_length` characters
 ## (`Config.max_message_length`). The caller strips it first and calls this before `post` or `update_message`, so the
 ## sanitizer never reads a text that is over the cap.
 export def body_problem(body: String, max_length: Int) -> String
-  if body.empty?
-    return BODY_BLANK
-  end
+  return BODY_BLANK if body.empty?
 
-  if body.length > max_length
-    return "A message is at most #{max_length} characters"
-  end
+  return "A message is at most #{max_length} characters" if body.length > max_length
 
-  return ""
+  ""
 end
 
 ## A message from a row of `MESSAGE_SELECT` (or of the page query, which has the same columns), as it is stored.
 export def stored_of(row: Db.Row) -> Stored
-  return Stored(
+  Stored(
     id: int_of(row, "id"),
     room_id: int_of(row, "room_id"),
     creator_id: int_of(row, "creator_id"),
@@ -198,7 +190,7 @@ end
 ## cleaned by this app; a body that `post` stored clean passes unchanged (`sanitize` is idempotent:
 ## test/html_sanitizer_test.agc).
 export def clean(stored: Stored) -> Message
-  return Message(
+  Message(
     id: stored.id,
     room_id: stored.room_id,
     creator_id: stored.creator_id,
@@ -210,9 +202,7 @@ export def clean(stored: Stored) -> Message
 end
 
 ## A message from a row of `MESSAGE_SELECT`, with its body cleaned.
-export def message_of(row: Db.Row) -> Message
-  return clean(stored_of(row))
-end
+export def message_of(row: Db.Row) -> Message = clean(stored_of(row))
 
 ## The rooms that the person shows in their sidebar: every room they are in, except the ones they set to invisible,
 ## by name.
@@ -224,7 +214,7 @@ export def visible(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
     [Db.Value.Int(user_id), Db.Value.Int(user_id)],
   )
 
-  return ok(rows.map do |row| room_of(row) end)
+  ok(rows.map do |row| room_of(row) end)
 end
 
 ## Every room the person is in, hidden or not, by name: the list on their profile (`memberships.with_ordered_room`).
@@ -235,7 +225,7 @@ export def memberships(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
     [Db.Value.Int(user_id), Db.Value.Int(user_id)],
   )
 
-  return ok(rows.map do |row| room_of(row) end)
+  ok(rows.map do |row| room_of(row) end)
 end
 
 ## The room, when the person is in it (any involvement), and `none` for a room that does not exist and for one that
@@ -247,11 +237,9 @@ export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optio
     [Db.Value.Int(user_id), Db.Value.Int(user_id), Db.Value.Int(room_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(room_of(rows[0])))
+  ok(some(room_of(rows[0])))
 end
 
 ## Whether the person is in the room, and if so whether it is unread for them: `none` for no membership (or a room that
@@ -265,11 +253,9 @@ export def membership(conn: Db.Connection, user_id: Int, room_id: Int) -> Result
     [Db.Value.Int(user_id), Db.Value.Int(room_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(int_of(rows[0], "unread") == 1))
+  ok(some(int_of(rows[0], "unread") == 1))
 end
 
 ## The room as the person's sidebar lists it (`visible`), `none` when they are not in it or have hidden it: what a live
@@ -281,11 +267,9 @@ export def visible_room(conn: Db.Connection, user_id: Int, room_id: Int) -> Resu
     [Db.Value.Int(user_id), Db.Value.Int(user_id), Db.Value.Int(room_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(room_of(rows[0])))
+  ok(some(room_of(rows[0])))
 end
 
 ## The room that the home page opens for the person (`last_room_visited` of Rails): `wanted` (the room that they were in
@@ -295,17 +279,15 @@ end
 export def last_visited(conn: Db.Connection, user_id: Int, wanted: Optional[Int]) -> Result[Optional[Room]]
   if wanted.some?
     found = try find(conn, user_id, wanted.unwrap!)
-    if found.some?
-      return ok(found)
-    end
+    return ok(found) if found.some?
   end
 
-  return oldest(conn, user_id)
+  oldest(conn, user_id)
 end
 
 ## Makes an open room that `creator_id` made and puts every active person in it, in one transaction. It gives the id.
 export def create_open(conn: Db.Connection, creator_id: Int, name: String) -> Result[Int]
-  return Db.transaction(conn) do |tx| create_open_in(tx, creator_id, name) end
+  Db.transaction(conn) do |tx| create_open_in(tx, creator_id, name) end
 end
 
 ## `create_open` inside a transaction that the caller has begun (the first run makes its room in the transaction that
@@ -319,7 +301,7 @@ export def create_open_in(tx: Db.Connection, creator_id: Int, name: String) -> R
     [Db.Value.Int(room_id)],
   )
 
-  return ok(room_id)
+  ok(room_id)
 end
 
 ## Puts the person in every open room, for whoever makes a user after the rooms exist (an invitation). A room that
@@ -332,35 +314,31 @@ export def grant_open_rooms(conn: Db.Connection, user_id: Int) -> Result[Void]
     [Db.Value.Int(user_id)],
   )
 
-  return ok()
+  ok()
 end
 
 ## True when the person may administer the room, whatever its kind: they made it or are an account administrator
 ## (`User#can_administer?` of upstream). Being in the room is not enough.
 export def administrable?(room: Room, user_id: Int, role: String) -> Bool
-  return room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
+  room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
 end
 
 ## True for an open room.
-export def open?(room: Room) -> Bool
-  return room.room_type == OPEN
-end
+export def open?(room: Room) -> Bool = room.room_type == OPEN
 
 ## True when the settings of the room exist: an open or a closed room. A direct room has none, and never converts: its
 ## people agreed to a private conversation, not to one that someone else widens afterwards (`Room` of Rails).
-export def has_settings?(room: Room) -> Bool
-  return room.room_type != DIRECT
-end
+export def has_settings?(room: Room) -> Bool = room.room_type != DIRECT
 
 ## True when the person may edit or delete a message that `creator_id` wrote: they wrote it or are an account
 ## administrator (`User#can_administer?(message)` of upstream), in a room that they are in.
 export def changeable?(creator_id: Int, user_id: Int, role: String) -> Bool
-  return creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
+  creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
 end
 
 ## True when the person may change the settings of the room: it has settings and they may administer it.
 export def editable?(room: Room, user_id: Int, role: String) -> Bool
-  return has_settings?(room) and administrable?(room, user_id, role)
+  has_settings?(room) and administrable?(room, user_id, role)
 end
 
 ## The active people that a person can put in a room, other than themselves (they are always in what they make), by
@@ -372,13 +350,13 @@ export def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
     [Db.Value.Int(user_id)],
   )
 
-  return ok(rows.map do |row| Person(id: int_of(row, "id"), name: text_of(row, "name")) end)
+  ok(rows.map do |row| Person(id: int_of(row, "id"), name: text_of(row, "name")) end)
 end
 
 ## The ids of everyone in the room, the people who are not active included.
 export def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
   rows = try Db.query(conn, "select user_id from memberships where room_id = ?", [Db.Value.Int(room_id)])
-  return ok(rows.map do |row| int_of(row, "user_id") end)
+  ok(rows.map do |row| int_of(row, "user_id") end)
 end
 
 ## The ids of the rooms that are unread for the person (`unread_at` is set): what the sidebar marks.
@@ -389,7 +367,7 @@ export def unread_ids(conn: Db.Connection, user_id: Int) -> Result[List[Int]]
     [Db.Value.Int(user_id)],
   )
 
-  return ok(rows.map do |row| int_of(row, "room_id") end)
+  ok(rows.map do |row| int_of(row, "room_id") end)
 end
 
 ## Everyone in the room, with whether it is unread for them: who a live notice about the room may concern.
@@ -400,14 +378,12 @@ export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
     [Db.Value.Int(room_id)],
   )
 
-  return ok(rows.map do |row| Watcher(user_id: int_of(row, "user_id"), unread: int_of(row, "unread") == 1) end)
+  ok(rows.map do |row| Watcher(user_id: int_of(row, "user_id"), unread: int_of(row, "unread") == 1) end)
 end
 
 ## The room is read for each of the people, in one statement: the same as `mark_read` for each. Nobody is a no-op.
 export def mark_read_all(conn: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
-  if user_ids.empty?
-    return ok()
-  end
+  return ok() if user_ids.empty?
 
   marks = user_ids.map do |_| "?" end.join(", ")
   params = [Db.Value.Int(room_id)]
@@ -421,7 +397,7 @@ export def mark_read_all(conn: Db.Connection, room_id: Int, user_ids: List[Int])
     params,
   )
 
-  return ok()
+  ok()
 end
 
 ## The room is read for the person: it is no longer unread. It does not touch `updated_at`, as `Membership#read` of
@@ -433,13 +409,13 @@ export def mark_read(conn: Db.Connection, room_id: Int, user_id: Int) -> Result[
     [Db.Value.Int(room_id), Db.Value.Int(user_id)],
   )
 
-  return ok()
+  ok()
 end
 
 ## Makes a closed room of `creator_id` with them and `members` in it, in one transaction, and gives its id. A member
 ## that is not an active user is left out, and the creator may be in `members`.
 export def create_closed(conn: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
-  return Db.transaction(conn) do |tx| create_closed_in(tx, creator_id, name, members) end
+  Db.transaction(conn) do |tx| create_closed_in(tx, creator_id, name, members) end
 end
 
 ## Renames the room and makes it open (`open`) or closed, which is what the form that was sent is for: an open room that
@@ -462,7 +438,7 @@ export def update_room(
   chosen: List[Int],
   was: List[Int],
 ) -> Result[Bool]
-  return Db.transaction(conn) do |tx| update_room_in(tx, room_id, editor_id, name, open, chosen, was) end
+  Db.transaction(conn) do |tx| update_room_in(tx, room_id, editor_id, name, open, chosen, was) end
 end
 
 ## The direct room between `creator_id` and `others` (the people they picked, not themselves), which is the one that
@@ -471,7 +447,7 @@ end
 ## inactive meanwhile does not make a room with fewer people than the search counted, and two requests for the same
 ## people get one room.
 export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]
-  return Db.transaction(conn) do |tx| open_direct_in(tx, creator_id, others) end
+  Db.transaction(conn) do |tx| open_direct_in(tx, creator_id, others) end
 end
 
 ## Takes the room away from its people at once, and leaves its messages to `delete_next_message` and `delete_room`
@@ -481,20 +457,20 @@ end
 ## false, and changes nothing, when `actor_id` is not in the room or may not administer it (they were taken out, or lost
 ## the role, since the caller looked), as `update_room` does. An error is a failure of the database.
 export def destroy_later(conn: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]
-  return Db.transaction(conn) do |tx| destroy_later_in(tx, room_id, actor_id) end
+  Db.transaction(conn) do |tx| destroy_later_in(tx, room_id, actor_id) end
 end
 
 ## Deletes one message of the room with its body, its search row and its boosts, in a transaction of its own, so that the
 ## other writers get through between two messages (a room of many messages deleted in one transaction held the write
 ## lock until the last one). It gives false when the room has no message left.
 export def delete_next_message(conn: Db.Connection, room_id: Int) -> Result[Bool]
-  return Db.transaction(conn) do |tx| delete_first_message(tx, room_id) end
+  Db.transaction(conn) do |tx| delete_first_message(tx, room_id) end
 end
 
 ## Deletes the room, in one transaction, with whatever messages and memberships it still has: a message that was posted
 ## after `destroy_later` goes with the room, as `dependent: :destroy` does in Rails.
 export def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
-  return Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
+  Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
 end
 
 ## Takes the person out of every room but the direct messages, which is what a deactivation does
@@ -506,7 +482,7 @@ export def leave_shared_rooms(tx: Db.Connection, user_id: Int) -> Result[Void]
     [Db.Value.Int(user_id)],
   )
 
-  return ok()
+  ok()
 end
 
 ## The message of the room, as it is stored, or `none` when the room has no such message (one of another room is none
@@ -518,24 +494,22 @@ export def find_message(conn: Db.Connection, room_id: Int, message_id: Int) -> R
     [Db.Value.Int(room_id), Db.Value.Int(message_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(stored_of(rows[0])))
+  ok(some(stored_of(rows[0])))
 end
 
 ## How many messages the room has (the `X-Total-Count` of the messages API). The schema has no counter column, so the
 ## index on `room_id` is counted.
 export def message_count(conn: Db.Connection, room_id: Int) -> Result[Int]
   rows = try Db.query(conn, "select count(*) as total from messages where room_id = ?", [Db.Value.Int(room_id)])
-  return ok(int_of(rows[0], "total"))
+  ok(int_of(rows[0], "total"))
 end
 
 ## True when the room has a message after `message_id`, by `created_at` and then `id` as `page_after` reads them.
 export def newer?(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Bool]
   rows = try after_rows(conn, room_id, message_id, 1)
-  return ok(not rows.empty?)
+  ok(not rows.empty?)
 end
 
 ## The role (`member`, `administrator` or `bot`) of each author of `messages`, by user id. An author whose row is gone
@@ -549,7 +523,7 @@ export def author_roles(conn: Db.Connection, messages: List[Stored]) -> Result[M
   )
 
   start: Map[Int, String] = {}
-  return ok(rows.reduce(start) do |roles, row| roles.put(int_of(row, "id"), Rails.role_name(int_of(row, "role"))) end)
+  ok(rows.reduce(start) do |roles, row| roles.put(int_of(row, "id"), Rails.role_name(int_of(row, "role"))) end)
 end
 
 ## Replaces the body of a message with `html` (cleaned here, before the transaction begins, as `post` does), in one
@@ -567,20 +541,20 @@ export def update_message(
 ) -> Result[Bool]
   body = HtmlSanitizer.sanitize(html)
   text = HtmlSanitizer.plain_text_of_clean(body)
-  return Db.transaction(conn) do |tx| update_message_in(tx, room_id, message_id, editor_id, body, text) end
+  Db.transaction(conn) do |tx| update_message_in(tx, room_id, message_id, editor_id, body, text) end
 end
 
 ## Deletes a message with its body, its search row and its boosts, in one transaction, when it is in the room and the
 ## person is in the room and wrote it or is an active administrator (the same check as `update_message`). It gives false,
 ## and changes nothing, when it does not hold. The room is not touched, as `destroy` of Rails does not touch it.
 export def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
-  return Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
+  Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
 end
 
 ## Deletes the rows of a message (its body, search row and boosts, then the message) in the transaction `tx` that the
 ## caller holds; `Bans` takes the messages of a banned person away this way.
 export def delete_message_rows_of(tx: Db.Connection, message_id: Int) -> Result[Void]
-  return delete_message_rows(tx, Db.Value.Int(message_id))
+  delete_message_rows(tx, Db.Value.Int(message_id))
 end
 
 ## The choices of the sidebar page for the room: `mentions` (shown, the default level of Rails) and `invisible` (hidden:
@@ -588,17 +562,13 @@ end
 ## `invisible`): a hidden conversation would be one that its people cannot find again. The other levels of Rails
 ## (`everything`, `nothing`) only matter for notifications, which do not exist yet (#57, #81 bring them back).
 export def involvement_levels(room: Room) -> List[String]
-  if room.room_type == DIRECT
-    return []
-  end
+  return [] if room.room_type == DIRECT
 
-  return [Rails.MENTIONS, Rails.INVISIBLE]
+  [Rails.MENTIONS, Rails.INVISIBLE]
 end
 
 ## True for the level of a room that the person has hidden from their sidebar.
-export def hidden?(level: String) -> Bool
-  return level == Rails.INVISIBLE
-end
+export def hidden?(level: String) -> Bool = level == Rails.INVISIBLE
 
 ## The level that the person has in the room, or `none` when they are not in it. A row with no level (a database that
 ## Rails seeded) is the default, `mentions`.
@@ -610,11 +580,9 @@ export def involvement(conn: Db.Connection, user_id: Int, room_id: Int) -> Resul
     [Db.Value.Int(room_id), Db.Value.Int(user_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(text_of(rows[0], "involvement")))
+  ok(some(text_of(rows[0], "involvement")))
 end
 
 ## Sets the choice of the person's membership of the room (`Rooms::InvolvementsController#update`). It gives false, and
@@ -623,9 +591,7 @@ end
 ## Rails database may hold `everything` or `nothing`, which the page cannot set but must not lose). It sets no
 ## `unread_at`: a room made invisible keeps what it had.
 export def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level: String) -> Result[Bool]
-  if not involvement_levels(room).include?(level)
-    return ok(false)
-  end
+  return ok(false) if not involvement_levels(room).include?(level)
 
   hidden = "(involvement is null or involvement = '#{Rails.INVISIBLE}')"
   changed = try Db.execute(
@@ -643,7 +609,7 @@ export def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level:
     ],
   )
 
-  return ok(changed == 1)
+  ok(changed == 1)
 end
 
 ## The newest `PAGE_SIZE` messages of the room that come before the message `before` (all of them without it), oldest
@@ -684,14 +650,14 @@ export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Res
     older = some(shown.last.id)
   end
 
-  return ok(Page(messages: shown.reverse, older: older, at_latest: before.none?))
+  ok(Page(messages: shown.reverse, older: older, at_latest: before.none?))
 end
 
 ## The `PAGE_SIZE` messages of the room that come after the message `after`, oldest first (`page_after` of Rails), by
 ## `created_at` and then `id` as `page` does. An `after` that is no message of this room gives an empty list, as `page`
 ## does for `before`.
 export def page_after(conn: Db.Connection, room_id: Int, after: Int) -> Result[List[Stored]]
-  return after_rows(conn, room_id, after, PAGE_SIZE)
+  after_rows(conn, room_id, after, PAGE_SIZE)
 end
 
 ## The page of the room around a message (`page_around` of Rails, which `/rooms/ID/@MESSAGE` shows): the `PAGE_SIZE`
@@ -701,8 +667,8 @@ end
 export def around(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Page]]
   found = try find_message(conn, room_id, message_id)
   case found
-    none -> return ok(none)
-    some(anchor) -> return ok(some(try window(conn, room_id, anchor)))
+    none -> ok(none)
+    some(anchor) -> ok(some(try window(conn, room_id, anchor)))
   end
 end
 
@@ -739,7 +705,7 @@ export def since(conn: Db.Connection, room_id: Int, millis: Int) -> Result[Refre
     [Db.Value.Int(room_id), from, from].concat(ids).push(Db.Value.Int(PAGE_SIZE)),
   )
 
-  return ok(Refresh(fresh: fresh, changed: changed_rows.map do |row| stored_of(row) end))
+  ok(Refresh(fresh: fresh, changed: changed_rows.map do |row| stored_of(row) end))
 end
 
 ## Stores a message of the person in the room, which the caller has checked they are in, and gives it as it is stored
@@ -763,7 +729,7 @@ export def post(
 ) -> Result[Optional[Message]]
   body = HtmlSanitizer.sanitize(html)
   text = HtmlSanitizer.plain_text_of_clean(body)
-  return Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text) end
+  Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text) end
 end
 
 # The `limit` messages that come after the message `after` of the room, oldest first.
@@ -778,23 +744,21 @@ def after_rows(conn: Db.Connection, room_id: Int, after: Int, limit: Int) -> Res
     [Db.Value.Int(room_id), Db.Value.Int(after), Db.Value.Int(limit)],
   )
 
-  return ok(rows.map do |row| stored_of(row) end)
+  ok(rows.map do |row| stored_of(row) end)
 end
 
 def window(conn: Db.Connection, room_id: Int, anchor: Stored) -> Result[Page]
   before = try page(conn, room_id, some(anchor.id))
   later = try after_rows(conn, room_id, anchor.id, PAGE_SIZE + 1)
   shown = before.messages.push(anchor).concat(later.take(PAGE_SIZE))
-  return ok(Page(messages: shown, older: before.older, at_latest: later.size <= PAGE_SIZE))
+  ok(Page(messages: shown, older: before.older, at_latest: later.size <= PAGE_SIZE))
 end
 
 # `count` question marks for an `in (...)`, or `-1` for none: `in ()` is not SQL, and no row has that id.
 def placeholders(count: Int) -> String
-  if count == 0
-    return "-1"
-  end
+  return "-1" if count == 0
 
-  return List.repeat("?", count).join(", ")
+  List.repeat("?", count).join(", ")
 end
 
 def post_in(
@@ -821,9 +785,7 @@ def post_in(
     ],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
   message_id = Db.Value.Int(int_of(rows[0], "id"))
   try Db.execute(
@@ -835,7 +797,7 @@ def post_in(
 
   try Db.execute(tx, "insert into message_search_index (rowid, body) values (?, ?)", [message_id, Db.Value.Text(text)])
   try receive(tx, room_id, user_id, message_id)
-  return ok(
+  ok(
     some(
       Message(
         id: int_of(rows[0], "id"),
@@ -864,7 +826,7 @@ def receive(tx: Db.Connection, room_id: Int, user_id: Int, message_id: Db.Value)
     [message_id, Db.Value.Int(room_id), Db.Value.Int(user_id)],
   )
 
-  return ok()
+  ok()
 end
 
 def oldest(conn: Db.Connection, user_id: Int) -> Result[Optional[Room]]
@@ -874,11 +836,9 @@ def oldest(conn: Db.Connection, user_id: Int) -> Result[Optional[Room]]
     [Db.Value.Int(user_id), Db.Value.Int(user_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(room_of(rows[0])))
+  ok(some(room_of(rows[0])))
 end
 
 def destroy_later_in(tx: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]
@@ -891,9 +851,7 @@ def destroy_later_in(tx: Db.Connection, room_id: Int, actor_id: Int) -> Result[B
     [Db.Value.Int(room_id), Db.Value.Int(actor_id), Db.Value.Int(actor_id), Db.Value.Int(actor_id)],
   )
 
-  if allowed.empty?
-    return ok(false)
-  end
+  return ok(false) if allowed.empty?
 
   try Db.execute(
     tx,
@@ -902,7 +860,7 @@ def destroy_later_in(tx: Db.Connection, room_id: Int, actor_id: Int) -> Result[B
   )
 
   try Db.execute(tx, "delete from memberships where room_id = ?", [Db.Value.Int(room_id)])
-  return ok(true)
+  ok(true)
 end
 
 # The first message of the room, by id, and the rows that hang from it: the three rows of `post` and the boosts that
@@ -910,12 +868,10 @@ end
 def delete_first_message(tx: Db.Connection, room_id: Int) -> Result[Bool]
   rows = try Db.query(tx, "select id from messages where room_id = ? order by id limit 1", [Db.Value.Int(room_id)])
 
-  if rows.empty?
-    return ok(false)
-  end
+  return ok(false) if rows.empty?
 
   try delete_message_rows(tx, Db.Value.Int(int_of(rows[0], "id")))
-  return ok(true)
+  ok(true)
 end
 
 # The rows of a message, the message last (a boost has a key to it).
@@ -929,7 +885,7 @@ def delete_message_rows(tx: Db.Connection, message_id: Db.Value) -> Result[Void]
 
   try Db.execute(tx, "delete from message_search_index where rowid = ?", [message_id])
   try Db.execute(tx, "delete from messages where id = ?", [message_id])
-  return ok()
+  ok()
 end
 
 # Whether the message is in the room and the person may change it, as one query inside the transaction that changes it.
@@ -949,7 +905,7 @@ def may_change?(tx: Db.Connection, room_id: Int, message_id: Int, user_id: Int) 
     ],
   )
 
-  return ok(not rows.empty?)
+  ok(not rows.empty?)
 end
 
 def update_message_in(
@@ -960,9 +916,7 @@ def update_message_in(
   body: String,
   text: String,
 ) -> Result[Bool]
-  if not try may_change?(tx, room_id, message_id, editor_id)
-    return ok(false)
-  end
+  return ok(false) if not try may_change?(tx, room_id, message_id, editor_id)
 
   id = Db.Value.Int(message_id)
   # A message that Rails wrote always has its row, but nothing makes the app's schema promise it: insert when absent.
@@ -979,16 +933,14 @@ def update_message_in(
   try Db.execute(tx, "insert into message_search_index (rowid, body) values (?, ?)", [id, Db.Value.Text(text)])
   try Db.execute(tx, "update messages set updated_at = #{NOW} where id = ?", [id])
   try Db.execute(tx, "update rooms set updated_at = #{NOW} where id = ?", [Db.Value.Int(room_id)])
-  return ok(true)
+  ok(true)
 end
 
 def delete_message_in(tx: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
-  if not try may_change?(tx, room_id, message_id, actor_id)
-    return ok(false)
-  end
+  return ok(false) if not try may_change?(tx, room_id, message_id, actor_id)
 
   try delete_message_rows(tx, Db.Value.Int(message_id))
-  return ok(true)
+  ok(true)
 end
 
 def delete_room_in(tx: Db.Connection, room_id: Int) -> Result[Void]
@@ -999,7 +951,7 @@ def delete_room_in(tx: Db.Connection, room_id: Int) -> Result[Void]
 
   try Db.execute(tx, "delete from memberships where room_id = ?", [Db.Value.Int(room_id)])
   try Db.execute(tx, "delete from rooms where id = ?", [Db.Value.Int(room_id)])
-  return ok()
+  ok()
 end
 
 def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
@@ -1009,7 +961,7 @@ def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: 
     try add_member(tx, room_id, member, "mentions")
   end
 
-  return ok(room_id)
+  ok(room_id)
 end
 
 def update_room_in(
@@ -1049,9 +1001,7 @@ def update_room_in(
   )
 
   # Nothing was written yet, so refusing here leaves the room as it was.
-  if changed != 1
-    return ok(false)
-  end
+  return ok(false) if changed != 1
 
   if open
     try grant_everyone(tx, room_id)
@@ -1059,7 +1009,7 @@ def update_room_in(
     try apply_diff(tx, room_id, editor_id, chosen, was)
   end
 
-  return ok(true)
+  ok(true)
 end
 
 # Every active person is in the room; the ones who are in already stay as they are (`Rooms::Open` grants with
@@ -1072,7 +1022,7 @@ def grant_everyone(tx: Db.Connection, room_id: Int) -> Result[Void]
     [Db.Value.Int(room_id)],
   )
 
-  return ok()
+  ok()
 end
 
 def apply_diff(tx: Db.Connection, room_id: Int, editor_id: Int, chosen: List[Int], was: List[Int]) -> Result[Void]
@@ -1088,19 +1038,17 @@ def apply_diff(tx: Db.Connection, room_id: Int, editor_id: Int, chosen: List[Int
     end
   end
 
-  return ok()
+  ok()
 end
 
 def open_direct_in(tx: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]
   everyone = try active_among(tx, [creator_id].concat(others).uniq)
-  if everyone.size < 2 or not everyone.include?(creator_id)
-    return ok(none)
-  end
+  return ok(none) if everyone.size < 2 or not everyone.include?(creator_id)
 
   existing = try direct_between(tx, everyone)
   case existing
-    some(room_id) -> return ok(some(room_id))
-    none -> return ok(some(try make_direct(tx, creator_id, everyone)))
+    some(room_id) -> ok(some(room_id))
+    none -> ok(some(try make_direct(tx, creator_id, everyone)))
   end
 end
 
@@ -1113,7 +1061,7 @@ def active_among(tx: Db.Connection, ids: List[Int]) -> Result[List[Int]]
     ids.map do |id| Db.Value.Int(id) end,
   )
 
-  return ok(rows.map do |row| int_of(row, "id") end)
+  ok(rows.map do |row| int_of(row, "id") end)
 end
 
 # A direct room that has all of `everyone` in it and nobody else: as many members as people, and all of them among
@@ -1130,11 +1078,9 @@ def direct_between(tx: Db.Connection, everyone: List[Int]) -> Result[Optional[In
     [size].concat(everyone.map do |id| Db.Value.Int(id) end).push(size),
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(int_of(rows[0], "id")))
+  ok(some(int_of(rows[0], "id")))
 end
 
 # Everyone is in at once, and sees every message ("everything" is what upstream gives a direct room).
@@ -1144,7 +1090,7 @@ def make_direct(tx: Db.Connection, creator_id: Int, everyone: List[Int]) -> Resu
     try add_member(tx, room_id, member, "everything")
   end
 
-  return ok(room_id)
+  ok(room_id)
 end
 
 def insert_room(tx: Db.Connection, name: Db.Value, room_type: String, creator_id: Int) -> Result[Int]
@@ -1154,7 +1100,7 @@ def insert_room(tx: Db.Connection, name: Db.Value, room_type: String, creator_id
     [name, Db.Value.Text(room_type), Db.Value.Int(creator_id)],
   )
 
-  return ok(int_of(rows[0], "id"))
+  ok(int_of(rows[0], "id"))
 end
 
 # Only an active user can be put in a room, whatever the caller passed; one that is in already stays as they are.
@@ -1167,13 +1113,11 @@ def add_member(tx: Db.Connection, room_id: Int, user_id: Int, involvement: Strin
     [Db.Value.Int(room_id), Db.Value.Text(involvement), Db.Value.Int(user_id)],
   )
 
-  return ok()
+  ok()
 end
 
 # The SQL for the ISO 8601 UTC form of a timestamp column, which a page writes in `<time datetime>`.
-def iso(column: String) -> String
-  return "strftime('#{ISO}', #{column})"
-end
+def iso(column: String) -> String = "strftime('#{ISO}', #{column})"
 
 def room_of(row: Db.Row) -> Room
   room_type = text_of(row, "type")
@@ -1186,5 +1130,5 @@ def room_of(row: Db.Row) -> Room
     name = NO_NAME
   end
 
-  return Room(id: int_of(row, "id"), name: name, room_type: room_type, creator_id: int_of(row, "creator_id"))
+  Room(id: int_of(row, "id"), name: name, room_type: room_type, creator_id: int_of(row, "creator_id"))
 end

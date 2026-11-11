@@ -146,9 +146,7 @@ export def start(config: Config, pool: Database.Pool, pages: Optional[PageCache.
   hub = try Channels.start_hub()
   members = Cache.memory(MEMBER_CACHE_MB * BYTES_PER_MB)
   reads: ATS[String, Int] = ATS.new()
-  return ok(
-    Cable(hub: hub, key: key, pool: pool, presence: Presence.new(), pages: pages, members: members, reads: reads),
-  )
+  ok(Cable(hub: hub, key: key, pool: pool, presence: Presence.new(), pages: pages, members: members, reads: reads))
 end
 
 ## Ends the hub: its connections are told to reconnect and are closed. It waits until the hub task is over, and then
@@ -175,19 +173,17 @@ export def add(app: Bond.App, cable: Cable, config: Config) -> Bond.App
   options = Channels.MountOptions(connect: connecting(cable), handlers: handlers(cable), allowed_origins: origins)
   # The settings are constants of this file, which `mount` accepts.
   mounted = Channels.mount(app, Routes.CABLE, cable.hub, options).unwrap!
-  return mounted |> Bond.get(Routes.CABLE_STATS) do |conn| show_stats(conn, cable) end
+  mounted |> Bond.get(Routes.CABLE_STATS) do |conn| show_stats(conn, cable) end
 end
 
 ## The `<turbo-cable-stream-source>` of the messages of the room, for the room page.
 export def room_sources(cable: Cable, room_id: Int) -> String
-  return source(cable, ROOM_MESSAGES_CHANNEL, messages_stream(room_id))
+  source(cable, ROOM_MESSAGES_CHANNEL, messages_stream(room_id))
 end
 
 ## The `<turbo-cable-stream-source>` elements of the sidebar of the person: the rooms of the account and their own.
 export def sidebar_sources(cable: Cable, user_id: Int) -> String
-  return [source(cable, TURBO_CHANNEL, ROOMS_STREAM), source(cable, TURBO_CHANNEL, user_rooms_stream(user_id))].join(
-    "\n",
-  )
+  [source(cable, TURBO_CHANNEL, ROOMS_STREAM), source(cable, TURBO_CHANNEL, user_rooms_stream(user_id))].join("\n")
 end
 
 ## A message was stored: appends it to the page of everyone who is looking at the room, and tells the people it
@@ -256,15 +252,14 @@ end
 def show_stats(conn: Bond.Conn, cable: Cable) -> Result[Bond.Conn]
   user = try AuthWeb.assigned_user(conn)
   case user
-    some(person) if person.role == Rooms.ADMINISTRATOR_ROLE_NAME ->
-      return ok(Bond.json(conn, 200, JSON.from(counts(cable))))
-    _ -> return ok(Bond.text(conn, 404, Routes.MISSING))
+    some(person) if person.role == Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Bond.json(conn, 200, JSON.from(counts(cable))))
+    _ -> ok(Bond.text(conn, 404, Routes.MISSING))
   end
 end
 
 def counts(cable: Cable) -> Counts
   hub = Channels.stats(cable.hub)
-  return Counts(
+  Counts(
     connections: hub.connections,
     subscriptions: hub.subscriptions,
     drops: hub.drops,
@@ -277,41 +272,31 @@ end
 
 def source(cable: Cable, channel: String, name: String) -> String
   signed = Channels.signed_stream_name(cable.key, name)
-  return (
+  (
     "<turbo-cable-stream-source channel=\"#{channel}\" signed-stream-name=\"#{signed}\">" +
     "</turbo-cable-stream-source>"
   )
 end
 
-def messages_stream(room_id: Int) -> String
-  return "#{ROOM_PREFIX}#{room_id}#{MESSAGES_SUFFIX}"
-end
+def messages_stream(room_id: Int) -> String = "#{ROOM_PREFIX}#{room_id}#{MESSAGES_SUFFIX}"
 
-def user_rooms_stream(user_id: Int) -> String
-  return "user:#{user_id}:rooms"
-end
+def user_rooms_stream(user_id: Int) -> String = "user:#{user_id}:rooms"
 
-def unreads_stream(user_id: Int) -> String
-  return "user:#{user_id}:unreads"
-end
+def unreads_stream(user_id: Int) -> String = "user:#{user_id}:unreads"
 
 # The number in `room:NUMBER:messages`, or `NO_ROOM` for any other name.
 def room_of_stream(name: String) -> Int
-  if not name.start_with?(ROOM_PREFIX) or not name.end_with?(MESSAGES_SUFFIX)
-    return NO_ROOM
-  end
+  return NO_ROOM if not name.start_with?(ROOM_PREFIX) or not name.end_with?(MESSAGES_SUFFIX)
 
   digits = name.slice(ROOM_PREFIX.length, name.length - ROOM_PREFIX.length - MESSAGES_SUFFIX.length)
-  return digits.to_i.unwrap_or(NO_ROOM)
+  digits.to_i.unwrap_or(NO_ROOM)
 end
 
-def seat_of(session: Channels.Session) -> Result[Seat]
-  return JSON.decode(session.identity.data, Seat)
-end
+def seat_of(session: Channels.Session) -> Result[Seat] = JSON.decode(session.identity.data, Seat)
 
 def user_of(session: Channels.Session) -> Result[Auth.User]
   seat = try seat_of(session)
-  return ok(seat.user)
+  ok(seat.user)
 end
 
 # The membership of the person in the room, whatever their involvement, kept for the version of the database. The
@@ -325,22 +310,16 @@ def standing(cable: Cable, session: Channels.Session, room_id: Int) -> Result[St
   key = "member:#{person.id}:#{room_id}"
   if version.some?
     kept = Cache.get(cable.members, key).unwrap_or("").split("\n")
-    if kept.size == 2 and kept[0] == version.unwrap!
-      return ok(standing_of(version.unwrap!, kept[1]))
-    end
+    return ok(standing_of(version.unwrap!, kept[1])) if kept.size == 2 and kept[0] == version.unwrap!
   end
 
   ATS.add(cable.reads, MEMBER_READS, 1)
   found = try Database.with_connection(cable.pool) do |db| Rooms.membership(db, person.id, room_id) end
-  if version.none?
-    return ok(Standing(member: found.some?, unread: found.unwrap_or(false), version: ""))
-  end
+  return ok(Standing(member: found.some?, unread: found.unwrap_or(false), version: "")) if version.none?
 
   # Only a membership is kept: an answer "outside" is asked for any room number a client names, so keeping it would let
   # one client push the entries of the others out of the store. It costs a read, as it always did.
-  if found.none?
-    return ok(standing_of(version.unwrap!, OUTSIDE))
-  end
+  return ok(standing_of(version.unwrap!, OUTSIDE)) if found.none?
 
   answer = READ
   if found.unwrap!
@@ -348,11 +327,11 @@ def standing(cable: Cable, session: Channels.Session, room_id: Int) -> Result[St
   end
 
   Cache.put(cable.members, key, "#{version.unwrap!}\n#{answer}")
-  return ok(standing_of(version.unwrap!, answer))
+  ok(standing_of(version.unwrap!, answer))
 end
 
 def standing_of(version: String, answer: String) -> Standing
-  return Standing(member: answer != OUTSIDE, unread: answer == UNREAD, version: version)
+  Standing(member: answer != OUTSIDE, unread: answer == UNREAD, version: version)
 end
 
 # `standing`, looked up again when the database fails (a reconnect burst can leave the pool without a connection for
@@ -373,82 +352,66 @@ def checked_standing(cable: Cable, session: Channels.Session, room_id: Int) -> R
     IO.warn("campfire: the membership of room #{room_id} could not be read: #{found.message}")
   end
 
-  return found
+  found
 end
 
 # The ones that `Channels.turbo_streams` asks. The room of a message stream comes from its verified name, so there
 # is no parameter that a client could point somewhere else.
 def message_stream_allowed?(cable: Cable, session: Channels.Session, name: String) -> Bool
   room_id = room_of_stream(name)
-  if room_id == NO_ROOM
-    return false
-  end
+  return false if room_id == NO_ROOM
 
   found = checked_standing(cable, session, room_id)
-  return found.ok? and found.unwrap!.member
+  found.ok? and found.unwrap!.member
 end
 
-def not_a_message_stream?(session: Channels.Session, name: String) -> Bool
-  return not name.end_with?(MESSAGES_SUFFIX)
-end
+def not_a_message_stream?(session: Channels.Session, name: String) -> Bool = not name.end_with?(MESSAGES_SUFFIX)
 
 # The `room_id` of the params of a presence subscription, a number or the text of one.
 def room_id_of(params: Json) -> Int
   field = JSON.get(params, "room_id")
-  if not field.ok?
-    return NO_ROOM
-  end
+  return NO_ROOM if not field.ok?
 
   number = JSON.int(field.unwrap!)
-  if number.ok?
-    return number.unwrap!
-  end
+  return number.unwrap! if number.ok?
 
   text = JSON.string(field.unwrap!)
-  if not text.ok?
-    return NO_ROOM
-  end
+  return NO_ROOM if not text.ok?
 
-  return text.unwrap!.to_i.unwrap_or(NO_ROOM)
+  text.unwrap!.to_i.unwrap_or(NO_ROOM)
 end
 
 def connecting(cable: Cable) -> Fn[Bond.Conn, Result[Channels.Identity]]
-  return opening() do |conn| identify(cable, conn) end
+  opening() do |conn| identify(cable, conn) end
 end
 
 # A block cannot be assigned to a name: these give it a typed parameter first.
-def opening(f: Fn[Bond.Conn, Result[Channels.Identity]]) -> Fn[Bond.Conn, Result[Channels.Identity]]
-  return f
-end
+def opening(f: Fn[Bond.Conn, Result[Channels.Identity]]) -> Fn[Bond.Conn, Result[Channels.Identity]] = f
 
 def subscribing(
   f: Fn[Channels.Session, Json, Result[Channels.Subscription]],
 ) -> Fn[Channels.Session, Json, Result[Channels.Subscription]]
-  return f
+  f
 end
 
-def leaving(f: Fn[Channels.Session, Json, Result[Void]]) -> Fn[Channels.Session, Json, Result[Void]]
-  return f
-end
+def leaving(f: Fn[Channels.Session, Json, Result[Void]]) -> Fn[Channels.Session, Json, Result[Void]] = f
 
 def acting(
   f: Fn[Channels.Session, Json, String, Json, Result[List[Json]]],
 ) -> Fn[Channels.Session, Json, String, Json, Result[List[Json]]]
-  return f
+  f
 end
 
-def allowing(f: Fn[Channels.Session, String, Bool]) -> Fn[Channels.Session, String, Bool]
-  return f
-end
+def allowing(f: Fn[Channels.Session, String, Bool]) -> Fn[Channels.Session, String, Bool] = f
 
 # The person of the session cookie, or an `error` that `/cable` answers with a `disconnect` that says not to retry.
 def identify(cable: Cable, conn: Bond.Conn) -> Result[Channels.Identity]
   user = try session_person(cable, AuthWeb.session_token(conn))
   case user
-    none -> return error("no signed-in person")
+    none -> error("no signed-in person")
     some(person) ->
       seat = Seat(user: person, token: AuthWeb.session_token(conn))
-      return ok(Channels.Identity(id: Hangup.identity_of(person.id), data: JSON.from(seat)))
+      ok(Channels.Identity(id: Hangup.identity_of(person.id), data: JSON.from(seat)))
   end
 end
 
@@ -456,23 +419,19 @@ end
 # database (a sign-out, a deactivation, a ban or a change of the person is a commit, so another version), else the one
 # the database gives, which is then kept. A burst of sockets of one session reads it once.
 def session_person(cable: Cable, token: String) -> Result[Optional[Auth.User]]
-  if token.empty?
-    return ok(none)
-  end
+  return ok(none) if token.empty?
 
   seen = PageCache.current_version(cable.pages)
   kept = PageCache.known_user(cable.pages, seen, token)
-  if kept.some?
-    return ok(kept)
-  end
+  return ok(kept) if kept.some?
 
   ATS.add(cable.reads, SESSION_READS, 1)
   found = try Database.with_connection(cable.pool) do |db| Auth.user_for(db, token) end
   case found
     some(session) ->
       PageCache.remember_user(cable.pages, seen, token, session)
-      return ok(some(session.user))
-    none -> return ok(none)
+      ok(some(session.user))
+    none -> ok(none)
   end
 end
 
@@ -483,7 +442,7 @@ def handlers(cable: Cable) -> Map[String, Channels.Handler]
   refreshed = acting() do |session, params, action, _data| presence_action(cable, session, params, action) end
   unreads = subscribing() do |session, _params| unread_subscribed(session) end
   checked = acting() do |session, _params, _action, _data| check_session(cable, session) end
-  return {
+  {
     ROOM_MESSAGES_CHANNEL: Channels.turbo_streams(cable.key, in_room),
     TURBO_CHANNEL: Channels.turbo_streams(cable.key, &not_a_message_stream?),
     "UnreadRoomsChannel": Channels.handler(unreads),
@@ -493,12 +452,12 @@ def handlers(cable: Cable) -> Map[String, Channels.Handler]
 end
 
 def heartbeat_subscribed(session: Channels.Session, params: Json) -> Result[Channels.Subscription]
-  return ok(Channels.Subscription())
+  ok(Channels.Subscription())
 end
 
 def unread_subscribed(session: Channels.Session) -> Result[Channels.Subscription]
   person = try user_of(session)
-  return ok(Channels.Subscription(streams: [unreads_stream(person.id)]))
+  ok(Channels.Subscription(streams: [unreads_stream(person.id)]))
 end
 
 # A member that looks at the room: one more tab, and the room is read. A non-member, or a params without a room, is
@@ -506,14 +465,10 @@ end
 def present_in_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Channels.Subscription]
   room_id = room_id_of(params)
   person = try user_of(session)
-  if room_id == NO_ROOM
-    return ok(Channels.Subscription(rejected: true))
-  end
+  return ok(Channels.Subscription(rejected: true)) if room_id == NO_ROOM
 
   found = try checked_standing(cable, session, room_id)
-  if not found.member
-    return ok(Channels.Subscription(rejected: true))
-  end
+  return ok(Channels.Subscription(rejected: true)) if not found.member
 
   Presence.present(cable.presence, room_id, person.id, session.connection, Time.now_ms())
   if should_mark_read?(cable, found)
@@ -524,7 +479,7 @@ def present_in_room(cable: Cable, session: Channels.Session, params: Json) -> Re
     end
   end
 
-  return ok(Channels.Subscription())
+  ok(Channels.Subscription())
 end
 
 # False only when the room is known to be read: it was read when the membership was looked up, and the database has had
@@ -532,18 +487,16 @@ end
 # commit in between could be a message that came before the presence did, so the room is marked read, as it always is
 # with no version to compare.
 def should_mark_read?(cable: Cable, found: Standing) -> Bool
-  if found.unread or found.version.empty?
-    return true
-  end
+  return true if found.unread or found.version.empty?
 
   now = PageCache.current_version(cable.pages)
-  return now.none? or now.unwrap! != found.version
+  now.none? or now.unwrap! != found.version
 end
 
 def absent_from_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Void]
   person = try user_of(session)
   Presence.absent(cable.presence, room_id_of(params), person.id, session.connection, Time.now_ms())
-  return ok()
+  ok()
 end
 
 # The session of the connection is looked up again, so a socket that outlives its session (a sign-out in another
@@ -557,7 +510,7 @@ def check_session(cable: Cable, session: Channels.Session) -> Result[List[Json]]
     _ = Channels.disconnect(cable.hub, session.identity.id, true)
   end
 
-  return ok([])
+  ok([])
 end
 
 # `refresh` is what the page sends every 50 s while it is visible, and checks the session; `present` and `absent` are
@@ -578,7 +531,7 @@ def presence_action(cable: Cable, session: Channels.Session, params: Json, actio
     _ -> return ok([])
   end
 
-  return ok([])
+  ok([])
 end
 
 # The members who have the room unread or are connected to it get `{"roomId":ID,"at":TIME}`. A message sets
@@ -604,11 +557,9 @@ def unread_notices(job: Unread) -> Result[Void]
     end
   end
 
-  if watching.empty?
-    return ok()
-  end
+  return ok() if watching.empty?
 
-  return Database.with_connection(cable.pool) do |db| Rooms.mark_read_all(db, job.room_id, watching) end
+  Database.with_connection(cable.pool) do |db| Rooms.mark_read_all(db, job.room_id, watching) end
 end
 
 def room_news_gone(job: Gone) -> Result[Void]
@@ -623,7 +574,7 @@ def room_news_gone(job: Gone) -> Result[Void]
     _ = Channels.broadcast_text(hub, ROOMS_STREAM, removal)
   end
 
-  return ok()
+  ok()
 end
 
 def room_news(job: RoomEvent) -> Result[Void]
@@ -638,16 +589,14 @@ def room_news(job: RoomEvent) -> Result[Void]
     _ = Channels.broadcast_text(cable.hub, delivery.stream, html)
   end
 
-  return ok()
+  ok()
 end
 
 # An open room is one entry for everyone, a closed or direct one an entry for each person who lists it (a direct room
 # is named after the other people, so each sees their own).
 def deliveries_of(db: Db.Connection, job: RoomEvent) -> Result[List[Delivery]]
   seen = try Rooms.visible_room(db, job.actor_id, job.room_id)
-  if seen.none?
-    return ok([])
-  end
+  return ok([]) if seen.none?
 
   if seen.unwrap!.room_type != Rooms.CLOSED and seen.unwrap!.room_type != Rooms.DIRECT
     return ok([Delivery(stream: ROOMS_STREAM, room: seen.unwrap!)])
@@ -662,5 +611,5 @@ def deliveries_of(db: Db.Connection, job: RoomEvent) -> Result[List[Delivery]]
     end
   end
 
-  return ok(deliveries)
+  ok(deliveries)
 end

@@ -4,11 +4,9 @@ FOLDER = "src/campfire/repo/migrations"
 
 # The number in `m0007_boosts.agc`, or -1 for a name that is not of that form.
 def number_of(file: String) -> Int
-  if file.length < 6 or not file.start_with?("m") or not file.end_with?(".agc")
-    return -1
-  end
+  return -1 if file.length < 6 or not file.start_with?("m") or not file.end_with?(".agc")
 
-  return file.slice(1, 4).to_i().unwrap_or(-1)
+  file.slice(1, 4).to_i().unwrap_or(-1)
 end
 
 def main() -> Void

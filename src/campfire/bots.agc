@@ -35,27 +35,23 @@ end
 ## What is wrong with a bot name, or "". The caller strips it first. Rails only asks the form for the field; a blank
 ## name would leave the bot with nothing to show, so it is refused here.
 export def name_problem(name: String) -> String
-  if name.empty? or name.length > MAX_NAME_LENGTH
-    return "Give the bot a name of 1 to #{MAX_NAME_LENGTH} characters"
-  end
+  return "Give the bot a name of 1 to #{MAX_NAME_LENGTH} characters" if name.empty? or name.length > MAX_NAME_LENGTH
 
-  return ""
+  ""
 end
 
 ## The active bots by name, as `User.active_bots.ordered` lists them.
 export def active(conn: Db.Connection) -> Result[List[Bot]]
   rows = try Db.query(conn, "#{SELECT} order by lower(name), id", [])
-  return ok(rows.map do |row| bot_of(row) end)
+  ok(rows.map do |row| bot_of(row) end)
 end
 
 ## The active bot with this id, or `none`.
 export def find(conn: Db.Connection, bot_id: Int) -> Result[Optional[Bot]]
   rows = try Db.query(conn, "#{SELECT} and id = ?", [Db.Value.Int(bot_id)])
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
-  return ok(some(bot_of(rows[0])))
+  ok(some(bot_of(rows[0])))
 end
 
 ## The active bot that `key` (`ID-TOKEN`) names, or `none` for any other text, a bot with another token (a key that a
@@ -66,58 +62,50 @@ end
 export def authenticate(conn: Db.Connection, key: String) -> Result[Optional[Bot]]
   given = key.strip
   dash = given.index_of("-")
-  if dash.none?
-    return ok(none)
-  end
+  return ok(none) if dash.none?
 
   id = given.slice(0, dash.unwrap!).to_i
   token = given.slice(dash.unwrap! + 1, given.length - dash.unwrap! - 1)
-  if not id.ok? or token.empty?
-    return ok(none)
-  end
+  return ok(none) if not id.ok? or token.empty?
 
   found = try find(conn, id.unwrap!)
   case found
-    some(bot) if OpenSSL.HMAC.secure_compare(bot.key.bytes, given.bytes) -> return ok(some(bot))
-    _ -> return ok(none)
+    some(bot) if OpenSSL.HMAC.secure_compare(bot.key.bytes, given.bytes) -> ok(some(bot))
+    _ -> ok(none)
   end
 end
 
 ## Makes a bot named `name` for `actor_id` and puts it in every open room, as a new person is. It gives false, with
 ## nothing made, when the actor is not an active administrator.
 export def create(conn: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
-  return Db.transaction(conn) do |tx| create_in(tx, actor_id, name) end
+  Db.transaction(conn) do |tx| create_in(tx, actor_id, name) end
 end
 
 ## Renames the bot. `Refused` is an actor who is not an active administrator; `Missing` is no active bot with this id.
 export def rename(conn: Db.Connection, actor_id: Int, bot_id: Int, name: String) -> Result[Accounts.Change]
-  return Db.transaction(conn) do |tx| change_in(tx, actor_id, bot_id, "name = ?", [Db.Value.Text(name)]) end
+  Db.transaction(conn) do |tx| change_in(tx, actor_id, bot_id, "name = ?", [Db.Value.Text(name)]) end
 end
 
 ## Gives the bot a new token, so the old key stops working (`reset_bot_key`). Results as `rename`.
 export def reset_key(conn: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accounts.Change]
-  return Db.transaction(conn) do |tx|
-    change_in(tx, actor_id, bot_id, "bot_token = ?", [Db.Value.Text(new_token())])
-  end
+  Db.transaction(conn) do |tx| change_in(tx, actor_id, bot_id, "bot_token = ?", [Db.Value.Text(new_token())]) end
 end
 
 ## Deactivates the bot as `User#deactivate` does: it leaves the open and closed rooms (the direct messages stay) and is
 ## no longer an active bot, so its key finds nobody. Its messages stay. A bot has no sessions, searches or address to
 ## clean up. Results as `rename`.
 export def deactivate(conn: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accounts.Change]
-  return Db.transaction(conn) do |tx| deactivate_in(tx, actor_id, bot_id) end
+  Db.transaction(conn) do |tx| deactivate_in(tx, actor_id, bot_id) end
 end
 
 def bot_of(row: Db.Row) -> Bot
   id = int_of(row, "id")
-  return Bot(id: id, name: text_of(row, "name"), key: "#{id}-#{text_of(row, "bot_token")}")
+  Bot(id: id, name: text_of(row, "name"), key: "#{id}-#{text_of(row, "bot_token")}")
 end
 
 def create_in(tx: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
   allowed = try Accounts.administrator?(tx, actor_id)
-  if not allowed
-    return ok(false)
-  end
+  return ok(false) if not allowed
 
   rows = try Db.query(
     tx,
@@ -127,7 +115,7 @@ def create_in(tx: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
   )
 
   try Rooms.grant_open_rooms(tx, int_of(rows[0], "id"))
-  return ok(true)
+  ok(true)
 end
 
 # `set` is the assignment of one column (its `?` among `args`); the bot must be active, which a deactivated one and a
@@ -140,9 +128,7 @@ def change_in(
   args: List[Db.Value],
 ) -> Result[Accounts.Change]
   allowed = try Accounts.administrator?(tx, actor_id)
-  if not allowed
-    return ok(Accounts.Change.Refused)
-  end
+  return ok(Accounts.Change.Refused) if not allowed
 
   changed = try Db.execute(
     tx,
@@ -150,11 +136,9 @@ def change_in(
     args.concat([Db.Value.Int(bot_id)]),
   )
 
-  if changed == 0
-    return ok(Accounts.Change.Missing)
-  end
+  return ok(Accounts.Change.Missing) if changed == 0
 
-  return ok(Accounts.Change.Changed)
+  ok(Accounts.Change.Changed)
 end
 
 def deactivate_in(tx: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accounts.Change]
@@ -163,7 +147,7 @@ def deactivate_in(tx: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accou
     try Rooms.leave_shared_rooms(tx, bot_id)
   end
 
-  return ok(change)
+  ok(change)
 end
 
 # Twelve letters and digits drawn from the system's random source.
@@ -177,5 +161,5 @@ def new_token() -> String
     end
   end
 
-  return token
+  token
 end

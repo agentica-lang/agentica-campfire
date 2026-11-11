@@ -5,15 +5,11 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 11: create webhooks.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
-    11,
-    "create webhooks",
-    [webhooks(), "create index index_webhooks_on_user_id on webhooks (user_id)"],
-  )
+  Migrate.sql(11, "create webhooks", [webhooks(), "create index index_webhooks_on_user_id on webhooks (user_id)"])
 end
 
 def webhooks() -> String
-  return <<~SQL
+  <<~SQL
     create table webhooks (
       id integer primary key autoincrement not null,
       created_at datetime(6) not null,

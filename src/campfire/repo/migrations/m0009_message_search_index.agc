@@ -7,7 +7,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 9: create message search index.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     9,
     "create message search index",
     ["create virtual table message_search_index using fts5 (body, tokenize=porter)"],

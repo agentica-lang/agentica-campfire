@@ -4,7 +4,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 12: create bans.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     12,
     "create bans",
     [
@@ -16,7 +16,7 @@ export def migration() -> Migrate.Migration
 end
 
 def bans() -> String
-  return <<~SQL
+  <<~SQL
     create table bans (
       id integer primary key autoincrement not null,
       created_at datetime(6) not null,

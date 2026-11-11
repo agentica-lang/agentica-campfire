@@ -26,7 +26,7 @@ end
 ## Starts the task for the room and gives it. It does not wait; the task logs a failure and ends. The handle is for a
 ## caller that wants to wait for the end (a spec); a request does not.
 export def start(pool: Database.Pool, room_id: Int) -> Task[Result[Void]]
-  return Task.spawn(&run, Job(pool: pool, room_id: room_id))
+  Task.spawn(&run, Job(pool: pool, room_id: room_id))
 end
 
 ## Runs `step`, and again after a pause of `pause_ms` times the number of the try while it fails because the database is
@@ -41,12 +41,10 @@ export def retry[R](attempts: Int, pause_ms: Int, step: Fn[Result[R]]) -> Result
     done = step.call()
   end
 
-  return done
+  done
 end
 
-def transient?(message: String) -> Bool
-  return Database.busy?(message) and not message.include?("pool error: closed")
-end
+def transient?(message: String) -> Bool = Database.busy?(message) and not message.include?("pool error: closed")
 
 def run(job: Job) -> Result[Void]
   done = delete_all(job)
@@ -54,7 +52,7 @@ def run(job: Job) -> Result[Void]
     IO.warn("campfire: deleting the room #{job.room_id} stopped, what is left of it stays: #{done.message}")
   end
 
-  return done
+  done
 end
 
 def delete_all(job: Job) -> Result[Void]
@@ -63,13 +61,13 @@ def delete_all(job: Job) -> Result[Void]
     more = try retry(ATTEMPTS, PAUSE_MS) do next_message(job) end
   end
 
-  return retry(ATTEMPTS, PAUSE_MS) do last_step(job) end
+  retry(ATTEMPTS, PAUSE_MS) do last_step(job) end
 end
 
 def next_message(job: Job) -> Result[Bool]
-  return Database.with_connection(job.pool) do |db| Rooms.delete_next_message(db, job.room_id) end
+  Database.with_connection(job.pool) do |db| Rooms.delete_next_message(db, job.room_id) end
 end
 
 def last_step(job: Job) -> Result[Void]
-  return Database.with_connection(job.pool) do |db| Rooms.delete_room(db, job.room_id) end
+  Database.with_connection(job.pool) do |db| Rooms.delete_room(db, job.room_id) end
 end

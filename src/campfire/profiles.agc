@@ -50,12 +50,10 @@ export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Detail]]
     [Db.Value.Int(user_id)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
   row = rows[0]
-  return ok(
+  ok(
     some(
       Detail(
         id: int_of(row, "id"),
@@ -71,14 +69,10 @@ export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Detail]]
 end
 
 ## True for a user whose page says that they are no longer on the account.
-export def deactivated?(profile: Detail) -> Bool
-  return profile.status == Rails.DEACTIVATED
-end
+export def deactivated?(profile: Detail) -> Bool = profile.status == Rails.DEACTIVATED
 
 ## True for a user who can be written to: active.
-export def active?(profile: Detail) -> Bool
-  return profile.status == Rails.ACTIVE
-end
+export def active?(profile: Detail) -> Bool = profile.status == Rails.ACTIVE
 
 ## What is wrong with a profile form, or "". A part that is `none` is not being changed. A blank email or password is
 ## not a change either (Rails ignores a blank password; a blank email would lock the person out, so it is ignored
@@ -91,46 +85,32 @@ export def problem(
   password: Optional[String],
   bio: Optional[String],
 ) -> Result[String]
-  if name.some? and (name.unwrap!.strip.empty? or name.unwrap!.strip.length > MAX_NAME_LENGTH)
-    return ok(NAME_PROBLEM)
-  end
+  return ok(NAME_PROBLEM) if name.some? and (name.unwrap!.strip.empty? or name.unwrap!.strip.length > MAX_NAME_LENGTH)
 
-  if bio.some? and bio.unwrap!.length > MAX_BIO_LENGTH
-    return ok(BIO_PROBLEM)
-  end
+  return ok(BIO_PROBLEM) if bio.some? and bio.unwrap!.length > MAX_BIO_LENGTH
 
   if email.some? and not email.unwrap!.strip.empty?
     address = Auth.normal(email.unwrap!)
-    if not Auth.valid_email?(address)
-      return ok(EMAIL_PROBLEM)
-    end
+    return ok(EMAIL_PROBLEM) if not Auth.valid_email?(address)
 
     taken = try taken_by_other?(conn, address, user_id)
-    if taken
-      return ok(EMAIL_TAKEN)
-    end
+    return ok(EMAIL_TAKEN) if taken
   end
 
-  if password.some? and not password.unwrap!.empty?
-    return ok(Passwords.problem(password.unwrap!))
-  end
+  return ok(Passwords.problem(password.unwrap!)) if password.some? and not password.unwrap!.empty?
 
-  return ok("")
+  ok("")
 end
 
 ## True when `current` is the password of the person (`password_challenge`). It hashes, so the caller holds a hashing
 ## slot. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY`, for a digest that Rails made.
 export def challenge_ok?(conn: Db.Connection, user_id: Int, current: String, bcrypt_library: String) -> Result[Bool]
-  if current.bytes.size > Passwords.MAX_BYTES
-    return ok(false)
-  end
+  return ok(false) if current.bytes.size > Passwords.MAX_BYTES
 
   rows = try Db.query(conn, "select password_digest from users where id = ?", [Db.Value.Int(user_id)])
-  if rows.empty? or text_of(rows[0], "password_digest").empty?
-    return ok(false)
-  end
+  return ok(false) if rows.empty? or text_of(rows[0], "password_digest").empty?
 
-  return Passwords.verify(current, text_of(rows[0], "password_digest"), bcrypt_library)
+  Passwords.verify(current, text_of(rows[0], "password_digest"), bcrypt_library)
 end
 
 ## Saves the parts of the form that are not `none` for `user_id`, in one transaction that checks again that the person
@@ -147,7 +127,7 @@ export def save(
   bio: Optional[String],
   keep_token: String,
 ) -> Result[Change]
-  return Db.transaction(conn) do |tx| save_in(tx, user_id, name, email, digest, bio, keep_token) end
+  Db.transaction(conn) do |tx| save_in(tx, user_id, name, email, digest, bio, keep_token) end
 end
 
 def save_in(
@@ -165,15 +145,11 @@ def save_in(
     [Db.Value.Int(user_id)],
   )
 
-  if found.empty?
-    return ok(Change.Gone)
-  end
+  return ok(Change.Gone) if found.empty?
 
   if email.some? and not email.unwrap!.strip.empty?
     taken = try taken_by_other?(tx, Auth.normal(email.unwrap!), user_id)
-    if taken
-      return ok(Change.Taken)
-    end
+    return ok(Change.Taken) if taken
 
     try set_column(tx, user_id, "email_address", Auth.normal(email.unwrap!))
   end
@@ -193,13 +169,13 @@ def save_in(
     try set_column(tx, user_id, "bio", bio.unwrap!.strip)
   end
 
-  return ok(Change.Saved)
+  ok(Change.Saved)
 end
 
 # One column of the user, with `updated_at` touched: the avatar link of the profile and of the user page carries its
 # digits as a cache buster (`Avatars.version`).
 def set_column(tx: Db.Connection, user_id: Int, column: String, value: String) -> Result[Int]
-  return Db.execute(
+  Db.execute(
     tx,
     "update users set #{column} = ?, updated_at = #{NOW} where id = ?",
     [Db.Value.Text(value), Db.Value.Int(user_id)],
@@ -216,9 +192,7 @@ def taken_by_other?(conn: Db.Connection, address: String, user_id: Int) -> Resul
     [Db.Value.Text(address), Db.Value.Int(user_id)],
   )
 
-  if not exact.empty?
-    return ok(true)
-  end
+  return ok(true) if not exact.empty?
 
   rows = try Db.query(
     conn,
@@ -226,5 +200,5 @@ def taken_by_other?(conn: Db.Connection, address: String, user_id: Int) -> Resul
     [Db.Value.Text(address), Db.Value.Int(user_id)],
   )
 
-  return ok(not rows.empty?)
+  ok(not rows.empty?)
 end

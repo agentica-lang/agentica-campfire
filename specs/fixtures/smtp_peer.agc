@@ -63,9 +63,7 @@ def main() -> Void
 
     puts("closed")
     IO.flush()
-    if not accepted.ok?
-      return
-    end
+    return if not accepted.ok?
   end
 end
 
@@ -78,7 +76,7 @@ def load_settings() -> Settings
     context = some(TLS.server_context(options).unwrap!)
   end
 
-  return Settings(
+  Settings(
     mode: System.env("SMTP_PEER_MODE").unwrap_or("plain"),
     auth: System.env("SMTP_PEER_AUTH").unwrap_or(""),
     reject_rcpt: System.env("SMTP_PEER_REJECT_RCPT").unwrap_or(""),
@@ -93,11 +91,9 @@ def load_settings() -> Settings
 end
 
 def open_listener(settings: Settings) -> Listener
-  if settings.mode == "implicit"
-    return TLS.listen("127.0.0.1", 0, settings.context.unwrap!).unwrap!
-  end
+  return TLS.listen("127.0.0.1", 0, settings.context.unwrap!).unwrap! if settings.mode == "implicit"
 
-  return TCP.listen("127.0.0.1", 0).unwrap!
+  TCP.listen("127.0.0.1", 0).unwrap!
 end
 
 def say(socket: Socket, text: String) -> Void
@@ -114,7 +110,7 @@ def hear(socket: Socket, wait_ms: Int = IDLE_MS) -> Result[String]
     puts("C: #{line}")
   end
 
-  return ok(line)
+  ok(line)
 end
 
 # One command after another until QUIT, a stall or the end of the connection. STARTTLS swaps the socket for the
@@ -127,9 +123,7 @@ def serve(first: Socket, settings: Settings) -> Void
   counts: Map[String, Int] = {}
   while running
     heard = hear(socket)
-    if not heard.ok?
-      return
-    end
+    return if not heard.ok?
 
     line = heard.unwrap!
     verb = line.split(" ")[0].upcase
@@ -193,7 +187,7 @@ def say_canned(socket: Socket, settings: Settings) -> Void
 end
 
 def controls(line: String) -> String
-  return line.replace("<ESC>", String.from_code(27))
+  line.replace("<ESC>", String.from_code(27))
     .replace("<CSI>", String.from_code(155))
     .replace("<RLO>", String.from_code(8238))
     .replace("<LS>", String.from_code(8232))
@@ -210,7 +204,7 @@ end
 
 def quit(socket: Socket) -> Bool
   say(socket, "221 bye")
-  return false
+  false
 end
 
 def ehlo(socket: Socket, settings: Settings) -> Void
@@ -248,7 +242,7 @@ def starttls(socket: Socket, settings: Settings) -> Socket
     return socket
   end
 
-  return upgraded.unwrap!
+  upgraded.unwrap!
 end
 
 def auth(socket: Socket, settings: Settings, line: String) -> Void
@@ -280,24 +274,18 @@ end
 def login(socket: Socket) -> Void
   say(socket, "334 VXNlcm5hbWU6")
   user = hear(socket)
-  if not user.ok?
-    return
-  end
+  return if not user.ok?
 
   say(socket, "334 UGFzc3dvcmQ6")
   password = hear(socket)
-  if not password.ok?
-    return
-  end
+  return if not password.ok?
 
   named = decoded(user.unwrap!)
   secret = decoded(password.unwrap!)
   verdict(socket, named == USER and secret == PASSWORD)
 end
 
-def decoded(text: String) -> String
-  return Base64.strict_decode64(text).unwrap!.decode("utf-8").unwrap!
-end
+def decoded(text: String) -> String = Base64.strict_decode64(text).unwrap!.decode("utf-8").unwrap!
 
 def verdict(socket: Socket, accepted: Bool) -> Void
   if accepted

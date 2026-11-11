@@ -59,7 +59,7 @@ export def add(
   bans: ATS[String, Int],
 ) -> Bond.App
   hub = cable.hub
-  return (
+  (
     app
     |> Bond.get(Routes.USERS) do |conn| show_users(conn, config, pool) end
     |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, hub, true) end
@@ -81,15 +81,11 @@ end
 # any other is a 405 that lists the methods of the path.
 def post_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, bans: ATS[String, Int]) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method == ""
-    return change_ban(conn, pool, cable, bans, true)
-  end
+  return change_ban(conn, pool, cable, bans, true) if method == ""
 
-  if method == Routes.METHOD_DELETE
-    return change_ban(conn, pool, cable, bans, false)
-  end
+  return change_ban(conn, pool, cable, bans, false) if method == Routes.METHOD_DELETE
 
-  return ok(respond(conn, Answer.NotAllowed(Routes.USER_BAN_ALLOW)))
+  ok(respond(conn, Answer.NotAllowed(Routes.USER_BAN_ALLOW)))
 end
 
 # A banned person has no session left, so their sockets are closed and told not to come back, and their messages are
@@ -111,7 +107,7 @@ def change_ban(
     _ -> nil
   end
 
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 # Administrator first (403), then the person (404), as the other administrator-only posts.
@@ -124,10 +120,10 @@ def ban_answer(
 ) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
-    some(_) if id.none? -> return ok(Answer.NotFound)
-    some(person) -> return banned_answer(db, person, id.unwrap!, bans, banning)
+    none -> ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Answer.Forbidden)
+    some(_) if id.none? -> ok(Answer.NotFound)
+    some(person) -> banned_answer(db, person, id.unwrap!, bans, banning)
   end
 end
 
@@ -154,19 +150,19 @@ def banned_answer(
 
   lifted = try Bans.unban(db, person.id, user_id)
   _ = try BanFlag.refresh(bans, db)
-  return answer_of(lifted, Routes.user_path(user_id))
+  answer_of(lifted, Routes.user_path(user_id))
 end
 
 def show_account(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| account_answer(conn, db) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def account_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return ok(Answer.Page(try account_page(db, person, "", none)))
+    none -> ok(Answer.SignedOut)
+    some(person) -> ok(Answer.Page(try account_page(db, person, "", none)))
   end
 end
 
@@ -182,31 +178,29 @@ def account_page(db: Db.Connection, person: Auth.User, note: String, typed: Opti
   end
 
   shown = typed.unwrap_or(name)
-  return ok(Views.account(try RoomsWeb.sidebar_of(db, person), shown, people, person.id, admin, restricted, note))
+  ok(Views.account(try RoomsWeb.sidebar_of(db, person), shown, people, person.id, admin, restricted, note))
 end
 
 # A `POST` is the form of Rails with `_method` set to `patch`; any other is a 405 that lists the methods of the path.
 def post_account(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method != Routes.METHOD_PATCH
-    return ok(respond(conn, Answer.NotAllowed(Routes.ACCOUNT_ALLOW)))
-  end
+  return ok(respond(conn, Answer.NotAllowed(Routes.ACCOUNT_ALLOW))) if method != Routes.METHOD_PATCH
 
-  return rename_account(conn, pool)
+  rename_account(conn, pool)
 end
 
 def rename_account(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| rename_answer(conn, db) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 # An administrator only, checked before the form is read, as `ensure_can_administer` runs before the action in Rails.
 def rename_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
-    some(person) -> return renamed(conn, db, person)
+    none -> ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Answer.Forbidden)
+    some(person) -> renamed(conn, db, person)
   end
 end
 
@@ -215,17 +209,13 @@ end
 def renamed(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   names = try Bond.form_all(conn, ACCOUNT_NAME)
   flags = try Bond.form_all(conn, RESTRICT_FIELD)
-  if names.empty? and flags.empty?
-    return Bond.bad_request("#{ACCOUNT_NAME} is missing")
-  end
+  return Bond.bad_request("#{ACCOUNT_NAME} is missing") if names.empty? and flags.empty?
 
   name: Optional[String] = none
   if not names.empty?
     name = some(names[0].strip)
     problem = Accounts.name_problem(name.unwrap!)
-    if problem != ""
-      return ok(Answer.Refused(try account_page(db, person, problem, name)))
-    end
+    return ok(Answer.Refused(try account_page(db, person, problem, name))) if problem != ""
   end
 
   restricted: Optional[Bool] = none
@@ -238,31 +228,25 @@ def renamed(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Ans
   end
 
   done = try Accounts.save(db, person.id, name, restricted)
-  if not done
-    return ok(Answer.Forbidden)
-  end
+  return ok(Answer.Forbidden) if not done
 
-  return ok(Answer.Redirect(Routes.ACCOUNT_EDIT))
+  ok(Answer.Redirect(Routes.ACCOUNT_EDIT))
 end
 
 # A `POST` with `_method` set to `patch` saves a role and one set to `delete` removes the person; any other is a 405.
 def post_account_user(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method == Routes.METHOD_PATCH
-    return set_role(conn, pool)
-  end
+  return set_role(conn, pool) if method == Routes.METHOD_PATCH
 
-  if method == Routes.METHOD_DELETE
-    return remove_person(conn, pool, hub)
-  end
+  return remove_person(conn, pool, hub) if method == Routes.METHOD_DELETE
 
-  return ok(respond(conn, Answer.NotAllowed(Routes.ACCOUNT_USER_ALLOW)))
+  ok(respond(conn, Answer.NotAllowed(Routes.ACCOUNT_USER_ALLOW)))
 end
 
 def set_role(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = user_id(conn)
   answer = try Database.with_connection(pool) do |db| role_answer(conn, db, id) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 # Administrator first (403), then the person (404), then the form (400), as Rails runs its filters and then reads the
@@ -270,17 +254,17 @@ end
 def role_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
-    some(person) -> return roled(conn, db, person, id)
+    none -> ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Answer.Forbidden)
+    some(person) -> roled(conn, db, person, id)
   end
 end
 
 def roled(conn: Bond.Conn, db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
   case id
-    none -> return ok(Answer.NotFound)
-    some(user_id) if not (try Accounts.active_person?(db, user_id)) -> return ok(Answer.NotFound)
-    some(user_id) -> return roled_person(conn, db, person, user_id)
+    none -> ok(Answer.NotFound)
+    some(user_id) if not (try Accounts.active_person?(db, user_id)) -> ok(Answer.NotFound)
+    some(user_id) -> roled_person(conn, db, person, user_id)
   end
 end
 
@@ -293,7 +277,7 @@ def roled_person(conn: Bond.Conn, db: Db.Connection, person: Auth.User, user_id:
   end
 
   change = try Accounts.set_role(db, person.id, user_id, role == Rooms.ADMINISTRATOR_ROLE_NAME)
-  return answer_of(change, Routes.ACCOUNT_EDIT)
+  answer_of(change, Routes.ACCOUNT_EDIT)
 end
 
 # Administrator first (403), then the person (404: nobody active, so a person who is deactivated already is not removed
@@ -307,30 +291,30 @@ def remove_person(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub) -> Re
     _ -> return ok(respond(conn, answer))
   end
 
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def removal_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
-    some(_) if id.none? -> return ok(Answer.NotFound)
-    some(_) if not (try Accounts.active_person?(db, id.unwrap!)) -> return ok(Answer.NotFound)
-    some(person) -> return answer_of(try Accounts.deactivate(db, person.id, id.unwrap!), Routes.ACCOUNT_EDIT)
+    none -> ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Answer.Forbidden)
+    some(_) if id.none? -> ok(Answer.NotFound)
+    some(_) if not (try Accounts.active_person?(db, id.unwrap!)) -> ok(Answer.NotFound)
+    some(person) -> answer_of(try Accounts.deactivate(db, person.id, id.unwrap!), Routes.ACCOUNT_EDIT)
   end
 end
 
 def show_users(conn: Bond.Conn, config: Config, pool: Database.Pool) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| users_answer(conn, db, config) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def users_answer(conn: Bond.Conn, db: Db.Connection, config: Config) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return ok(Answer.Page(try users_page(db, config, person)))
+    none -> ok(Answer.SignedOut)
+    some(person) -> ok(Answer.Page(try users_page(db, config, person)))
   end
 end
 
@@ -342,14 +326,14 @@ def users_page(db: Db.Connection, config: Config, person: Auth.User) -> Result[S
     link = try join_link(db, config)
   end
 
-  return ok(Views.users(try RoomsWeb.sidebar_of(db, person), people, person.id, admin, link))
+  ok(Views.users(try RoomsWeb.sidebar_of(db, person), people, person.id, admin, link))
 end
 
 # The address of the app, when it is configured (it is needed for email), and else only the path, which the
 # administrator puts after the address that they reach the app by: the `Host` of a request is the visitor's to choose.
 def join_link(db: Db.Connection, config: Config) -> Result[String]
   code = try Accounts.join_code(db)
-  return ok("#{config.base_url}#{Routes.join_path(code)}")
+  ok("#{config.base_url}#{Routes.join_path(code)}")
 end
 
 # A deactivated person has no session left, so their sockets are closed and told not to come back (`Hangup`). A repeat
@@ -362,7 +346,7 @@ def change_user(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub, deactiv
     _ -> return ok(respond(conn, answer))
   end
 
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 # `back` is the page that the person goes back to: the people page, or the account settings for the same change there.
@@ -375,9 +359,9 @@ def change_answer(
 ) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
-    some(person) -> return changed_user(db, person, id, deactivating, back)
+    none -> ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Answer.Forbidden)
+    some(person) -> changed_user(db, person, id, deactivating, back)
   end
 end
 
@@ -389,73 +373,67 @@ def changed_user(
   back: String,
 ) -> Result[Answer]
   case id
-    none -> return ok(Answer.NotFound)
-    some(user_id) -> return answer_of(try apply_change(db, person, user_id, deactivating), back)
+    none -> ok(Answer.NotFound)
+    some(user_id) -> answer_of(try apply_change(db, person, user_id, deactivating), back)
   end
 end
 
 def apply_change(db: Db.Connection, person: Auth.User, user_id: Int, deactivating: Bool) -> Result[Accounts.Change]
-  if deactivating
-    return Accounts.deactivate(db, person.id, user_id)
-  end
+  return Accounts.deactivate(db, person.id, user_id) if deactivating
 
-  return Accounts.reactivate(db, person.id, user_id)
+  Accounts.reactivate(db, person.id, user_id)
 end
 
 # `Unchanged` goes back to the page like `Changed`: a second click on a button that was already used is not a failure.
 def answer_of(change: Accounts.Change, back: String) -> Result[Answer]
   case change
-    Accounts.Change.Changed -> return ok(Answer.Redirect(back))
-    Accounts.Change.Unchanged -> return ok(Answer.Redirect(back))
-    Accounts.Change.Missing -> return ok(Answer.NotFound)
-    Accounts.Change.Refused -> return ok(Answer.Forbidden)
-    Accounts.Change.Taken -> return ok(Answer.Conflict)
+    Accounts.Change.Changed -> ok(Answer.Redirect(back))
+    Accounts.Change.Unchanged -> ok(Answer.Redirect(back))
+    Accounts.Change.Missing -> ok(Answer.NotFound)
+    Accounts.Change.Refused -> ok(Answer.Forbidden)
+    Accounts.Change.Taken -> ok(Answer.Conflict)
   end
 end
 
 def regenerate_code(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| regenerate_answer(conn, db) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def regenerate_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Answer.Forbidden)
-    some(person) -> return regenerated(db, person)
+    none -> ok(Answer.SignedOut)
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Answer.Forbidden)
+    some(person) -> regenerated(db, person)
   end
 end
 
 def regenerated(db: Db.Connection, person: Auth.User) -> Result[Answer]
   done = try Accounts.regenerate_join_code(db, person.id)
-  if not done
-    return ok(Answer.Forbidden)
-  end
+  return ok(Answer.Forbidden) if not done
 
-  return ok(Answer.Redirect(Routes.USERS))
+  ok(Answer.Redirect(Routes.USERS))
 end
 
 # A user id that is not a whole number names nobody, which is a 404 like any other.
 def user_id(conn: Bond.Conn) -> Optional[Int]
   parsed = Bond.param(conn, "id").unwrap_or("").to_i
-  if parsed.ok?
-    return some(parsed.unwrap!)
-  end
+  return some(parsed.unwrap!) if parsed.ok?
 
-  return none
+  none
 end
 
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
-    Answer.Page(html) -> return AuthWeb.private_page(Bond.html(conn, 200, html))
-    Answer.Refused(html) -> return AuthWeb.private_page(Bond.html(conn, 422, html))
-    Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
-    Answer.Redirect(path) -> return Bond.redirect(conn, path)
-    Answer.Banned(user_id) -> return Bond.redirect(conn, Routes.user_path(user_id))
-    Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
-    Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
-    Answer.Conflict -> return Bond.text(conn, 409, CONFLICT)
-    Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
+    Answer.Page(html) -> AuthWeb.private_page(Bond.html(conn, 200, html))
+    Answer.Refused(html) -> AuthWeb.private_page(Bond.html(conn, 422, html))
+    Answer.NotAllowed(allow) -> Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
+    Answer.Redirect(path) -> Bond.redirect(conn, path)
+    Answer.Banned(user_id) -> Bond.redirect(conn, Routes.user_path(user_id))
+    Answer.NotFound -> Bond.text(conn, 404, Routes.MISSING)
+    Answer.Forbidden -> Bond.text(conn, 403, "Forbidden")
+    Answer.Conflict -> Bond.text(conn, 409, CONFLICT)
+    Answer.SignedOut -> Bond.redirect(conn, Routes.SIGN_IN)
   end
 end

@@ -31,7 +31,7 @@ export HISTORY_TABLE = "agentica_schema_migrations"
 
 ## Every migration of the schema, oldest first. `test/migrations_test.agc` checks that it has one per file.
 export def all() -> List[Migrate.Migration]
-  return [
+  [
     M0001.migration(),
     M0002.migration(),
     M0003.migration(),
@@ -52,12 +52,8 @@ end
 
 ## What an app needs of its own in a database that Rails made, which has no other migration run on it: the tables that
 ## Rails lacks (the password resets), as statements that do nothing when they ran already.
-export def extensions() -> List[String]
-  return M0015.statements()
-end
+export def extensions() -> List[String] = M0015.statements()
 
 ## The version of the last migration: the schema version of a database that is up to date. The versions ascend in the
 ## list (`Migrate.up` refuses a list that does not).
-export def latest() -> Int
-  return all().last.version
-end
+export def latest() -> Int = all().last.version

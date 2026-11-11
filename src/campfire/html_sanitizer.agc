@@ -316,33 +316,27 @@ export def sanitize(html: String) -> String
     end
   end
 
-  return out.push(closing_tags(open, 0)).join("")
+  out.push(closing_tags(open, 0)).join("")
 end
 
 ## The HTML of a plain text, as a body that `sanitize` leaves as it is: `&`, `<`, `>` and the quotes escaped, and a new
 ## line made a `<br>`, since HTML shows a new line as a space.
-export def from_text(text: String) -> String
-  return HTML.escape(text).replace("\r\n", "\n").replace("\n", "<br>")
-end
+export def from_text(text: String) -> String = HTML.escape(text).replace("\r\n", "\n").replace("\n", "<br>")
 
 ## The text that an edit form shows for a clean body. A body that is plain text as `from_text` wrote it (no tag but
 ## `<br>`) gives that text back exactly, blank lines included, so saving the form again changes nothing. Any other markup
 ## (a body that Rails wrote) gives `plain_text_of_clean`, which keeps no blank line and no formatting.
 export def text_of_clean(clean: String) -> String
-  if clean.replace("<br>", "").include?("<")
-    return plain_text_of_clean(clean)
-  end
+  return plain_text_of_clean(clean) if clean.replace("<br>", "").include?("<")
 
-  return HTML.unescape(clean.replace("<br>", "\n"))
+  HTML.unescape(clean.replace("<br>", "\n"))
 end
 
 ## The text of the HTML `html` without its markup, as the search index keeps it (Action Text's `to_plain_text` does the
 ## same for Rails): the text of the sanitized body, the entities read back (`&amp;` is `&`), a line break at the end of
 ## a block and at a `<br>`, and no empty line. It reads what `sanitize` wrote, so a tag in it is a name, maybe the
 ## attributes of a link, then the first `>`: a `>` in a value is written as `&gt;`.
-export def plain_text(html: String) -> String
-  return plain_text_of_clean(sanitize(html))
-end
+export def plain_text(html: String) -> String = plain_text_of_clean(sanitize(html))
 
 ## `plain_text` of a body that `sanitize` has cleaned already, for the caller that has the clean text and so does not
 ## sanitize it a second time.
@@ -372,24 +366,20 @@ export def plain_text_of_clean(clean: String) -> String
   end
 
   lines = HTML.unescape(out.join("")).split("\n").map do |line| line.strip end
-  return lines.select do |line| not line.empty? end.join("\n")
+  lines.select do |line| not line.empty? end.join("\n")
 end
 
 # The first character of what follows a `<` makes it markup (a tag, a comment) and not a lone `<` that is text.
 def markup_start?(part: String) -> Bool
-  if part.empty?
-    return false
-  end
+  return false if part.empty?
 
   first = part.slice(0, 1)
-  return first == "!" or first == "?" or first == "/" or LETTERS.include?(first)
+  first == "!" or first == "?" or first == "/" or LETTERS.include?(first)
 end
 
 # `text` (which has no `<`) with `>` escaped, `&` escaped unless it starts an entity.
 def escape_text(text: String) -> String
-  if not text.include?("&")
-    return text.replace(">", "&gt;")
-  end
+  return text.replace(">", "&gt;") if not text.include?("&")
 
   pieces = text.split("&")
   out = [pieces[0].replace(">", "&gt;")]
@@ -405,7 +395,7 @@ def escape_text(text: String) -> String
     end
   end
 
-  return out.join("")
+  out.join("")
 end
 
 # Handles the `<` at `start`: a tag, a comment, or a lone `<` that is text.
@@ -421,71 +411,53 @@ def markup(text: Text, start: Int, open: List[String]) -> Piece
     return Piece(html: "", open: open, next: bogus_end(cs, n, start + 2))
   end
 
-  if after == "?"
-    return Piece(html: "", open: open, next: bogus_end(cs, n, start + 2))
-  end
+  return Piece(html: "", open: open, next: bogus_end(cs, n, start + 2)) if after == "?"
 
   if after == "/" and not LETTERS.include?(at(cs, n, start + 2))
     return Piece(html: "", open: open, next: bogus_end(cs, n, start + 2))
   end
 
-  if after == "/" or LETTERS.include?(after)
-    return tag_piece(text, start, open)
-  end
+  return tag_piece(text, start, open) if after == "/" or LETTERS.include?(after)
 
-  return Piece(html: "&lt;", open: open, next: start + 1)
+  Piece(html: "&lt;", open: open, next: start + 1)
 end
 
 def tag_piece(text: Text, start: Int, open: List[String]) -> Piece
   read = read_tag(text, start)
   # A tag that the text ends inside of is not a tag (a browser drops it too), and nothing follows it.
-  if not read.ok?
-    return Piece(html: "", open: open, next: text.size)
-  end
+  return Piece(html: "", open: open, next: text.size) if not read.ok?
 
   # Safe: `ok?` was checked above.
   tag = read.unwrap!
-  if tag.closing
-    return close_piece(tag.name, open, tag.next)
-  end
+  return close_piece(tag.name, open, tag.next) if tag.closing
 
-  return open_piece(text, tag, open)
+  open_piece(text, tag, open)
 end
 
 def open_piece(text: Text, tag: Tag, open: List[String]) -> Piece
   name = tag.name
-  if DROPPED_WITH_CONTENT.include?(name)
-    return Piece(html: "", open: open, next: raw_text_end(text, tag.next, name))
-  end
+  return Piece(html: "", open: open, next: raw_text_end(text, tag.next, name)) if DROPPED_WITH_CONTENT.include?(name)
 
-  if not ALLOWED_TAGS.include?(name)
-    return Piece(html: "", open: open, next: tag.next)
-  end
+  return Piece(html: "", open: open, next: tag.next) if not ALLOWED_TAGS.include?(name)
 
   if name == "a"
     # No end tag is implied for a link, and the cap comes first.
-    if open.size >= MAX_DEPTH
-      return Piece(html: "", open: open, next: tag.next)
-    end
+    return Piece(html: "", open: open, next: tag.next) if open.size >= MAX_DEPTH
 
     return link_piece(tag, open)
   end
 
-  return start_piece(name, open, tag.next, language_of(name, tag))
+  start_piece(name, open, tag.next, language_of(name, tag))
 end
 
 # The `data-language` that is written on a tag: a short name, on a `pre` only; "" for none.
 def language_of(name: String, tag: Tag) -> String
   language = tag.language.unwrap_or("")
-  if name != "pre" or language.empty? or language.length > MAX_LANGUAGE
-    return ""
-  end
+  return "" if name != "pre" or language.empty? or language.length > MAX_LANGUAGE
 
-  if language.split("").all? do |c| LANGUAGE_CHARS.include?(c) end
-    return language
-  end
+  return language if language.split("").all? do |c| LANGUAGE_CHARS.include?(c) end
 
-  return ""
+  ""
 end
 
 # A start tag of `PLAIN_TAGS`; `next` is where the input goes on after it. `language` is the `data-language` of a `pre`
@@ -500,9 +472,7 @@ def start_piece(name: String, open: List[String], next: Int, language: String) -
     stack = closed.open
   end
 
-  if VOID_TAGS.include?(name)
-    return Piece(html: "#{ended}<#{name}>", open: stack, next: next)
-  end
+  return Piece(html: "#{ended}<#{name}>", open: stack, next: next) if VOID_TAGS.include?(name)
 
   tag = "<#{name}>"
   if not language.empty?
@@ -510,11 +480,9 @@ def start_piece(name: String, open: List[String], next: Int, language: String) -
   end
 
   # The cap is checked after the end tags above, which make room.
-  if stack.size >= MAX_DEPTH
-    return Piece(html: ended, open: stack, next: next)
-  end
+  return Piece(html: ended, open: stack, next: next) if stack.size >= MAX_DEPTH
 
-  return Piece(html: "#{ended}#{tag}", open: stack.push(name), next: next)
+  Piece(html: "#{ended}#{tag}", open: stack.push(name), next: next)
 end
 
 # The end tags that the start tag `name` implies. The cost is bounded by MAX_DEPTH, as the stack is.
@@ -532,7 +500,7 @@ def auto_close(open: List[String], name: String) -> Closed
     closed = end_open(closed, PARAGRAPHS, PARAGRAPH_WALLS)
   end
 
-  return closed
+  closed
 end
 
 # Ends the innermost open tag of `targets`, and what is inside it, unless a wall comes first.
@@ -540,50 +508,38 @@ def end_open(closed: Closed, targets: Set[String], walls: Set[String]) -> Closed
   open = closed.open
   k = open.size - 1
   while k >= 0 and not targets.include?(open[k])
-    if walls.include?(open[k])
-      return closed
-    end
+    return closed if walls.include?(open[k])
 
     k -= 1
   end
 
-  if k < 0
-    return closed
-  end
+  return closed if k < 0
 
-  return Closed(html: "#{closed.html}#{closing_tags(open, k)}", open: open.take(k))
+  Closed(html: "#{closed.html}#{closing_tags(open, k)}", open: open.take(k))
 end
 
 # A link opens only with a good address. One link inside another closes the first, as in a browser.
 def link_piece(tag: Tag, open: List[String]) -> Piece
   url = safe_href(tag.href.unwrap_or(""))
-  if url.none?
-    return Piece(html: "", open: open, next: tag.next)
-  end
+  return Piece(html: "", open: open, next: tag.next) if url.none?
 
   link = "<a href=\"#{HTML.escape(url.unwrap!)}\" rel=\"#{LINK_REL}\">"
   inner = position_of(open, "a")
-  if inner < 0
-    return Piece(html: link, open: open.push("a"), next: tag.next)
-  end
+  return Piece(html: link, open: open.push("a"), next: tag.next) if inner < 0
 
-  return Piece(html: "#{closing_tags(open, inner)}#{link}", open: open.take(inner).push("a"), next: tag.next)
+  Piece(html: "#{closing_tags(open, inner)}#{link}", open: open.take(inner).push("a"), next: tag.next)
 end
 
 # An end tag closes what it names and what was opened inside it; one that names nothing open goes.
 def close_piece(name: String, open: List[String], next: Int) -> Piece
   top = open.size - 1
   # The usual end tag closes the innermost one.
-  if top >= 0 and open[top] == name
-    return Piece(html: "</#{name}>", open: open.take(top), next: next)
-  end
+  return Piece(html: "</#{name}>", open: open.take(top), next: next) if top >= 0 and open[top] == name
 
   inner = position_of(open, name)
-  if inner < 0
-    return Piece(html: "", open: open, next: next)
-  end
+  return Piece(html: "", open: open, next: next) if inner < 0
 
-  return Piece(html: closing_tags(open, inner), open: open.take(inner), next: next)
+  Piece(html: closing_tags(open, inner), open: open.take(inner), next: next)
 end
 
 # The place of the innermost open `name`, or -1.
@@ -593,19 +549,15 @@ def position_of(open: List[String], name: String) -> Int
     k -= 1
   end
 
-  return k
+  k
 end
 
 # The end tags of `open` from the innermost down to the one at `keep`.
 def closing_tags(open: List[String], keep: Int) -> String
   k = open.size - 1
-  if k < keep
-    return ""
-  end
+  return "" if k < keep
 
-  if k == keep
-    return "</#{open[k]}>"
-  end
+  return "</#{open[k]}>" if k == keep
 
   parts: List[String] = []
   while k >= keep
@@ -613,7 +565,7 @@ def closing_tags(open: List[String], keep: Int) -> String
     k -= 1
   end
 
-  return parts.join("")
+  parts.join("")
 end
 
 # Reads the tag whose `<` is at `start` (a letter or `/` and a letter follows), the way the HTML tokenizer does: a
@@ -658,7 +610,7 @@ def read_tag(text: Text, start: Int) -> Result[Tag]
     i = skip(cs, n, i, BETWEEN_ATTRIBUTES)
   end
 
-  return error("tag not closed")
+  error("tag not closed")
 end
 
 # The text of the value that starts at `start`, quoted or not, and the place after it. An error is a quote that the
@@ -668,14 +620,12 @@ def read_value(text: Text, start: Int) -> Result[Run]
   quote = at(text.chars, n, start)
   if quote == "\"" or quote == "'"
     stop = find_from(text, start + 1, quote)
-    if stop >= n
-      return error("value not closed")
-    end
+    return error("value not closed") if stop >= n
 
     return ok(Run(text: run_of(text, start + 1, stop), next: stop + 1))
   end
 
-  return ok(take_until(text, start, UNQUOTED_END))
+  ok(take_until(text, start, UNQUOTED_END))
 end
 
 # The address of a link, ready to write, or none when it is not one to follow. A browser reads the value of an
@@ -683,16 +633,12 @@ end
 # text; the text that is written is that text escaped again, so a browser reads back exactly what was checked.
 def safe_href(raw: String) -> Optional[String]
   url = HTML.unescape(raw).replace("\t", "").replace("\n", "").replace("\r", "").strip
-  if url.empty? or has_control?(url) or not scheme_allowed?(url)
-    return none
-  end
+  return none if url.empty? or has_control?(url) or not scheme_allowed?(url)
 
-  return some(url)
+  some(url)
 end
 
-def has_control?(text: String) -> Bool
-  return text.split("").any? do |c| c.code < 32 or c.code == 127 end
-end
+def has_control?(text: String) -> Bool = text.split("").any? do |c| c.code < 32 or c.code == 127 end
 
 # An address with no scheme is relative; with one (a colon before any `/`, `?` or `#`) it must be on the list. A
 # colon-prefix that is not a real scheme is refused too, which is stricter than a browser and costs nothing.
@@ -701,11 +647,9 @@ def scheme_allowed?(url: String) -> Bool
   cs = text.chars
   n = text.size
   head = take_until(text, 0, URL_DELIMITERS)
-  if at(cs, n, head.next) != ":"
-    return true
-  end
+  return true if at(cs, n, head.next) != ":"
 
-  return ALLOWED_SCHEMES.include?(head.text.downcase)
+  ALLOWED_SCHEMES.include?(head.text.downcase)
 end
 
 # The place after the entity at `start` (an `&`) when it is a name or a number then `;`, which is text that a browser
@@ -727,40 +671,30 @@ def entity_end(cs: List[String], n: Int, start: Int) -> Int
     i += 1
   end
 
-  if i > first and at(cs, n, i) == ";"
-    return i + 1
-  end
+  return i + 1 if i > first and at(cs, n, i) == ";"
 
-  return -1
+  -1
 end
 
 # The place after a comment whose `<!--` ends before `start`. `<!-->` and `<!--->` are whole comments, and `--!>`
 # ends one like `-->` does; a comment that never ends takes the rest of the text.
 def comment_end(cs: List[String], n: Int, start: Int) -> Int
-  if at(cs, n, start) == ">"
-    return start + 1
-  end
+  return start + 1 if at(cs, n, start) == ">"
 
-  if at(cs, n, start) == "-" and at(cs, n, start + 1) == ">"
-    return start + 2
-  end
+  return start + 2 if at(cs, n, start) == "-" and at(cs, n, start + 1) == ">"
 
   j = start
   while j < n
     if cs[j] == "-" and at(cs, n, j + 1) == "-"
-      if at(cs, n, j + 2) == ">"
-        return j + 3
-      end
+      return j + 3 if at(cs, n, j + 2) == ">"
 
-      if at(cs, n, j + 2) == "!" and at(cs, n, j + 3) == ">"
-        return j + 4
-      end
+      return j + 4 if at(cs, n, j + 2) == "!" and at(cs, n, j + 3) == ">"
     end
 
     j += 1
   end
 
-  return n
+  n
 end
 
 # The place after the next `>`, for `<!DOCTYPE>`, `<?xml ?>`, `<![CDATA[` and `</ x>`, which a browser reads
@@ -771,7 +705,7 @@ def bogus_end(cs: List[String], n: Int, start: Int) -> Int
     j += 1
   end
 
-  return j + 1
+  j + 1
 end
 
 # The place after the end tag of `name` that closes a script or its kind, or the end of the text.
@@ -784,9 +718,7 @@ def raw_text_end(text: Text, start: Int, name: String) -> Int
     if cs[j] == "<" and at(cs, n, j + 1) == "/" and spells?(cs, n, j + 2, letters)
       if AFTER_END_NAME.include?(at(cs, n, j + 2 + letters.size))
         closer = read_tag(text, j)
-        if closer.ok?
-          return closer.unwrap!.next
-        end
+        return closer.unwrap!.next if closer.ok?
 
         return n
       end
@@ -795,20 +727,18 @@ def raw_text_end(text: Text, start: Int, name: String) -> Int
     j += 1
   end
 
-  return n
+  n
 end
 
 def spells?(cs: List[String], n: Int, start: Int, letters: List[String]) -> Bool
   k = 0
   while k < letters.size
-    if at(cs, n, start + k).downcase != letters[k]
-      return false
-    end
+    return false if at(cs, n, start + k).downcase != letters[k]
 
     k += 1
   end
 
-  return true
+  true
 end
 
 # The text from `start` up to the first character in `stops`, or the end, and the place where it stopped.
@@ -820,7 +750,7 @@ def take_until(text: Text, start: Int, stops: Set[String]) -> Run
     i += 1
   end
 
-  return Run(text: run_of(text, start, i), next: i)
+  Run(text: run_of(text, start, i), next: i)
 end
 
 # The place of the first `needle` from `start` on, or the end of the text. In ASCII text it looks at a window of
@@ -841,21 +771,17 @@ def find_from(text: Text, start: Int, needle: String) -> Int
   while i < n
     width = (n - i).clamp(1, SEARCH_WINDOW)
     found = text.source.slice(i, width).index_of(needle)
-    if found.some?
-      return i + found.unwrap!
-    end
+    return i + found.unwrap! if found.some?
 
     i += width
   end
 
-  return n
+  n
 end
 
 # The text from the place `from` up to the place `to`.
 def run_of(text: Text, from: Int, to: Int) -> String
-  if text.ascii
-    return text.source.slice(from, to - from)
-  end
+  return text.source.slice(from, to - from) if text.ascii
 
   cs = text.chars
   pieces: List[String] = []
@@ -865,13 +791,13 @@ def run_of(text: Text, from: Int, to: Int) -> String
     i += 1
   end
 
-  return pieces.join("")
+  pieces.join("")
 end
 
 # The characters of `source`, once, so that the places of a reader count in them.
 def read_text(source: String) -> Text
   chars = source.split("")
-  return Text(source: source, chars: chars, size: chars.size, ascii: source.bytesize == chars.size)
+  Text(source: source, chars: chars, size: chars.size, ascii: source.bytesize == chars.size)
 end
 
 def skip(cs: List[String], n: Int, start: Int, skipped: Set[String]) -> Int
@@ -880,14 +806,12 @@ def skip(cs: List[String], n: Int, start: Int, skipped: Set[String]) -> Int
     i += 1
   end
 
-  return i
+  i
 end
 
 # The character at `i`, or "" past the end, so a look ahead needs no bounds check.
 def at(cs: List[String], n: Int, i: Int) -> String
-  if i < n
-    return cs[i]
-  end
+  return cs[i] if i < n
 
-  return ""
+  ""
 end
