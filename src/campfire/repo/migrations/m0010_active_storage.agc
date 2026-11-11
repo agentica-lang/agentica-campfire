@@ -7,7 +7,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 10: create active storage.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     10,
     "create active storage",
     [
@@ -25,7 +25,7 @@ export def migration() -> Migrate.Migration
 end
 
 def blobs() -> String
-  return <<~SQL
+  <<~SQL
     create table active_storage_blobs (
       id integer primary key autoincrement not null,
       byte_size bigint not null,
@@ -41,7 +41,7 @@ def blobs() -> String
 end
 
 def attachments() -> String
-  return <<~SQL
+  <<~SQL
     create table active_storage_attachments (
       id integer primary key autoincrement not null,
       blob_id bigint not null,
@@ -55,7 +55,7 @@ def attachments() -> String
 end
 
 def variant_records() -> String
-  return <<~SQL
+  <<~SQL
     create table active_storage_variant_records (
       id integer primary key autoincrement not null,
       blob_id bigint not null,

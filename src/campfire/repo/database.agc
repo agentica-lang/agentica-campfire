@@ -35,7 +35,7 @@ export def migrate(url: String) -> Result[Schema]
   conn = try Db.open(url)
   migrated = migrate_open(conn)
   Db.close(conn)
-  return migrated
+  migrated
 end
 
 ## Opens `size` connections to the database at `url` (0 takes the size of the database, 4 for SQLite) and starts the
@@ -44,7 +44,7 @@ end
 ## The migrations ran before (`migrate`), and the url is a file: a `sqlite::memory:` database would be one empty
 ## database per connection. An `error` says what failed (a url that does not open), and stops the start.
 export def open_pool(url: String, size: Int, checkout_ms: Int) -> Result[Pool]
-  return DbPool.start(DbPool.Options(url: url, size: size, checkout_ms: checkout_ms))
+  DbPool.start(DbPool.Options(url: url, size: size, checkout_ms: checkout_ms))
 end
 
 ## Closes the pool: the requests that run finish first (for up to a second), and the rest is turned away.
@@ -57,9 +57,7 @@ end
 ## on a connection that serves requests it would miss its own writes. See `version_reader.agc` for how the schedulers
 ## share it. As for `open_pool`, the connection belongs to the task that calls this, which must live as long as the
 ## app does. An `error` says what failed.
-export def open_observer(url: String) -> Result[Observer]
-  return VersionReader.open(url)
-end
+export def open_observer(url: String) -> Result[Observer] = VersionReader.open(url)
 
 ## Closes the observer, once nothing reads it any more.
 export def close_observer(observer: Observer) -> Void
@@ -70,23 +68,19 @@ end
 ## any program (the app itself, a Rails app, the `sqlite3` tool): the `data_version` of the observer. A change of the
 ## schema or of a table that nothing reads is a change too: that only costs a page that is made again. An `error`
 ## means that nothing is known, so the caller must not trust or keep anything it saw before.
-export def version(observer: Observer) -> Result[String]
-  return VersionReader.version(observer)
-end
+export def version(observer: Observer) -> Result[String] = VersionReader.version(observer)
 
 ## Runs `body` with a connection of the pool and gives its result: a request takes one connection, does all its work
 ## on it and gives it back, whatever `body` gives (a transaction it left open is rolled back). The block runs in a task
 ## of the pool, not in the task of the request.
-export def with_connection[R](pool: Pool, body: Fn[Db.Connection, Result[R]]) -> Result[R]
-  return DbPool.with(pool, body)
-end
+export def with_connection[R](pool: Pool, body: Fn[Db.Connection, Result[R]]) -> Result[R] = DbPool.with(pool, body)
 
 ## True for the message of a failure that means the database is busy, not broken: no free connection within
 ## `checkout_ms`, more callers in line than the pool takes, a pool that is closing, a block or a statement that ran too
 ## long (`DbPool.timeout?`), and SQLite's `database is locked` (error 5) once its `busy_timeout` is over. The app
 ## answers those with a 503 instead of a 500.
 export def busy?(message: String) -> Bool
-  return (
+  (
     DbPool.timeout?(message) or
     message.include?("pool error: queue full") or
     message.include?("pool error: closed") or
@@ -119,14 +113,14 @@ def migrate_open(conn: Db.Connection) -> Result[Schema]
   end
 
   applied = try Migrate.up(conn, Migrations.all(), Migrations.HISTORY_TABLE)
-  return ok(Schema(version: Migrations.latest(), applied: applied, rails: false))
+  ok(Schema(version: Migrations.latest(), applied: applied, rails: false))
 end
 
 # The columns of the Rails schema that the app reads or writes. A database that has `ar_internal_metadata` is trusted
 # to be the schema of Campfire at 90b3300 and is not migrated, so a start checks these, and a database of some other
 # Rails app, or an older Campfire, stops it with the name of what is missing, instead of failing in a request.
 def needed_columns() -> Map[String, List[String]]
-  return {
+  {
     "accounts": ["id", "name", "join_code", "singleton_guard", "created_at", "updated_at"],
     "users": [
       "id",
@@ -172,7 +166,7 @@ def check_rails_columns(conn: Db.Connection) -> Result[Void]
     end
   end
 
-  return ok()
+  ok()
 end
 
 # The tables that the app has and Rails has not. They are not a migration: there is no history to record, and the
@@ -182,7 +176,7 @@ def add_extensions(tx: Db.Connection) -> Result[Void]
     try Db.execute(tx, sql, [])
   end
 
-  return ok()
+  ok()
 end
 
 # What the app made before its history was rewritten to the Rails schema: it has `schema_migrations` (the default
@@ -196,7 +190,7 @@ def earlier_version?(conn: Db.Connection) -> Result[Bool]
   )
 
   names = rows.map do |row| text_of(row, "name") end
-  return ok(names.include?("schema_migrations") and not names.include?(Migrations.HISTORY_TABLE))
+  ok(names.include?("schema_migrations") and not names.include?(Migrations.HISTORY_TABLE))
 end
 
 # `ar_internal_metadata` is the table that Active Record makes for itself in every database it creates, with the
@@ -208,23 +202,21 @@ def rails_made?(conn: Db.Connection) -> Result[Bool]
     [],
   )
 
-  return ok(int_of(rows[0], "total") > 0)
+  ok(int_of(rows[0], "total") > 0)
 end
 
 # The newest `schema_migrations.version` (a timestamp, kept as text), or 0 when there is none.
 def rails_version(conn: Db.Connection) -> Result[Int]
   rows = try Db.query(conn, "select max(cast(version as integer)) as newest from schema_migrations", [])
   newest = int_of(rows[0], "newest")
-  if newest < 0
-    return ok(0)
-  end
+  return ok(0) if newest < 0
 
-  return ok(newest)
+  ok(newest)
 end
 
 def on?(value: Db.Value) -> Bool
   case value
-    Db.Value.Int(flag) -> return flag == 1
-    _ -> return false
+    Db.Value.Int(flag) -> flag == 1
+    _ -> false
   end
 end

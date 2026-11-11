@@ -53,9 +53,7 @@ SYMBOL_RANGES = [
 
 ## `clean` with the URLs and the email addresses of its text made links. A text that has none comes back as it is.
 export def link(clean: String) -> String
-  if not linkable?(clean)
-    return clean
-  end
+  return clean if not linkable?(clean)
 
   parts = clean.split("<")
   out = [link_text(parts[0])]
@@ -82,20 +80,16 @@ export def link(clean: String) -> String
     end
   end
 
-  return out.join("")
+  out.join("")
 end
 
 # Only text with a colon, an `@` or `www.` can hold what `URL` or `EMAIL` matches.
-def linkable?(text: String) -> Bool
-  return text.include?(":") or text.include?("@") or text.downcase.include?("www.")
-end
+def linkable?(text: String) -> Bool = text.include?(":") or text.include?("@") or text.downcase.include?("www.")
 
 # URLs first; the text between them is searched for addresses, as `auto_link` does, and an address inside a URL is
 # part of the URL.
 def link_text(text: String) -> String
-  if not linkable?(text)
-    return text
-  end
+  return text if not linkable?(text)
 
   out: List[String] = []
   cursor = 0
@@ -105,28 +99,24 @@ def link_text(text: String) -> String
     cursor = found.stop
   end
 
-  return out.push(link_emails(text.slice(cursor, text.length - cursor))).join("")
+  out.push(link_emails(text.slice(cursor, text.length - cursor))).join("")
 end
 
 def link_emails(text: String) -> String
-  if not text.include?("@")
-    return text
-  end
+  return text if not text.include?("@")
 
   out: List[String] = []
   cursor = 0
   for found in Regex.find_all(text, EMAIL)
     # `auto_link` only starts an address where its local part starts.
-    if found.start > 0 and EMAIL_LOCAL.include?(text.slice(found.start - 1, 1))
-      next
-    end
+    next if found.start > 0 and EMAIL_LOCAL.include?(text.slice(found.start - 1, 1))
 
     out = out.push(text.slice(cursor, found.start - cursor))
     out = out.push("<a #{LINK_ATTRIBUTES} href=\"mailto:#{found.text}\" #{LINK_REL}>#{found.text}</a>")
     cursor = found.stop
   end
 
-  return out.push(text.slice(cursor, text.length - cursor)).join("")
+  out.push(text.slice(cursor, text.length - cursor)).join("")
 end
 
 # The link of one match of `URL`. The punctuation at its end is not part of it (a closing bracket stays when the URL
@@ -165,9 +155,7 @@ def link_url(found: Regex.Match) -> String
   end
 
   # Nothing after the scheme (`http://.`) or after `www` is not an address.
-  if href == "#{found.groups[1].text}//" or href == "www"
-    return found.text
-  end
+  return found.text if href == "#{found.groups[1].text}//" or href == "www"
 
   target = href
   if not found.groups[1].matched
@@ -175,7 +163,7 @@ def link_url(found: Regex.Match) -> String
   end
 
   link = "<a #{LINK_ATTRIBUTES} href=\"#{target}\" #{LINK_REL}>#{href}</a>"
-  return "#{link}#{after}#{closing}"
+  "#{link}#{after}#{closing}"
 end
 
 # A letter, a digit, `_` or another character that ends a URL: the ones of `URL_END` and, past ASCII, any that is
@@ -191,5 +179,5 @@ def word_char?(character: String) -> Bool
     )
   end
 
-  return not SYMBOL_RANGES.any? do |range| code >= range[0] and code <= range[1] end
+  not SYMBOL_RANGES.any? do |range| code >= range[0] and code <= range[1] end
 end

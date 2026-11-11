@@ -10,7 +10,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 6: create messages.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     6,
     "create messages",
     [
@@ -22,7 +22,7 @@ export def migration() -> Migrate.Migration
 end
 
 def messages() -> String
-  return <<~SQL
+  <<~SQL
     create table messages (
       id integer primary key autoincrement not null,
       client_message_id varchar not null,

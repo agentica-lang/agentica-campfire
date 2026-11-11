@@ -7,12 +7,10 @@ struct Case
   want: String
 end
 
-def blank(url: String, shown: String) -> String
-  return "<a target=\"_blank\" href=\"#{url}\" #{REL}>#{shown}</a>"
-end
+def blank(url: String, shown: String) -> String = "<a target=\"_blank\" href=\"#{url}\" #{REL}>#{shown}</a>"
 
 def cases() -> List[Case]
-  return [
+  [
     Case(input: "no links here", want: "no links here"),
     Case(input: "time 10:30 or a ratio 3:2", want: "time 10:30 or a ratio 3:2"),
     Case(
@@ -62,7 +60,7 @@ end
 # A link that is already one is left alone, its text and its address, and the text after it is linked.
 def existing_link_case() -> Case
   link = "<a href=\"http://example.com/x\" #{REL}>http://example.com/x and a@b.com</a>"
-  return Case(input: "#{link} then www.b.org", want: "#{link} then #{blank("http://www.b.org", "www.b.org")}")
+  Case(input: "#{link} then www.b.org", want: "#{link} then #{blank("http://www.b.org", "www.b.org")}")
 end
 
 def main() -> Void

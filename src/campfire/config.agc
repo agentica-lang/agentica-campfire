@@ -214,7 +214,7 @@ export def load() -> Result[Config]
   session_cache_mb = System.env("CAMPFIRE_SESSION_CACHE_MB").unwrap_or("")
   cursor_pages = System.env("CAMPFIRE_CURSOR_PAGES").unwrap_or("")
   max_message_length = System.env("CAMPFIRE_MAX_MESSAGE_LENGTH").unwrap_or("")
-  return parse(
+  parse(
     host,
     port,
     data_dir,
@@ -298,13 +298,9 @@ export def parse(
   cursor_pages: String = "",
   max_message_length: String = "",
 ) -> Result[Config]
-  if host.strip.empty?
-    return error("CAMPFIRE_HOST is empty")
-  end
+  return error("CAMPFIRE_HOST is empty") if host.strip.empty?
 
-  if data_dir.strip.empty?
-    return error("CAMPFIRE_DATA_DIR is empty")
-  end
+  return error("CAMPFIRE_DATA_DIR is empty") if data_dir.strip.empty?
 
   if data_dir.include?("?")
     return error("CAMPFIRE_DATA_DIR must not contain ?, since it starts the parameters of the database url")
@@ -403,9 +399,7 @@ export def parse(
     MAX_SESSION_CACHE_MB,
   )
 
-  if assets_dir.strip.empty?
-    return error("CAMPFIRE_ASSETS_DIR is empty")
-  end
+  return error("CAMPFIRE_ASSETS_DIR is empty") if assets_dir.strip.empty?
 
   folder = data_dir.strip
   files = storage_dir.strip
@@ -418,7 +412,7 @@ export def parse(
     url = "sqlite:#{folder}/campfire.db?fts5=required"
   end
 
-  return ok(
+  ok(
     Config(
       host: host.strip,
       port: number.unwrap!,
@@ -450,43 +444,37 @@ end
 ## True when the links in emails go over plain HTTP to a host that is not this machine: a token that crosses the
 ## network in the clear. The app says so at start; with secure cookies it is an error of `parse` instead.
 export def plain_link?(config: Config) -> Bool
-  return config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
+  config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
 end
 
 # A whole number of `name` from `low` to `high`, `fallback` when the text is empty.
 def parse_db_number(name: String, text: String, fallback: Int, low: Int, high: Int) -> Result[Int]
-  if text.strip.empty?
-    return ok(fallback)
-  end
+  return ok(fallback) if text.strip.empty?
 
   number = text.strip.to_i
   if not number.ok? or number.unwrap! < low or number.unwrap! > high
     return error("#{name} must be a number from #{low} to #{high}, not #{text.inspect}")
   end
 
-  return number
+  number
 end
 
 # The size of the queue of emails, `DEFAULT_MAIL_QUEUE` when it is not set. Only read when email is on.
 def parse_mail_queue(text: String) -> Result[Int]
-  if text.strip.empty?
-    return ok(DEFAULT_MAIL_QUEUE)
-  end
+  return ok(DEFAULT_MAIL_QUEUE) if text.strip.empty?
 
   number = text.strip.to_i
   if not number.ok? or number.unwrap! < 1 or number.unwrap! > MAX_MAIL_QUEUE
     return error("CAMPFIRE_MAIL_QUEUE_SIZE must be a number from 1 to #{MAX_MAIL_QUEUE}, not #{text.inspect}")
   end
 
-  return number
+  number
 end
 
 # `https://campfire.example.com`, or "" when it is not set. Only the origin: a link adds the path.
 def parse_base_url(base_url: String) -> Result[String]
   text = base_url.strip
-  if text.empty?
-    return ok("")
-  end
+  return ok("") if text.empty?
 
   if not text.start_with?("http://") and not text.start_with?("https://")
     return error("CAMPFIRE_BASE_URL must look like #{BASE_URL_FORM}")
@@ -503,14 +491,12 @@ def parse_base_url(base_url: String) -> Result[String]
     return error("CAMPFIRE_BASE_URL must have a host and no user, path, query or fragment: #{BASE_URL_FORM}")
   end
 
-  return ok(clean)
+  ok(clean)
 end
 
 # The smtp url with the EHLO name and the sender that go with it. Nothing is needed without the url.
 def parse_mail(smtp_url: String, base: String, smtp_hostname: String, smtp_from: String) -> Result[Mail]
-  if smtp_url.strip.empty?
-    return ok(Mail(smtp: none, from: ""))
-  end
+  return ok(Mail(smtp: none, from: "")) if smtp_url.strip.empty?
 
   if base.empty?
     return error("CAMPFIRE_BASE_URL is required with CAMPFIRE_SMTP_URL: the links in emails start with it")
@@ -531,28 +517,24 @@ def parse_mail(smtp_url: String, base: String, smtp_hostname: String, smtp_from:
   end
 
   smtp = try parse_smtp_url(smtp_url, hostname)
-  return ok(Mail(smtp: some(smtp), from: from))
+  ok(Mail(smtp: some(smtp), from: from))
 end
 
 # The host of the base url for EHLO: no port, and "" for an IPv6 address in brackets, which EHLO writes another way.
 def base_host(base: String) -> String
   host = authority_host(base)
-  if host.start_with?("[")
-    return ""
-  end
+  return "" if host.start_with?("[")
 
-  return host
+  host
 end
 
 # The host of the base url as a URL writes it: no port, the brackets of an IPv6 address kept.
 def authority_host(base: String) -> String
   marker = base.index_of("://").unwrap_or(0)
   authority = base.slice(marker + 3, base.length - marker - 3)
-  if authority.start_with?("[")
-    return authority.slice(0, authority.index_of("]").unwrap_or(authority.length - 1) + 1)
-  end
+  return authority.slice(0, authority.index_of("]").unwrap_or(authority.length - 1) + 1) if authority.start_with?("[")
 
-  return authority.split(":")[0]
+  authority.split(":")[0]
 end
 
 # The url is split by hand: std has no url parser. The user and the password are percent-decoded, so a password with
@@ -561,9 +543,7 @@ def parse_smtp_url(smtp_url: String, local_hostname: String) -> Result[Smtp.Opti
   text = smtp_url.strip
 
   marker = text.index_of("://").unwrap_or(-1)
-  if marker < 0
-    return error("CAMPFIRE_SMTP_URL must look like #{SMTP_URL_FORM}")
-  end
+  return error("CAMPFIRE_SMTP_URL must look like #{SMTP_URL_FORM}") if marker < 0
 
   scheme = text.slice(0, marker)
   authority = text.slice(marker + 3, text.length - marker - 3)
@@ -582,15 +562,13 @@ def parse_smtp_url(smtp_url: String, local_hostname: String) -> Result[Smtp.Opti
   address = try smtp_place(place)
   security = try smtp_security(scheme)
   port = address.port.unwrap_or(smtp_default_port(security))
-  if address.host.empty?
-    return error("CAMPFIRE_SMTP_URL has no host: #{SMTP_URL_FORM}")
-  end
+  return error("CAMPFIRE_SMTP_URL has no host: #{SMTP_URL_FORM}") if address.host.empty?
 
   if security == Smtp.Security.Plain and not Smtp.loopback?(address.host)
     return error("CAMPFIRE_SMTP_URL: smtp+plain:// is only for a host on this machine, which sends no password safely")
   end
 
-  return ok(
+  ok(
     Smtp.Options(
       host: address.host,
       local_hostname: local_hostname,
@@ -604,19 +582,19 @@ end
 
 def smtp_security(scheme: String) -> Result[Smtp.Security]
   case scheme
-    "smtp" -> return ok(Smtp.Security.Starttls)
-    "smtp+starttls" -> return ok(Smtp.Security.Starttls)
-    "smtps" -> return ok(Smtp.Security.Implicit)
-    "smtp+plain" -> return ok(Smtp.Security.Plain)
-    _ -> return error("CAMPFIRE_SMTP_URL must start with smtp://, smtps:// or smtp+plain://")
+    "smtp" -> ok(Smtp.Security.Starttls)
+    "smtp+starttls" -> ok(Smtp.Security.Starttls)
+    "smtps" -> ok(Smtp.Security.Implicit)
+    "smtp+plain" -> ok(Smtp.Security.Plain)
+    _ -> error("CAMPFIRE_SMTP_URL must start with smtp://, smtps:// or smtp+plain://")
   end
 end
 
 def smtp_default_port(security: Smtp.Security) -> Int
   case security
-    Smtp.Security.Starttls -> return Smtp.STARTTLS_PORT
-    Smtp.Security.Implicit -> return Smtp.IMPLICIT_TLS_PORT
-    Smtp.Security.Plain -> return PLAIN_SMTP_PORT
+    Smtp.Security.Starttls -> Smtp.STARTTLS_PORT
+    Smtp.Security.Implicit -> Smtp.IMPLICIT_TLS_PORT
+    Smtp.Security.Plain -> PLAIN_SMTP_PORT
   end
 end
 
@@ -636,16 +614,14 @@ def smtp_login(login: String) -> Result[SmtpLogin]
     return error("CAMPFIRE_SMTP_URL has a password without a user")
   end
 
-  return ok(SmtpLogin(name: decoded_name, password: decoded_password))
+  ok(SmtpLogin(name: decoded_name, password: decoded_password))
 end
 
 def smtp_decode(text: String) -> Result[String]
   decoded = URI.decode_uri_component(text)
-  if not decoded.ok?
-    return error("CAMPFIRE_SMTP_URL has a user or password that is not percent-encoded correctly")
-  end
+  return error("CAMPFIRE_SMTP_URL has a user or password that is not percent-encoded correctly") if not decoded.ok?
 
-  return decoded
+  decoded
 end
 
 # `host`, `host:port`, `[::1]` or `[::1]:port`. The brackets stay on the host, as `Smtp` takes it.
@@ -654,9 +630,7 @@ def smtp_place(place: String) -> Result[SmtpPlace]
   port_text = ""
   if place.start_with?("[")
     close = place.index_of("]").unwrap_or(-1)
-    if close < 0
-      return error("CAMPFIRE_SMTP_URL has a [ without a ]")
-    end
+    return error("CAMPFIRE_SMTP_URL has a [ without a ]") if close < 0
 
     host = place.slice(0, close + 1)
     rest = place.slice(close + 1, place.length - close - 1)
@@ -677,14 +651,12 @@ def smtp_place(place: String) -> Result[SmtpPlace]
     end
   end
 
-  if port_text.empty?
-    return ok(SmtpPlace(host: host, port: none))
-  end
+  return ok(SmtpPlace(host: host, port: none)) if port_text.empty?
 
   number = port_text.to_i
   if not number.ok? or number.unwrap! < 1 or number.unwrap! > 65535
     return error("CAMPFIRE_SMTP_URL has a port that is not a number from 1 to 65535")
   end
 
-  return ok(SmtpPlace(host: host, port: some(number.unwrap!)))
+  ok(SmtpPlace(host: host, port: some(number.unwrap!)))
 end

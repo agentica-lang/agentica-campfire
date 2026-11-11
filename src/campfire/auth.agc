@@ -104,7 +104,7 @@ end
 ## True while the app has no account: the first run has not happened.
 export def first_run?(conn: Db.Connection) -> Result[Bool]
   exists = try account_exists?(conn)
-  return ok(not exists)
+  ok(not exists)
 end
 
 ## Makes the account, its administrator and the open room "All Talk", and signs them in, in one transaction that
@@ -122,24 +122,18 @@ export def first_run(
   # Before the form and the hashing: once the app has its account, any form is a redirect and costs nothing. The
   # transaction below checks again, for the forms that were sent together.
   exists = try account_exists?(conn)
-  if exists
-    return ok(FirstRun.Closed)
-  end
+  return ok(FirstRun.Closed) if exists
 
   problem = form_problem(name, email, password)
-  if problem != ""
-    return ok(FirstRun.Invalid(problem))
-  end
+  return ok(FirstRun.Invalid(problem)) if problem != ""
 
   digest = try Passwords.hash(password)
   token = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   made = try Db.transaction(conn) do |tx| make_account(tx, name.strip, normal(email), digest, token, client) end
-  if made
-    return ok(FirstRun.Created(token))
-  end
+  return ok(FirstRun.Created(token)) if made
 
-  return ok(FirstRun.Closed)
+  ok(FirstRun.Closed)
 end
 
 ## Makes a member of the account for the person who used the join code, puts them in every open room that exists and
@@ -157,33 +151,25 @@ export def join(
   ip_address: String,
 ) -> Result[JoinOutcome]
   valid = try Accounts.join_code_valid?(conn, code)
-  if not valid
-    return ok(JoinOutcome.Gone)
-  end
+  return ok(JoinOutcome.Gone) if not valid
 
   problem = try join_problem(conn, name, email, password)
-  if problem != ""
-    return ok(JoinOutcome.Invalid(problem))
-  end
+  return ok(JoinOutcome.Invalid(problem)) if problem != ""
 
   digest = try Passwords.hash(password)
-  return join_hashed(conn, code, name, email, digest, user_agent, ip_address)
+  join_hashed(conn, code, name, email, digest, user_agent, ip_address)
 end
 
 ## What is wrong with a join form, or "": a name, email or password that does not do, or an email that has an account
 ## already. It hashes nothing, so the web layer asks it before it takes a hashing slot.
 export def join_problem(conn: Db.Connection, name: String, email: String, password: String) -> Result[String]
   problem = form_problem(name, email, password)
-  if problem != ""
-    return ok(problem)
-  end
+  return ok(problem) if problem != ""
 
   taken = try email_taken?(conn, normal(email))
-  if taken
-    return ok(EMAIL_TAKEN)
-  end
+  return ok(EMAIL_TAKEN) if taken
 
-  return ok("")
+  ok("")
 end
 
 ## The write half of `join`, for a password that is hashed already: the transaction, which checks again that the code
@@ -201,7 +187,7 @@ export def join_hashed(
 ) -> Result[JoinOutcome]
   token = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
-  return Db.transaction(conn) do |tx| make_member(tx, code, name.strip, normal(email), digest, token, client) end
+  Db.transaction(conn) do |tx| make_member(tx, code, name.strip, normal(email), digest, token, client) end
 end
 
 ## Starts a session for the user whose email and password these are and gives its token, or `none` when the email is
@@ -231,11 +217,9 @@ export def sign_in(
   # An `error` is a bcrypt digest that this system cannot check: it fails the request (a 500 with the reason in the
   # log) and does not say "wrong password" to someone who typed the right one.
   verified = try Passwords.verify(password, text_of(rows[0], "password_digest"), bcrypt_library)
-  if not verified
-    return ok(none)
-  end
+  return ok(none) if not verified
 
-  return open_session(conn, int_of(rows[0], "id"), user_agent, ip_address)
+  open_session(conn, int_of(rows[0], "id"), user_agent, ip_address)
 end
 
 ## The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
@@ -256,11 +240,9 @@ export def open_session(
     [Db.Value.Text(token), text_or_null(user_agent), text_or_null(ip_address), Db.Value.Int(user_id)],
   )
 
-  if inserted == 0
-    return ok(none)
-  end
+  return ok(none) if inserted == 0
 
-  return ok(some(token))
+  ok(some(token))
 end
 
 ## The session with this token and its user, or `none` when there is no such session, it is older than the cookie life
@@ -276,9 +258,7 @@ export def user_for(conn: Db.Connection, token: String) -> Result[Optional[Sessi
     [Db.Value.Text(token)],
   )
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
   if int_of(rows[0], "stale") == 1
     touch_session(conn, token)
@@ -290,7 +270,7 @@ export def user_for(conn: Db.Connection, token: String) -> Result[Optional[Sessi
     role: Rails.role_name(int_of(rows[0], "role")),
   )
 
-  return ok(some(Session(user: person, ends_at_ms: int_of(rows[0], "ends_at_ms"))))
+  ok(some(Session(user: person, ends_at_ms: int_of(rows[0], "ends_at_ms"))))
 end
 
 ## How many seconds the session with this token has before it is as old as a cookie lives (`SESSION_SECONDS`): the
@@ -305,22 +285,18 @@ export def seconds_left(conn: Db.Connection, token: String) -> Result[Int]
     [Db.Value.Text(token)],
   )
 
-  if rows.empty?
-    return ok(0)
-  end
+  return ok(0) if rows.empty?
 
   remaining = int_of(rows[0], "remaining")
-  if remaining < 0
-    return ok(0)
-  end
+  return ok(0) if remaining < 0
 
-  return ok(remaining)
+  ok(remaining)
 end
 
 ## Ends the session with this token. A token that is not there is not an error.
 export def sign_out(conn: Db.Connection, token: String) -> Result[Void]
   try Db.execute(conn, "delete from sessions where token = ?", [Db.Value.Text(token)])
-  return ok()
+  ok()
 end
 
 ## Makes a reset link for the person with this email, and gives what the email needs, or `none` when nothing is to be
@@ -330,12 +306,10 @@ end
 ## It is one transaction, which takes the write lock first, so requests that come together find each other's link and
 ## only one of them sends.
 export def request_password_reset(conn: Db.Connection, email: String) -> Result[Optional[PasswordReset]]
-  if email.length > MAX_EMAIL_LENGTH
-    return ok(none)
-  end
+  return ok(none) if email.length > MAX_EMAIL_LENGTH
 
   token = OpenSSL.Random.hex(TOKEN_BYTES)
-  return Db.transaction(conn) do |tx| make_reset(tx, normal(email), token) end
+  Db.transaction(conn) do |tx| make_reset(tx, normal(email), token) end
 end
 
 ## Deletes the link of this token, if it was not used: for a link that was made and could not be sent, which would
@@ -347,14 +321,12 @@ export def cancel_password_reset(conn: Db.Connection, token: String) -> Result[V
     [Db.Value.Text(token_digest(token))],
   )
 
-  return ok()
+  ok()
 end
 
 ## True when the token belongs to a link that has not been used or expired. It changes nothing, so a page may call it.
 export def reset_token_valid?(conn: Db.Connection, token: String) -> Result[Bool]
-  if token.empty? or token.length > MAX_TOKEN_LENGTH
-    return ok(false)
-  end
+  return ok(false) if token.empty? or token.length > MAX_TOKEN_LENGTH
 
   rows = try Db.query(
     conn,
@@ -362,7 +334,7 @@ export def reset_token_valid?(conn: Db.Connection, token: String) -> Result[Bool
     [Db.Value.Text(token_digest(token))],
   )
 
-  return ok(int_of(rows[0], "total") > 0)
+  ok(int_of(rows[0], "total") > 0)
 end
 
 ## Sets the new password of the person that the link belongs to, ends every session that they had, starts a new one and
@@ -379,40 +351,27 @@ export def reset_password(
   ip_address: String,
 ) -> Result[ResetOutcome]
   valid = try reset_token_valid?(conn, token)
-  if not valid
-    return ok(ResetOutcome.Gone)
-  end
+  return ok(ResetOutcome.Gone) if not valid
 
   problem = Passwords.problem(password)
-  if problem != ""
-    return ok(ResetOutcome.Invalid(problem))
-  end
+  return ok(ResetOutcome.Invalid(problem)) if problem != ""
 
   digest = try Passwords.hash(password)
   session = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   made = try Db.transaction(conn) do |tx| finish_reset(tx, token, digest, session, client) end
-  if made.some?
-    return ok(ResetOutcome.SignedIn(session, made.unwrap!))
-  end
+  return ok(ResetOutcome.SignedIn(session, made.unwrap!)) if made.some?
 
-  return ok(ResetOutcome.Gone)
+  ok(ResetOutcome.Gone)
 end
 
 ## True when `email` (in the `normal` form) is a single `@` between a name and a domain with a dot, with no space
 ## and not too long: enough to catch a typo. Only a mail sent to the address proves that it works.
 export def valid_email?(email: String) -> Bool
   parts = email.split("@")
-  if parts.size != 2 or email.length > MAX_EMAIL_LENGTH or email.include?(" ")
-    return false
-  end
+  return false if parts.size != 2 or email.length > MAX_EMAIL_LENGTH or email.include?(" ")
 
-  return (
-    not parts[0].empty? and
-    parts[1].include?(".") and
-    not parts[1].start_with?(".") and
-    not parts[1].end_with?(".")
-  )
+  not parts[0].empty? and parts[1].include?(".") and not parts[1].start_with?(".") and not parts[1].end_with?(".")
 end
 
 ## Emails compare without case and without the spaces around them. The unique index of `email_address` compares bytes
@@ -421,33 +380,25 @@ end
 ## which scans `users`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and is not
 ## made twice by a join. Where two rows differ only in case (the index lets Rails make them), the one that is already
 ## lower case is the person, and among the others the oldest.
-export def normal(email: String) -> String
-  return email.strip.downcase
-end
+export def normal(email: String) -> String = email.strip.downcase
 
 ## True when an account has `email` (in the `normal` form), in any status: the unique index compares bytes, so the
 ## lookup falls back to `lower(email_address)`, which finds a row that Rails made with capitals.
 def email_taken?(conn: Db.Connection, email: String) -> Result[Bool]
   exact = try Db.query(conn, "select 1 from users where email_address = ? limit 1", [Db.Value.Text(email)])
-  if not exact.empty?
-    return ok(true)
-  end
+  return ok(true) if not exact.empty?
 
   rows = try Db.query(conn, "select 1 from users where lower(email_address) = ? limit 1", [Db.Value.Text(email)])
-  return ok(not rows.empty?)
+  ok(not rows.empty?)
 end
 
 # What is wrong with the first-run form, or "".
 def form_problem(name: String, email: String, password: String) -> String
-  if name.strip.empty? or name.strip.length > MAX_NAME_LENGTH
-    return "Enter your name"
-  end
+  return "Enter your name" if name.strip.empty? or name.strip.length > MAX_NAME_LENGTH
 
-  if not valid_email?(normal(email))
-    return "Enter a valid email address"
-  end
+  return "Enter a valid email address" if not valid_email?(normal(email))
 
-  return Passwords.problem(password)
+  Passwords.problem(password)
 end
 
 # The rows (at most one) of the active person, not a bot, whose email is `email` in the normal form, with `columns`.
@@ -459,11 +410,9 @@ def find_person(conn: Db.Connection, columns: String, email: String) -> Result[L
     [Db.Value.Text(email)],
   )
 
-  if not exact.empty?
-    return ok(exact)
-  end
+  return ok(exact) if not exact.empty?
 
-  return Db.query(
+  Db.query(
     conn,
     "select #{columns} from users where lower(email_address) = ? and #{allowed} order by id limit 1",
     [Db.Value.Text(email)],
@@ -475,9 +424,7 @@ end
 def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Optional[PasswordReset]]
   rows = try find_person(tx, "id, name, email_address", email)
 
-  if rows.empty?
-    return ok(none)
-  end
+  return ok(none) if rows.empty?
 
   user_id = int_of(rows[0], "id")
   held = try Db.query(
@@ -487,9 +434,7 @@ def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Option
     [Db.Value.Int(user_id)],
   )
 
-  if int_of(held[0], "total") > 0
-    return ok(none)
-  end
+  return ok(none) if int_of(held[0], "total") > 0
 
   try Db.execute(tx, "delete from password_resets where user_id = ? or expires_at <= #{NOW}", [Db.Value.Int(user_id)])
   try Db.execute(
@@ -498,15 +443,11 @@ def make_reset(tx: Db.Connection, email: String, token: String) -> Result[Option
     [Db.Value.Int(user_id), Db.Value.Text(token_digest(token))],
   )
 
-  return ok(
-    some(PasswordReset(name: text_of(rows[0], "name"), email: text_of(rows[0], "email_address"), token: token)),
-  )
+  ok(some(PasswordReset(name: text_of(rows[0], "name"), email: text_of(rows[0], "email_address"), token: token)))
 end
 
 # The hash of a token, as the table keeps it.
-def token_digest(token: String) -> String
-  return OpenSSL.Digest.sha256_hexdigest(token.bytes)
-end
+def token_digest(token: String) -> String = OpenSSL.Digest.sha256_hexdigest(token.bytes)
 
 # `none` when the link was used or expired since it was looked at, or when its person is gone, with no session started;
 # else the id of the person.
@@ -524,9 +465,7 @@ def finish_reset(
     [Db.Value.Text(token_digest(token))],
   )
 
-  if used.empty?
-    return ok(none)
-  end
+  return ok(none) if used.empty?
 
   user_id = int_of(used[0], "user_id")
   changed = try Db.execute(
@@ -536,19 +475,17 @@ def finish_reset(
     [Db.Value.Text(digest), Db.Value.Int(user_id)],
   )
 
-  if changed == 0
-    return ok(none)
-  end
+  return ok(none) if changed == 0
 
   try Db.execute(tx, "delete from sessions where user_id = ?", [Db.Value.Int(user_id)])
   try Db.execute(tx, "delete from password_resets where user_id = ? and used_at is null", [Db.Value.Int(user_id)])
   try insert_session(tx, user_id, session, client)
-  return ok(some(user_id))
+  ok(some(user_id))
 end
 
 def account_exists?(conn: Db.Connection) -> Result[Bool]
   rows = try Db.query(conn, "select count(*) as total from accounts", [])
-  return ok(int_of(rows[0], "total") > 0)
+  ok(int_of(rows[0], "total") > 0)
 end
 
 # True when it made the account; false when there is one, with nothing written. The insert of the account is also
@@ -563,9 +500,7 @@ def make_account(
   client: Client,
 ) -> Result[Bool]
   exists = try account_exists?(tx)
-  if exists
-    return ok(false)
-  end
+  return ok(false) if exists
 
   try Db.execute(
     tx,
@@ -589,7 +524,7 @@ def make_account(
   admin_id = int_of(users[0], "id")
   try Rooms.create_open_in(tx, admin_id, FIRST_ROOM_NAME)
   try insert_session(tx, admin_id, token, client)
-  return ok(true)
+  ok(true)
 end
 
 # The body of `join_hashed`. The email is looked at inside the transaction (it holds the write lock), so the second of
@@ -605,14 +540,10 @@ def make_member(
   client: Client,
 ) -> Result[JoinOutcome]
   valid = try Accounts.join_code_valid?(tx, code)
-  if not valid
-    return ok(JoinOutcome.Gone)
-  end
+  return ok(JoinOutcome.Gone) if not valid
 
   taken = try email_taken?(tx, email)
-  if taken
-    return ok(JoinOutcome.Invalid(EMAIL_TAKEN))
-  end
+  return ok(JoinOutcome.Invalid(EMAIL_TAKEN)) if taken
 
   users = try Db.query(
     tx,
@@ -630,12 +561,12 @@ def make_member(
   user_id = int_of(users[0], "id")
   try Rooms.grant_open_rooms(tx, user_id)
   try insert_session(tx, user_id, token, client)
-  return ok(JoinOutcome.Joined(token))
+  ok(JoinOutcome.Joined(token))
 end
 
 def insert_session(conn: Db.Connection, user_id: Int, token: String, client: Client) -> Result[Int]
   try purge_sessions(conn)
-  return Db.execute(
+  Db.execute(
     conn,
     "insert into sessions (user_id, token, user_agent, ip_address, last_active_at, created_at, updated_at) " +
     "values (?, ?, ?, ?, #{NOW}, #{NOW}, #{NOW})",
@@ -657,7 +588,7 @@ end
 # deactivated (deactivating ends them already; this is the net for a row that gets past it). It runs whenever a session
 # starts, since that is already a write, and a sign-in is the only time the table grows.
 def purge_sessions(conn: Db.Connection) -> Result[Int]
-  return Db.execute(
+  Db.execute(
     conn,
     "delete from sessions where created_at < #{SESSION_EXPIRY} or " +
     "user_id in (select id from users where status <> #{Rails.ACTIVE})",
@@ -666,9 +597,7 @@ def purge_sessions(conn: Db.Connection) -> Result[Int]
 end
 
 def text_or_null(text: String) -> Db.Value
-  if text.empty?
-    return Db.Value.Null
-  end
+  return Db.Value.Null if text.empty?
 
-  return Db.Value.Text(text)
+  Db.Value.Text(text)
 end

@@ -42,11 +42,9 @@ end
 ## The signing key for `secret_key_base`. Make it once, at start-up: 1000 rounds of PBKDF2 are cheap, but there is no
 ## reason to repeat them.
 export def key(secret_key_base: String) -> Result[Bytes]
-  if secret_key_base.empty?
-    return error("signed id: SECRET_KEY_BASE is empty")
-  end
+  return error("signed id: SECRET_KEY_BASE is empty") if secret_key_base.empty?
 
-  return OpenSSL.KDF.pbkdf2_hmac_sha256(secret_key_base.bytes, SALT.bytes, ITERATIONS, KEY_BYTES)
+  OpenSSL.KDF.pbkdf2_hmac_sha256(secret_key_base.bytes, SALT.bytes, ITERATIONS, KEY_BYTES)
 end
 
 ## The token for `id` and `purpose` (`AVATAR_PURPOSE`), without an expiry, in the form of Rails 7.2 and later. A purpose
@@ -59,7 +57,7 @@ export def generate(key: Bytes, id: Int, purpose: String) -> Result[String]
 
   json = "{\"_rails\":{\"data\":#{id},\"pur\":\"#{purpose}\"}}"
   encoded = Base64.urlsafe_encode64(json.bytes, false)
-  return ok("#{encoded}#{SEPARATOR}#{OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes)}")
+  ok("#{encoded}#{SEPARATOR}#{OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes)}")
 end
 
 ## The id in `token` when it was signed with `key`, for `purpose`, and has not expired at `now_ms` (Unix milliseconds,
@@ -67,22 +65,16 @@ end
 ## signature is checked before the text is decoded, in constant time.
 export def verify(key: Bytes, token: String, purpose: String, now_ms: Int) -> Optional[Int]
   cut = token.length - DIGEST_LENGTH - SEPARATOR.length
-  if cut <= 0 or token.slice(cut, SEPARATOR.length) != SEPARATOR
-    return none
-  end
+  return none if cut <= 0 or token.slice(cut, SEPARATOR.length) != SEPARATOR
 
   encoded = token.slice(0, cut)
   digest = token.slice(cut + SEPARATOR.length, DIGEST_LENGTH)
-  if not OpenSSL.HMAC.secure_compare(OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
-    return none
-  end
+  return none if not OpenSSL.HMAC.secure_compare(OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
 
   envelope = envelope_of(encoded)
-  if envelope.none? or envelope.unwrap!.pur != some(purpose) or expired?(envelope.unwrap!.exp, now_ms)
-    return none
-  end
+  return none if envelope.none? or envelope.unwrap!.pur != some(purpose) or expired?(envelope.unwrap!.exp, now_ms)
 
-  return id_of(envelope.unwrap!)
+  id_of(envelope.unwrap!)
 end
 
 # The decoded envelope, from the URL-safe base64 of Rails 7.2 or the plain one of 7.1.
@@ -94,54 +86,38 @@ def envelope_of(encoded: String) -> Optional[Envelope]
 
   text = String.from_bytes(bytes.unwrap_or("".bytes))
   parsed = JSON.parse(text.unwrap_or(""))
-  if not text.ok? or not parsed.ok?
-    return none
-  end
+  return none if not text.ok? or not parsed.ok?
 
   inner = JSON.get(parsed.unwrap!, "_rails")
-  if not inner.ok?
-    return none
-  end
+  return none if not inner.ok?
 
   envelope = JSON.decode(inner.unwrap!, Envelope)
-  if not envelope.ok?
-    return none
-  end
+  return none if not envelope.ok?
 
-  return some(envelope.unwrap!)
+  some(envelope.unwrap!)
 end
 
 def id_of(envelope: Envelope) -> Optional[Int]
-  if envelope.data.some?
-    return envelope.data
-  end
+  return envelope.data if envelope.data.some?
 
-  if envelope.message.none?
-    return none
-  end
+  return none if envelope.message.none?
 
   # The older envelope holds the json of the id, in plain base64 (`"MQ=="` is 1).
   bytes = Base64.strict_decode64(envelope.message.unwrap!)
   text = String.from_bytes(bytes.unwrap_or("".bytes))
   number = text.unwrap_or("").to_i
-  if not text.ok? or not number.ok?
-    return none
-  end
+  return none if not text.ok? or not number.ok?
 
-  return some(number.unwrap!)
+  some(number.unwrap!)
 end
 
 # A token with an expiry that is not in the form of Rails is refused as if it had expired. Both texts have the same
 # shape, so the order of the strings is the order of the times.
 def expired?(exp: Optional[String], now_ms: Int) -> Bool
-  if exp.none?
-    return false
-  end
+  return false if exp.none?
 
   text = exp.unwrap!
-  if text.length != EXPIRY_LENGTH or not text.end_with?("Z")
-    return true
-  end
+  return true if text.length != EXPIRY_LENGTH or not text.end_with?("Z")
 
-  return text.compare(UTC.iso8601(now_ms, 3)) <= 0
+  text.compare(UTC.iso8601(now_ms, 3)) <= 0
 end

@@ -51,7 +51,7 @@ end
 ## The page around `content`, which is raw HTML that the caller made safe (another template, never a value of a
 ## client): only the templates of this file call it. `title` is text, and is escaped.
 export def layout(title: String, content: String) -> String
-  return <<~EAG
+  <<~EAG
     <%@ escape &Bond.escape %>
     <!DOCTYPE html>
     <html lang="en">
@@ -78,7 +78,7 @@ end
 export def sidebar(user_name: String, rooms: List[Rooms.Room], can_create: Bool, unread: List[Int]) -> String
   shared = rooms.select do |room| room.room_type != Rooms.DIRECT end
   direct = rooms.select do |room| room.room_type == Rooms.DIRECT end
-  return <<~EAG
+  <<~EAG
     <%@ escape &Bond.escape %>
     <nav aria-label="Rooms">
       <a class="skip" href="#main">Skip to the page</a>
@@ -183,7 +183,7 @@ export def account(
     <% end %>
     </main>
   EAG
-  return live_layout("Account settings", body)
+  live_layout("Account settings", body)
 end
 
 ## The chat bots page (`accounts/bots/index.html.erb`, for administrators): each active bot with its key, a link to its
@@ -218,7 +218,7 @@ export def bots(sidebar: String, list: List[BotRooms], origin: String) -> String
       <p><a href="<%= Routes.ACCOUNT_EDIT %>">Back to the account</a></p>
     </main>
   EAG
-  return live_layout("Chat bots", body)
+  live_layout("Chat bots", body)
 end
 
 ## The form of a new chat bot (`bot` is `none`) or the page that edits one: the name (`name` is the box, `note` says why
@@ -267,19 +267,15 @@ export def bot_form(sidebar: String, bot: Optional[Bots.Bot], name: String, note
       <p><a href="<%= Routes.BOTS %>">Back to the chat bots</a></p>
     </main>
   EAG
-  return live_layout(title, body)
+  live_layout(title, body)
 end
 
 ## The sidebar alone as a document, for `GET /users/me/sidebar`. `sources` is the markup of the live streams that the
 ## sidebar listens to (`CableWeb.sidebar_sources`), written before it as Rails writes its `turbo_stream_from`.
-export def sidebar_page(sidebar: String, sources: String) -> String
-  return layout("Rooms", sources + "\n" + sidebar)
-end
+export def sidebar_page(sidebar: String, sources: String) -> String = layout("Rooms", sources + "\n" + sidebar)
 
 ## The entry of a room in the sidebar. A live change finds it by its id.
-export def room_item(room: Rooms.Room) -> String
-  return room_entry(room, false)
-end
+export def room_item(room: Rooms.Room) -> String = room_entry(room, false)
 
 ## The entry of a room, marked when the person has it unread: a class for the style and a word for a screen reader.
 ## A room that is read has the markup that it always had.
@@ -291,7 +287,7 @@ export def room_entry(room: Rooms.Room, unread: Bool) -> String
     EAG
   end
 
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <li id="<%= room_item_id(room) %>"><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
   EAG
@@ -299,7 +295,7 @@ end
 
 ## The Turbo Stream that adds a room to the list of its kind in the sidebar: the direct messages, or the rooms.
 export def room_added_stream(room: Rooms.Room) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="append" target="<%= list_id(room) %>"><template><%== room_item(room) %></template></turbo-stream>
   EAG
@@ -307,7 +303,7 @@ end
 
 ## The Turbo Stream that shows the new name of a room in the sidebar.
 export def room_renamed_stream(room: Rooms.Room) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="replace" target="<%= room_item_id(room) %>"><template><%== room_item(room) %></template></turbo-stream>
   EAG
@@ -315,13 +311,13 @@ end
 
 ## The Turbo Stream that takes a room out of the sidebar of the people who were in it.
 export def room_removed_stream(room: Rooms.Room) -> String
-  return "<turbo-stream action=\"remove\" target=\"#{room_item_id(room)}\"><template></template></turbo-stream>"
+  "<turbo-stream action=\"remove\" target=\"#{room_item_id(room)}\"><template></template></turbo-stream>"
 end
 
 ## The Turbo Stream that replaces the room page, for the people who are looking at a room that was deleted: the name of
 ## the room as text, and the way home. Its `<main>` has no composer, so there is nothing to post to a room that is gone.
 export def room_gone_stream(room: Rooms.Room) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="replace" target="main"><template><main id="main"><h1><%= room.name %></h1><p role="status">This room was deleted.</p><p><a href="<%= Routes.HOME %>">Back to the home page</a></p></main></template></turbo-stream>
   EAG
@@ -337,7 +333,7 @@ export def home(sidebar: String) -> String
       <p class="lead">Group chat, written in Agentica.</p>
     </main>
   EAG
-  return live_layout(NAME, body)
+  live_layout(NAME, body)
 end
 
 ## The form that makes an open room. `name` fills the field again after a refusal, and `message` says why ("" shows
@@ -362,13 +358,13 @@ export def new_room(sidebar: String, name: String, message: String) -> String
       </form>
     </main>
   EAG
-  return live_layout("New room", body)
+  live_layout("New room", body)
 end
 
 ## The people to pick, as checkboxes named `member` with their ids as values: the ones whose id is in `chosen` come
 ## checked. It is raw HTML that this file made, for the forms below to put in.
 export def member_picker(people: List[Rooms.Person], chosen: List[Int]) -> String
-  return <<~EAG
+  <<~EAG
     <%@ escape &Bond.escape %>
     <fieldset>
       <legend>People</legend>
@@ -413,7 +409,7 @@ export def new_closed_room(
       </form>
     </main>
   EAG
-  return live_layout("New closed room", body)
+  live_layout("New closed room", body)
 end
 
 ## The form that starts a direct message with the people that are picked. `message` says why the last try was refused
@@ -435,7 +431,7 @@ export def new_direct_room(sidebar: String, people: List[Rooms.Person], chosen: 
       </form>
     </main>
   EAG
-  return live_layout("New direct message", body)
+  live_layout("New direct message", body)
 end
 
 ## The settings of an open or a closed room, drawn as the form of `kind` (`Routes.SETTINGS_OPEN` or `SETTINGS_CLOSED`),
@@ -492,7 +488,7 @@ export def room_settings(
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
     </main>
   EAG
-  return live_layout("Settings of #{room.name}", body)
+  live_layout("Settings of #{room.name}", body)
 end
 
 ## The page where a person chooses whether a room is shown in their sidebar or hidden from it: a radio for each of the
@@ -536,14 +532,14 @@ export def involvement(
       <p><a href="<%= Routes.room_path(room.id) %>">Back to the room</a></p>
     </main>
   EAG
-  return live_layout("Sidebar for #{room.name}", body)
+  live_layout("Sidebar for #{room.name}", body)
 end
 
 ## The form that deletes a room (the button of the settings page, as `button_to_delete_room` is in Rails). It is a plain
 ## form post with the `_method` field that Rails' forms send, so it works without a script; the `onsubmit` asks first
 ## and a script-less browser skips the question, as the form of Rails does without Turbo.
 export def delete_form(room: Rooms.Room) -> String
-  return <<~EAG
+  <<~EAG
     <%@ escape &Bond.escape %>
     <form method="post" action="<%= Routes.room_path(room.id) %>"
       onsubmit="return confirm('Are you sure you want to delete this room and all messages in it? This can’t be undone.')">
@@ -556,7 +552,7 @@ end
 ## The id of the element that holds the messages of a room (`dom_id(room, :messages)` of Rails, which names the type of
 ## the room: `messages_rooms_open_7`), and so the target of a Turbo Stream that appends a message to it.
 export def messages_id(room: Rooms.Room) -> String
-  return "messages_rooms_#{room.room_type.split("::").last.downcase}_#{room.id}"
+  "messages_rooms_#{room.room_type.split("::").last.downcase}_#{room.id}"
 end
 
 ## One message: the `<div>` with its id and `data-message-id`, the author and the time, and the body in the
@@ -570,7 +566,7 @@ end
 ## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC); the
 ## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone.
 export def message(message: Rooms.Message, controls: Bool) -> String
-  return message_head(message) + edit_link(message, controls) + message_tail(message)
+  message_head(message) + edit_link(message, controls) + message_tail(message)
 end
 
 ## The boosts of a message and the link to the page that adds one: the element that a new boost is appended to
@@ -578,7 +574,7 @@ end
 ## that `GET /messages/ID/boosts` answers.
 export def boosts_area(message_id: Int, boosts: List[Boosts.Boost]) -> String
   items = boosts.map do |one| boost(message_id, one) end.join("")
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <div id="boosts_message_<%= message_id %>"><%== items %><a href="<%= Routes.message_boosts_new_path(message_id) %>">Boost</a></div>
   EAG
@@ -588,7 +584,7 @@ end
 ## booster alone (`data-booster-id`, and the rule of `viewer_style`); the server refuses anybody else. The markup is
 ## the same for every viewer, since the live stream renders it once for all.
 export def boost(message_id: Int, one: Boosts.Boost) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <div id="boost_<%= one.id %>" data-booster-id="<%= one.booster_id %>"><small><%= one.booster %></small><span><%= one.content %></span><form method="post" action="<%= Routes.message_boost_path(message_id, one.id) %>"><input name="_method" type="hidden" value="<%= Routes.METHOD_DELETE %>"><button type="submit" class="quiet" title="Remove this boost" aria-label="Remove this boost">×</button></form></div>
   EAG
@@ -597,7 +593,7 @@ end
 ## The Turbo Stream that adds a boost to the message, for the people who are looking at the room, and the answer to the
 ## person who made it.
 export def boost_added_stream(message_id: Int, one: Boosts.Boost) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="append" target="boosts_message_<%= message_id %>"><template><%== boost(message_id, one) %></template></turbo-stream>
   EAG
@@ -605,7 +601,7 @@ end
 
 ## The Turbo Stream that takes a boost off the page.
 export def boost_removed_stream(boost_id: Int) -> String
-  return "<turbo-stream action=\"remove\" target=\"boost_#{boost_id}\"><template></template></turbo-stream>"
+  "<turbo-stream action=\"remove\" target=\"boost_#{boost_id}\"><template></template></turbo-stream>"
 end
 
 ## The page that adds a boost to a message (the frame `new_boost_message_ID` that Rails loads into it): the quick
@@ -637,25 +633,25 @@ export def new_boost(room_id: Int, message_id: Int, text: String, note: String) 
       </div>
     </main>
   EAG
-  return layout("Boost", body)
+  layout("Boost", body)
 end
 
 ## The messages one after the other, as the room page and the page of older messages write them, with the controls of
 ## the ones that the person (`user_id`, with the account `role`) may change.
 export def messages_list(messages: List[Rooms.Message], user_id: Int, role: String) -> String
-  return messages.map do |one| message(one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
+  messages.map do |one| message(one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
 end
 
 ## The Turbo Stream that appends the message to the list of the room: the answer of a post to the person who wrote it,
 ## with the controls (`controls` true), and the broadcast to the others, without.
 export def message_stream(room: Rooms.Room, one: Rooms.Message, controls: Bool) -> String
-  return messages_appended(room, message(one, controls))
+  messages_appended(room, message(one, controls))
 end
 
 export def message_streams(room: Rooms.Room, one: Rooms.Message) -> MessageStreams
   head = message_head(one)
   tail = message_tail(one)
-  return MessageStreams(
+  MessageStreams(
     broadcast: messages_appended(room, head + tail),
     own: messages_appended(room, head + edit_link(one, true) + tail),
   )
@@ -664,7 +660,7 @@ end
 ## The Turbo Stream that shows an edited message in place of the old one, for the people who are looking at the room: no
 ## controls, like the broadcast of a new message.
 export def message_replaced_stream(one: Rooms.Message) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="replace" target="message_<%= one.id %>"><template><%== message(one, false) %></template></turbo-stream>
   EAG
@@ -673,7 +669,7 @@ end
 ## The Turbo Stream that appends messages (`list`, the markup of `MessageCache.list`) to the list of the room, which
 ## the refresh answers for the messages that came since.
 export def messages_appended(room: Rooms.Room, list: String) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="append" target="<%= messages_id(room) %>"><template><%== list %></template></turbo-stream>
   EAG
@@ -681,7 +677,7 @@ end
 
 ## The Turbo Stream that replaces a message that was edited with its new markup (`one`, from `MessageCache.list`).
 export def message_replaced(message_id: Int, one: String) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <turbo-stream action="replace" target="message_<%= message_id %>"><template><%== one %></template></turbo-stream>
   EAG
@@ -689,7 +685,7 @@ end
 
 ## The Turbo Stream that takes a deleted message off the page (`destroy.turbo_stream.erb` of Rails).
 export def message_removed(message_id: Int) -> String
-  return "<turbo-stream action=\"remove\" target=\"message_#{message_id}\"><template></template></turbo-stream>"
+  "<turbo-stream action=\"remove\" target=\"message_#{message_id}\"><template></template></turbo-stream>"
 end
 
 ## The page that edits a message (the form in the frame `edit_message_ID` that Rails loads into the message): the text
@@ -724,7 +720,7 @@ export def edit_message(sidebar: String, room: Rooms.Room, one: Rooms.Message, t
       <script src="<%= Routes.SCRIPT %>" defer></script>
     </main>
   EAG
-  return layout("Edit message", body)
+  layout("Edit message", body)
 end
 
 ## The search page: the form, the recent searches (`recent`, the words of each, with the button that clears them) and,
@@ -777,13 +773,13 @@ export def search(
       </div>
     </main>
   EAG
-  return live_layout("Search", body)
+  live_layout("Search", body)
 end
 
 ## The avatar of a person with no picture: their `initials` in white on a circle of `color` (one of the fixed colours of
 ## `Avatars.color`, so it is safe in an attribute). Three letters or more are squeezed to fit, as Rails does.
 export def avatar_initials(initials: String, color: String) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" class="avatar" aria-hidden="true">
       <rect width="100%" height="100%" rx="50" fill="<%= color %>"/>
@@ -859,7 +855,7 @@ export def room(
       <script src="<%= Routes.SCRIPT %>" defer></script>
     </main>
   EAG
-  return layout(room.name, body)
+  layout(room.name, body)
 end
 
 ## The first-run form that makes the administrator. `name` and `email` fill the fields again after a refusal, and
@@ -890,7 +886,7 @@ export def first_run(name: String, email: String, message: String) -> String
       </form>
     </main>
   EAG
-  return layout("Set up #{NAME}", body)
+  layout("Set up #{NAME}", body)
 end
 
 ## The sign-in form. `email` fills its field again after a refusal, and `message` says why ("" shows none).
@@ -920,7 +916,7 @@ export def sign_in(email: String, message: String, can_reset: Bool) -> String
     <% end %>
     </main>
   EAG
-  return layout("Sign in to #{NAME}", body)
+  layout("Sign in to #{NAME}", body)
 end
 
 ## The form that asks for the email of the account whose password is to be reset. It never shows an email again.
@@ -940,7 +936,7 @@ export def forgot_password() -> String
       <p><a href="<%= Routes.SIGN_IN %>">Back to sign in</a></p>
     </main>
   EAG
-  return layout("Reset your password", body)
+  layout("Reset your password", body)
 end
 
 ## The answer to a request for a link. It is the same for every email, so it says what happens "if" there is an
@@ -954,7 +950,7 @@ export def reset_requested() -> String
       <p><a href="<%= Routes.SIGN_IN %>">Back to sign in</a></p>
     </main>
   EAG
-  return layout("Check your email", body)
+  layout("Check your email", body)
 end
 
 ## The form of the new password, for the link with this token. `message` says why the last try was refused ("" shows
@@ -977,7 +973,7 @@ export def reset_password(token: String, message: String) -> String
       </form>
     </main>
   EAG
-  return layout("Choose a new password", body)
+  layout("Choose a new password", body)
 end
 
 ## The page of a link that does not work: it was used, it expired, or it was never one.
@@ -990,13 +986,13 @@ export def reset_link_gone() -> String
       <p><a href="<%= Routes.PASSWORD_RESET_NEW %>">Ask for a new link</a></p>
     </main>
   EAG
-  return layout("This link does not work", body)
+  layout("This link does not work", body)
 end
 
 ## The text of the email that carries the link. It is plain text, so nothing here is escaped: `name` and `link` are
 ## written as they are, and `minutes` is how long the link works.
 export def reset_mail(name: String, link: String, minutes: Int) -> String
-  return <<~EAG
+  <<~EAG
     Hi <%= name %>,
 
     Someone asked to reset the password of your <%= NAME %> account. To choose a new one, open this link within
@@ -1036,7 +1032,7 @@ export def join(code: String, name: String, email: String, message: String) -> S
       </form>
     </main>
   EAG
-  return layout("Join #{NAME}", body)
+  layout("Join #{NAME}", body)
 end
 
 ## The page of a user, around the `sidebar` (`UsersController#show`). `profile` is the user and `me` the id of the person
@@ -1092,7 +1088,7 @@ export def user_page(sidebar: String, profile: Profiles.Detail, me: Int, admin: 
     <% end %>
     </main>
   EAG
-  return layout(profile.name, body)
+  layout(profile.name, body)
 end
 
 ## The profile of the person who is signed in (`Users::ProfilesController#show`), around the `sidebar`: the form of the
@@ -1165,7 +1161,7 @@ export def profile_page(
       </ul>
     </main>
   EAG
-  return layout("Your profile", body)
+  layout("Your profile", body)
 end
 
 ## The people page, around the `sidebar`. Everybody sees the names. For an administrator (`admin`) it also has the emails,
@@ -1216,7 +1212,7 @@ export def users(sidebar: String, people: List[Accounts.Person], me: Int, admin:
       </ul>
     </main>
   EAG
-  return live_layout("People", body)
+  live_layout("People", body)
 end
 
 ## The page of a 503: `message` says that the server is busy.
@@ -1228,25 +1224,21 @@ export def busy(message: String) -> String
       <p role="alert"><%= message %></p>
     </main>
   EAG
-  return layout(NAME, body)
+  layout(NAME, body)
 end
 
 # The list of the sidebar that the room belongs to.
 def list_id(room: Rooms.Room) -> String
-  if room.room_type == Rooms.DIRECT
-    return DIRECT_ROOMS_ID
-  end
+  return DIRECT_ROOMS_ID if room.room_type == Rooms.DIRECT
 
-  return SHARED_ROOMS_ID
+  SHARED_ROOMS_ID
 end
 
-def room_item_id(room: Rooms.Room) -> String
-  return "room_#{room.id}"
-end
+def room_item_id(room: Rooms.Room) -> String = "room_#{room.id}"
 
 # The quick reactions of Rails (`EmojiHelper::REACTIONS`), in its order.
 def reactions() -> List[Reaction]
-  return [
+  [
     Reaction(emoji: "👍", title: "Thumbs up"),
     Reaction(emoji: "👏", title: "Clapping"),
     Reaction(emoji: "👋", title: "Waving hand"),
@@ -1261,11 +1253,9 @@ end
 # The link to the edit page, after the time, or nothing: an interpolated piece, so that without it `</h3>` follows
 # `</time>` with no byte between, as the benchmark's markup has it.
 def edit_link(message: Rooms.Message, controls: Bool) -> String
-  if not controls
-    return ""
-  end
+  return "" if not controls
 
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <a href="<%= Routes.room_message_edit_path(message.room_id, message.id) %>">Edit</a>
   EAG
@@ -1274,7 +1264,7 @@ end
 # The layout of a page with the sidebar, which also links the script that keeps it live (the rooms, the unread marks).
 # The room page links the same script inside its `<main>`, after the composer.
 def live_layout(title: String, content: String) -> String
-  return layout(title, content + "\n<script src=\"" + Routes.SCRIPT + "\" defer></script>")
+  layout(title, content + "\n<script src=\"" + Routes.SCRIPT + "\" defer></script>")
 end
 
 # One person of the account page. The role switch offers the other role, and neither it nor the removal is drawn for
@@ -1287,7 +1277,7 @@ def account_person(one: Accounts.Person, me: Int, admin: Bool) -> String
     other_label = "Make member"
   end
 
-  return <<~EAG
+  <<~EAG
     <%@ escape &Bond.escape %>
     <li>
       <span class="name"><%= one.name %></span>
@@ -1314,11 +1304,9 @@ def account_person(one: Accounts.Person, me: Int, admin: Bool) -> String
 end
 
 def sidebar_choice(level: String) -> String
-  if Rooms.hidden?(level)
-    return "Hidden from the sidebar"
-  end
+  return "Hidden from the sidebar" if Rooms.hidden?(level)
 
-  return "Shown in the sidebar"
+  "Shown in the sidebar"
 end
 
 # The messages of the person who looks sit on the other side, in the accent colour. The stylesheet reads six custom
@@ -1329,21 +1317,19 @@ end
 # the viewer is the only thing that differs, and a CSS rule can compare an attribute with a number only when it is
 # written out.
 def viewer_style(me: Int) -> String
-  return (
+  (
     "<style>.thread [data-creator-id=\"#{me}\"]{--bubble-bg:var(--accent);--bubble-fg:var(--accent-fg);--bubble-meta:var(--accent-fg);--bubble-link:var(--accent-fg);--bubble-side:end;--bubble-name:none}.thread [data-booster-id=\"#{me}\"]{--boost-remove:grid}</style>"
   )
 end
 
 # `09:05` of `2026-03-01T09:05:00.000Z`.
-def clock(iso: String) -> String
-  return iso.slice(11, 5)
-end
+def clock(iso: String) -> String = iso.slice(11, 5)
 
 # The markup of a message up to the end of the time, where the link to the edit page goes, and from there to the end.
 # The two parts are all of `message` (and the tail is the costly one: the body and the boosts), so a caller that
 # needs both the markup with the link and without it writes the tail once (`message_streams`).
 def message_head(message: Rooms.Message) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     <div id="message_<%= message.id %>" data-message-id="<%= message.id %>" data-creator-id="<%= message.creator_id %>">
       <h3><strong><%= message.author %></strong>
@@ -1352,7 +1338,7 @@ def message_head(message: Rooms.Message) -> String
 end
 
 def message_tail(message: Rooms.Message) -> String
-  return <<~EAG.strip
+  <<~EAG.strip
     <%@ escape &Bond.escape %>
     </h3>
       <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== Autolink.link(message.body) %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>

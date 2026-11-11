@@ -6,7 +6,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 1: create accounts.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     1,
     "create accounts",
     [accounts(), "create unique index index_accounts_on_singleton_guard on accounts (singleton_guard)"],
@@ -14,7 +14,7 @@ export def migration() -> Migrate.Migration
 end
 
 def accounts() -> String
-  return <<~SQL
+  <<~SQL
     create table accounts (
       id integer primary key autoincrement not null,
       created_at datetime(6) not null,

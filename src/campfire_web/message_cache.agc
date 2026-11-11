@@ -25,31 +25,27 @@ BYTES_PER_MB = 1024 * 1024
 
 ## The cache for `megabytes` of messages, or `none` for 0, which turns it off: every message is rendered each time.
 export def start(megabytes: Int) -> Optional[Cache.Store]
-  if megabytes <= 0
-    return none
-  end
+  return none if megabytes <= 0
 
-  return some(Cache.memory(megabytes * BYTES_PER_MB))
+  some(Cache.memory(megabytes * BYTES_PER_MB))
 end
 
 ## The messages one after the other, as `Views.messages_list` writes them for the person `user_id` with the account
 ## `role`, each from the cache when it is there.
 export def list(cache: Optional[Cache.Store], messages: List[Rooms.Stored], user_id: Int, role: String) -> String
-  return messages.map do |one| html(cache, one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
+  messages.map do |one| html(cache, one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
 end
 
 # The markup of one message, with its body cleaned. Two requests that miss together both render it, which is the same
 # text, so one of them wins and nothing is wrong.
 def html(cache: Optional[Cache.Store], stored: Rooms.Stored, controls: Bool) -> String
   case cache
-    none -> return render(stored, controls)
-    some(store) -> return Cache.fetch(store, key(stored, controls)) do render(stored, controls) end
+    none -> render(stored, controls)
+    some(store) -> Cache.fetch(store, key(stored, controls)) do render(stored, controls) end
   end
 end
 
-def render(stored: Rooms.Stored, controls: Bool) -> String
-  return Views.message(Rooms.clean(stored), controls)
-end
+def render(stored: Rooms.Stored, controls: Bool) -> String = Views.message(Rooms.clean(stored), controls)
 
 # The creator is in the key too, since the markup names it (`data-creator-id`): a message that went to another person
 # with the same name must not keep the old one. So are the boosts, each with its booster and its text: a boost that is
@@ -61,13 +57,13 @@ def key(stored: Rooms.Stored, controls: Bool) -> String
     "#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
   )
 
-  return "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{OpenSSL.Digest.sha256_hexdigest(text.bytes)}"
+  "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{OpenSSL.Digest.sha256_hexdigest(text.bytes)}"
 end
 
 # The boosts as text that tells them apart: how many, and for each its id, its booster and its words, with the size of
 # the two names in bytes.
 def boosts_text(boosts: List[Boosts.Boost]) -> String
-  return (
+  (
     "#{boosts.size}" +
     boosts.map do |one|
       "\n#{one.id}:#{one.booster_id}:#{one.booster.bytes.size}:#{one.booster}#{one.content.bytes.size}:#{one.content}"

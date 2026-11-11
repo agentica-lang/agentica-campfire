@@ -49,9 +49,7 @@ OTHER_SECRET = (
   "eyJfcmFpbHMiOnsiZGF0YSI6NDIsInB1ciI6InVzZXIvYXZhdGFyIn19--b6171f5a67a8d5310d4801c106c630c5d77959c1ee6c8002cfc33fafcb656df5"
 )
 
-def key() -> Bytes
-  return SignedId.key(SECRET).unwrap!
-end
+def key() -> Bytes = SignedId.key(SECRET).unwrap!
 
 def main() -> Void
   Test.run([

@@ -44,9 +44,7 @@ end
 ## and not SVG (which can hold a script) is sent, anything else counts as no avatar.
 export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Avatar]]
   users = try Db.query(conn, "select name from users where id = ?", [Db.Value.Int(user_id)])
-  if users.empty?
-    return ok(none)
-  end
+  return ok(none) if users.empty?
 
   name = text_of(users[0], "name")
   variants = try Db.query(
@@ -80,7 +78,7 @@ export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Avatar]]
   end
 
   original = originals[0]
-  return ok(
+  ok(
     some(
       Avatar(name: name, file_key: some(text_of(original, "key")), content_type: text_of(original, "content_type")),
     ),
@@ -90,34 +88,28 @@ end
 ## The file of a blob under `storage_dir`, where the Disk service of Rails puts it: `xx/yy/KEY`, the first two and the
 ## next two characters of the key as folders. `none` for a key that is not one of Active Storage's.
 export def path(storage_dir: String, key: String) -> Optional[String]
-  if not Regex.match?(key, KEY)
-    return none
-  end
+  return none if not Regex.match?(key, KEY)
 
   joined = Path.join([storage_dir, key.slice(0, 2), key.slice(2, 2), key])
-  if not joined.ok?
-    return none
-  end
+  return none if not joined.ok?
 
-  return some(joined.unwrap!)
+  some(joined.unwrap!)
 end
 
 ## The letters in the circle: the first letter of each word of the name (`Bea Smith` is `BS`).
-export def initials(name: String) -> String
-  return Regex.find_all(name, INITIALS).map do |found| found.text end.join("")
-end
+export def initials(name: String) -> String = Regex.find_all(name, INITIALS).map do |found| found.text end.join("")
 
 ## The colour behind the initials of the user, from the CRC-32 of their id, as `avatar_background_color` of Rails does.
 export def color(user_id: Int) -> String
   checksum = Zlib.crc32("#{user_id}".bytes).unwrap!
-  return COLORS[checksum % COLORS.size]
+  COLORS[checksum % COLORS.size]
 end
 
 ## The cache buster of an avatar link, `?v=` as in Rails (`updated_at.to_fs(:number)`, 14 digits): the digits of the
 ## `updated_at` of the user, but with the fraction of a second too (unlike Rails), so two changes in one second are two
 ## links.
 export def version(updated_at: String) -> String
-  return Regex.find_all(updated_at, DIGITS).map do |found| found.text end.join("")
+  Regex.find_all(updated_at, DIGITS).map do |found| found.text end.join("")
 end
 
 ## True when the user has an avatar attached.
@@ -129,7 +121,7 @@ export def attached?(conn: Db.Connection, user_id: Int) -> Result[Bool]
     [Db.Value.Int(user_id)],
   )
 
-  return ok(not rows.empty?)
+  ok(not rows.empty?)
 end
 
 ## Takes the avatar of the user away, as `Users::AvatarsController#destroy` does (`Current.user.avatar.destroy`): the
@@ -139,7 +131,7 @@ end
 ## the user changes, since the avatar links carry its digits (`version`) as a cache buster. A user with no avatar is no
 ## change: no keys.
 export def remove(conn: Db.Connection, user_id: Int) -> Result[List[String]]
-  return Db.transaction(conn) do |tx| remove_in(tx, user_id) end
+  Db.transaction(conn) do |tx| remove_in(tx, user_id) end
 end
 
 def remove_in(tx: Db.Connection, user_id: Int) -> Result[List[String]]
@@ -160,15 +152,13 @@ def remove_in(tx: Db.Connection, user_id: Int) -> Result[List[String]]
     try Db.execute(tx, "update users set updated_at = #{Rails.NOW} where id = ?", [Db.Value.Int(user_id)])
   end
 
-  return ok(keys)
+  ok(keys)
 end
 
 # The blob and its variants, when nothing is attached to it any more: the variants go first, since their rows and
 # the attachments of their images hold keys to it. The keys are those of every blob deleted.
 def drop_blob(tx: Db.Connection, blob_id: Int) -> Result[List[String]]
-  if not try unused?(tx, blob_id)
-    return ok([])
-  end
+  return ok([]) if not try unused?(tx, blob_id)
 
   keys: List[String] = []
   variants = try Db.query(
@@ -183,7 +173,7 @@ def drop_blob(tx: Db.Connection, blob_id: Int) -> Result[List[String]]
 
   found = try Db.query(tx, "select key from active_storage_blobs where id = ?", [Db.Value.Int(blob_id)])
   try Db.execute(tx, "delete from active_storage_blobs where id = ?", [Db.Value.Int(blob_id)])
-  return ok(keys.concat(found.map do |row| text_of(row, "key") end))
+  ok(keys.concat(found.map do |row| text_of(row, "key") end))
 end
 
 # A variant record, its image (an attachment of a blob) and that blob.
@@ -203,7 +193,7 @@ def drop_variant(tx: Db.Connection, variant_id: Int) -> Result[List[String]]
   end
 
   try Db.execute(tx, "delete from active_storage_variant_records where id = ?", [id])
-  return ok(keys)
+  ok(keys)
 end
 
 def unused?(tx: Db.Connection, blob_id: Int) -> Result[Bool]
@@ -213,10 +203,10 @@ def unused?(tx: Db.Connection, blob_id: Int) -> Result[Bool]
     [Db.Value.Int(blob_id)],
   )
 
-  return ok(rows.empty?)
+  ok(rows.empty?)
 end
 
 # A plain image type, and not SVG: RE2 has no lookahead, so the SVG types are left out here.
 def sendable?(content_type: String) -> Bool
-  return Regex.match?(content_type, SENDABLE_TYPE) and not content_type.start_with?("image/svg")
+  Regex.match?(content_type, SENDABLE_TYPE) and not content_type.start_with?("image/svg")
 end

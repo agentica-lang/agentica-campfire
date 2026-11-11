@@ -55,27 +55,23 @@ end
 ## Three groups of four hex digits, `a1b2-c3d4-e5f6`, to type or read out.
 export def new_join_code() -> String
   digits = OpenSSL.Random.hex(JOIN_CODE_BYTES)
-  return "#{digits.slice(0, GROUP)}-#{digits.slice(GROUP, GROUP)}-#{digits.slice(GROUP * 2, GROUP)}"
+  "#{digits.slice(0, GROUP)}-#{digits.slice(GROUP, GROUP)}-#{digits.slice(GROUP * 2, GROUP)}"
 end
 
 ## The join code of the account, or "" before the first run has made it.
 export def join_code(conn: Db.Connection) -> Result[String]
   rows = try Db.query(conn, "select join_code from accounts order by id limit 1", [])
-  if rows.empty?
-    return ok("")
-  end
+  return ok("") if rows.empty?
 
-  return ok(text_of(rows[0], "join_code"))
+  ok(text_of(rows[0], "join_code"))
 end
 
 ## The name of the account, or "" before the first run has made it.
 export def name(conn: Db.Connection) -> Result[String]
   rows = try Db.query(conn, "select name from accounts order by id limit 1", [])
-  if rows.empty?
-    return ok("")
-  end
+  return ok("") if rows.empty?
 
-  return ok(text_of(rows[0], "name"))
+  ok(text_of(rows[0], "name"))
 end
 
 ## What is wrong with an account name, or "". The caller strips it first. Rails has no check (the column only refuses
@@ -85,7 +81,7 @@ export def name_problem(name: String) -> String
     return "Give the account a name of 1 to #{MAX_NAME_LENGTH} characters"
   end
 
-  return ""
+  ""
 end
 
 ## Saves what `AccountsController#update` takes of the form, in one transaction: the `name`, and whether only
@@ -93,7 +89,7 @@ end
 ## keeps in the JSON of `accounts.settings`; the other keys of that JSON stay as they are). A part that is `none` is left
 ## alone. It gives false, with nothing changed, when `actor_id` is not an active administrator.
 export def save(conn: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
-  return Db.transaction(conn) do |tx| save_in(tx, actor_id, name, restricted) end
+  Db.transaction(conn) do |tx| save_in(tx, actor_id, name, restricted) end
 end
 
 ## True when the account lets only administrators make a shared room (open or closed): `Rooms::OpensController` and
@@ -109,11 +105,9 @@ export def room_creation_restricted?(conn: Db.Connection) -> Result[Bool]
     [],
   )
 
-  if rows.empty?
-    return ok(false)
-  end
+  return ok(false) if rows.empty?
 
-  return ok(int_of(rows[0], "restricted") != 0)
+  ok(int_of(rows[0], "restricted") != 0)
 end
 
 ## True when `user_id` is an active person of the account (not a bot), whom the role and the removal can name.
@@ -124,7 +118,7 @@ export def active_person?(conn: Db.Connection, user_id: Int) -> Result[Bool]
     [Db.Value.Int(user_id)],
   )
 
-  return ok(int_of(rows[0], "total") > 0)
+  ok(int_of(rows[0], "total") > 0)
 end
 
 ## True when `user_id` is an active administrator. The changes of the account (and of its bots) ask it again inside their
@@ -136,7 +130,7 @@ export def administrator?(tx: Db.Connection, user_id: Int) -> Result[Bool]
     [Db.Value.Int(user_id), Db.Value.Int(Rails.ADMINISTRATOR)],
   )
 
-  return ok(int_of(rows[0], "total") > 0)
+  ok(int_of(rows[0], "total") > 0)
 end
 
 ## Makes `user_id` an administrator, or a member with `administrator` false (`Accounts::UsersController#update`), for
@@ -145,23 +139,21 @@ end
 ## administrator who steps down alone could leave the account without one. Rails does not check either on the server;
 ## here the actor stays an administrator, so the account always has one.
 export def set_role(conn: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
-  return Db.transaction(conn) do |tx| set_role_in(tx, actor_id, user_id, administrator) end
+  Db.transaction(conn) do |tx| set_role_in(tx, actor_id, user_id, administrator) end
 end
 
 ## True when `code` is the code of the account now: the old code of a regenerated one is not.
 export def join_code_valid?(conn: Db.Connection, code: String) -> Result[Bool]
-  if code.empty? or code.length > MAX_CODE_LENGTH
-    return ok(false)
-  end
+  return ok(false) if code.empty? or code.length > MAX_CODE_LENGTH
 
   rows = try Db.query(conn, "select count(*) as total from accounts where join_code = ?", [Db.Value.Text(code)])
-  return ok(int_of(rows[0], "total") > 0)
+  ok(int_of(rows[0], "total") > 0)
 end
 
 ## Makes a new join code, which ends the link of the old one, and gives true. It gives false, with nothing changed,
 ## when `actor_id` is not an active administrator.
 export def regenerate_join_code(conn: Db.Connection, actor_id: Int) -> Result[Bool]
-  return Db.transaction(conn) do |tx| regenerate_in(tx, actor_id) end
+  Db.transaction(conn) do |tx| regenerate_in(tx, actor_id) end
 end
 
 ## The people of the account by name: the active ones, or with `everyone` the deactivated and banned ones too, for the
@@ -174,7 +166,7 @@ export def people(conn: Db.Connection, everyone: Bool) -> Result[List[Person]]
 
   sql = "select id, name, email_address, role, status from users where role <> #{Rails.BOT} and #{shown}"
   rows = try Db.query(conn, "#{sql} order by lower(name), id", [])
-  return ok(
+  ok(
     rows.map do |row|
       Person(
         id: int_of(row, "id"),
@@ -193,7 +185,7 @@ end
 ## direct messages (the memberships of the open and closed rooms are deleted); and their address becomes
 ## `name-deactivated-UUID@domain`, which frees it for a new account. Their messages, and the rooms they made, stay.
 export def deactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
-  return Db.transaction(conn) do |tx| deactivate_in(tx, actor_id, user_id) end
+  Db.transaction(conn) do |tx| deactivate_in(tx, actor_id, user_id) end
 end
 
 ## Reactivates `user_id` for `actor_id`, in one transaction: they get their address back and every open room that exists
@@ -201,14 +193,12 @@ end
 ## back at all. `Taken` when the address is another account's now, with nothing changed. A person who was deactivated
 ## before the address was renamed keeps the address they have.
 export def reactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
-  return Db.transaction(conn) do |tx| reactivate_in(tx, actor_id, user_id) end
+  Db.transaction(conn) do |tx| reactivate_in(tx, actor_id, user_id) end
 end
 
 def regenerate_in(tx: Db.Connection, actor_id: Int) -> Result[Bool]
   allowed = try administrator?(tx, actor_id)
-  if not allowed
-    return ok(false)
-  end
+  return ok(false) if not allowed
 
   try Db.execute(
     tx,
@@ -216,14 +206,12 @@ def regenerate_in(tx: Db.Connection, actor_id: Int) -> Result[Bool]
     [Db.Value.Text(new_join_code())],
   )
 
-  return ok(true)
+  ok(true)
 end
 
 def save_in(tx: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
   allowed = try administrator?(tx, actor_id)
-  if not allowed
-    return ok(false)
-  end
+  return ok(false) if not allowed
 
   if name.some?
     try Db.execute(
@@ -251,14 +239,12 @@ def save_in(tx: Db.Connection, actor_id: Int, name: Optional[String], restricted
     )
   end
 
-  return ok(true)
+  ok(true)
 end
 
 def set_role_in(tx: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
   allowed = try administrator?(tx, actor_id)
-  if not allowed or actor_id == user_id
-    return ok(Change.Refused)
-  end
+  return ok(Change.Refused) if not allowed or actor_id == user_id
 
   role = Rails.MEMBER
   if administrator
@@ -271,18 +257,14 @@ def set_role_in(tx: Db.Connection, actor_id: Int, user_id: Int, administrator: B
     [Db.Value.Int(role), Db.Value.Int(user_id)],
   )
 
-  if changed == 0
-    return ok(Change.Missing)
-  end
+  return ok(Change.Missing) if changed == 0
 
-  return ok(Change.Changed)
+  ok(Change.Changed)
 end
 
 def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
   allowed = try administrator?(tx, actor_id)
-  if not allowed or actor_id == user_id
-    return ok(Change.Refused)
-  end
+  return ok(Change.Refused) if not allowed or actor_id == user_id
 
   # The text before the `@` and the text from it are kept and the marker goes between them, as Rails' `gsub(/@/, ...)`
   # does; an address with no `@` (a bot has none, and is not here) is left as it is.
@@ -296,9 +278,7 @@ def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     [Db.Value.Text(OpenSSL.Random.uuid()), Db.Value.Int(user_id)],
   )
 
-  if changed == 0
-    return unchanged_or_missing(tx, user_id)
-  end
+  return unchanged_or_missing(tx, user_id) if changed == 0
 
   id = Db.Value.Int(user_id)
   try Db.execute(tx, "delete from sessions where user_id = ?", [id])
@@ -306,14 +286,12 @@ def deactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
   try Db.execute(tx, "delete from push_subscriptions where user_id = ?", [id])
   try Db.execute(tx, "delete from searches where user_id = ?", [id])
   try Rooms.leave_shared_rooms(tx, user_id)
-  return ok(Change.Changed)
+  ok(Change.Changed)
 end
 
 def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
   allowed = try administrator?(tx, actor_id)
-  if not allowed
-    return ok(Change.Refused)
-  end
+  return ok(Change.Refused) if not allowed
 
   # The address before the deactivation, which `original_address` finds in the stored one.
   rows = try Db.query(
@@ -322,9 +300,7 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     [Db.Value.Int(user_id)],
   )
 
-  if rows.empty?
-    return unchanged_or_missing(tx, user_id)
-  end
+  return unchanged_or_missing(tx, user_id) if rows.empty?
 
   original = original_address(text_of(rows[0], "email_address"))
   taken = try Db.query(
@@ -333,9 +309,7 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
     [Db.Value.Int(user_id), Db.Value.Text(original)],
   )
 
-  if int_of(taken[0], "total") > 0
-    return ok(Change.Taken)
-  end
+  return ok(Change.Taken) if int_of(taken[0], "total") > 0
 
   try Db.execute(
     tx,
@@ -344,7 +318,7 @@ def reactivate_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Chan
   )
 
   try Rooms.grant_open_rooms(tx, user_id)
-  return ok(Change.Changed)
+  ok(Change.Changed)
 end
 
 # The address before a deactivation of this app or of Rails: the marker and a UUID (8-4-4-4-12 hex digits) right before
@@ -352,41 +326,33 @@ end
 # domain, was typed that way by its owner (or deactivated before the rename) and must not be changed.
 def original_address(address: String) -> String
   parts = address.split("@")
-  if parts.size != 2
-    return address
-  end
+  return address if parts.size != 2
 
   local = parts[0]
   tail = MARKER.length + UUID_LENGTH
-  if local.length <= tail
-    return address
-  end
+  return address if local.length <= tail
 
   cut = local.length - tail
   if local.slice(cut, MARKER.length) != MARKER or not uuid_shape?(local.slice(cut + MARKER.length, UUID_LENGTH))
     return address
   end
 
-  return "#{local.slice(0, cut)}@#{parts[1]}"
+  "#{local.slice(0, cut)}@#{parts[1]}"
 end
 
 def uuid_shape?(text: String) -> Bool
-  if text.length != UUID_LENGTH
-    return false
-  end
+  return false if text.length != UUID_LENGTH
 
   for index in 0..(UUID_LENGTH - 1)
     digit = text.slice(index, 1)
     if index == 8 or index == 13 or index == 18 or index == 23
-      if digit != "-"
-        return false
-      end
+      return false if digit != "-"
     elsif not "0123456789abcdef".include?(digit)
       return false
     end
   end
 
-  return true
+  true
 end
 
 # An update that changed nothing is a person who was in the state already, or nobody.
@@ -397,9 +363,7 @@ def unchanged_or_missing(tx: Db.Connection, user_id: Int) -> Result[Change]
     [Db.Value.Int(user_id)],
   )
 
-  if int_of(rows[0], "total") > 0
-    return ok(Change.Unchanged)
-  end
+  return ok(Change.Unchanged) if int_of(rows[0], "total") > 0
 
-  return ok(Change.Missing)
+  ok(Change.Missing)
 end

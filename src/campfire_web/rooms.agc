@@ -110,7 +110,7 @@ export def add(
   secure: Bool,
   max_length: Int,
 ) -> Bond.App
-  return (
+  (
     app
     |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
     |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool, cable) end
@@ -142,13 +142,11 @@ end
 export def home(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   wanted = last_room_cookie(conn)
   answer = try Database.with_connection(pool) do |db| home_answer(conn, db, wanted) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 ## The column at the side of a page for the person: their rooms that are not hidden and the ways to make one.
-export def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String]
-  return sidebar_without(db, person, -1)
-end
+export def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String] = sidebar_without(db, person, -1)
 
 ## The sidebar with the room that the page shows left unmarked: it is read by being looked at, and the page cannot wait
 ## for the script to say so.
@@ -156,65 +154,55 @@ export def sidebar_without(db: Db.Connection, person: Auth.User, open_room: Int)
   rooms = try Rooms.visible(db, person.id)
   unread = try Rooms.unread_ids(db, person.id)
   can_create = try may_create_rooms?(db, person)
-  return ok(Views.sidebar(person.name, rooms, can_create, unread.select do |id| id != open_room end))
+  ok(Views.sidebar(person.name, rooms, can_create, unread.select do |id| id != open_room end))
 end
 
 ## `?before=ID` or `?after=ID`, the message that the page shows the ones before (or after). A value that is not a number
 ## is a 400. The messages API of the bots reads its cursors the same way.
 export def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
   values = try Bond.query_all(conn, name)
-  if values.empty?
-    return ok(none)
-  end
+  return ok(none) if values.empty?
 
   parsed = values[0].to_i
-  if not parsed.ok?
-    return Bond.bad_request("#{name} must be a whole number")
-  end
+  return Bond.bad_request("#{name} must be a whole number") if not parsed.ok?
 
-  return ok(some(parsed.unwrap!))
+  ok(some(parsed.unwrap!))
 end
 
 ## The room in the `last_room` cookie, `none` for no cookie and for one that is not a whole number (a client made it up).
 ## It is only a wish: `Rooms.last_visited` checks the membership.
 export def last_room_cookie(conn: Bond.Conn) -> Optional[Int]
   sent = Bond.cookie(conn, LAST_ROOM_COOKIE)
-  if not sent.ok?
-    return none
-  end
+  return none if not sent.ok?
 
   parsed = sent.unwrap!.to_i
-  if parsed.ok?
-    return some(parsed.unwrap!)
-  end
+  return some(parsed.unwrap!) if parsed.ok?
 
-  return none
+  none
 end
 
 # Whether the person may make an open or a closed room: an administrator always, anybody else unless the account
 # restricts it to administrators (`ensure_permission_to_create_rooms` of Rails). A direct message is never restricted.
 def may_create_rooms?(db: Db.Connection, person: Auth.User) -> Result[Bool]
-  if person.role == Rooms.ADMINISTRATOR_ROLE_NAME
-    return ok(true)
-  end
+  return ok(true) if person.role == Rooms.ADMINISTRATOR_ROLE_NAME
 
   restricted = try Accounts.room_creation_restricted?(db)
-  return ok(not restricted)
+  ok(not restricted)
 end
 
 def home_answer(conn: Bond.Conn, db: Db.Connection, wanted: Optional[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return home_of(db, person, wanted)
+    none -> ok(Answer.SignedOut)
+    some(person) -> home_of(db, person, wanted)
   end
 end
 
 def home_of(db: Db.Connection, person: Auth.User, wanted: Optional[Int]) -> Result[Answer]
   room = try Rooms.last_visited(db, person.id, wanted)
   case room
-    some(found) -> return ok(Answer.Redirect(Routes.room_path(found.id)))
-    none -> return ok(Answer.Page(200, Views.home(try sidebar_of(db, person))))
+    some(found) -> ok(Answer.Redirect(Routes.room_path(found.id)))
+    none -> ok(Answer.Page(200, Views.home(try sidebar_of(db, person))))
   end
 end
 
@@ -231,9 +219,7 @@ def respond_visit(conn: Bond.Conn, id: Optional[Int], answer: Answer, secure: Bo
     _ -> served = false
   end
 
-  if not served or id.none? or last_room_cookie(conn) == id
-    return reply
-  end
+  return reply if not served or id.none? or last_room_cookie(conn) == id
 
   made = Cookie.Cookie(
     name: LAST_ROOM_COOKIE,
@@ -245,92 +231,88 @@ def respond_visit(conn: Bond.Conn, id: Optional[Int], answer: Answer, secure: Bo
     same_site: "Lax",
   )
 
-  return Bond.set_cookie_with(reply, made).unwrap_or(reply)
+  Bond.set_cookie_with(reply, made).unwrap_or(reply)
 end
 
 def show_new_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| new_room_answer(conn, db) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def new_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
-    some(person) -> return ok(Answer.Page(200, Views.new_room(try sidebar_of(db, person), "", "")))
+    none -> ok(Answer.SignedOut)
+    some(person) if not (try may_create_rooms?(db, person)) -> ok(Answer.Forbidden)
+    some(person) -> ok(Answer.Page(200, Views.new_room(try sidebar_of(db, person), "", "")))
   end
 end
 
 def create_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| create_room_answer(conn, db) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 # The right to make a room is checked before the form is read, as the filter runs before the action in Rails.
 def create_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
-    some(person) -> return made_room(db, person, (try Bond.form(conn, "name")).strip)
+    none -> ok(Answer.SignedOut)
+    some(person) if not (try may_create_rooms?(db, person)) -> ok(Answer.Forbidden)
+    some(person) -> made_room(db, person, (try Bond.form(conn, "name")).strip)
   end
 end
 
 def made_room(db: Db.Connection, person: Auth.User, name: String) -> Result[Answer]
   problem = Rooms.name_problem(name)
-  if problem != ""
-    return ok(Answer.Page(422, Views.new_room(try sidebar_of(db, person), name, problem)))
-  end
+  return ok(Answer.Page(422, Views.new_room(try sidebar_of(db, person), name, problem))) if problem != ""
 
   room_id = try Rooms.create_open(db, person.id, name)
-  return ok(Answer.Made(room_id, person.id, false, []))
+  ok(Answer.Made(room_id, person.id, false, []))
 end
 
 def show_new_closed_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| new_closed_room_answer(conn, db) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def new_closed_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
-    some(person) -> return ok(Answer.Page(200, try closed_room_form(db, person, "", [], "")))
+    none -> ok(Answer.SignedOut)
+    some(person) if not (try may_create_rooms?(db, person)) -> ok(Answer.Forbidden)
+    some(person) -> ok(Answer.Page(200, try closed_room_form(db, person, "", [], "")))
   end
 end
 
 def create_closed_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| create_closed_answer(conn, db) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def create_closed_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) if not (try may_create_rooms?(db, person)) -> return ok(Answer.Forbidden)
-    some(person) -> return created_closed(conn, db, person)
+    none -> ok(Answer.SignedOut)
+    some(person) if not (try may_create_rooms?(db, person)) -> ok(Answer.Forbidden)
+    some(person) -> created_closed(conn, db, person)
   end
 end
 
 def created_closed(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   name = (try Bond.form(conn, "name")).strip
   ids = try ids_of(conn, "member")
-  return made_closed_room(db, person, name, ids)
+  made_closed_room(db, person, name, ids)
 end
 
 def made_closed_room(db: Db.Connection, person: Auth.User, name: String, ids: List[Int]) -> Result[Answer]
   people = try Rooms.people(db, person.id)
   chosen = chosen_of(people, ids)
   problem = Rooms.name_problem(name)
-  if problem != ""
-    return ok(Answer.Page(422, try closed_room_form(db, person, name, chosen, problem)))
-  end
+  return ok(Answer.Page(422, try closed_room_form(db, person, name, chosen, problem))) if problem != ""
 
   room_id = try Rooms.create_closed(db, person.id, name, chosen)
-  return ok(Answer.Made(room_id, person.id, false, []))
+  ok(Answer.Made(room_id, person.id, false, []))
 end
 
 def closed_room_form(
@@ -341,33 +323,33 @@ def closed_room_form(
   message: String,
 ) -> Result[String]
   people = try Rooms.people(db, person.id)
-  return ok(Views.new_closed_room(try sidebar_of(db, person), name, people, chosen, message))
+  ok(Views.new_closed_room(try sidebar_of(db, person), name, people, chosen, message))
 end
 
 def show_new_direct_room(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| new_direct_room_answer(conn, db) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def new_direct_room_answer(conn: Bond.Conn, db: Db.Connection) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return ok(Answer.Page(200, try direct_room_form(db, person, [], "")))
+    none -> ok(Answer.SignedOut)
+    some(person) -> ok(Answer.Page(200, try direct_room_form(db, person, [], "")))
   end
 end
 
 def create_direct_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   ids = try ids_of(conn, "member")
   answer = try Database.with_connection(pool) do |db| create_direct_answer(conn, db, ids) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def create_direct_answer(conn: Bond.Conn, db: Db.Connection, ids: List[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return started_direct_room(db, person, ids)
+    none -> ok(Answer.SignedOut)
+    some(person) -> started_direct_room(db, person, ids)
   end
 end
 
@@ -376,57 +358,55 @@ def started_direct_room(db: Db.Connection, person: Auth.User, ids: List[Int]) ->
   people = try Rooms.people(db, person.id)
   chosen = chosen_of(people, ids)
   problem = Rooms.people_problem(chosen)
-  if problem != ""
-    return ok(Answer.Page(422, try direct_room_form(db, person, chosen, problem)))
-  end
+  return ok(Answer.Page(422, try direct_room_form(db, person, chosen, problem))) if problem != ""
 
   room_id = try Rooms.open_direct(db, person.id, chosen)
   case room_id
-    none -> return ok(Answer.Page(422, try direct_room_form(db, person, [], Rooms.people_problem([]))))
-    some(found) -> return ok(Answer.Made(found, person.id, false, []))
+    none -> ok(Answer.Page(422, try direct_room_form(db, person, [], Rooms.people_problem([]))))
+    some(found) -> ok(Answer.Made(found, person.id, false, []))
   end
 end
 
 def direct_room_form(db: Db.Connection, person: Auth.User, chosen: List[Int], message: String) -> Result[String]
   people = try Rooms.people(db, person.id)
-  return ok(Views.new_direct_room(try sidebar_of(db, person), people, chosen, message))
+  ok(Views.new_direct_room(try sidebar_of(db, person), people, chosen, message))
 end
 
 def show_settings(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = room_id(conn)
   wanted = first(try Bond.query_all(conn, "type"))
   answer = try Database.with_connection(pool) do |db| settings_answer(conn, db, id, wanted) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], wanted: String) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return shown_settings(db, person, id, wanted)
+    none -> ok(Answer.SignedOut)
+    some(person) -> shown_settings(db, person, id, wanted)
   end
 end
 
 def shown_settings(db: Db.Connection, person: Auth.User, id: Optional[Int], wanted: String) -> Result[Answer]
   room = try settings_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) if not Rooms.editable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
-    some(found) -> return ok(Answer.Page(200, try first_settings(db, person, found, kind_of(found, wanted))))
+    none -> ok(Answer.NotFound)
+    some(found) if not Rooms.editable?(found, person.id, person.role) -> ok(Answer.Forbidden)
+    some(found) -> ok(Answer.Page(200, try first_settings(db, person, found, kind_of(found, wanted))))
   end
 end
 
 def save_settings(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   id = room_id(conn)
   answer = try Database.with_connection(pool) do |db| save_settings_answer(conn, db, id) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def save_settings_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return saved_settings(conn, db, person, id)
+    none -> ok(Answer.SignedOut)
+    some(person) -> saved_settings(conn, db, person, id)
   end
 end
 
@@ -436,9 +416,9 @@ end
 def saved_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
   room = try settings_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) if not Rooms.editable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
-    some(found) -> return form_settings(conn, db, person, found)
+    none -> ok(Answer.NotFound)
+    some(found) if not Rooms.editable?(found, person.id, person.role) -> ok(Answer.Forbidden)
+    some(found) -> form_settings(conn, db, person, found)
   end
 end
 
@@ -447,29 +427,23 @@ def form_settings(conn: Bond.Conn, db: Db.Connection, person: Auth.User, room: R
   ids = try ids_of(conn, "member")
   was = try ids_of(conn, "was")
   kinds = try Bond.form_all(conn, "type")
-  return change_settings(db, person, room, kind_of(room, first(kinds)), name, ids, was)
+  change_settings(db, person, room, kind_of(room, first(kinds)), name, ids, was)
 end
 
 # What the room is to be after the form: the kind that it names (`type`), or what the room is now for no kind or a kind
 # that is none of the two, so a form of the first version of the settings (no `type`) keeps its meaning.
 def kind_of(room: Rooms.Room, wanted: String) -> String
-  if wanted == Routes.SETTINGS_OPEN or wanted == Routes.SETTINGS_CLOSED
-    return wanted
-  end
+  return wanted if wanted == Routes.SETTINGS_OPEN or wanted == Routes.SETTINGS_CLOSED
 
-  if Rooms.open?(room)
-    return Routes.SETTINGS_OPEN
-  end
+  return Routes.SETTINGS_OPEN if Rooms.open?(room)
 
-  return Routes.SETTINGS_CLOSED
+  Routes.SETTINGS_CLOSED
 end
 
 def first(values: List[String]) -> String
-  if values.empty?
-    return ""
-  end
+  return "" if values.empty?
 
-  return values[0]
+  values[0]
 end
 
 def change_settings(
@@ -493,23 +467,21 @@ def change_settings(
   changed = try Rooms.update_room(db, room.id, person.id, name, kind == Routes.SETTINGS_OPEN, chosen, was)
   # The check before the form said they may; a refusal now is a change that happened meanwhile (they were taken out,
   # or lost the role), so they are told what a person who is not in the room is.
-  if not changed
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not changed
 
   # The people whose membership the update really deleted lose the stream of the room's messages, which was
   # checked when
   # they subscribed. They are read from the database, not from the form: `was` is the client's.
   after = try Rooms.member_ids(db, room.id)
   removed = before.select do |id| not after.include?(id) end
-  return ok(Answer.Made(room.id, person.id, true, removed))
+  ok(Answer.Made(room.id, person.id, true, removed))
 end
 
 # The form of the `kind` as it is first drawn: the people in the room are checked, and are the ones that it remembers
 # as in it (an open room drawn as closed has everyone checked).
 def first_settings(db: Db.Connection, person: Auth.User, room: Rooms.Room, kind: String) -> Result[String]
   members = try Rooms.member_ids(db, room.id)
-  return settings_form(db, person, room, kind, room.name, members, members, "")
+  settings_form(db, person, room, kind, room.name, members, members, "")
 end
 
 # A refused form comes back with what was typed and checked, and with the `was` that it had, so that fixing the name
@@ -525,37 +497,35 @@ def settings_form(
   message: String,
 ) -> Result[String]
   people = try Rooms.people(db, person.id)
-  return ok(Views.room_settings(try sidebar_of(db, person), room, kind, name, people, chosen, was, message))
+  ok(Views.room_settings(try sidebar_of(db, person), room, kind, name, people, chosen, was, message))
 end
 
 def show_involvement(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = room_id(conn)
   answer = try Database.with_connection(pool) do |db| involvement_answer(conn, db, id, false) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 # The form of Rails posts to the involvement with `_method=put` (in any case, as Rails reads it); any other post is a
 # 405 that says which methods the path takes, whatever the room.
 def post_involvement(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method != Routes.METHOD_PUT
-    return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_INVOLVEMENT_ALLOW)))
-  end
+  return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_INVOLVEMENT_ALLOW))) if method != Routes.METHOD_PUT
 
-  return save_involvement(conn, pool)
+  save_involvement(conn, pool)
 end
 
 def save_involvement(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = room_id(conn)
   answer = try Database.with_connection(pool) do |db| involvement_answer(conn, db, id, true) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def involvement_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], save: Bool) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return involvement_of(conn, db, person, id, save)
+    none -> ok(Answer.SignedOut)
+    some(person) -> involvement_of(conn, db, person, id, save)
   end
 end
 
@@ -570,9 +540,9 @@ def involvement_of(
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) if save -> return saved_involvement(conn, db, person, found)
-    some(found) -> return ok(Answer.Page(200, try involvement_page(db, person, found, "")))
+    none -> ok(Answer.NotFound)
+    some(found) if save -> saved_involvement(conn, db, person, found)
+    some(found) -> ok(Answer.Page(200, try involvement_page(db, person, found, "")))
   end
 end
 
@@ -583,22 +553,20 @@ end
 def saved_involvement(conn: Bond.Conn, db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
   level = try Bond.form(conn, "involvement")
   changed = try Rooms.set_involvement(db, person.id, room, level)
-  if not changed and Rooms.involvement_levels(room).include?(level)
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not changed and Rooms.involvement_levels(room).include?(level)
 
   if not changed
     page = try involvement_page(db, person, room, INVOLVEMENT_REFUSED)
     return ok(Answer.Page(422, page))
   end
 
-  return ok(Answer.Redirect(Routes.room_involvement_path(room.id)))
+  ok(Answer.Redirect(Routes.room_involvement_path(room.id)))
 end
 
 def involvement_page(db: Db.Connection, person: Auth.User, room: Rooms.Room, message: String) -> Result[String]
   level = try Rooms.involvement(db, person.id, room.id)
   hidden = Rooms.hidden?(level.unwrap_or(""))
-  return ok(Views.involvement(try sidebar_of(db, person), room, Rooms.involvement_levels(room), hidden, message))
+  ok(Views.involvement(try sidebar_of(db, person), room, Rooms.involvement_levels(room), hidden, message))
 end
 
 # The form of Rails posts to the room with `_method=delete` (in any case, as Rails reads it); any other post is what a
@@ -606,11 +574,9 @@ end
 # takes, whatever the room.
 def post_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method != Routes.METHOD_DELETE
-    return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW)))
-  end
+  return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW))) if method != Routes.METHOD_DELETE
 
-  return delete_room(conn, pool, cable)
+  delete_room(conn, pool, cable)
 end
 
 # The task that deletes the messages starts after the connection is given back, from the task of the request, and so
@@ -623,14 +589,14 @@ def delete_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> 
     _ -> return ok(respond(conn, answer))
   end
 
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def delete_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return deleted_room(db, person, id)
+    none -> ok(Answer.SignedOut)
+    some(person) -> deleted_room(db, person, id)
   end
 end
 
@@ -639,9 +605,9 @@ end
 def deleted_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) if not Rooms.administrable?(found, person.id, person.role) -> return ok(Answer.Forbidden)
-    some(found) -> return taken_away(db, person, found)
+    none -> ok(Answer.NotFound)
+    some(found) if not Rooms.administrable?(found, person.id, person.role) -> ok(Answer.Forbidden)
+    some(found) -> taken_away(db, person, found)
   end
 end
 
@@ -649,25 +615,23 @@ def taken_away(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result
   # Read before `destroy_later` takes every membership away: they are the people who are told.
   members = try Rooms.member_ids(db, room.id)
   done = try Rooms.destroy_later(db, room.id, person.id)
-  if not done
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not done
 
-  return ok(Answer.Deleted(room, members))
+  ok(Answer.Deleted(room, members))
 end
 
 def edit_message(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   id = room_id(conn)
   message_id = message_id(conn)
   answer = try Database.with_connection(pool) do |db| edit_answer(conn, db, id, message_id) end
-  return ok(respond(conn, answer))
+  ok(respond(conn, answer))
 end
 
 def edit_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], message_id: Optional[Int]) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return edit_form_answer(db, person, id, message_id)
+    none -> ok(Answer.SignedOut)
+    some(person) -> edit_form_answer(db, person, id, message_id)
   end
 end
 
@@ -679,9 +643,9 @@ def edit_form_answer(
 ) -> Result[Answer]
   located = try locate(db, person, id, message_id)
   case located
-    Located.Missing -> return ok(Answer.NotFound)
-    Located.Refused -> return ok(Answer.Forbidden)
-    Located.Found(room, message) -> return ok(Answer.Page(200, try edit_page(db, person, room, message, none, "")))
+    Located.Missing -> ok(Answer.NotFound)
+    Located.Refused -> ok(Answer.Forbidden)
+    Located.Found(room, message) -> ok(Answer.Page(200, try edit_page(db, person, room, message, none, "")))
   end
 end
 
@@ -695,29 +659,25 @@ def edit_page(
   note: String,
 ) -> Result[String]
   text = typed.unwrap_or(HtmlSanitizer.text_of_clean(message.body))
-  return ok(Views.edit_message(try sidebar_of(db, person), room, message, text, note))
+  ok(Views.edit_message(try sidebar_of(db, person), room, message, text, note))
 end
 
 # The form of Rails posts to the message with `_method` `patch` to save it and `delete` to delete it (in any case, as
 # Rails reads it); any other post is a 405 that says which methods the path takes, whatever the message.
 def post_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, max_length: Int) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method == Routes.METHOD_PATCH
-    return update_message(conn, pool, cable, max_length)
-  end
+  return update_message(conn, pool, cable, max_length) if method == Routes.METHOD_PATCH
 
-  if method == Routes.METHOD_DELETE
-    return delete_message(conn, pool, cable)
-  end
+  return delete_message(conn, pool, cable) if method == Routes.METHOD_DELETE
 
-  return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_MESSAGE_ALLOW)))
+  ok(respond(conn, Answer.NotAllowed(Routes.ROOM_MESSAGE_ALLOW)))
 end
 
 def update_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, max_length: Int) -> Result[Bond.Conn]
   id = room_id(conn)
   message_id = message_id(conn)
   answer = try Database.with_connection(pool) do |db| update_answer(conn, db, id, message_id, max_length) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def update_answer(
@@ -729,8 +689,8 @@ def update_answer(
 ) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return updated_message(conn, db, person, id, message_id, max_length)
+    none -> ok(Answer.SignedOut)
+    some(person) -> updated_message(conn, db, person, id, message_id, max_length)
   end
 end
 
@@ -746,9 +706,9 @@ def updated_message(
 ) -> Result[Answer]
   located = try locate(db, person, id, message_id)
   case located
-    Located.Missing -> return ok(Answer.NotFound)
-    Located.Refused -> return ok(Answer.Forbidden)
-    Located.Found(room, message) -> return save_message(conn, db, person, room, message, max_length)
+    Located.Missing -> ok(Answer.NotFound)
+    Located.Refused -> ok(Answer.Forbidden)
+    Located.Found(room, message) -> save_message(conn, db, person, room, message, max_length)
   end
 end
 
@@ -769,17 +729,13 @@ def save_message(
 
   saved = try Rooms.update_message(db, room.id, message.id, person.id, HtmlSanitizer.from_text(body))
   # A refusal now is a change that happened meanwhile (they were taken out of the room, or lost the role).
-  if not saved
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not saved
 
   # The message as it is stored now, for the people who are looking at the room.
   stored = try Rooms.find_message(db, room.id, message.id)
-  if stored.none?
-    return ok(Answer.Redirect(Routes.room_path(room.id)))
-  end
+  return ok(Answer.Redirect(Routes.room_path(room.id))) if stored.none?
 
-  return ok(Answer.Edited(room, Rooms.clean(stored.unwrap!)))
+  ok(Answer.Edited(room, Rooms.clean(stored.unwrap!)))
 end
 
 def delete_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
@@ -787,7 +743,7 @@ def delete_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) 
   message_id = message_id(conn)
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db| delete_message_answer(conn, db, id, message_id, stream) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def delete_message_answer(
@@ -799,8 +755,8 @@ def delete_message_answer(
 ) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return deleted_message(db, person, id, message_id, stream)
+    none -> ok(Answer.SignedOut)
+    some(person) -> deleted_message(db, person, id, message_id, stream)
   end
 end
 
@@ -816,9 +772,9 @@ def deleted_message(
 ) -> Result[Answer]
   located = try locate(db, person, id, message_id)
   case located
-    Located.Missing -> return ok(Answer.NotFound)
-    Located.Refused -> return ok(Answer.Forbidden)
-    Located.Found(room, message) -> return gone_message(db, person, room, message, stream)
+    Located.Missing -> ok(Answer.NotFound)
+    Located.Refused -> ok(Answer.Forbidden)
+    Located.Found(room, message) -> gone_message(db, person, room, message, stream)
   end
 end
 
@@ -830,11 +786,9 @@ def gone_message(
   stream: Bool,
 ) -> Result[Answer]
   gone = try Rooms.delete_message(db, room.id, message.id, person.id)
-  if not gone
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not gone
 
-  return ok(Answer.Removed(room, message.id, stream))
+  ok(Answer.Removed(room, message.id, stream))
 end
 
 # The message that the path names, for a person who is in the room: `Missing` for a room that is not theirs and for a
@@ -844,8 +798,8 @@ end
 def locate(db: Db.Connection, person: Auth.User, id: Optional[Int], message_id: Optional[Int]) -> Result[Located]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Located.Missing)
-    some(found) -> return located_message(db, person, found, message_id)
+    none -> ok(Located.Missing)
+    some(found) -> located_message(db, person, found, message_id)
   end
 end
 
@@ -856,13 +810,13 @@ def located_message(
   message_id: Optional[Int],
 ) -> Result[Located]
   case message_id
-    none -> return ok(Located.Missing)
+    none -> ok(Located.Missing)
     some(wanted) ->
       stored = try Rooms.find_message(db, room.id, wanted)
       case stored
-        none -> return ok(Located.Missing)
-        some(one) if not Rooms.changeable?(one.creator_id, person.id, person.role) -> return ok(Located.Refused)
-        some(one) -> return ok(Located.Found(room, Rooms.clean(one)))
+        none -> ok(Located.Missing)
+        some(one) if not Rooms.changeable?(one.creator_id, person.id, person.role) -> ok(Located.Refused)
+        some(one) -> ok(Located.Found(room, Rooms.clean(one)))
       end
   end
 end
@@ -879,8 +833,8 @@ def show_room(
   id = room_id(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(respond(conn, Answer.SignedOut))
-    some(person) -> return shown_room(conn, pool, cable, cache, pages, secure, person, id, before)
+    none -> ok(respond(conn, Answer.SignedOut))
+    some(person) -> shown_room(conn, pool, cable, cache, pages, secure, person, id, before)
   end
 end
 
@@ -900,8 +854,8 @@ def shown_room(
   spot = PageCache.spot(pages, PageCache.seen(conn), PageCache.ROOM, person, id, before)
   kept = PageCache.lookup(spot)
   case kept
-    some(page) -> return ok(respond_visit(conn, id, Answer.Cached(page), secure))
-    none -> return made_room_page(conn, pool, cable, cache, spot, secure, person, id, before)
+    some(page) -> ok(respond_visit(conn, id, Answer.Cached(page), secure))
+    none -> made_room_page(conn, pool, cable, cache, spot, secure, person, id, before)
   end
 end
 
@@ -917,7 +871,7 @@ def made_room_page(
   before: Optional[Int],
 ) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| room_answer(db, cable, cache, person, id, before) end
-  return ok(respond_visit(conn, id, kept(spot, answer), secure))
+  ok(respond_visit(conn, id, kept(spot, answer), secure))
 end
 
 def room_answer(
@@ -930,19 +884,19 @@ def room_answer(
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
+    none -> ok(Answer.NotFound)
     some(found) ->
       page = try room_page(db, cable, cache, person, found, before, composer("", ""))
-      return ok(Answer.Page(200, page))
+      ok(Answer.Page(200, page))
   end
 end
 
 # A page that was made (a 200) is kept at `spot` and answered with its tag; any other answer is as it is.
 def kept(spot: Optional[PageCache.Spot], answer: Answer) -> Answer
   case answer
-    Answer.Page(status, html) if status == 200 -> return Answer.Cached(PageCache.keep(spot, html))
-    Answer.Fragment(html) -> return Answer.Cached(PageCache.keep(spot, html))
-    _ -> return answer
+    Answer.Page(status, html) if status == 200 -> Answer.Cached(PageCache.keep(spot, html))
+    Answer.Fragment(html) -> Answer.Cached(PageCache.keep(spot, html))
+    _ -> answer
   end
 end
 
@@ -960,8 +914,8 @@ def older_messages(
   id = room_id(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(respond(conn, Answer.SignedOut))
-    some(person) -> return older_page(conn, pool, cache, pages, person, id, before, after)
+    none -> ok(respond(conn, Answer.SignedOut))
+    some(person) -> older_page(conn, pool, cache, pages, person, id, before, after)
   end
 end
 
@@ -985,8 +939,8 @@ def older_page(
 
   found = PageCache.lookup(spot)
   case found
-    some(page) -> return ok(respond(conn, Answer.Cached(page)))
-    none -> return made_older_page(conn, pool, cache, spot, person, id, before, after)
+    some(page) -> ok(respond(conn, Answer.Cached(page)))
+    none -> made_older_page(conn, pool, cache, spot, person, id, before, after)
   end
 end
 
@@ -1001,7 +955,7 @@ def made_older_page(
   after: Optional[Int],
 ) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| older_fragment(db, cache, person, id, before, after) end
-  return ok(respond(conn, kept(spot, answer)))
+  ok(respond(conn, kept(spot, answer)))
 end
 
 def older_fragment(
@@ -1014,8 +968,8 @@ def older_fragment(
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) -> return ok(fragment_of(cache, person, try older_messages_of(db, found, before, after)))
+    none -> ok(Answer.NotFound)
+    some(found) -> ok(fragment_of(cache, person, try older_messages_of(db, found, before, after)))
   end
 end
 
@@ -1026,17 +980,15 @@ def older_messages_of(
   after: Optional[Int],
 ) -> Result[List[Rooms.Stored]]
   case after
-    some(anchor) if before.none? -> return Rooms.page_after(db, room.id, anchor)
-    _ -> return ok((try Rooms.page(db, room.id, before)).messages)
+    some(anchor) if before.none? -> Rooms.page_after(db, room.id, anchor)
+    _ -> ok((try Rooms.page(db, room.id, before)).messages)
   end
 end
 
 def fragment_of(cache: Optional[Cache.Store], person: Auth.User, messages: List[Rooms.Stored]) -> Answer
-  if messages.empty?
-    return Answer.NoContent
-  end
+  return Answer.NoContent if messages.empty?
 
-  return Answer.Fragment(MessageCache.list(cache, messages, person.id, person.role))
+  Answer.Fragment(MessageCache.list(cache, messages, person.id, person.role))
 end
 
 # `/rooms/ID/@MESSAGE`: the room page around a message (Rails routes `@:message_id` to `rooms#show`, and `page_around`
@@ -1055,10 +1007,10 @@ def show_at(
   at = at_message(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(respond(conn, Answer.SignedOut))
+    none -> ok(respond(conn, Answer.SignedOut))
     some(person) ->
       answer = try Database.with_connection(pool) do |db| at_answer(db, cable, cache, person, id, at) end
-      return ok(respond_visit(conn, id, answer, secure))
+      ok(respond_visit(conn, id, answer, secure))
   end
 end
 
@@ -1072,9 +1024,9 @@ def at_answer(
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(_) if at.none? -> return ok(Answer.NotFound)
-    some(found) -> return ok(Answer.Page(200, try around_page(db, cable, cache, person, found, at.unwrap!)))
+    none -> ok(Answer.NotFound)
+    some(_) if at.none? -> ok(Answer.NotFound)
+    some(found) -> ok(Answer.Page(200, try around_page(db, cable, cache, person, found, at.unwrap!)))
   end
 end
 
@@ -1093,7 +1045,7 @@ def around_page(
     none -> page = try Rooms.page(db, room.id, none)
   end
 
-  return page_view(db, cable, cache, person, room, page, composer("", ""))
+  page_view(db, cable, cache, person, room, page, composer("", ""))
 end
 
 # `/rooms/ID/refresh?since=MILLISECONDS`: what a client missed since a time, as Turbo Streams (the live client calls it
@@ -1105,10 +1057,10 @@ def show_refresh(conn: Bond.Conn, pool: Database.Pool, cache: Optional[Cache.Sto
   since = try since_of(conn)
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(respond(conn, Answer.SignedOut))
+    none -> ok(respond(conn, Answer.SignedOut))
     some(person) ->
       answer = try Database.with_connection(pool) do |db| refresh_answer(db, cache, person, id, since) end
-      return ok(respond(conn, answer))
+      ok(respond(conn, answer))
   end
 end
 
@@ -1121,8 +1073,8 @@ def refresh_answer(
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) -> return refreshed(db, cache, person, found, since)
+    none -> ok(Answer.NotFound)
+    some(found) -> refreshed(db, cache, person, found, since)
   end
 end
 
@@ -1143,7 +1095,7 @@ def refreshed(
     Views.message_replaced(one.id, MessageCache.list(cache, [one], person.id, person.role))
   end
 
-  return ok(Answer.TurboStream([appended].concat(replaced).select do |part| not part.empty? end.join("\n")))
+  ok(Answer.TurboStream([appended].concat(replaced).select do |part| not part.empty? end.join("\n")))
 end
 
 def create_message(
@@ -1168,14 +1120,14 @@ def create_message(
     message_answer(conn, db, cable, cache, id, form, stream, max_length)
   end
 
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 # A browser that runs the scripts of the page asks for a Turbo Stream, and gets the message to append; a form that
 # was sent without them (`Accept` of a plain browser, or none) gets the redirect to the room page.
 def wants_stream?(conn: Bond.Conn) -> Bool
   accept = Bond.request_header(conn, "accept")
-  return accept.ok? and accept.unwrap!.include?(TURBO_STREAM_TYPE)
+  accept.ok? and accept.unwrap!.include?(TURBO_STREAM_TYPE)
 end
 
 def message_answer(
@@ -1190,14 +1142,14 @@ def message_answer(
 ) -> Result[Answer]
   found = try AuthWeb.person_in(conn, db)
   case found
-    AuthWeb.Found.Entry(path) -> return ok(Answer.Redirect(path))
+    AuthWeb.Found.Entry(path) -> ok(Answer.Redirect(path))
     AuthWeb.Found.Person(person) ->
       # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
       # whatever the room: nothing here depends on the room.
       body = (try form.body).strip
       formats = try form.formats
       sent = Sent(text: body, html: formats.any? do |format| format == HTML_FORMAT end)
-      return posted(db, cable, cache, person, id, sent, try form.sent_id, stream, max_length)
+      posted(db, cable, cache, person, id, sent, try form.sent_id, stream, max_length)
   end
 end
 
@@ -1215,8 +1167,8 @@ def posted(
 ) -> Result[Answer]
   room = try member_room(db, person, id)
   case room
-    none -> return ok(Answer.NotFound)
-    some(found) -> return post_to(db, cable, cache, person, found, sent, sent_id, stream, max_length)
+    none -> ok(Answer.NotFound)
+    some(found) -> post_to(db, cable, cache, person, found, sent, sent_id, stream, max_length)
   end
 end
 
@@ -1246,16 +1198,16 @@ def post_to(
 
   stored = try Rooms.post(db, room.id, person.id, sent_id, html)
   case stored
-    none -> return ok(try refused_post(db, person, room))
-    some(message) -> return ok(Answer.Posted(room, message, stream))
+    none -> ok(try refused_post(db, person, room))
+    some(message) -> ok(Answer.Posted(room, message, stream))
   end
 end
 
 def refused_post(db: Db.Connection, person: Auth.User, room: Rooms.Room) -> Result[Answer]
   still = try member_room(db, person, some(room.id))
   case still
-    none -> return ok(Answer.NotFound)
-    some(_) -> return ok(Answer.SignedOut)
+    none -> ok(Answer.NotFound)
+    some(_) -> ok(Answer.SignedOut)
   end
 end
 
@@ -1270,7 +1222,7 @@ def room_page(
   form: Views.Composer,
 ) -> Result[String]
   page = try Rooms.page(db, room.id, before)
-  return page_view(db, cable, cache, person, room, page, form)
+  page_view(db, cable, cache, person, room, page, form)
 end
 
 def page_view(
@@ -1283,7 +1235,7 @@ def page_view(
   form: Views.Composer,
 ) -> Result[String]
   thread = MessageCache.list(cache, page.messages, person.id, person.role)
-  return ok(
+  ok(
     Views.room(
       try sidebar_without(db, person, room.id),
       room,
@@ -1301,13 +1253,13 @@ end
 # the person at that version of the database, so two tabs can post with the same `client_message_id`: nothing may
 # drop a message because its id was seen before.
 def composer(note: String, draft: String) -> Views.Composer
-  return Views.Composer(note: note, draft: draft, message_id: OpenSSL.Random.hex(CLIENT_ID_BYTES))
+  Views.Composer(note: note, draft: draft, message_id: OpenSSL.Random.hex(CLIENT_ID_BYTES))
 end
 
 def member_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]
   case id
-    none -> return ok(none)
-    some(room_id) -> return Rooms.find(db, person.id, room_id)
+    none -> ok(none)
+    some(room_id) -> Rooms.find(db, person.id, room_id)
   end
 end
 
@@ -1315,8 +1267,8 @@ end
 def settings_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]
   room = try member_room(db, person, id)
   case room
-    some(found) if Rooms.has_settings?(found) -> return ok(room)
-    _ -> return ok(none)
+    some(found) if Rooms.has_settings?(found) -> ok(room)
+    _ -> ok(none)
   end
 end
 
@@ -1327,42 +1279,36 @@ def ids_of(conn: Bond.Conn, field: String) -> Result[List[Int]]
   ids: List[Int] = []
   for value in values
     parsed = value.to_i
-    if not parsed.ok?
-      return Bond.bad_request("#{field} must be a whole number")
-    end
+    return Bond.bad_request("#{field} must be a whole number") if not parsed.ok?
 
     ids = ids.push(parsed.unwrap!)
   end
 
-  return ok(ids)
+  ok(ids)
 end
 
 # The ids among `ids` that name one of the `people` that the form offered: the ones that name nobody (an inactive
 # person, a number that is no user) are left out, and so is the person who sends the form, who is never in `people`.
 def chosen_of(people: List[Rooms.Person], ids: List[Int]) -> List[Int]
-  return people.select do |person| ids.include?(person.id) end.map do |person| person.id end
+  people.select do |person| ids.include?(person.id) end.map do |person| person.id end
 end
 
 # A room id that is not a whole number (or is too big for one) names no room, which is a 404 like any other.
 def room_id(conn: Bond.Conn) -> Optional[Int]
   text = Bond.param(conn, "id").unwrap_or("")
   parsed = text.to_i
-  if parsed.ok?
-    return some(parsed.unwrap!)
-  end
+  return some(parsed.unwrap!) if parsed.ok?
 
-  return none
+  none
 end
 
 # A message id that is not a whole number names no message, which is a 404 like any other.
 def message_id(conn: Bond.Conn) -> Optional[Int]
   text = Bond.param(conn, "message_id").unwrap_or("")
   parsed = text.to_i
-  if parsed.ok?
-    return some(parsed.unwrap!)
-  end
+  return some(parsed.unwrap!) if parsed.ok?
 
-  return none
+  none
 end
 
 # `?since=`, as Ruby's `to_i` reads it: the whitespace, the sign and the digits at the start, and nothing after them
@@ -1370,9 +1316,7 @@ end
 # as one can write, which no message is after.
 def since_of(conn: Bond.Conn) -> Result[Int]
   values = try Bond.query_all(conn, "since")
-  if values.empty?
-    return ok(0)
-  end
+  return ok(0) if values.empty?
 
   text = values[0].strip
   negative = text.start_with?("-")
@@ -1382,57 +1326,43 @@ def since_of(conn: Bond.Conn) -> Result[Int]
 
   digits = ""
   for ch in text.split("")
-    if not "0123456789".include?(ch)
-      break
-    end
+    break if not "0123456789".include?(ch)
 
     digits = digits + ch
   end
 
-  if digits.empty?
-    return ok(0)
-  end
+  return ok(0) if digits.empty?
 
-  if digits.length > SINCE_DIGITS
-    return ok(SINCE_FAR)
-  end
+  return ok(SINCE_FAR) if digits.length > SINCE_DIGITS
 
   value = digits.to_i.unwrap_or(0)
-  if negative
-    return ok(0 - value)
-  end
+  return ok(0 - value) if negative
 
-  return ok(value)
+  ok(value)
 end
 
 # The message of `/rooms/ID/@MESSAGE`: `none` for a segment that is not `@` and a whole number.
 def at_message(conn: Bond.Conn) -> Optional[Int]
   text = Bond.param(conn, "segment").unwrap_or("")
-  if not text.start_with?(Routes.AT_PREFIX)
-    return none
-  end
+  return none if not text.start_with?(Routes.AT_PREFIX)
 
   parsed = text.slice(1, text.length - 1).to_i
-  if parsed.ok?
-    return some(parsed.unwrap!)
-  end
+  return some(parsed.unwrap!) if parsed.ok?
 
-  return none
+  none
 end
 
 # The id that the form carries for its message, or a new one for a post that has none (a tool, not our page). Too
 # long a value is a 400: the column holds anything, so the limit is ours.
 def client_id(conn: Bond.Conn) -> Result[String]
   values = try Bond.form_all(conn, MESSAGE_CLIENT_ID)
-  if values.empty? or values[0].empty?
-    return ok(OpenSSL.Random.hex(CLIENT_ID_BYTES))
-  end
+  return ok(OpenSSL.Random.hex(CLIENT_ID_BYTES)) if values.empty? or values[0].empty?
 
   if values[0].length > Rooms.MAX_CLIENT_ID_LENGTH
     return Bond.bad_request("#{MESSAGE_CLIENT_ID} is at most #{Rooms.MAX_CLIENT_ID_LENGTH} characters")
   end
 
-  return ok(values[0])
+  ok(values[0])
 end
 
 # What the live clients hear of an answer, after its connection is back in the pool (a broadcast may wait for room in
@@ -1449,7 +1379,7 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
     _ -> return respond(conn, answer)
   end
 
-  return respond(conn, answer)
+  respond(conn, answer)
 end
 
 # A new message is broadcast and, for a browser that runs the scripts, answered with the same stream but for the link
@@ -1468,40 +1398,40 @@ def posted_response(
 
   streams = Views.message_streams(room, message)
   CableWeb.message_announced(cable, room, message, streams.broadcast)
-  return Bond.header(Bond.html(conn, 200, streams.own), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
+  Bond.header(Bond.html(conn, 200, streams.own), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
 end
 
 # `Answer.Posted` is answered by `posted_response`, which also broadcasts; its arms here keep the case complete and say
 # the same.
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
-    Answer.Page(status, html) -> return Bond.html(conn, status, html)
-    Answer.Cached(page) -> return PageCache.respond(conn, page)
-    Answer.Fragment(html) -> return Bond.html(conn, 200, html)
-    Answer.Made(room_id, _, _, _) -> return Bond.redirect(conn, Routes.room_path(room_id))
+    Answer.Page(status, html) -> Bond.html(conn, status, html)
+    Answer.Cached(page) -> PageCache.respond(conn, page)
+    Answer.Fragment(html) -> Bond.html(conn, 200, html)
+    Answer.Made(room_id, _, _, _) -> Bond.redirect(conn, Routes.room_path(room_id))
     Answer.Posted(room, message, stream) if stream ->
-      return Bond.header(
+      Bond.header(
         Bond.html(conn, 200, Views.message_stream(room, message, true)),
         "content-type",
         TURBO_STREAM_TYPE + "; charset=utf-8",
       )
-    Answer.Posted(room, _, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
-    Answer.Edited(room, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
+    Answer.Posted(room, _, _) -> Bond.redirect(conn, Routes.room_path(room.id))
+    Answer.Edited(room, _) -> Bond.redirect(conn, Routes.room_path(room.id))
     Answer.Removed(_, message_id, stream) if stream ->
-      return Bond.header(
+      Bond.header(
         Bond.html(conn, 200, Views.message_removed(message_id)),
         "content-type",
         TURBO_STREAM_TYPE + "; charset=utf-8",
       )
-    Answer.Removed(room, _, _) -> return Bond.redirect(conn, Routes.room_path(room.id))
+    Answer.Removed(room, _, _) -> Bond.redirect(conn, Routes.room_path(room.id))
     Answer.TurboStream(html) ->
-      return Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
-    Answer.NoContent -> return Bond.status(conn, 204)
-    Answer.Redirect(path) -> return Bond.redirect(conn, path)
-    Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
-    Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
-    Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
-    Answer.Deleted(_, _) -> return Bond.redirect(conn, Routes.HOME)
-    Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
+      Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
+    Answer.NoContent -> Bond.status(conn, 204)
+    Answer.Redirect(path) -> Bond.redirect(conn, path)
+    Answer.NotFound -> Bond.text(conn, 404, Routes.MISSING)
+    Answer.NotAllowed(allow) -> Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
+    Answer.Forbidden -> Bond.text(conn, 403, "Forbidden")
+    Answer.Deleted(_, _) -> Bond.redirect(conn, Routes.HOME)
+    Answer.SignedOut -> Bond.redirect(conn, Routes.SIGN_IN)
   end
 end

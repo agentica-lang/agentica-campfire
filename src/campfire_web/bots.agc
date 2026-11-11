@@ -40,7 +40,7 @@ end
 
 ## Adds the routes of the chat bots to `app`. `config` says where the curl lines of the list start.
 export def add(app: Bond.App, pool: Database.Pool, config: Config) -> Bond.App
-  return (
+  (
     app
     |> Bond.get(Routes.BOTS) do |conn|
       respond(conn, pool) do |_, db, person| list_answer(db, person, BotMessagesWeb.origin(conn, config)) end
@@ -61,24 +61,18 @@ end
 # Rails send them; any other is a 405.
 def post_bot(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method == Routes.METHOD_PATCH or method == Routes.METHOD_PUT
-    return respond(conn, pool, &rename_answer)
-  end
+  return respond(conn, pool, &rename_answer) if method == Routes.METHOD_PATCH or method == Routes.METHOD_PUT
 
-  if method == Routes.METHOD_DELETE
-    return respond(conn, pool, &remove_answer)
-  end
+  return respond(conn, pool, &remove_answer) if method == Routes.METHOD_DELETE
 
-  return ok(answered(conn, Answer.NotAllowed(Routes.BOT_ALLOW)))
+  ok(answered(conn, Answer.NotAllowed(Routes.BOT_ALLOW)))
 end
 
 def post_key(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  if method == Routes.METHOD_PUT
-    return respond(conn, pool, &key_answer)
-  end
+  return respond(conn, pool, &key_answer) if method == Routes.METHOD_PUT
 
-  return ok(answered(conn, Answer.NotAllowed(Routes.BOT_KEY_ALLOW)))
+  ok(answered(conn, Answer.NotAllowed(Routes.BOT_KEY_ALLOW)))
 end
 
 def respond(
@@ -87,7 +81,7 @@ def respond(
   handle: Fn[Bond.Conn, Db.Connection, Auth.User, Result[Answer]],
 ) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| gated(conn, db, handle) end
-  return ok(answered(conn, answer))
+  ok(answered(conn, answer))
 end
 
 def gated(
@@ -97,8 +91,8 @@ def gated(
 ) -> Result[Answer]
   asked = try actor(conn)
   case asked
-    Actor.Turned(turned) -> return ok(turned)
-    Actor.Administrator(person) -> return handle.call(conn, db, person)
+    Actor.Turned(turned) -> ok(turned)
+    Actor.Administrator(person) -> handle.call(conn, db, person)
   end
 end
 
@@ -112,41 +106,37 @@ def list_answer(db: Db.Connection, person: Auth.User, origin: String) -> Result[
     entries = entries.push(Views.BotRooms(bot: bot, rooms: shared))
   end
 
-  return ok(Answer.Page(Views.bots(try RoomsWeb.sidebar_of(db, person), entries, origin)))
+  ok(Answer.Page(Views.bots(try RoomsWeb.sidebar_of(db, person), entries, origin)))
 end
 
 def new_answer(_conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
-  return ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, "", "")))
+  ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, "", "")))
 end
 
 def edit_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   found = try find(conn, db)
   case found
-    none -> return ok(Answer.NotFound)
-    some(bot) -> return ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), found, bot.name, "")))
+    none -> ok(Answer.NotFound)
+    some(bot) -> ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), found, bot.name, "")))
   end
 end
 
 def create_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   name = (try Bond.form(conn, USER_NAME)).strip
   problem = Bots.name_problem(name)
-  if problem != ""
-    return ok(Answer.Refused(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, name, problem)))
-  end
+  return ok(Answer.Refused(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, name, problem))) if problem != ""
 
   done = try Bots.create(db, person.id, name)
-  if not done
-    return ok(Answer.Forbidden)
-  end
+  return ok(Answer.Forbidden) if not done
 
-  return ok(Answer.Redirect(Routes.BOTS))
+  ok(Answer.Redirect(Routes.BOTS))
 end
 
 def rename_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   found = try find(conn, db)
   case found
-    none -> return ok(Answer.NotFound)
-    some(bot) -> return renamed(conn, db, person, bot)
+    none -> ok(Answer.NotFound)
+    some(bot) -> renamed(conn, db, person, bot)
   end
 end
 
@@ -157,73 +147,65 @@ def renamed(conn: Bond.Conn, db: Db.Connection, person: Auth.User, bot: Bots.Bot
     return ok(Answer.Refused(Views.bot_form(try RoomsWeb.sidebar_of(db, person), some(bot), name, problem)))
   end
 
-  return answer_of(try Bots.rename(db, person.id, bot.id, name))
+  answer_of(try Bots.rename(db, person.id, bot.id, name))
 end
 
 def remove_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   id = bot_id(conn)
-  if id.none?
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if id.none?
 
-  return answer_of(try Bots.deactivate(db, person.id, id.unwrap!))
+  answer_of(try Bots.deactivate(db, person.id, id.unwrap!))
 end
 
 def key_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   id = bot_id(conn)
-  if id.none?
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if id.none?
 
-  return answer_of(try Bots.reset_key(db, person.id, id.unwrap!))
+  answer_of(try Bots.reset_key(db, person.id, id.unwrap!))
 end
 
 def actor(conn: Bond.Conn) -> Result[Actor]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Actor.Turned(Answer.SignedOut))
-    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> return ok(Actor.Turned(Answer.Forbidden))
-    some(person) -> return ok(Actor.Administrator(person))
+    none -> ok(Actor.Turned(Answer.SignedOut))
+    some(person) if person.role != Rooms.ADMINISTRATOR_ROLE_NAME -> ok(Actor.Turned(Answer.Forbidden))
+    some(person) -> ok(Actor.Administrator(person))
   end
 end
 
 # The active bot that the path names; an id that is not a whole number names nobody.
 def find(conn: Bond.Conn, db: Db.Connection) -> Result[Optional[Bots.Bot]]
   id = bot_id(conn)
-  if id.none?
-    return ok(none)
-  end
+  return ok(none) if id.none?
 
-  return Bots.find(db, id.unwrap!)
+  Bots.find(db, id.unwrap!)
 end
 
 def bot_id(conn: Bond.Conn) -> Optional[Int]
   parsed = Bond.param(conn, "id").unwrap_or("").to_i
-  if parsed.ok?
-    return some(parsed.unwrap!)
-  end
+  return some(parsed.unwrap!) if parsed.ok?
 
-  return none
+  none
 end
 
 def answer_of(change: Accounts.Change) -> Result[Answer]
   case change
-    Accounts.Change.Changed -> return ok(Answer.Redirect(Routes.BOTS))
-    Accounts.Change.Unchanged -> return ok(Answer.Redirect(Routes.BOTS))
-    Accounts.Change.Missing -> return ok(Answer.NotFound)
-    Accounts.Change.Refused -> return ok(Answer.Forbidden)
-    Accounts.Change.Taken -> return ok(Answer.Forbidden)
+    Accounts.Change.Changed -> ok(Answer.Redirect(Routes.BOTS))
+    Accounts.Change.Unchanged -> ok(Answer.Redirect(Routes.BOTS))
+    Accounts.Change.Missing -> ok(Answer.NotFound)
+    Accounts.Change.Refused -> ok(Answer.Forbidden)
+    Accounts.Change.Taken -> ok(Answer.Forbidden)
   end
 end
 
 def answered(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
-    Answer.Page(html) -> return AuthWeb.private_page(Bond.html(conn, 200, html))
-    Answer.Refused(html) -> return AuthWeb.private_page(Bond.html(conn, 422, html))
-    Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
-    Answer.Redirect(path) -> return Bond.redirect(conn, path)
-    Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
-    Answer.Forbidden -> return Bond.text(conn, 403, "Forbidden")
-    Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
+    Answer.Page(html) -> AuthWeb.private_page(Bond.html(conn, 200, html))
+    Answer.Refused(html) -> AuthWeb.private_page(Bond.html(conn, 422, html))
+    Answer.NotAllowed(allow) -> Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
+    Answer.Redirect(path) -> Bond.redirect(conn, path)
+    Answer.NotFound -> Bond.text(conn, 404, Routes.MISSING)
+    Answer.Forbidden -> Bond.text(conn, 403, "Forbidden")
+    Answer.SignedOut -> Bond.redirect(conn, Routes.SIGN_IN)
   end
 end

@@ -7,7 +7,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 7: create action text rich texts.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     7,
     "create action text rich texts",
     [
@@ -19,7 +19,7 @@ export def migration() -> Migrate.Migration
 end
 
 def rich_texts() -> String
-  return <<~SQL
+  <<~SQL
     create table action_text_rich_texts (
       id integer primary key autoincrement not null,
       body text,

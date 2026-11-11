@@ -43,7 +43,7 @@ end
 ## Adds the routes of the boosts to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
 ## where a boost that is added or taken away is broadcast.
 export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable) -> Bond.App
-  return (
+  (
     app
     |> Bond.get(Routes.MESSAGE_BOOSTS) do |conn|
       served(conn, pool, cable) do |db, person| list_answer(conn, db, person) end
@@ -68,7 +68,7 @@ def post_boost(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> R
     return ok(respond(conn, Answer.NotAllowed(Routes.MESSAGE_BOOST_ALLOW)))
   end
 
-  return served(conn, pool, cable) do |db, person| remove_answer(conn, db, person, wants_stream?(conn)) end
+  served(conn, pool, cable) do |db, person| remove_answer(conn, db, person, wants_stream?(conn)) end
 end
 
 # One connection of the pool for the work of `handle`, then the broadcast and the answer.
@@ -79,7 +79,7 @@ def served(
   handle: Fn[Db.Connection, Auth.User, Result[Answer]],
 ) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| signed_in(conn, db, handle) end
-  return ok(announced(conn, cable, answer))
+  ok(announced(conn, cable, answer))
 end
 
 def signed_in(
@@ -89,8 +89,8 @@ def signed_in(
 ) -> Result[Answer]
   user = try AuthWeb.assigned_user(conn)
   case user
-    none -> return ok(Answer.SignedOut)
-    some(person) -> return handle.call(db, person)
+    none -> ok(Answer.SignedOut)
+    some(person) -> handle.call(db, person)
   end
 end
 
@@ -98,34 +98,32 @@ end
 # the redirect.
 def wants_stream?(conn: Bond.Conn) -> Bool
   accept = Bond.request_header(conn, "accept")
-  return accept.ok? and accept.unwrap!.include?(TURBO_STREAM_TYPE)
+  accept.ok? and accept.unwrap!.include?(TURBO_STREAM_TYPE)
 end
 
 # The message that the path names, when the person is in its room.
 def reached(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Optional[Boosts.Reach]]
   id = Bond.param_int(conn, MESSAGE)
-  if not id.ok?
-    return ok(none)
-  end
+  return ok(none) if not id.ok?
 
-  return Boosts.reach(db, person.id, id.unwrap!)
+  Boosts.reach(db, person.id, id.unwrap!)
 end
 
 def list_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   found = try reached(conn, db, person)
   case found
-    none -> return ok(Answer.NotFound)
+    none -> ok(Answer.NotFound)
     some(reach) ->
       boosts = try Boosts.of_message(db, reach.message_id)
-      return ok(Answer.Fragment(Views.boosts_area(reach.message_id, boosts)))
+      ok(Answer.Fragment(Views.boosts_area(reach.message_id, boosts)))
   end
 end
 
 def new_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   found = try reached(conn, db, person)
   case found
-    none -> return ok(Answer.NotFound)
-    some(reach) -> return ok(Answer.Page(200, Views.new_boost(reach.room_id, reach.message_id, "", "")))
+    none -> ok(Answer.NotFound)
+    some(reach) -> ok(Answer.Page(200, Views.new_boost(reach.room_id, reach.message_id, "", "")))
   end
 end
 
@@ -134,47 +132,41 @@ end
 def add_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User, stream: Bool) -> Result[Answer]
   found = try reached(conn, db, person)
   case found
-    none -> return ok(Answer.NotFound)
-    some(reach) -> return added(conn, db, person, reach, stream)
+    none -> ok(Answer.NotFound)
+    some(reach) -> added(conn, db, person, reach, stream)
   end
 end
 
 def added(conn: Bond.Conn, db: Db.Connection, person: Auth.User, reach: Boosts.Reach, stream: Bool) -> Result[Answer]
   content = (try Bond.form(conn, CONTENT)).strip
   problem = Boosts.content_problem(content)
-  if problem != ""
-    return ok(Answer.Page(422, Views.new_boost(reach.room_id, reach.message_id, content, problem)))
-  end
+  return ok(Answer.Page(422, Views.new_boost(reach.room_id, reach.message_id, content, problem))) if problem != ""
 
   # The insert stores nothing for a person who was deactivated or taken out of the room since the check, which is a
   # 404 as it would have been a moment earlier.
   stored = try Boosts.add(db, person.id, reach.message_id, content)
   case stored
-    none -> return ok(Answer.NotFound)
-    some(boost) -> return ok(Answer.Added(reach, boost, stream))
+    none -> ok(Answer.NotFound)
+    some(boost) -> ok(Answer.Added(reach, boost, stream))
   end
 end
 
 def remove_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User, stream: Bool) -> Result[Answer]
   found = try reached(conn, db, person)
   case found
-    none -> return ok(Answer.NotFound)
-    some(reach) -> return removed(conn, db, person, reach, stream)
+    none -> ok(Answer.NotFound)
+    some(reach) -> removed(conn, db, person, reach, stream)
   end
 end
 
 def removed(conn: Bond.Conn, db: Db.Connection, person: Auth.User, reach: Boosts.Reach, stream: Bool) -> Result[Answer]
   id = Bond.param_int(conn, BOOST)
-  if not id.ok?
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not id.ok?
 
   gone = try Boosts.remove(db, person.id, reach.message_id, id.unwrap!)
-  if not gone
-    return ok(Answer.NotFound)
-  end
+  return ok(Answer.NotFound) if not gone
 
-  return ok(Answer.Removed(reach, id.unwrap!, stream))
+  ok(Answer.Removed(reach, id.unwrap!, stream))
 end
 
 # What the live clients hear of an answer, after its connection is back in the pool (a broadcast may wait for room in
@@ -186,29 +178,28 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
     _ -> return respond(conn, answer)
   end
 
-  return respond(conn, answer)
+  respond(conn, answer)
 end
 
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
   case answer
-    Answer.Page(status, html) -> return Bond.html(conn, status, html)
-    Answer.Fragment(html) -> return Bond.html(conn, 200, html)
-    Answer.Added(reach, boost, stream) if stream ->
-      return streamed(conn, Views.boost_added_stream(reach.message_id, boost))
-    Answer.Added(reach, _, _) -> return Bond.redirect(conn, back_to(reach))
-    Answer.Removed(_, boost_id, stream) if stream -> return streamed(conn, Views.boost_removed_stream(boost_id))
-    Answer.Removed(reach, _, _) -> return Bond.redirect(conn, back_to(reach))
-    Answer.NotFound -> return Bond.text(conn, 404, Routes.MISSING)
-    Answer.NotAllowed(allow) -> return Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
-    Answer.SignedOut -> return Bond.redirect(conn, Routes.SIGN_IN)
+    Answer.Page(status, html) -> Bond.html(conn, status, html)
+    Answer.Fragment(html) -> Bond.html(conn, 200, html)
+    Answer.Added(reach, boost, stream) if stream -> streamed(conn, Views.boost_added_stream(reach.message_id, boost))
+    Answer.Added(reach, _, _) -> Bond.redirect(conn, back_to(reach))
+    Answer.Removed(_, boost_id, stream) if stream -> streamed(conn, Views.boost_removed_stream(boost_id))
+    Answer.Removed(reach, _, _) -> Bond.redirect(conn, back_to(reach))
+    Answer.NotFound -> Bond.text(conn, 404, Routes.MISSING)
+    Answer.NotAllowed(allow) -> Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
+    Answer.SignedOut -> Bond.redirect(conn, Routes.SIGN_IN)
   end
 end
 
 def streamed(conn: Bond.Conn, html: String) -> Bond.Conn
-  return Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
+  Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
 end
 
 # The room page around the message, where its boosts are, whatever page of the room it is on.
 def back_to(reach: Boosts.Reach) -> String
-  return "#{Routes.room_at_path(reach.room_id, reach.message_id)}#message_#{reach.message_id}"
+  "#{Routes.room_at_path(reach.room_id, reach.message_id)}#message_#{reach.message_id}"
 end

@@ -32,7 +32,7 @@ end
 ## task that it starts owns its queue: if it ever crashes, the queue closes and `enqueue` finds out.
 export def start(options: Optional[Smtp.Options], capacity: Int) -> Result[Mailer]
   case options
-    none -> return ok(Mailer(queue: none, capacity: 0, worker: none))
+    none -> ok(Mailer(queue: none, capacity: 0, worker: none))
     some(chosen) ->
       if capacity < 1 or capacity > Config.MAX_MAIL_QUEUE
         return error("the mail queue must hold from 1 to #{Config.MAX_MAIL_QUEUE} messages, not #{capacity}")
@@ -40,7 +40,7 @@ export def start(options: Optional[Smtp.Options], capacity: Int) -> Result[Maile
 
       queue: Channel[Smtp.Message] = Channel.new(capacity)
       worker = Task.spawn_owning(&work, Job(queue: queue, options: chosen))
-      return ok(Mailer(queue: some(queue), capacity: capacity, worker: some(worker)))
+      ok(Mailer(queue: some(queue), capacity: capacity, worker: some(worker)))
   end
 end
 
@@ -48,8 +48,8 @@ end
 ## password.
 export def status(options: Optional[Smtp.Options]) -> String
   case options
-    none -> return "mail: off (CAMPFIRE_SMTP_URL is not set, so no email is sent)"
-    some(chosen) -> return "mail: sending through #{chosen.host}:#{chosen.port} (#{security_name(chosen.security)})"
+    none -> "mail: off (CAMPFIRE_SMTP_URL is not set, so no email is sent)"
+    some(chosen) -> "mail: sending through #{chosen.host}:#{chosen.port} (#{security_name(chosen.security)})"
   end
 end
 
@@ -57,8 +57,8 @@ end
 ## pages that need email are not offered after that.
 export def enabled?(mailer: Mailer) -> Bool
   case mailer.queue
-    none -> return false
-    some(queue) -> return not Channel.closed?(queue)
+    none -> false
+    some(queue) -> not Channel.closed?(queue)
   end
 end
 
@@ -67,12 +67,10 @@ end
 ## with the outcome.
 export def enqueue(mailer: Mailer, message: Smtp.Message) -> Bool
   case mailer.queue
-    none -> return false
+    none -> false
     some(queue) ->
       sent = Channel.send(queue, message, 0)
-      if sent.ok?
-        return true
-      end
+      return true if sent.ok?
 
       if Channel.closed?(queue)
         IO.warn("campfire: mail: a message was dropped, since the mailer has stopped")
@@ -80,7 +78,7 @@ export def enqueue(mailer: Mailer, message: Smtp.Message) -> Bool
         IO.warn("campfire: mail: a message was dropped, since #{mailer.capacity} are waiting to be sent")
       end
 
-      return false
+      false
   end
 end
 
@@ -134,14 +132,12 @@ def work(job: Job) -> Result[Void]
     end
   end
 
-  return ok()
+  ok()
 end
 
 def deliver(options: Smtp.Options, message: Smtp.Message) -> Void
   sent = Smtp.send(message, options)
-  if sent.ok?
-    return
-  end
+  return if sent.ok?
 
   count = message.to.size + message.cc.size + message.bcc.size
   noun = "recipients"
@@ -154,8 +150,8 @@ end
 
 def security_name(security: Smtp.Security) -> String
   case security
-    Smtp.Security.Starttls -> return "STARTTLS"
-    Smtp.Security.Implicit -> return "TLS"
-    Smtp.Security.Plain -> return "plain"
+    Smtp.Security.Starttls -> "STARTTLS"
+    Smtp.Security.Implicit -> "TLS"
+    Smtp.Security.Plain -> "plain"
   end
 end

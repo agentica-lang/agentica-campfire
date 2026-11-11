@@ -3,7 +3,7 @@ import Rooms from "../src/campfire/rooms"
 import Views from "../src/campfire_web/views"
 
 def message() -> Rooms.Message
-  return Rooms.Message(
+  Rooms.Message(
     id: 7,
     room_id: 3,
     creator_id: 2,

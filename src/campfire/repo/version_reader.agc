@@ -69,14 +69,10 @@ export def open(url: String) -> Result[Reader]
     return error("version reader: unsupported database url with scheme sqlite://: write sqlite:PATH, without //")
   end
 
-  if not url.start_with?(SCHEME)
-    return error("version reader: the database url must be sqlite:PATH")
-  end
+  return error("version reader: the database url must be sqlite:PATH") if not url.start_with?(SCHEME)
 
   target = try SqliteUrl.parse(url.slice(SCHEME.length, url.length - SCHEME.length))
-  if target.path.empty?
-    return error("version reader: the path of the database url is empty")
-  end
+  return error("version reader: the path of the database url is empty") if target.path.empty?
 
   if in_memory?(target.path)
     return error("version reader: an in-memory database is private to its connection, so it cannot be watched")
@@ -97,7 +93,7 @@ export def open(url: String) -> Result[Reader]
 
   turn: Channel[Bool] = Channel.new(1)
   _ = turn.send(true, 0)
-  return ok(Reader(db: opened.db, stmt: made.stmt, turn: turn))
+  ok(Reader(db: opened.db, stmt: made.stmt, turn: turn))
 end
 
 ## Closes the connection after the reader that holds the turn is done: a read after it is an `error`. The app calls
@@ -115,30 +111,22 @@ end
 ## is busy, the reader is closed or the turn did not come) means that nothing is known, so the caller must not trust
 ## or keep anything it saw before.
 export def version(reader: Reader) -> Result[String]
-  if Native.closed?(reader.stmt)
-    return error("database error: the version reader is closed")
-  end
+  return error("database error: the version reader is closed") if Native.closed?(reader.stmt)
 
-  if not take(reader.turn)
-    return error("database error: the version reader is busy")
-  end
+  return error("database error: the version reader is busy") if not take(reader.turn)
 
   value = current(reader)
   give_back(reader.turn)
-  if value <= 0
-    return error("database error: PRAGMA data_version could not be read")
-  end
+  return error("database error: PRAGMA data_version could not be read") if value <= 0
 
-  return ok(value.to_s)
+  ok(value.to_s)
 end
 
 # The counter, or -1 for no row or an error of SQLite (the counter of a database that is open is never 0, and a 0 must
 # not become a key). The one statement ends in `reset`, which closes its read transaction, so the next call sees the
 # commits that were made since. Nothing here waits: see the top of the file.
 def current(reader: Reader) -> Int
-  if Native.closed?(reader.stmt)
-    return -1
-  end
+  return -1 if Native.closed?(reader.stmt)
 
   value = -1
   if sqlite3_step(reader.stmt) == SQLITE_ROW
@@ -146,18 +134,16 @@ def current(reader: Reader) -> Int
   end
 
   _ = sqlite3_reset(reader.stmt)
-  return value
+  value
 end
 
 # True when the token is ours. It is not made again when it does not come: see the top of the file.
-def take(turn: Channel[Bool]) -> Bool
-  return turn.recv(TURN_MS).ok?
-end
+def take(turn: Channel[Bool]) -> Bool = turn.recv(TURN_MS).ok?
 
 def give_back(turn: Channel[Bool]) -> Void
   _ = turn.send(true, 0)
 end
 
 def in_memory?(path: String) -> Bool
-  return path == ":memory:" or path.include?("mode=memory") or path.start_with?("file::memory:")
+  path == ":memory:" or path.include?("mode=memory") or path.start_with?("file::memory:")
 end

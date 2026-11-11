@@ -6,21 +6,19 @@ SECRET = "0123456789abcdef0123456789abcdef"
 
 # `parse` with the defaults for the address and the folder, to test the secret and the flag.
 def secret_and_flag(secret: String, secure_cookies: String) -> Result[Config.Config]
-  return Config.parse(Config.DEFAULT_HOST, Config.DEFAULT_PORT, Config.DEFAULT_DATA_DIR, "", secret, secure_cookies)
+  Config.parse(Config.DEFAULT_HOST, Config.DEFAULT_PORT, Config.DEFAULT_DATA_DIR, "", secret, secure_cookies)
 end
 
 # `parse` with the defaults for what a test does not name, and a good secret.
 def parse(host: String, port: String, data_dir: String) -> Result[Config.Config]
-  return Config.parse(host, port, data_dir, "", SECRET)
+  Config.parse(host, port, data_dir, "", SECRET)
 end
 
 # The `Config` that a smtp url makes with the public address `https://chat.example.com`, or its error.
-def mail_of(url: String) -> Result[Config.Config]
-  return mail_with(url, "https://chat.example.com", "", "")
-end
+def mail_of(url: String) -> Result[Config.Config] = mail_with(url, "https://chat.example.com", "", "")
 
 def mail_with(url: String, base_url: String, from: String, hostname: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -37,7 +35,7 @@ end
 # The `smtp` of the `Config` that a url makes, or the error of the url.
 def smtp_of(url: String) -> Result[Optional[Smtp.Options]]
   config = try mail_of(url)
-  return ok(config.smtp)
+  ok(config.smtp)
 end
 
 # `parse` with email on (or off, for an empty url) and this size of the queue of emails.
@@ -47,7 +45,7 @@ def mail_queue_of(url: String, size: String) -> Result[Config.Config]
     base_url = "https://chat.example.com"
   end
 
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -64,7 +62,7 @@ end
 
 # `parse` with this size of the database pool and this wait for a connection.
 def pool_of(size: String, checkout: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -83,7 +81,7 @@ end
 
 # `parse` with this size of the cache of messages.
 def cache_of(megabytes: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -107,7 +105,7 @@ end
 
 # `parse` with this size of the cache of whole pages.
 def pages_of(megabytes: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -132,7 +130,7 @@ end
 
 # `parse` with these numbers of search pages for each person and megabytes of the store of the people of the sessions.
 def places_of(search_pages: String, session_cache_mb: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -160,7 +158,7 @@ end
 
 # `parse` with this number of pages of older messages for each person and kind.
 def cursors_of(cursor_pages: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -189,7 +187,7 @@ end
 
 # `parse` with this longest message.
 def message_length_of(text: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,
@@ -218,7 +216,7 @@ def message_length_of(text: String) -> Result[Config.Config]
 end
 
 def connections_of(text: String) -> Result[Config.Config]
-  return Config.parse(
+  Config.parse(
     Config.DEFAULT_HOST,
     Config.DEFAULT_PORT,
     Config.DEFAULT_DATA_DIR,

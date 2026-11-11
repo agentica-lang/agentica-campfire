@@ -59,7 +59,7 @@ export def build(
 ) -> Bond.App
   slots = Slots.new()
   bans = BanFlag.new()
-  return (
+  (
     Bond.app()
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
@@ -92,9 +92,7 @@ export def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
   page = false
   for header in conn.response_headers
     name = header.name
-    if name.length == CACHE_CONTROL_NAME_LENGTH and name.downcase == "cache-control"
-      return ok(conn)
-    end
+    return ok(conn) if name.length == CACHE_CONTROL_NAME_LENGTH and name.downcase == "cache-control"
 
     if name.length == CONTENT_TYPE_NAME_LENGTH and name.downcase == "content-type"
       page = header.value.start_with?("text/html")
@@ -105,30 +103,24 @@ export def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
     return ok(Bond.header(conn, "cache-control", PageCache.CACHE_CONTROL))
   end
 
-  return ok(conn)
+  ok(conn)
 end
 
 # For a load balancer or a container check: 200 while the process serves, and the schema that it started on.
 def health(conn: Bond.Conn, schema_version: Int) -> Result[Bond.Conn]
-  return ok(Bond.json(conn, 200, JSON.from(Health(status: "ok", schema_version: schema_version))))
+  ok(Bond.json(conn, 200, JSON.from(Health(status: "ok", schema_version: schema_version))))
 end
 
 # What `/up` of Rails answers, so a check made for Rails (the benchmark harness looks for the colour) works here.
-def up(conn: Bond.Conn) -> Result[Bond.Conn]
-  return ok(Bond.html(conn, 200, UP_PAGE))
-end
+def up(conn: Bond.Conn) -> Result[Bond.Conn] = ok(Bond.html(conn, 200, UP_PAGE))
 
 # The key that the avatar links are checked with, from `SECRET_KEY_BASE`; `none` without one, so no link is valid. A
 # secret that is set always makes a key (PBKDF2 with fixed sizes cannot fail), so `none` only means "not set".
 def avatar_key(config: Config) -> Optional[Bytes]
-  if config.secret_key_base.empty?
-    return none
-  end
+  return none if config.secret_key_base.empty?
 
   key = SignedId.key(config.secret_key_base)
-  if not key.ok?
-    return none
-  end
+  return none if not key.ok?
 
-  return some(key.unwrap!)
+  some(key.unwrap!)
 end

@@ -102,7 +102,7 @@ export def complete(message: Message) -> Message
     id = new_message_id(message.from)
   end
 
-  return message.with(date: date, message_id: id)
+  message.with(date: date, message_id: id)
 end
 
 ## The sender and every recipient of `to`, `cc` and `bcc`, without repeats, or an `error` that names the address that
@@ -110,12 +110,10 @@ end
 export def envelope(message: Message) -> Result[Envelope]
   sender = try parse_address(message.from)
   recipients = try parse_all(message.to.concat(message.cc).concat(message.bcc))
-  if recipients.empty?
-    return error("a message needs at least one recipient")
-  end
+  return error("a message needs at least one recipient") if recipients.empty?
 
   addresses = recipients.map do |recipient| recipient.address end
-  return ok(Envelope(sender: sender.address, recipients: addresses.uniq))
+  ok(Envelope(sender: sender.address, recipients: addresses.uniq))
 end
 
 ## The message as it goes after `DATA`: the headers, an empty line and the body, with CRLF line ends and a CRLF at the
@@ -123,18 +121,14 @@ end
 ## recipient or no body.
 export def render(message: Message) -> Result[String]
   try check_headers(message)
-  if message.text.empty? and message.html.empty?
-    return error("a message needs a text or an html body")
-  end
+  return error("a message needs a text or an html body") if message.text.empty? and message.html.empty?
 
   from = try parse_address(message.from)
   to = try parse_all(message.to)
   cc = try parse_all(message.cc)
   bcc = try parse_all(message.bcc)
   reply_to = try parse_optional(message.reply_to)
-  if to.empty? and cc.empty? and bcc.empty?
-    return error("a message needs at least one recipient")
-  end
+  return error("a message needs at least one recipient") if to.empty? and cc.empty? and bcc.empty?
 
   lines: List[String] = []
   if not message.date.empty?
@@ -169,7 +163,7 @@ export def render(message: Message) -> Result[String]
     return error("a header line is longer than #{MAX_HEADER_LINE} octets, which RFC 5322 does not allow")
   end
 
-  return ok("#{head}#{CRLF}#{body(message)}")
+  ok("#{head}#{CRLF}#{body(message)}")
 end
 
 # Every value a person wrote goes through here before it becomes part of a line: a CR or LF would end the header and
@@ -201,29 +195,23 @@ def check_headers(message: Message) -> Result[Void]
     try check_field(field)
   end
 
-  return ok()
+  ok()
 end
 
 # RFC 5322 3.6.4: `<` id-left `@` id-right `>`. The parts are not parsed further than that they exist and hold no
 # white space or angle bracket, which would end the id early.
 def message_id?(id: String) -> Bool
-  if not id.start_with?("<") or not id.end_with?(">") or id.length < 5
-    return false
-  end
+  return false if not id.start_with?("<") or not id.end_with?(">") or id.length < 5
 
   inner = id.slice(1, id.length - 2)
   parts = inner.split("@")
-  if parts.size != 2 or parts[0].empty? or parts[1].empty?
-    return false
-  end
+  return false if parts.size != 2 or parts[0].empty? or parts[1].empty?
 
-  return not inner.split("").any? do |char| char == " " or char == "<" or char == ">" or char == "\t" end
+  not inner.split("").any? do |char| char == " " or char == "<" or char == ">" or char == "\t" end
 end
 
 def check_field(field: Field) -> Result[Void]
-  if not token?(field.name)
-    return error("the header name #{field.name.inspect} is not valid")
-  end
+  return error("the header name #{field.name.inspect} is not valid") if not token?(field.name)
 
   if OWN_HEADERS.include?(field.name.downcase)
     return error("the header #{field.name} is made from the fields of the message, not from headers")
@@ -237,30 +225,22 @@ def check_field(field: Field) -> Result[Void]
     return error("the value of the header #{field.name} must be ASCII: only the subject and the names are encoded")
   end
 
-  return ok()
+  ok()
 end
 
-def control?(text: String) -> Bool
-  return text.bytes.to_a.any? do |byte| byte < 32 or byte == 127 end
-end
+def control?(text: String) -> Bool = text.bytes.to_a.any? do |byte| byte < 32 or byte == 127 end
 
 # A header name is printable ASCII without a colon or a space (an RFC 5322 field name).
 def token?(name: String) -> Bool
-  if name.empty?
-    return false
-  end
+  return false if name.empty?
 
-  return name.bytes.to_a.all? do |byte| byte > 32 and byte < 127 and byte != 58 end
+  name.bytes.to_a.all? do |byte| byte > 32 and byte < 127 and byte != 58 end
 end
 
 # Text that goes in a header as it is: ASCII, and without `=?`, which a reader would take for an encoded word.
-def plain_text?(text: String) -> Bool
-  return ascii?(text) and not text.include?("=?")
-end
+def plain_text?(text: String) -> Bool = ascii?(text) and not text.include?("=?")
 
-def ascii?(text: String) -> Bool
-  return text.bytesize == text.length
-end
+def ascii?(text: String) -> Bool = text.bytesize == text.length
 
 def parse_all(texts: List[String]) -> Result[List[Address]]
   found: List[Address] = []
@@ -269,32 +249,26 @@ def parse_all(texts: List[String]) -> Result[List[Address]]
     found = found.push(address)
   end
 
-  return ok(found)
+  ok(found)
 end
 
 def parse_optional(text: String) -> Result[Optional[Address]]
-  if text.strip.empty?
-    return ok(none)
-  end
+  return ok(none) if text.strip.empty?
 
   address = try parse_address(text)
-  return ok(some(address))
+  ok(some(address))
 end
 
 # `ana@example.com` or `Name <ana@example.com>`. The address is ASCII and has one `@` with something on each side.
 def parse_address(text: String) -> Result[Address]
-  if control?(text)
-    return error("the address #{text.inspect} must not hold a line break or another control character")
-  end
+  return error("the address #{text.inspect} must not hold a line break or another control character") if control?(text)
 
   value = text.strip
   name = ""
   address = value
   if value.end_with?(">")
     open = value.index_of("<").unwrap_or(-1)
-    if open < 0
-      return error("the address #{text.inspect} has a > without a <")
-    end
+    return error("the address #{text.inspect} has a > without a <") if open < 0
 
     name = unquote(value.slice(0, open).strip)
     address = value.slice(open + 1, value.length - open - 2).strip
@@ -314,43 +288,33 @@ def parse_address(text: String) -> Result[Address]
     return error("#{text.inspect} is not an address of the form name@domain")
   end
 
-  return ok(Address(name: name, address: address))
+  ok(Address(name: name, address: address))
 end
 
 def unquote(name: String) -> String
-  if name.length >= 2 and name.start_with?("\"") and name.end_with?("\"")
-    return name.slice(1, name.length - 2)
-  end
+  return name.slice(1, name.length - 2) if name.length >= 2 and name.start_with?("\"") and name.end_with?("\"")
 
-  return name
+  name
 end
 
-def format_all(addresses: List[Address]) -> String
-  return addresses.map do |address| format_address(address) end.join(", ")
-end
+def format_all(addresses: List[Address]) -> String = addresses.map do |address| format_address(address) end.join(", ")
 
 def format_address(address: Address) -> String
-  if address.name.empty?
-    return address.address
-  end
+  return address.address if address.name.empty?
 
-  if not plain_text?(address.name)
-    return "#{encode_words(address.name)} <#{address.address}>"
-  end
+  return "#{encode_words(address.name)} <#{address.address}>" if not plain_text?(address.name)
 
   if address.name.split("").any? do |char| SPECIALS.include?(char) end
     return "\"#{address.name}\" <#{address.address}>"
   end
 
-  return "#{address.name} <#{address.address}>"
+  "#{address.name} <#{address.address}>"
 end
 
 # Text that is not ASCII goes in RFC 2047 encoded words, UTF-8 and base64, each with whole characters, so that no
 # word splits a character and a reader that joins the words gets the text back.
 def encode_words(text: String) -> String
-  if plain_text?(text)
-    return text
-  end
+  return text if plain_text?(text)
 
   words: List[String] = []
   chunk: List[String] = []
@@ -367,20 +331,16 @@ def encode_words(text: String) -> String
   end
 
   words = words.push(encoded_word(chunk))
-  return words.join(" ")
+  words.join(" ")
 end
 
-def encoded_word(chars: List[String]) -> String
-  return "=?UTF-8?B?#{Base64.strict_encode64(chars.join("").bytes)}?="
-end
+def encoded_word(chars: List[String]) -> String = "=?UTF-8?B?#{Base64.strict_encode64(chars.join("").bytes)}?="
 
 # `Name: value`, broken at spaces into lines that start with that space (a reader that unfolds removes only the line
 # end, so the value comes back as it was, runs of spaces included). The first word stays on the line of the name, so no
 # line is only `Name:`; a word that does not fit on a line stays whole.
 def fold(name: String, value: String) -> String
-  if value.empty?
-    return "#{name}:"
-  end
+  return "#{name}:" if value.empty?
 
   lines: List[String] = []
   line = "#{name}:"
@@ -398,25 +358,21 @@ def fold(name: String, value: String) -> String
     end
   end
 
-  return lines.push(line).join(CRLF)
+  lines.push(line).join(CRLF)
 end
 
 # The content headers, an empty line and the body, with a final line end.
 def body(message: Message) -> String
-  if message.html.empty?
-    return "#{part("text/plain", message.text)}#{CRLF}"
-  end
+  return "#{part("text/plain", message.text)}#{CRLF}" if message.html.empty?
 
-  if message.text.empty?
-    return "#{part("text/html", message.html)}#{CRLF}"
-  end
+  return "#{part("text/html", message.html)}#{CRLF}" if message.text.empty?
 
   boundary = boundary_for(message.text, message.html)
   text = chomp(part("text/plain", message.text))
   html = chomp(part("text/html", message.html))
   head = "Content-Type: multipart/alternative; boundary=\"#{boundary}\"#{CRLF}"
   delimiter = "#{CRLF}--#{boundary}"
-  return "#{head}#{delimiter}#{CRLF}#{text}#{delimiter}#{CRLF}#{html}#{delimiter}--#{CRLF}"
+  "#{head}#{delimiter}#{CRLF}#{text}#{delimiter}#{CRLF}#{html}#{delimiter}--#{CRLF}"
 end
 
 # The headers of a body part, an empty line and its text, without a final line end.
@@ -430,15 +386,13 @@ def part(content_type: String, text: String) -> String
   end
 
   head = "Content-Type: #{content_type}; charset=utf-8#{CRLF}Content-Transfer-Encoding: #{encoding}"
-  return "#{head}#{CRLF}#{CRLF}#{chomp(encoded)}"
+  "#{head}#{CRLF}#{CRLF}#{chomp(encoded)}"
 end
 
 def chomp(text: String) -> String
-  if text.end_with?(CRLF)
-    return text.slice(0, text.length - CRLF.length)
-  end
+  return text.slice(0, text.length - CRLF.length) if text.end_with?(CRLF)
 
-  return text
+  text
 end
 
 # The same message always gets the same boundary, since it comes from the parts. The boundary is made of a SHA-256 of
@@ -446,31 +400,25 @@ end
 # check and a longer boundary would be a branch that no input reaches.
 def boundary_for(text: String, html: String) -> String
   digest = OpenSSL.Digest.sha256_hexdigest("#{text}\n#{html}".bytes)
-  return "=_#{digest.slice(0, 32)}"
+  "=_#{digest.slice(0, 32)}"
 end
 
-def crlf(text: String) -> String
-  return text.replace(CRLF, "\n").replace("\r", "\n").replace("\n", CRLF)
-end
+def crlf(text: String) -> String = text.replace(CRLF, "\n").replace("\r", "\n").replace("\n", CRLF)
 
 # 7bit is allowed for ASCII text with short lines and no control characters but the tab.
 def plain_body?(text: String) -> Bool
-  if not ascii?(text)
-    return false
-  end
+  return false if not ascii?(text)
 
   if text.bytes.to_a.any? do |byte| (byte < 32 and byte != 9 and byte != 10 and byte != 13) or byte == 127 end
     return false
   end
 
-  return text.split(CRLF).all? do |line| line.length <= MAX_BODY_LINE end
+  text.split(CRLF).all? do |line| line.length <= MAX_BODY_LINE end
 end
 
 # RFC 2045 quoted-printable of text with CRLF line ends. Each line is cut at 75 characters with a soft break `=`, and
 # a space or tab that ends a line is written as `=20` or `=09` (a reader drops trailing white space).
-def quoted_printable(text: String) -> String
-  return text.split(CRLF).map do |line| qp_line(line) end.join(CRLF)
-end
+def quoted_printable(text: String) -> String = text.split(CRLF).map do |line| qp_line(line) end.join(CRLF)
 
 def qp_line(line: String) -> String
   bytes = line.bytes.to_a
@@ -488,16 +436,14 @@ def qp_line(line: String) -> String
     width += token.length
   end
 
-  return out.join("")
+  out.join("")
 end
 
 def qp_token(byte: Int, last: Bool) -> String
   needs_hex = byte == 61 or byte > 126 or (byte < 32 and byte != 9) or (last and (byte == 9 or byte == 32))
-  if needs_hex
-    return "=#{HEX_DIGITS.slice(byte / 16, 1)}#{HEX_DIGITS.slice(byte % 16, 1)}"
-  end
+  return "=#{HEX_DIGITS.slice(byte / 16, 1)}#{HEX_DIGITS.slice(byte % 16, 1)}" if needs_hex
 
-  return String.from_code(byte)
+  String.from_code(byte)
 end
 
 # `Tue, 03 Nov 2026 10:55:02 +0000`, the date of RFC 5322, from Unix milliseconds.
@@ -506,24 +452,20 @@ def rfc5322_date(ms: Int) -> String
   weekday = WEEKDAYS[((ms / MS_PER_DAY + UNIX_EPOCH_WEEKDAY) % 7 + 7) % 7]
   month = MONTHS[parts.month - 1]
   time = "#{two(parts.hour)}:#{two(parts.minute)}:#{two(parts.second)}"
-  return "#{weekday}, #{two(parts.day)} #{month} #{parts.year} #{time} +0000"
+  "#{weekday}, #{two(parts.day)} #{month} #{parts.year} #{time} +0000"
 end
 
 def two(number: Int) -> String
-  if number < 10
-    return "0#{number}"
-  end
+  return "0#{number}" if number < 10
 
-  return "#{number}"
+  "#{number}"
 end
 
 # `<random@domain>`: the domain of the sender keeps the id unique to this sender. A sender without an address has none.
 def new_message_id(sender: String) -> String
   parsed = parse_address(sender)
-  if not parsed.ok?
-    return ""
-  end
+  return "" if not parsed.ok?
 
   domain = parsed.unwrap!.address.split("@")[1]
-  return "<#{OpenSSL.Random.hex(16)}@#{domain}>"
+  "<#{OpenSSL.Random.hex(16)}@#{domain}>"
 end

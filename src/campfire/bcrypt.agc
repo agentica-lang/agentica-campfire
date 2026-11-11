@@ -49,9 +49,7 @@ CRYPT_DATA_BYTES = 262_144
 ## True when `text` is a bcrypt digest of a shape that `verify` can check: a version `2a`, `2b` or `2y`, a cost from 04
 ## to 31 and the 53 characters of salt and hash.
 export def digest?(text: String) -> Bool
-  if text.length != DIGEST_LENGTH or not VERSIONS.include?(text.slice(0, COST_START))
-    return false
-  end
+  return false if text.length != DIGEST_LENGTH or not VERSIONS.include?(text.slice(0, COST_START))
 
   digits = text.slice(COST_START, COST_LENGTH)
   if not digits.split("").all? do |ch| DIGITS.include?(ch) end or text.slice(COST_START + COST_LENGTH, 1) != "$"
@@ -59,27 +57,19 @@ export def digest?(text: String) -> Bool
   end
 
   cost = digits.to_i!
-  if cost < MIN_COST or cost > LIMIT_COST
-    return false
-  end
+  return false if cost < MIN_COST or cost > LIMIT_COST
 
-  return text.slice(BODY_START, DIGEST_LENGTH - BODY_START).split("").all? do |ch| ALPHABET.include?(ch) end
+  text.slice(BODY_START, DIGEST_LENGTH - BODY_START).split("").all? do |ch| ALPHABET.include?(ch) end
 end
 
 ## The library to open on the system `os` (`System.os()`) when `configured` (`CAMPFIRE_BCRYPT_LIBRARY`, "" when not
 ## set) is: that library, else `libcrypt.so.1` on Linux. Elsewhere there is none: an `error` that says what to set.
 export def library_for(os: String, configured: String) -> Result[String]
-  if not configured.empty?
-    return ok(configured)
-  end
+  return ok(configured) if not configured.empty?
 
-  if os == "linux"
-    return ok(LINUX_LIBRARY)
-  end
+  return ok(LINUX_LIBRARY) if os == "linux"
 
-  return error(
-    "bcrypt digests have no library to check them on #{os}: set #{VARIABLE} to a libxcrypt build, #{RESET_HELP}",
-  )
+  error("bcrypt digests have no library to check them on #{os}: set #{VARIABLE} to a libxcrypt build, #{RESET_HELP}")
 end
 
 ## True when `password` is the one that made `digest`. A text that is not a bcrypt digest is false at once. A password
@@ -91,9 +81,7 @@ end
 ## `library_for`). The work runs on the compute pool, so it does not hold a scheduler. Like bcrypt itself it reads the
 ## first 72 bytes of the password only. The hashes are compared in constant time.
 export def verify(password: String, digest: String, library: String = "") -> Result[Bool]
-  if not digest?(digest)
-    return ok(false)
-  end
+  return ok(false) if not digest?(digest)
 
   cost = digest.slice(COST_START, COST_LENGTH).to_i!
   if cost > MAX_COST
@@ -113,7 +101,7 @@ export def verify(password: String, digest: String, library: String = "") -> Res
   name = try library_for(System.os(), library)
   crypt = try find_crypt(System.os(), name)
   made = try hashed(crypt, attempt, digest)
-  return ok(usable and OpenSSL.HMAC.secure_compare(made.bytes, digest.bytes))
+  ok(usable and OpenSSL.HMAC.secure_compare(made.bytes, digest.bytes))
 end
 
 # The address of `crypt_r` in the library `name`.
@@ -126,42 +114,32 @@ def find_crypt(os: String, name: String) -> Result[C.Pointer]
   end
 
   found = find_symbol(os, handle, "crypt_r")
-  if Native.null?(found)
-    return error("#{name} has no crypt_r: set #{VARIABLE} to a libxcrypt, #{RESET_HELP}")
-  end
+  return error("#{name} has no crypt_r: set #{VARIABLE} to a libxcrypt, #{RESET_HELP}") if Native.null?(found)
 
-  return ok(found)
+  ok(found)
 end
 
 def open_library(os: String, name: String) -> C.Pointer
-  if os == "windows"
-    return load_library(name)
-  end
+  return load_library(name) if os == "windows"
 
-  if os == "linux"
-    return dlopen(name, RTLD_NOW)
-  end
+  return dlopen(name, RTLD_NOW) if os == "linux"
 
-  return dlopen_system(name, RTLD_NOW)
+  dlopen_system(name, RTLD_NOW)
 end
 
 def find_symbol(os: String, handle: C.Pointer, symbol: String) -> C.Pointer
-  if os == "windows"
-    return get_proc_address(handle, symbol)
-  end
+  return get_proc_address(handle, symbol) if os == "windows"
 
-  if os == "linux"
-    return dlsym(handle, symbol)
-  end
+  return dlsym(handle, symbol) if os == "linux"
 
-  return dlsym_system(handle, symbol)
+  dlsym_system(handle, symbol)
 end
 
 # The digest that `password` makes with the version, cost and salt of `setting` (a digest has the same first 29
 # characters). A libcrypt without bcrypt answers a failure token that is not 60 characters, or something else that is
 # not a bcrypt digest: that is a system problem, so it is an error.
 def hashed(crypt: C.Pointer, password: String, setting: String) -> Result[String]
-  return Native.memory_pointer(CRYPT_DATA_BYTES) do |data| run_crypt(crypt, password, setting, data) end
+  Native.memory_pointer(CRYPT_DATA_BYTES) do |data| run_crypt(crypt, password, setting, data) end
 end
 
 def run_crypt(crypt: C.Pointer, password: String, setting: String, data: C.Pointer) -> Result[String]
@@ -175,7 +153,7 @@ def run_crypt(crypt: C.Pointer, password: String, setting: String, data: C.Point
     return error("the library has no bcrypt: set #{VARIABLE} to a libxcrypt, #{RESET_HELP}")
   end
 
-  return ok(made)
+  ok(made)
 end
 
 # The loaders, one block for each system (a library is opened at the first call, so the blocks of the other systems

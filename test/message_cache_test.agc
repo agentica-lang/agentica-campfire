@@ -4,7 +4,7 @@ import MessageCache from "../src/campfire_web/message_cache"
 import Rooms from "../src/campfire/rooms"
 
 def stored(id: Int, body: String) -> Rooms.Stored
-  return Rooms.Stored(
+  Rooms.Stored(
     id: id,
     room_id: 1,
     creator_id: 1,
@@ -19,8 +19,8 @@ end
 # The bytes that the cache holds, 0 when it is off.
 def held(cache: Optional[Cache.Store]) -> Int
   case cache
-    none -> return 0
-    some(store) -> return Cache.bytes(store)
+    none -> 0
+    some(store) -> Cache.bytes(store)
   end
 end
 

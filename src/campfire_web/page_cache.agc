@@ -134,12 +134,10 @@ export def start(
   session_mb: Int,
   url: String,
 ) -> Result[Optional[Pages]]
-  if megabytes <= 0
-    return ok(none)
-  end
+  return ok(none) if megabytes <= 0
 
   observer = try Database.open_observer(url)
-  return ok(
+  ok(
     some(
       Pages(
         store: Cache.memory(megabytes * BYTES_PER_MB),
@@ -175,21 +173,17 @@ export def spot(
   room_id: Optional[Int],
   before: Optional[Int],
 ) -> Optional[Spot]
-  if room_id.none? or (kind == ROOM and before.some?)
-    return none
-  end
+  return none if room_id.none? or (kind == ROOM and before.some?)
 
   cursor = before.map do |id| id.to_s end.unwrap_or("")
-  if kind == MESSAGES or kind == AFTER
-    return cursor_spot(pages, seen, kind, person, room_id.unwrap!, cursor)
-  end
+  return cursor_spot(pages, seen, kind, person, room_id.unwrap!, cursor) if kind == MESSAGES or kind == AFTER
 
-  return located(pages, seen, kind, person, "#{room_id.unwrap!}:#{cursor}")
+  located(pages, seen, kind, person, "#{room_id.unwrap!}:#{cursor}")
 end
 
 ## Where the sidebar page of `person` goes (see `spot`).
 export def sidebar_spot(pages: Optional[Pages], seen: Optional[String], person: Auth.User) -> Optional[Spot]
-  return located(pages, seen, SIDEBAR, person, "")
+  located(pages, seen, SIDEBAR, person, "")
 end
 
 ## Where the search page of `person` for the words `query` goes (see `spot`): one of the `search_slots` places of the
@@ -204,17 +198,15 @@ export def search_spot(
   wanted: Optional[Int],
 ) -> Optional[Spot]
   case pages
-    none -> return none
+    none -> none
     some(found) ->
       version = version_of(found, seen)
-      if not version.ok?
-        return none
-      end
+      return none if not version.ok?
 
       words = OpenSSL.Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS)
       cookie = wanted.map do |id| id.to_s end.unwrap_or("")
       place = OpenSSL.Digest.sha256(query.bytes)[0] % found.search_slots
-      return some(
+      some(
         Spot(
           pages: found,
           key: "page:#{SEARCH}:#{person.id}:#{place}",
@@ -228,22 +220,20 @@ end
 ## being what names it (the id of the user of an avatar). It is kept for the version only, so any commit makes it a miss.
 export def shared_spot(pages: Optional[Pages], seen: Optional[String], kind: String, scope: String) -> Optional[Spot]
   case pages
-    none -> return none
+    none -> none
     some(found) ->
       version = version_of(found, seen)
-      if not version.ok?
-        return none
-      end
+      return none if not version.ok?
 
-      return some(Spot(pages: found, key: "shared:#{version.unwrap!}:#{kind}:#{scope}", stamp: ""))
+      some(Spot(pages: found, key: "shared:#{version.unwrap!}:#{kind}:#{scope}", stamp: ""))
   end
 end
 
 ## The text kept at `spot`, if there is one.
 export def recall(spot: Optional[Spot]) -> Optional[String]
   case spot
-    none -> return none
-    some(found) -> return Cache.get(found.pages.store, found.key)
+    none -> none
+    some(found) -> Cache.get(found.pages.store, found.key)
   end
 end
 
@@ -258,21 +248,15 @@ end
 ## Whether the page at `path` is one that the cache keeps (a room page, the older messages, the sidebar, the search) or
 ## the answer of an avatar link, so that the sign-in filter reads the version for it and for no other.
 export def cached?(path: String) -> Bool
-  if path == Routes.SIDEBAR or path == Routes.SEARCHES
-    return true
-  end
+  return true if path == Routes.SIDEBAR or path == Routes.SEARCHES
 
   parts = path.split("/")
-  if parts.size == 4 and parts[0].empty? and parts[1] == "users" and parts[3] == "avatar"
-    return not parts[2].empty?
-  end
+  return not parts[2].empty? if parts.size == 4 and parts[0].empty? and parts[1] == "users" and parts[3] == "avatar"
 
-  if parts.size < 3 or parts.size > 4 or not parts[0].empty? or parts[1] != "rooms"
-    return false
-  end
+  return false if parts.size < 3 or parts.size > 4 or not parts[0].empty? or parts[1] != "rooms"
 
   id = parts[2].to_i
-  return id.ok? and id.unwrap!.to_s == parts[2] and (parts.size == 3 or parts[3] == "messages")
+  id.ok? and id.unwrap!.to_s == parts[2] and (parts.size == 3 or parts[3] == "messages")
 end
 
 ## Reads the version of the database for a request and keeps it for the handler, which finds it with `seen`; `conn`
@@ -281,10 +265,10 @@ end
 ## handler does not read the observer again: nothing is kept for the request.
 export def watch(conn: Bond.Conn, pages: Optional[Pages]) -> Bond.Conn
   case pages
-    none -> return conn
+    none -> conn
     some(found) ->
       version = Database.version(found.observer)
-      return Bond.assign(conn, VERSION_KEY, Version(text: version.unwrap_or(UNREADABLE)))
+      Bond.assign(conn, VERSION_KEY, Version(text: version.unwrap_or(UNREADABLE)))
   end
 end
 
@@ -293,38 +277,32 @@ end
 ## no cache, or when the observer cannot read the version: such a reader reads the database.
 export def current_version(pages: Optional[Pages]) -> Optional[String]
   case pages
-    none -> return none
+    none -> none
     some(found) ->
       version = Database.version(found.observer)
-      if not version.ok? or version.unwrap!.empty?
-        return none
-      end
+      return none if not version.ok? or version.unwrap!.empty?
 
-      return some(version.unwrap!)
+      some(version.unwrap!)
   end
 end
 
 ## The version that `watch` kept for the request, if it did (empty if the observer failed: the spots and the kept
 ## people take it as no version).
 export def seen(conn: Bond.Conn) -> Optional[String]
-  if not Bond.assigned?(conn, VERSION_KEY)
-    return none
-  end
+  return none if not Bond.assigned?(conn, VERSION_KEY)
 
   version = Bond.assigned(conn, VERSION_KEY, Version.codec)
-  if not version.ok?
-    return none
-  end
+  return none if not version.ok?
 
-  return some(version.unwrap!.text)
+  some(version.unwrap!.text)
 end
 
 ## The person of the session with `token`, if the database is at the version that `watch` read, the person was kept at
 ## it (`remember_user`) and the session has not ended since.
 export def known_user(pages: Optional[Pages], seen: Optional[String], token: String) -> Optional[Auth.User]
   case pages
-    none -> return none
-    some(found) -> return recalled(found, seen, token)
+    none -> none
+    some(found) -> recalled(found, seen, token)
   end
 end
 
@@ -347,8 +325,8 @@ end
 ## The page that is kept at `spot`, if there is one.
 export def lookup(spot: Optional[Spot]) -> Optional[Page]
   case spot
-    none -> return none
-    some(found) -> return unpack(found, Cache.get(found.pages.store, found.key))
+    none -> none
+    some(found) -> unpack(found, Cache.get(found.pages.store, found.key))
   end
 end
 
@@ -361,16 +339,14 @@ export def keep(spot: Optional[Spot], html: String) -> Page
     some(found) -> Cache.put(found.pages.store, found.key, stamped(found) + etag + html)
   end
 
-  return Page(etag: etag, body: html.bytes)
+  Page(etag: etag, body: html.bytes)
 end
 
 ## The answer for `page`: a 304 when `If-None-Match` of the request names its tag, else a 200 with the page.
 export def respond(conn: Bond.Conn, page: Page) -> Bond.Conn
-  if matches?(conn, page.etag)
-    return tagged(Bond.status(conn, 304), page)
-  end
+  return tagged(Bond.status(conn, 304), page) if matches?(conn, page.etag)
 
-  return tagged(Bond.header(Bond.bytes(conn, 200, page.body), "content-type", HTML_TYPE), page)
+  tagged(Bond.header(Bond.bytes(conn, 200, page.body), "content-type", HTML_TYPE), page)
 end
 
 # The place of the older messages of `kind` that the hash of the room and the cursor chooses among the `cursor_slots`
@@ -384,16 +360,14 @@ def cursor_spot(
   cursor: String,
 ) -> Optional[Spot]
   case pages
-    none -> return none
+    none -> none
     some(found) ->
       version = version_of(found, seen)
-      if not version.ok?
-        return none
-      end
+      return none if not version.ok?
 
       scope = "#{room_id}:#{cursor}"
       place = OpenSSL.Digest.sha256(scope.bytes)[0] % found.cursor_slots
-      return some(
+      some(
         Spot(
           pages: found,
           key: "page:#{kind}:#{person.id}:#{place}",
@@ -411,62 +385,52 @@ def located(
   scope: String,
 ) -> Optional[Spot]
   case pages
-    none -> return none
+    none -> none
     some(found) ->
       version = version_of(found, seen)
-      if not version.ok?
-        return none
-      end
+      return none if not version.ok?
 
       key = "page:#{version.unwrap!}:#{kind}:#{person.id}:#{state_of(person)}:#{scope}"
-      return some(Spot(pages: found, key: key, stamp: ""))
+      some(Spot(pages: found, key: key, stamp: ""))
   end
 end
 
 # A digest of the name and the role of the person: two states of one person do not share a page.
 def state_of(person: Auth.User) -> String
-  return OpenSSL.Digest.sha256_hexdigest("#{person.role}\n#{person.name}".bytes).slice(0, SEEN_DIGITS)
+  OpenSSL.Digest.sha256_hexdigest("#{person.role}\n#{person.name}".bytes).slice(0, SEEN_DIGITS)
 end
 
 # What goes before the tag in the cached text: the stamp and a line break, or nothing.
 def stamped(spot: Spot) -> String
-  if spot.stamp.empty?
-    return ""
-  end
+  return "" if spot.stamp.empty?
 
-  return spot.stamp + "\n"
+  spot.stamp + "\n"
 end
 
 def version_of(pages: Pages, seen: Optional[String]) -> Result[String]
   case seen
-    some(version) if version.empty? -> return error("database error: the version could not be read")
-    some(version) -> return ok(version)
-    none -> return Database.version(pages.observer)
+    some(version) if version.empty? -> error("database error: the version could not be read")
+    some(version) -> ok(version)
+    none -> Database.version(pages.observer)
   end
 end
 
 def recalled(pages: Pages, seen: Optional[String], token: String) -> Optional[Auth.User]
   case seen
-    none -> return none
-    some(version) if version.empty? -> return none
+    none -> none
+    some(version) if version.empty? -> none
     some(version) ->
       kept = Cache.get(pages.people, user_key(version, token))
-      if kept.none?
-        return none
-      end
+      return none if kept.none?
 
       session = Auth.Session.codec.decode(kept.unwrap!)
-      if not session.ok? or session.unwrap!.ends_at_ms <= Time.now_ms()
-        return none
-      end
+      return none if not session.ok? or session.unwrap!.ends_at_ms <= Time.now_ms()
 
-      return some(session.unwrap!.user)
+      some(session.unwrap!.user)
   end
 end
 
-def user_key(version: String, token: String) -> String
-  return "user:#{version}:#{token}"
-end
+def user_key(version: String, token: String) -> String = "user:#{version}:#{token}"
 
 # The page in the cached text `kept` at `spot`, or `none` when there is none or it was kept with another stamp. The
 # tag is
@@ -475,39 +439,33 @@ end
 # bytes.
 def unpack(spot: Spot, kept: Optional[String]) -> Optional[Page]
   case kept
-    none -> return none
+    none -> none
     some(text) ->
       prefix = stamped(spot)
-      if not prefix.empty? and not text.start_with?(prefix)
-        return none
-      end
+      return none if not prefix.empty? and not text.start_with?(prefix)
 
       etag = text.slice(prefix.length, ETAG_WIDTH)
-      return some(Page(etag: etag, body: text.bytes.drop(prefix.bytesize + ETAG_WIDTH)))
+      some(Page(etag: etag, body: text.bytes.drop(prefix.bytesize + ETAG_WIDTH)))
   end
 end
 
 def tagged(conn: Bond.Conn, page: Page) -> Bond.Conn
-  return Bond.header(Bond.header(conn, "etag", page.etag), "cache-control", CACHE_CONTROL)
+  Bond.header(Bond.header(conn, "etag", page.etag), "cache-control", CACHE_CONTROL)
 end
 
 # The weak comparison of RFC 9110: `W/` does not count, and `*` is any page.
 def matches?(conn: Bond.Conn, etag: String) -> Bool
   sent = Bond.request_header(conn, "if-none-match")
-  if not sent.ok?
-    return false
-  end
+  return false if not sent.ok?
 
-  return sent.unwrap!.split(",").any? do |one|
+  sent.unwrap!.split(",").any? do |one|
     tag = one.strip
     tag == "*" or opaque(tag) == opaque(etag)
   end
 end
 
 def opaque(tag: String) -> String
-  if tag.start_with?("W/")
-    return tag.slice(2, tag.length - 2)
-  end
+  return tag.slice(2, tag.length - 2) if tag.start_with?("W/")
 
-  return tag
+  tag
 end

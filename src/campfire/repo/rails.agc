@@ -68,13 +68,9 @@ export BOT_NAME = "bot"
 ## The name of a role: `member`, `administrator` or `bot`. A value that is not one of the three (a row that did not
 ## come from this schema) is a member, who may do the least.
 export def role_name(role: Int) -> String
-  if role == ADMINISTRATOR
-    return ADMINISTRATOR_NAME
-  end
+  return ADMINISTRATOR_NAME if role == ADMINISTRATOR
 
-  if role == BOT
-    return BOT_NAME
-  end
+  return BOT_NAME if role == BOT
 
-  return MEMBER_NAME
+  MEMBER_NAME
 end

@@ -101,7 +101,7 @@ export def add(
   # `slots` bounds the hashing for everyone together (the profile shares it); `attempts` bounds the sign-in posts of
   # one address.
   attempts = RateLimit.new()
-  return (
+  (
     app
     |> Bond.before() do |conn| ok(unmarked(conn)) end
     |> Bond.csrf()
@@ -123,43 +123,33 @@ export def add(
 end
 
 ## The token of the session cookie, "" when the request has none.
-export def session_token(conn: Bond.Conn) -> String
-  return Bond.get_session(conn, TOKEN_KEY).unwrap_or("")
-end
+export def session_token(conn: Bond.Conn) -> String = Bond.get_session(conn, TOKEN_KEY).unwrap_or("")
 
 ## The person of the request, or `none` for a visitor with no session, a session that was ended, or a user that was
 ## deactivated.
 export def current_user(conn: Bond.Conn, pool: Database.Pool) -> Result[Optional[Auth.User]]
-  return Database.with_connection(pool) do |db| user_of_session(conn, db) end
+  Database.with_connection(pool) do |db| user_of_session(conn, db) end
 end
 
 ## True for the post of a message (`Routes.ROOM_MESSAGES`), whose handler looks the person up in the connection that it
 ## writes with (`person_in`), so that the post takes one connection of the pool and not two: the filter leaves the
 ## lookup to it for a request that has a session cookie. A path of the bots (`bot_api?`) has more segments.
-export def lookup_in_handler?(conn: Bond.Conn) -> Bool
-  return message_post?(conn.method, conn.path)
-end
+export def lookup_in_handler?(conn: Bond.Conn) -> Bool = message_post?(conn.method, conn.path)
 
 ## `lookup_in_handler?` for a method and a path. The path is read as the router reads it, by its non-empty segments,
 ## against the segments of `Routes.ROOM_MESSAGES`, where a segment that starts with ":" is any value.
 export def message_post?(method: String, path: String) -> Bool
-  if method != "POST"
-    return false
-  end
+  return false if method != "POST"
 
   wanted = Routes.ROOM_MESSAGES.split("/").select do |part| not part.empty? end
   parts = path.split("/").select do |part| not part.empty? end
-  if parts.size != wanted.size
-    return false
-  end
+  return false if parts.size != wanted.size
 
   for index in 0...wanted.size
-    if not wanted[index].start_with?(":") and wanted[index] != parts[index]
-      return false
-    end
+    return false if not wanted[index].start_with?(":") and wanted[index] != parts[index]
   end
 
-  return true
+  true
 end
 
 ## The person of a request, for a handler that has a connection `db`: when `lookup_in_handler?` left the lookup to it,
@@ -176,36 +166,30 @@ export def person_in(conn: Bond.Conn, db: Db.Connection) -> Result[Found]
 
   found = try user_of_session(conn, db)
   case found
-    some(person) -> return ok(Found.Person(person))
+    some(person) -> ok(Found.Person(person))
     none ->
-      if try Auth.first_run?(db)
-        return ok(Found.Entry(Routes.FIRST_RUN))
-      end
+      return ok(Found.Entry(Routes.FIRST_RUN)) if try Auth.first_run?(db)
 
-      return ok(Found.Entry(Routes.SIGN_IN))
+      ok(Found.Entry(Routes.SIGN_IN))
   end
 end
 
 ## The person that the sign-in filter looked up and kept with `Bond.assign`, so a handler does not look them up again.
 ## `none` for a request that the filter did not see (a public page); a signed-in page always has one.
 export def assigned_user(conn: Bond.Conn) -> Result[Optional[Auth.User]]
-  if not Bond.assigned?(conn, USER_KEY)
-    return ok(none)
-  end
+  return ok(none) if not Bond.assigned?(conn, USER_KEY)
 
   user = try Bond.assigned(conn, USER_KEY, Auth.User.codec)
-  return ok(some(user))
+  ok(some(user))
 end
 
 ## The `_method` field of a form, lower case ("" when it has none), which is how Rails reads it
 ## (`Rack::MethodOverride`): a browser form cannot send `PATCH`, `PUT` or `DELETE`, so it posts and names the method.
 export def form_method(conn: Bond.Conn) -> Result[String]
   methods = try Bond.form_all(conn, "_method")
-  if methods.empty?
-    return ok("")
-  end
+  return ok("") if methods.empty?
 
-  return ok(methods[0].downcase)
+  ok(methods[0].downcase)
 end
 
 ## True for a path of the messages API of the chat bots, `/rooms/ID/KEY/messages`, `/rooms/ID/KEY/messages/ID` and the
@@ -216,16 +200,12 @@ end
 ## `/rooms/1/messages/9`, the message 9, have `messages` where the key is).
 export def bot_api?(path: String) -> Bool
   parts = path.split("/").select do |part| not part.empty? end
-  if parts.size < BOT_LIST_SEGMENTS or parts.size > BOT_BOOST_SEGMENTS
-    return false
-  end
+  return false if parts.size < BOT_LIST_SEGMENTS or parts.size > BOT_BOOST_SEGMENTS
 
-  if parts[0] != "rooms" or parts[2] == "messages" or parts[3] != "messages"
-    return false
-  end
+  return false if parts[0] != "rooms" or parts[2] == "messages" or parts[3] != "messages"
 
   # The boosts have `boosts` after the message; the list and the message have nothing more to check.
-  return parts.size < BOT_BOOSTS_SEGMENTS or parts[5] == "boosts"
+  parts.size < BOT_BOOSTS_SEGMENTS or parts[5] == "boosts"
 end
 
 ## A page that holds a token or a join code is kept out of caches and out of the `Referer` of the links on it. The policy
@@ -233,7 +213,7 @@ end
 ## the page, which `Bond.csrf` refuses (a post to the page's own site carries its real `Origin`). A link to another site
 ## still gets no `Referer`.
 export def private_page(conn: Bond.Conn) -> Bond.Conn
-  return Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "same-origin")
+  Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "same-origin")
 end
 
 # `Bond.csrf` refuses a post that a page of another site sent, judging by `Sec-Fetch-Site` and `Origin`. The messages
@@ -242,11 +222,9 @@ end
 # nothing to forge, and the browser routes keep the check. The two headers are left out of the request here, before the
 # check.
 def unmarked(conn: Bond.Conn) -> Bond.Conn
-  if not bot_api?(conn.path)
-    return conn
-  end
+  return conn if not bot_api?(conn.path)
 
-  return conn.with(headers: conn.headers.select do |field| not CROSS_SITE_HEADERS.include?(field.name.downcase) end)
+  conn.with(headers: conn.headers.select do |field| not CROSS_SITE_HEADERS.include?(field.name.downcase) end)
 end
 
 def session_options(config: Config) -> Bond.SessionOptions
@@ -259,19 +237,17 @@ def session_options(config: Config) -> Bond.SessionOptions
     )
   end
 
-  return Bond.SessionOptions(secret: config.session_secret, name: COOKIE_NAME, max_age: Auth.SESSION_SECONDS)
+  Bond.SessionOptions(secret: config.session_secret, name: COOKIE_NAME, max_age: Auth.SESSION_SECONDS)
 end
 
 def user_of_session(conn: Bond.Conn, db: Db.Connection) -> Result[Optional[Auth.User]]
   token = Bond.get_session(conn, TOKEN_KEY)
-  if not token.ok?
-    return ok(none)
-  end
+  return ok(none) if not token.ok?
 
   found = try Auth.user_for(db, token.unwrap!)
   case found
-    some(session) -> return ok(some(session.user))
-    none -> return ok(none)
+    some(session) -> ok(some(session.user))
+    none -> ok(none)
   end
 end
 
@@ -280,40 +256,30 @@ end
 # is looked at (`BlockBannedRequests`): a banned person cannot sign in again from where they were, nor post. Reading
 # stays open, as in Rails. The address is the peer of the connection, as for the sign-in limit.
 def reject_banned(conn: Bond.Conn, pool: Database.Pool, bans: ATS[String, Int]) -> Result[Bond.Conn]
-  if conn.method == "GET" or conn.method == "HEAD" or not BanFlag.any?(bans)
-    return ok(conn)
-  end
+  return ok(conn) if conn.method == "GET" or conn.method == "HEAD" or not BanFlag.any?(bans)
 
   banned = try Database.with_connection(pool) do |db| holds?(db, bans, conn.remote_addr) end
-  if banned
-    return ok(Bond.halt(conn, 429, "Too Many Requests"))
-  end
+  return ok(Bond.halt(conn, 429, "Too Many Requests")) if banned
 
-  return ok(conn)
+  ok(conn)
 end
 
 # The flag says there may be a ban (or is not known yet, and is read now). The table is asked only then.
 def holds?(db: Db.Connection, bans: ATS[String, Int], address: String) -> Result[Bool]
-  if not BanFlag.known?(bans) and not try BanFlag.refresh(bans, db)
-    return ok(false)
-  end
+  return ok(false) if not BanFlag.known?(bans) and not try BanFlag.refresh(bans, db)
 
-  return Bans.banned?(db, address)
+  Bans.banned?(db, address)
 end
 
 def require_sign_in(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Bond.Conn]
-  if public?(conn.path)
-    return ok(conn)
-  end
+  return ok(conn) if public?(conn.path)
 
   # A read of a page that the cache keeps, with a session cookie, reads the version of the database first
   # (`PageCache.watch`), so that the person of the session can be the one kept for that version and the handler does
   # not read it again. A request with no cookie never reads the observer, and any other request looks the person up
   # as it always did.
   token = session_token(conn)
-  if not token.empty? and lookup_in_handler?(conn)
-    return ok(conn)
-  end
+  return ok(conn) if not token.empty? and lookup_in_handler?(conn)
 
   watched = conn
   if (conn.method == "GET" or conn.method == "HEAD") and not token.empty? and PageCache.cached?(conn.path)
@@ -322,8 +288,8 @@ def require_sign_in(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCa
 
   user = try session_user(watched, pool, pages, token)
   case user
-    some(person) -> return ok(Bond.assign(watched, USER_KEY, person))
-    none -> return ok(Bond.redirect(watched, try entry_path(pool)))
+    some(person) -> ok(Bond.assign(watched, USER_KEY, person))
+    none -> ok(Bond.redirect(watched, try entry_path(pool)))
   end
 end
 
@@ -335,61 +301,49 @@ def session_user(
   pages: Optional[PageCache.Pages],
   token: String,
 ) -> Result[Optional[Auth.User]]
-  if token.empty?
-    return ok(none)
-  end
+  return ok(none) if token.empty?
 
   seen = PageCache.seen(conn)
   kept = PageCache.known_user(pages, seen, token)
-  if kept.some?
-    return ok(kept)
-  end
+  return ok(kept) if kept.some?
 
   found = try Database.with_connection(pool) do |db| Auth.user_for(db, token) end
   case found
     some(session) ->
       PageCache.remember_user(pages, seen, token, session)
-      return ok(some(session.user))
-    none -> return ok(none)
+      ok(some(session.user))
+    none -> ok(none)
   end
 end
 
 def public?(path: String) -> Bool
-  if PUBLIC_PATHS.include?(path) or bot_api?(path)
-    return true
-  end
+  return true if PUBLIC_PATHS.include?(path) or bot_api?(path)
 
   # The stylesheet and whatever else is in the assets folder: the sign-in page needs its style before anybody has
   # signed in. A path that is not a file there is a 404 (`Bond.static` refuses a way out of the folder), whoever asks.
-  if path.start_with?(ASSETS_PREFIX)
-    return true
-  end
+  return true if path.start_with?(ASSETS_PREFIX)
 
   # "/join/CODE" splits into "", "join" and the code.
   parts = path.split("/")
-  return parts.size == JOIN_SEGMENTS and parts[0].empty? and parts[1] == "join" and not parts[2].empty?
+  parts.size == JOIN_SEGMENTS and parts[0].empty? and parts[1] == "join" and not parts[2].empty?
 end
 
 def entry_path(pool: Database.Pool) -> Result[String]
   open = try first_run_open?(pool)
-  if open
-    return ok(Routes.FIRST_RUN)
-  end
+  return ok(Routes.FIRST_RUN) if open
 
-  return ok(Routes.SIGN_IN)
+  ok(Routes.SIGN_IN)
 end
 
 def first_run_open?(pool: Database.Pool) -> Result[Bool]
-  return Database.with_connection(pool) do |db| Auth.first_run?(db) end
+  Database.with_connection(pool) do |db| Auth.first_run?(db) end
 end
 
 def show_first_run(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   open = try first_run_open?(pool)
-  if not open
-    return ok(Bond.redirect(conn, Routes.HOME))
-  end
+  return ok(Bond.redirect(conn, Routes.HOME)) if not open
 
-  return ok(Bond.html(conn, 200, Views.first_run("", "", "")))
+  ok(Bond.html(conn, 200, Views.first_run("", "", "")))
 end
 
 def create_first_run(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, Int]) -> Result[Bond.Conn]
@@ -400,33 +354,27 @@ def create_first_run(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, In
   # A closed app answers every form with a redirect and no hashing, so it never has to say 503: look before taking a
   # slot. `Auth.first_run` looks again once it has the connection, and inside the transaction.
   open = try first_run_open?(pool)
-  if not open
-    return ok(Bond.redirect(conn, Routes.HOME))
-  end
+  return ok(Bond.redirect(conn, Routes.HOME)) if not open
 
-  if not Slots.take?(slots, MAX_HASHES)
-    return ok(busy(conn))
-  end
+  return ok(busy(conn)) if not Slots.take?(slots, MAX_HASHES)
 
   made = Database.with_connection(pool) do |db| Auth.first_run(db, name, email, password, agent, conn.remote_addr) end
 
   Slots.release(slots)
   outcome = try made
   case outcome
-    Auth.FirstRun.Created(token) -> return ok(signed_in(conn, token))
-    Auth.FirstRun.Closed -> return ok(Bond.redirect(conn, Routes.HOME))
-    Auth.FirstRun.Invalid(message) -> return ok(Bond.html(conn, 422, Views.first_run(name, email, message)))
+    Auth.FirstRun.Created(token) -> ok(signed_in(conn, token))
+    Auth.FirstRun.Closed -> ok(Bond.redirect(conn, Routes.HOME))
+    Auth.FirstRun.Invalid(message) -> ok(Bond.html(conn, 422, Views.first_run(name, email, message)))
   end
 end
 
 def show_join(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   code = Bond.param(conn, "code").unwrap_or("")
   valid = try join_code_valid?(pool, code)
-  if not valid
-    return ok(not_found(conn))
-  end
+  return ok(not_found(conn)) if not valid
 
-  return ok(private_page(Bond.html(conn, 200, Views.join(code, "", "", ""))))
+  ok(private_page(Bond.html(conn, 200, Views.join(code, "", "", ""))))
 end
 
 # The code is looked at first and the form after it, so a wrong code is the same 404 whatever is posted. The hashing
@@ -435,9 +383,7 @@ end
 def create_join(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, Int]) -> Result[Bond.Conn]
   code = Bond.param(conn, "code").unwrap_or("")
   valid = try join_code_valid?(pool, code)
-  if not valid
-    return ok(not_found(conn))
-  end
+  return ok(not_found(conn)) if not valid
 
   name = try Bond.form(conn, "name")
   email = try Bond.form(conn, "email")
@@ -447,9 +393,7 @@ def create_join(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, Int]) -
   # it needs
   # no hashing; `Auth.join` looks again, and the transaction once more.
   problem = try join_problem(pool, name, email, password)
-  if problem != ""
-    return ok(private_page(Bond.html(conn, 422, Views.join(code, name, email, problem))))
-  end
+  return ok(private_page(Bond.html(conn, 422, Views.join(code, name, email, problem)))) if problem != ""
 
   if not Slots.take?(slots, MAX_HASHES)
     return ok(retry_later(private_page(Bond.html(conn, 503, Views.join(code, name, email, Failure.BUSY)))))
@@ -462,35 +406,30 @@ def create_join(conn: Bond.Conn, pool: Database.Pool, slots: ATS[String, Int]) -
   Slots.release(slots)
   outcome = try joined
   case outcome
-    Auth.JoinOutcome.Joined(token) -> return ok(signed_in(conn, token))
-    Auth.JoinOutcome.Gone -> return ok(not_found(conn))
-    Auth.JoinOutcome.Invalid(message) ->
-      return ok(private_page(Bond.html(conn, 422, Views.join(code, name, email, message))))
+    Auth.JoinOutcome.Joined(token) -> ok(signed_in(conn, token))
+    Auth.JoinOutcome.Gone -> ok(not_found(conn))
+    Auth.JoinOutcome.Invalid(message) -> ok(private_page(Bond.html(conn, 422, Views.join(code, name, email, message))))
   end
 end
 
 def join_problem(pool: Database.Pool, name: String, email: String, password: String) -> Result[String]
-  return Database.with_connection(pool) do |db| Auth.join_problem(db, name, email, password) end
+  Database.with_connection(pool) do |db| Auth.join_problem(db, name, email, password) end
 end
 
 def join_code_valid?(pool: Database.Pool, code: String) -> Result[Bool]
-  return Database.with_connection(pool) do |db| Accounts.join_code_valid?(db, code) end
+  Database.with_connection(pool) do |db| Accounts.join_code_valid?(db, code) end
 end
 
-def not_found(conn: Bond.Conn) -> Bond.Conn
-  return Bond.text(conn, 404, Routes.MISSING)
-end
+def not_found(conn: Bond.Conn) -> Bond.Conn = Bond.text(conn, 404, Routes.MISSING)
 
 def show_sign_in(conn: Bond.Conn, pool: Database.Pool, mailer: Mailer.Mailer) -> Result[Bond.Conn]
   open = try first_run_open?(pool)
-  if open
-    return ok(Bond.redirect(conn, Routes.FIRST_RUN))
-  end
+  return ok(Bond.redirect(conn, Routes.FIRST_RUN)) if open
 
   user = try current_user(conn, pool)
   case user
-    some(_) -> return ok(Bond.redirect(conn, Routes.HOME))
-    none -> return ok(Bond.html(conn, 200, Views.sign_in("", "", Mailer.enabled?(mailer))))
+    some(_) -> ok(Bond.redirect(conn, Routes.HOME))
+    none -> ok(Bond.html(conn, 200, Views.sign_in("", "", Mailer.enabled?(mailer))))
   end
 end
 
@@ -508,16 +447,12 @@ def create_session(
   mailer: Mailer.Mailer,
 ) -> Result[Bond.Conn]
   wait = RateLimit.hit(attempts, conn.remote_addr, Time.monotonic_ms(), SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS)
-  if wait > 0
-    return ok(Bond.header(Bond.html(conn, 429, Views.busy(TOO_MANY)), "retry-after", wait.to_s))
-  end
+  return ok(Bond.header(Bond.html(conn, 429, Views.busy(TOO_MANY)), "retry-after", wait.to_s)) if wait > 0
 
   email = try Bond.form(conn, "email_address")
   password = try Bond.form(conn, "password")
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
-  if not Slots.take?(slots, MAX_HASHES)
-    return ok(busy(conn))
-  end
+  return ok(busy(conn)) if not Slots.take?(slots, MAX_HASHES)
 
   checked = Database.with_connection(pool) do |db|
     Auth.sign_in(db, email, password, agent, conn.remote_addr, config.bcrypt_library)
@@ -526,8 +461,8 @@ def create_session(
   Slots.release(slots)
   token = try checked
   case token
-    some(value) -> return ok(signed_in(conn, value))
-    none -> return ok(Bond.html(conn, 422, Views.sign_in(email, BAD_LOGIN, Mailer.enabled?(mailer))))
+    some(value) -> ok(signed_in(conn, value))
+    none -> ok(Bond.html(conn, 422, Views.sign_in(email, BAD_LOGIN, Mailer.enabled?(mailer))))
   end
 end
 
@@ -537,9 +472,7 @@ def destroy_session(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub) -> 
   person = try assigned_user(conn)
   token = Bond.get_session(conn, TOKEN_KEY)
   cleared = Bond.clear_session(conn)
-  if not token.ok?
-    return ok(Bond.redirect(cleared, Routes.SIGN_IN))
-  end
+  return ok(Bond.redirect(cleared, Routes.SIGN_IN)) if not token.ok?
 
   deleted = Database.with_connection(pool) do |db| Auth.sign_out(db, token.unwrap!) end
   if not deleted.ok?
@@ -554,17 +487,15 @@ def destroy_session(conn: Bond.Conn, pool: Database.Pool, hub: Channels.Hub) -> 
     Hangup.user(hub, person.unwrap!.id, true)
   end
 
-  return ok(Bond.redirect(cleared, Routes.SIGN_IN))
+  ok(Bond.redirect(cleared, Routes.SIGN_IN))
 end
 
 # Without email there is nothing to send a link with, so the pages of the reset are not there (a fact about the app,
 # the same for every visitor).
 def show_forgot_password(conn: Bond.Conn, mailer: Mailer.Mailer) -> Result[Bond.Conn]
-  if not Mailer.enabled?(mailer)
-    return ok(Bond.text(conn, 404, Routes.MISSING))
-  end
+  return ok(Bond.text(conn, 404, Routes.MISSING)) if not Mailer.enabled?(mailer)
 
-  return ok(Bond.html(conn, 200, Views.forgot_password()))
+  ok(Bond.html(conn, 200, Views.forgot_password()))
 end
 
 # The answer is the page of `Views.reset_requested` whatever the email is (and whatever the mailer does with the
@@ -575,9 +506,7 @@ def create_password_reset(
   pool: Database.Pool,
   mailer: Mailer.Mailer,
 ) -> Result[Bond.Conn]
-  if not Mailer.enabled?(mailer)
-    return ok(Bond.text(conn, 404, Routes.MISSING))
-  end
+  return ok(Bond.text(conn, 404, Routes.MISSING)) if not Mailer.enabled?(mailer)
 
   email = try Bond.form(conn, "email")
   # Requests that come together are decided inside the transaction of `Auth.request_password_reset`, which takes the
@@ -590,7 +519,7 @@ def create_password_reset(
     forget_reset(pool, reset.unwrap!.token)
   end
 
-  return ok(Bond.html(conn, 200, Views.reset_requested()))
+  ok(Bond.html(conn, 200, Views.reset_requested()))
 end
 
 # Takes back a link that could not be sent. A failure only shows in the log: the page answers the same.
@@ -608,7 +537,7 @@ end
 # visitor chooses: a link that went to another site would give the token to it.
 def reset_message(config: Config, reset: Auth.PasswordReset) -> Smtp.Message
   link = "#{config.base_url}#{Routes.PASSWORD_RESET_EDIT}?token=#{reset.token}"
-  return Smtp.Message(
+  Smtp.Message(
     from: config.mail_from,
     to: [reset.email],
     subject: RESET_SUBJECT,
@@ -620,11 +549,9 @@ end
 def show_reset_password(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
   token = Bond.query(conn, "token").unwrap_or("")
   valid = try reset_token_valid?(pool, token)
-  if not valid
-    return ok(link_gone(conn))
-  end
+  return ok(link_gone(conn)) if not valid
 
-  return ok(private_page(Bond.html(conn, 200, Views.reset_password(token, ""))))
+  ok(private_page(Bond.html(conn, 200, Views.reset_password(token, ""))))
 end
 
 def update_password(
@@ -638,13 +565,9 @@ def update_password(
   agent = Bond.request_header(conn, "user-agent").unwrap_or("")
   # A link that does not work is answered before a slot is taken, since it needs no hashing.
   valid = try reset_token_valid?(pool, token)
-  if not valid
-    return ok(link_gone(conn))
-  end
+  return ok(link_gone(conn)) if not valid
 
-  if not Slots.take?(slots, MAX_HASHES)
-    return ok(busy_reset_form(conn, token))
-  end
+  return ok(busy_reset_form(conn, token)) if not Slots.take?(slots, MAX_HASHES)
 
   # `Auth.reset_password` checks the link again inside its write transaction, so two forms for one link change the
   # password once; the second one hashes for nothing, which the slot already bounds.
@@ -658,37 +581,30 @@ def update_password(
     Auth.ResetOutcome.SignedIn(session, user_id) ->
       # The reset ended every session of the person: their sockets are told to reconnect, and are refused.
       Hangup.user(hub, user_id, true)
-      return ok(signed_in(conn, session))
-    Auth.ResetOutcome.Gone -> return ok(link_gone(conn))
-    Auth.ResetOutcome.Invalid(message) ->
-      return ok(private_page(Bond.html(conn, 422, Views.reset_password(token, message))))
+      ok(signed_in(conn, session))
+    Auth.ResetOutcome.Gone -> ok(link_gone(conn))
+    Auth.ResetOutcome.Invalid(message) -> ok(private_page(Bond.html(conn, 422, Views.reset_password(token, message))))
   end
 end
 
 def reset_token_valid?(pool: Database.Pool, token: String) -> Result[Bool]
-  return Database.with_connection(pool) do |db| Auth.reset_token_valid?(db, token) end
+  Database.with_connection(pool) do |db| Auth.reset_token_valid?(db, token) end
 end
 
-def link_gone(conn: Bond.Conn) -> Bond.Conn
-  return private_page(Bond.html(conn, 410, Views.reset_link_gone()))
-end
+def link_gone(conn: Bond.Conn) -> Bond.Conn = private_page(Bond.html(conn, 410, Views.reset_link_gone()))
 
 # The session starts empty, so nothing of an earlier one (a fixed cookie that the visitor had) is kept.
 def signed_in(conn: Bond.Conn, token: String) -> Bond.Conn
   fresh = Bond.set_session(Bond.clear_session(conn), TOKEN_KEY, token)
-  return Bond.redirect(fresh, Routes.HOME)
+  Bond.redirect(fresh, Routes.HOME)
 end
 
 # 503 for a burst of requests that hash, and when to ask again. Nothing of the form is shown again.
-def busy(conn: Bond.Conn) -> Bond.Conn
-  return retry_later(Bond.html(conn, 503, Views.busy(Failure.BUSY)))
-end
+def busy(conn: Bond.Conn) -> Bond.Conn = retry_later(Bond.html(conn, 503, Views.busy(Failure.BUSY)))
 
 # The form comes back with the token, so a person does not have to ask for another link because of a burst.
 def busy_reset_form(conn: Bond.Conn, token: String) -> Bond.Conn
-  return retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, Failure.BUSY))))
+  retry_later(private_page(Bond.html(conn, 503, Views.reset_password(token, Failure.BUSY))))
 end
 
-def retry_later(conn: Bond.Conn) -> Bond.Conn
-  return Bond.header(conn, "retry-after", Failure.RETRY_AFTER_SECONDS)
-end
+def retry_later(conn: Bond.Conn) -> Bond.Conn = Bond.header(conn, "retry-after", Failure.RETRY_AFTER_SECONDS)

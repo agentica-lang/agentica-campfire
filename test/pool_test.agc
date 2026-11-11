@@ -12,7 +12,7 @@ CHECKOUT_MS = 50
 
 # Holds the only connection of the pool until `release` says so, and says through `started` that it has it.
 def hold(pool: Database.Pool, started: Channel[Bool], release: Channel[Bool]) -> Result[Bool]
-  return Database.with_connection(pool) do |_|
+  Database.with_connection(pool) do |_|
     try started.send(true, WAIT_MS)
     try release.recv(WAIT_MS)
     return ok(true)
@@ -41,7 +41,7 @@ def probe(dir: String) -> Result[Void]
   try held
   try Test.eq(busy.status, 503)
   try Test.eq(HTTP.header_values(busy.headers, "retry-after"), ["1"])
-  return Test.eq(after.status, 302)
+  Test.eq(after.status, 302)
 end
 
 def main() -> Void

@@ -5,7 +5,7 @@ import Migrate from "pkg/db/migrate"
 
 ## Migration 8: create boosts.
 export def migration() -> Migrate.Migration
-  return Migrate.sql(
+  Migrate.sql(
     8,
     "create boosts",
     [
@@ -17,7 +17,7 @@ export def migration() -> Migrate.Migration
 end
 
 def boosts() -> String
-  return <<~SQL
+  <<~SQL
     create table boosts (
       id integer primary key autoincrement not null,
       booster_id integer not null,
