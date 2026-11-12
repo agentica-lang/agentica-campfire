@@ -6,15 +6,14 @@ git = "https://github.com/agentica-lang/bond"
 tag = "0.11.0"
 commit = "b50ad62086e7e787353c48aa8cfe1585aeff6a90"
 hash = "sha256:b2deffb9bc2b16e2075a472c1c5a9fd3adeb08e101ecc0d3fbc40a85e265d91b"
-override = true
 
 [[package]]
 name = "channels"
 git = "https://github.com/agentica-lang/packages"
 subdir = "bond-channels"
-tag = "bond-channels-0.3.0"
-commit = "7ba65a472a36c22ada82347922dd58daed512de9"
-hash = "sha256:9e3623c844ea4b1e1daad64a3496909b8054391360ce6fe0e017d16b5afa6738"
+tag = "bond-channels-0.3.1"
+commit = "112451c8fb3f831784ba56ac13d382e344c95d9b"
+hash = "sha256:38c8bb963cbdb1d047fda6a8c5994e90777b25eee3b25554431143f443ffef41"
 
 [[package]]
 name = "db"
