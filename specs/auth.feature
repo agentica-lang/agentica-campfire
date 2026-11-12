@@ -42,9 +42,14 @@ Feature: First run, sign in and sign out
     And the query "select count(*) from users where role = 1 and email_address = 'ana@example.com'" gives 1
     And the query "select count(*) from sessions" gives 1
 
+  # Through the form, as every scenario that posts it: `the first admin exists` writes a cheaper digest of its own.
   Scenario: The password is stored as a slow hash, never as text
-    Given the first admin exists
-    Then the query "select count(*) from users where password_digest like 'scrypt$%'" gives 1
+    When I post to "/first_run" the form:
+      | name     | Ana                   |
+      | email    | ana@example.com       |
+      | password | correct horse battery |
+    Then the status is 302
+    And the query "select count(*) from users where password_digest like 'scrypt$65536$8$2$%'" gives 1
     And the query "select count(*) from users where password_digest like '%correct horse%'" gives 0
 
   Scenario Outline: A first-run form with a bad value makes no account

@@ -93,7 +93,6 @@ export def steps() -> List[BDD.Step]
     BDD.step("I post to the join link that I remembered the form:", &post_to_remembered_join_link),
     BDD.step("the join link of the page is not the one that I remembered", &join_link_changed),
     BDD.step("I sign in as {string}", &sign_in_as),
-    BDD.step("the first admin exists", &first_admin),
     BDD.step("I remember the answer", &remember_answer),
     BDD.step("the answer is the one that I remembered", &answer_is_remembered),
     BDD.step("the answer is not the one that I remembered", &answer_is_not_remembered),
@@ -130,6 +129,23 @@ export def steps() -> List[BDD.Step]
     BDD.step("the request header {string} is {string}", &set_header),
     BDD.step("the request header {string} is the origin of the site", &set_header_to_origin),
   ]
+end
+
+## A new session: the browser forgets its cookies and signs in through the form, as a person does. The first admin has
+## its own password and the members that `a member ... exists` makes share another.
+export def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  password = MEMBER_PASSWORD
+  if args[0] == ADMIN_EMAIL
+    password = ADMIN_PASSWORD
+  end
+
+  form = URI.encode_www_form([
+    URI.Pair(name: "email_address", value: args[0]),
+    URI.Pair(name: "password", value: password),
+  ])
+
+  made = send(forget_cookies(ctx, []), "POST", "/session", form)
+  BDD.assert(made, last_reply(made).status == 302, "signing in as #{args[0]} answered #{last_reply(made).status}")
 end
 
 ## The port that the app listens on.
@@ -406,35 +422,6 @@ end
 def head_to(ctx: BDD.Context, args: List[String]) -> BDD.Context = send(ctx, "HEAD", args[0], "")
 
 def delete_to(ctx: BDD.Context, args: List[String]) -> BDD.Context = send(ctx, "DELETE", args[0], "")
-
-# A new session: the browser forgets its cookies and signs in through the form, as a person does. The first admin has
-# its own password and the members that `a member ... exists` makes share another.
-def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  password = MEMBER_PASSWORD
-  if args[0] == ADMIN_EMAIL
-    password = ADMIN_PASSWORD
-  end
-
-  form = URI.encode_www_form([
-    URI.Pair(name: "email_address", value: args[0]),
-    URI.Pair(name: "password", value: password),
-  ])
-
-  made = send(forget_cookies(ctx, []), "POST", "/session", form)
-  BDD.assert(made, last_reply(made).status == 302, "signing in as #{args[0]} answered #{last_reply(made).status}")
-end
-
-# Through the first-run form, so the browser ends signed in as that person, like the person who sets the app up.
-def first_admin(ctx: BDD.Context, args: List[String]) -> BDD.Context
-  form = URI.encode_www_form([
-    URI.Pair(name: "name", value: "Ana"),
-    URI.Pair(name: "email", value: ADMIN_EMAIL),
-    URI.Pair(name: "password", value: ADMIN_PASSWORD),
-  ])
-
-  made = send(ctx, "POST", "/first_run", form)
-  BDD.assert(made, last_reply(made).status == 302, "the first run answered #{last_reply(made).status}")
-end
 
 def send(ctx: BDD.Context, method: String, path: String, body: String) -> BDD.Context
   state = browser(ctx)

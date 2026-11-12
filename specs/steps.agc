@@ -40,6 +40,8 @@ SECRET_KEY_BASE = (
 # carries its cost, so `Passwords.verify` checks it with the cost it names. Made with Python:
 # `hashlib.scrypt(b"another long password", salt=bytes(range(1, 17)), n=1024, r=8, p=2, dklen=32)`.
 MEMBER_DIGEST = "scrypt$1024$8$2$AQIDBAUGBwgJCgsMDQ4PEA==$k6UaLA1ch6VFTNpUo+rxtZz9UjXZ5kX/WzWpBpW+qS4="
+# The same for `HttpSteps.ADMIN_PASSWORD` ("correct horse battery"), with the same salt.
+ADMIN_DIGEST = "scrypt$1024$8$2$AQIDBAUGBwgJCgsMDQ4PEA==$pZbpIUhAt2tHA4So5S6/Wye1rULr6cOCthkDUmZM+ag="
 STARTED = "started"
 STARTUP = "startup_lines"
 UPDATED = "updated"
@@ -96,6 +98,7 @@ def main() -> Void
     BDD.step("{string} are as Rails made them", &tables_as_rails),
     BDD.step("the tables are those of Rails and {string}", &tables_of_rails_and),
     BDD.step("the database does not have the table {string}", &lacks_table),
+    BDD.step("the first admin exists", &first_admin),
     BDD.step("a member {string} with the email {string} exists", &member_exists),
     BDD.step(
       "a user {string} with the email {string}, the role {string} and the status {string} exists",
@@ -396,6 +399,35 @@ def checksums_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   expected = BDD.table(ctx).map do |row| "#{row[0]} #{row[1]}" end
   BDD.assert(ctx, recorded == expected, "the recorded checksums are #{recorded}")
+end
+
+# What the first-run form makes (the account, its administrator and the open room "All Talk"), written straight into
+# the database with `ADMIN_DIGEST`, and then a sign-in through the form, so the browser ends signed in as after
+# the first
+# run. The form would hash at the app's cost twice per scenario (the first run, then each sign-in); the scenarios of
+# auth.feature that post the form keep that cost.
+def first_admin(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  made = with_database(ctx) do |conn| Db.transaction(conn) do |tx| add_first_admin(tx) end end
+  return BDD.assert(ctx, false, "cannot make the first admin: #{made.message}") if not made.ok?
+
+  HttpSteps.sign_in_as(ctx, [HttpSteps.ADMIN_EMAIL])
+end
+
+def add_first_admin(tx: Db.Connection) -> Result[Int]
+  try Db.execute(
+    tx,
+    "insert into accounts (name, join_code, created_at, updated_at) values (?, ?, #{Rails.NOW}, #{Rails.NOW})",
+    [Db.Value.Text(Auth.ACCOUNT_NAME), Db.Value.Text(Accounts.new_join_code())],
+  )
+
+  rows = try Db.query(
+    tx,
+    "insert into users (name, email_address, password_digest, role, created_at, updated_at) " +
+    "values (?, ?, ?, #{Rails.ADMINISTRATOR}, #{Rails.NOW}, #{Rails.NOW}) returning id",
+    [Db.Value.Text("Ana"), Db.Value.Text(HttpSteps.ADMIN_EMAIL), Db.Value.Text(ADMIN_DIGEST)],
+  )
+
+  Rooms.create_open_in(tx, value_int(rows[0].get("id", Db.Value.Null)), Auth.FIRST_ROOM_NAME)
 end
 
 # A person that the app did not make through a page (there is no invitation yet): the password is the same for every

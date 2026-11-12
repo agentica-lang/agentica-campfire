@@ -11,9 +11,9 @@ import Rooms from "rooms"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
-# The name of the account that the first run makes, and of the open room that it starts with (as upstream does).
-ACCOUNT_NAME = "Campfire"
-FIRST_ROOM_NAME = "All Talk"
+## The name of the account that the first run makes, and of the open room that it starts with (as upstream does).
+export ACCOUNT_NAME = "Campfire"
+export FIRST_ROOM_NAME = "All Talk"
 
 MAX_NAME_LENGTH = 100
 MAX_EMAIL_LENGTH = 254

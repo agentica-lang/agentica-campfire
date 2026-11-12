@@ -48,6 +48,10 @@ jobs:
       - name: Format
         run: make fmt-check
 
-      # The features of specs/ (they listen on 127.0.0.1 only) and the tests of test/.
+      # The features of specs/ (they listen on 127.0.0.1 only) and the tests of test/. Each scenario makes its SQLite file
+      # under TMPDIR, which is put in memory: the runner's /tmp is on disk.
       - name: Test
-        run: make test
+        run: |
+          export TMPDIR=/dev/shm/campfire-test
+          mkdir -p "$TMPDIR"
+          make test
