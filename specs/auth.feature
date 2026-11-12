@@ -217,8 +217,12 @@ Feature: First run, sign in and sign out
       | ana@example.com      | pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp |
       | eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee@example.com | correct horse battery |
 
+  # Ana through the form, so her digest has the app's cost and the hashing slots fill up.
   Scenario: Many sign-ins at once are answered, or turned away with a 503, and the app keeps serving
-    Given the first admin exists
+    When I post to "/first_run" the form:
+      | name     | Ana                   |
+      | email    | ana@example.com       |
+      | password | correct horse battery |
     And the browser has no cookies
     When I post to "/session" 8 times at once the form:
       | email_address | ana@example.com  |

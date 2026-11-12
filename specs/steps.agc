@@ -402,10 +402,9 @@ def checksums_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 # What the first-run form makes (the account, its administrator and the open room "All Talk"), written straight into
-# the database with `ADMIN_DIGEST`, and then a sign-in through the form, so the browser ends signed in as after
-# the first
-# run. The form would hash at the app's cost twice per scenario (the first run, then each sign-in); the scenarios of
-# auth.feature that post the form keep that cost.
+# the database with `ADMIN_DIGEST`, and then a sign-in through the form, so the browser ends signed in as after the
+# first run. The form would hash at the app's cost twice per scenario (the first run, then each sign-in); the scenarios
+# of auth.feature that post the form keep that cost.
 def first_admin(ctx: BDD.Context, args: List[String]) -> BDD.Context
   made = with_database(ctx) do |conn| Db.transaction(conn) do |tx| add_first_admin(tx) end end
   return BDD.assert(ctx, false, "cannot make the first admin: #{made.message}") if not made.ok?
@@ -422,9 +421,15 @@ def add_first_admin(tx: Db.Connection) -> Result[Int]
 
   rows = try Db.query(
     tx,
-    "insert into users (name, email_address, password_digest, role, created_at, updated_at) " +
-    "values (?, ?, ?, #{Rails.ADMINISTRATOR}, #{Rails.NOW}, #{Rails.NOW}) returning id",
-    [Db.Value.Text("Ana"), Db.Value.Text(HttpSteps.ADMIN_EMAIL), Db.Value.Text(ADMIN_DIGEST)],
+    "insert into users (name, email_address, password_digest, role, status, created_at, updated_at) " +
+    "values (?, ?, ?, ?, ?, #{Rails.NOW}, #{Rails.NOW}) returning id",
+    [
+      Db.Value.Text("Ana"),
+      Db.Value.Text(HttpSteps.ADMIN_EMAIL),
+      Db.Value.Text(ADMIN_DIGEST),
+      Db.Value.Int(Rails.ADMINISTRATOR),
+      Db.Value.Int(Rails.ACTIVE),
+    ],
   )
 
   Rooms.create_open_in(tx, value_int(rows[0].get("id", Db.Value.Null)), Auth.FIRST_ROOM_NAME)
