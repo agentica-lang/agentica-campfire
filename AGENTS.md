@@ -55,8 +55,10 @@ tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files 
 public/assets/  the built, fingerprinted stylesheet and script (composer, keys, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
-                cookies), cable_steps.agc (WebSocket clients of `/cable` through fixtures/ws_client/cable_client.agc, a program of
-                websocket-client with a manifest of its own, so the app does not depend on it: a step cannot leave a reader task running), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
+                cookies), cable_steps.agc (WebSocket clients of `/cable` through
+                fixtures/ws_client/cable_client.agc, a program of websocket-client with a manifest of its own, so the
+                app does not depend on it: a step cannot leave a reader task running), smtp_steps.agc (an SMTP client
+                against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
                 the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
                 down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh),

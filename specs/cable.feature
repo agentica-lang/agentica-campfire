@@ -1,9 +1,10 @@
 Feature: Live updates over /cable
   The app serves the Action Cable WebSocket at `/cable` (bond-channels), the one that the Rails clients and the
   benchmark of basecamp/once-campfire-verification connect to. The pages carry `<turbo-cable-stream-source>` elements
-  with signed stream names, and a client subscribes to what they name. The clients here are `fixtures/ws_client/cable_client.agc`,
-  a program of the package websocket-client, with cookies and an Origin, and every frame is text of `actioncable-v1-json`. The room
-  is room 1, "All Talk", and the first admin is Ana, user 1; Bea is user 2.
+  with signed stream names, and a client subscribes to what they name. The clients here are
+  `fixtures/ws_client/cable_client.agc`, a program of the package websocket-client, with cookies and an Origin, and
+  every frame is text of `actioncable-v1-json`. The room is room 1, "All Talk", and the first admin is Ana, user 1;
+  Bea is user 2.
 
   Background:
     Given a fresh database

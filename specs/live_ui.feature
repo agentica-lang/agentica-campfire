@@ -1,8 +1,9 @@
 Feature: What the pages need of /cable for their live updates
   The script of the pages (`public/assets/campfire-DIGEST.js`) reads the signed names of the sidebar streams from
   `GET /users/me/sidebar` and the name of the room's stream from the room page, and applies the Turbo Streams it hears.
-  These scenarios cover what the server sends and marks for it; the clients are `fixtures/ws_client/cable_client.agc`, as in
-  `cable.feature`. The first admin is Ana, user 1; Bea is user 2 and has "All Talk", room 1, with Ana.
+  These scenarios cover what the server sends and marks for it; the clients are
+  `fixtures/ws_client/cable_client.agc`, as in `cable.feature`. The first admin is Ana, user 1; Bea is user 2 and has
+  "All Talk", room 1, with Ana.
 
   Background:
     Given a fresh database

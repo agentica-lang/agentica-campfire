@@ -2,10 +2,11 @@
 ## `websocket-client`, which shares no code with the server (Bond over `std/http`), so a scenario can set the Cookie,
 ## the Origin and the subprotocol and keep many connections open at once.
 ##
-## It has a manifest of its own (this folder), so that the app does not depend on the client: a manifest has one
-## list of dependencies, and a user of the app would fetch it. It is a program of its own because a step cannot leave a task running (`RUNTIME-BDD-PENDING-TASKS`), and the reader
-## of a connection must: a task per connection reads it into a channel and answers the pings, as a browser does, so
-## that a command can wait for a frame with a timeout without closing the connection.
+## It has a manifest of its own (this folder), so that the package under test does not depend on the client: a manifest
+## has one list of dependencies, and a user of the package would fetch it. It is a program of its own because a step
+## cannot leave a task running (`RUNTIME-BDD-PENDING-TASKS`), and the reader of a connection must: a task per connection
+## reads it into a channel and answers the pings, as a browser does, so that a command can wait for a frame with a
+## timeout without closing the connection.
 ##
 ## Usage: cable_client.agc PORT. It reads one JSON command per line on stdin and answers one JSON line each:
 ##   connect id path [headers] [protocols] -> {status}      send id text -> {}
@@ -32,10 +33,12 @@ struct Order
   timeout_ms: Int = 0
 end
 
-# A connection and the frames that its reader has read.
+# A connection, the frames that its reader has read, and why the reader stopped when it could not keep one (the inbox
+# was full): `recv` reports that as an error, so a frame is never dropped without a trace.
 struct Line
   ws: WebSocket.Client
   inbox: Channel[WebSocket.Message]
+  broken: Channel[String]
 end
 
 # What a command gives: its answer, and the connections after it.
@@ -45,12 +48,20 @@ struct Pair
 end
 
 # The task that reads a connection: every message goes to the inbox (`receive` answers a ping), and the end of the
-# connection, with a close frame or not, is the last one.
+# connection, with a close frame or not, is the last one. A message that the inbox cannot take stops the reader and is
+# written to `broken`.
 def pump(line: Line) -> Void
   while true
     case WebSocket.receive(line.ws)
       ok(message) ->
-        _ = line.inbox.send(message, SEND_MS)
+        case line.inbox.send(message, SEND_MS)
+          ok(_) -> nil
+
+          error(reason) ->
+            _ = line.broken.send("the inbox of the client is full: #{reason}", SEND_MS)
+            break
+        end
+
         case message
           WebSocket.Message.Close(_, _) -> break
           WebSocket.Message.Text(_) -> nil
@@ -88,7 +99,8 @@ def connect(port: Int, order: Order, lines: Map[String, Line]) -> Pair
 
         WebSocket.Handshake.Open(ws) ->
           inbox: Channel[WebSocket.Message] = Channel.new(INBOX_FRAMES)
-          line = Line(ws: ws, inbox: inbox)
+          broken: Channel[String] = Channel.new(1)
+          line = Line(ws: ws, inbox: inbox, broken: broken)
           _ = Task.spawn(&pump, line)
           Pair(answer: JSON.from({"status": JSON.from(ws.status)}), lines: lines.put(order.id, line))
       end
@@ -106,7 +118,12 @@ end
 def receive(line: Line, timeout_ms: Int) -> Json
   case line.inbox.recv(timeout_ms)
     ok(message) -> frame_json(message)
-    error(_) -> JSON.from({"timeout": JSON.from(true)})
+
+    error(_) ->
+      case line.broken.recv(1)
+        ok(reason) -> failed(reason)
+        error(_) -> JSON.from({"timeout": JSON.from(true)})
+      end
   end
 end
 

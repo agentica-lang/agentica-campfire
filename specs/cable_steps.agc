@@ -1,8 +1,9 @@
-## The steps of `cable.feature`: WebSocket clients of `/cable`. The peer is `fixtures/ws_client/cable_client.agc`, a program of
-## the package `websocket-client`, which shares no code with the app (Bond over `std/http`): it sets the Cookie and the
-## Origin as a browser does and keeps many connections open, and a step drives it with one JSON line per command. A client takes the cookies that the browser
-## of the scenario has at that moment (`HttpSteps`), so signing in as another person and connecting makes another
-## client. A step may halt on what is not the scenario's business (the peer does not answer): that fails the scenario.
+## The steps of `cable.feature`: WebSocket clients of `/cable`. The peer is `fixtures/ws_client/cable_client.agc`, a
+## program of the package `websocket-client`, which shares no code with the app (Bond over `std/http`): it sets the
+## Cookie and the Origin as a browser does and keeps many connections open, and a step drives it with one JSON line per
+## command. A client takes the cookies that the browser of the scenario has at that moment (`HttpSteps`), so signing in
+## as another person and connecting makes another client. A step may halt on what is not the scenario's business (the
+## peer does not answer): that fails the scenario.
 
 import BDD from "std/bdd"
 import HttpSteps from "http_steps"

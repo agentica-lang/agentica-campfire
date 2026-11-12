@@ -2,8 +2,8 @@
 # 0.24.1, `std/cache` in 0.24.3, bond-channels wants 0.24.4, `T.codec` and Bond 0.9.0 want 0.25.0, and the native
 # SQLite driver of agentica-db 0.6.0 wants 0.26.1) and
 # a C compiler: the first run of a program that imports agentica-db builds that driver into the package cache.
-# AGENTICA=/path/to/agentica works for the targets, but the mail specs start their SMTP peer with the `agentica` on
-# PATH.
+# AGENTICA=/path/to/agentica works for the targets, but the mail specs start their SMTP peer, and the cable specs
+# their WebSocket peer (specs/fixtures/ws_client), with the `agentica` on PATH.
 AGENTICA ?= agentica
 # How many test files run at once (`make test JOBS=1` runs them one by one).
 JOBS ?= 4
@@ -37,7 +37,8 @@ help:
 	@echo "assets     build public/assets/ (Dart Sass and esbuild, fingerprinted) from app/; needs Node 20+ and npm ci"
 	@echo "assets-check  build them and fail if that changed a committed file (what CI runs)"
 
-# The peer of the cable specs has a manifest of its own (specs/fixtures/ws_client), so that the app does not depend on it.
+# The peer of the cable specs has a manifest of its own (specs/fixtures/ws_client), so that the app does not depend
+# on it.
 install:
 	$(AGENTICA) install
 	cd specs/fixtures/ws_client && $(AGENTICA) install
