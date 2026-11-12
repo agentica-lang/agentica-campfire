@@ -60,8 +60,8 @@ export def messages(conn: Db.Connection, user_id: Int, query: String) -> Result[
     [Db.Value.Text(match(query)), Db.Value.Int(user_id), Db.Value.Int(MAX_MESSAGES)],
   )
 
-  messages = rows.map do |row| Rooms.message_of(row) end
-  ok(messages.reverse)
+  found = rows.map do |row| Rooms.message_of(row) end
+  ok(found.reverse)
 end
 
 ## Remembers `query` (the result of `words`) for the person: one that they searched for before moves to the front, and

@@ -3,9 +3,10 @@ version = 1
 [[package]]
 name = "bond"
 git = "https://github.com/agentica-lang/bond"
-tag = "0.10.1"
-commit = "3dc5a71d0a15d7f0fad10791117df27b44cac437"
-hash = "sha256:717c79f7d0f58c3d058ca488f5b6569490a275b213cb11954590b8eb9c8fc3d6"
+tag = "0.11.0"
+commit = "b50ad62086e7e787353c48aa8cfe1585aeff6a90"
+hash = "sha256:b2deffb9bc2b16e2075a472c1c5a9fd3adeb08e101ecc0d3fbc40a85e265d91b"
+override = true
 
 [[package]]
 name = "channels"
@@ -19,9 +20,9 @@ hash = "sha256:9e3623c844ea4b1e1daad64a3496909b8054391360ce6fe0e017d16b5afa6738"
 name = "db"
 git = "https://github.com/agentica-lang/agentica-db"
 subdir = "src/db"
-tag = "0.8.0"
-commit = "d3068203e929021bda0f2bded9225e906107b400"
-hash = "sha256:a2883b19d3cd17bb7746161018e6d4a40f403002378c761189163203d65ce061"
+tag = "0.9.0"
+commit = "aedaa810fe43d3be8ebfadecdb0d4c7d696c959f"
+hash = "sha256:df47875a3f494503de8a8c7f4499bcc8820fcf2bfd8f73470f1730dcff4003b2"
 
 [[package]]
 name = "pool"
