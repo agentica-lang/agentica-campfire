@@ -10,6 +10,7 @@ import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import BanFlag from "ban_flag"
 import Bans from "../campfire/bans"
+import Blocks from "blocks"
 import Database from "../campfire/repo/database"
 import Failure from "failure"
 import Hangup from "hangup"
@@ -101,23 +102,37 @@ export def add(
   # `slots` bounds the hashing for everyone together (the profile shares it); `attempts` bounds the sign-in posts of
   # one address.
   attempts = RateLimit.new()
+  on_before_unmarked = Blocks.handler() do |conn| ok(unmarked(conn)) end
+  on_before_reject_banned = Blocks.handler() do |conn| reject_banned(conn, pool, bans) end
+  on_before_require_sign_in = Blocks.handler() do |conn| require_sign_in(conn, pool, pages) end
+  on_get_first_run = Blocks.handler() do |conn| show_first_run(conn, pool) end
+  on_post_first_run = Blocks.handler() do |conn| create_first_run(conn, pool, slots) end
+  on_get_join = Blocks.handler() do |conn| show_join(conn, pool) end
+  on_post_join = Blocks.handler() do |conn| create_join(conn, pool, slots) end
+  on_get_sign_in = Blocks.handler() do |conn| show_sign_in(conn, pool, mailer) end
+  on_post_session = Blocks.handler() do |conn| create_session(conn, config, pool, slots, attempts, mailer) end
+  on_post_sign_out = Blocks.handler() do |conn| destroy_session(conn, pool, hub) end
+  on_get_password_reset_new = Blocks.handler() do |conn| show_forgot_password(conn, mailer) end
+  on_post_password_reset = Blocks.handler() do |conn| create_password_reset(conn, config, pool, mailer) end
+  on_get_password_reset_edit = Blocks.handler() do |conn| show_reset_password(conn, pool) end
+
   (
     app
-    |> Bond.before() do |conn| ok(unmarked(conn)) end
+    |> Bond.before(on_before_unmarked)
     |> Bond.csrf()
-    |> Bond.before() do |conn| reject_banned(conn, pool, bans) end
+    |> Bond.before(on_before_reject_banned)
     |> Bond.sessions(session_options(config))
-    |> Bond.before() do |conn| require_sign_in(conn, pool, pages) end
-    |> Bond.get(Routes.FIRST_RUN) do |conn| show_first_run(conn, pool) end
-    |> Bond.post(Routes.FIRST_RUN) do |conn| create_first_run(conn, pool, slots) end
-    |> Bond.get(Routes.JOIN) do |conn| show_join(conn, pool) end
-    |> Bond.post(Routes.JOIN) do |conn| create_join(conn, pool, slots) end
-    |> Bond.get(Routes.SIGN_IN) do |conn| show_sign_in(conn, pool, mailer) end
-    |> Bond.post(Routes.SESSION) do |conn| create_session(conn, config, pool, slots, attempts, mailer) end
-    |> Bond.post(Routes.SIGN_OUT) do |conn| destroy_session(conn, pool, hub) end
-    |> Bond.get(Routes.PASSWORD_RESET_NEW) do |conn| show_forgot_password(conn, mailer) end
-    |> Bond.post(Routes.PASSWORD_RESET) do |conn| create_password_reset(conn, config, pool, mailer) end
-    |> Bond.get(Routes.PASSWORD_RESET_EDIT) do |conn| show_reset_password(conn, pool) end
+    |> Bond.before(on_before_require_sign_in)
+    |> Bond.get(Routes.FIRST_RUN, on_get_first_run)
+    |> Bond.post(Routes.FIRST_RUN, on_post_first_run)
+    |> Bond.get(Routes.JOIN, on_get_join)
+    |> Bond.post(Routes.JOIN, on_post_join)
+    |> Bond.get(Routes.SIGN_IN, on_get_sign_in)
+    |> Bond.post(Routes.SESSION, on_post_session)
+    |> Bond.post(Routes.SIGN_OUT, on_post_sign_out)
+    |> Bond.get(Routes.PASSWORD_RESET_NEW, on_get_password_reset_new)
+    |> Bond.post(Routes.PASSWORD_RESET, on_post_password_reset)
+    |> Bond.get(Routes.PASSWORD_RESET_EDIT, on_get_password_reset_edit)
     |> Bond.post(Routes.PASSWORD_RESET_UPDATE) do |conn| update_password(conn, pool, slots, hub) end
   )
 end

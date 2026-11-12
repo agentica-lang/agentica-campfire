@@ -97,7 +97,10 @@ export def path(storage_dir: String, key: String) -> Optional[String]
 end
 
 ## The letters in the circle: the first letter of each word of the name (`Bea Smith` is `BS`).
-export def initials(name: String) -> String = Regex.find_all(name, INITIALS).map do |found| found.text end.join("")
+export def initials(name: String) -> String
+  letters = Regex.find_all(name, INITIALS).map do |found| found.text end
+  letters.join("")
+end
 
 ## The colour behind the initials of the user, from the CRC-32 of their id, as `avatar_background_color` of Rails does.
 export def color(user_id: Int) -> String
@@ -109,7 +112,8 @@ end
 ## `updated_at` of the user, but with the fraction of a second too (unlike Rails), so two changes in one second are two
 ## links.
 export def version(updated_at: String) -> String
-  Regex.find_all(updated_at, DIGITS).map do |found| found.text end.join("")
+  digits = Regex.find_all(updated_at, DIGITS).map do |found| found.text end
+  digits.join("")
 end
 
 ## True when the user has an avatar attached.

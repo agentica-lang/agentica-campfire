@@ -1,6 +1,7 @@
 ## The routes of the app, on Bond.
 
 import Bond from "pkg/bond/bond"
+import Blocks from "blocks"
 import Cache from "std/cache"
 import AccountsWeb from "accounts"
 import AuthWeb from "auth"
@@ -59,6 +60,12 @@ export def build(
 ) -> Bond.App
   slots = Slots.new()
   bans = BanFlag.new()
+  on_get_home = Blocks.handler() do |conn| RoomsWeb.home(conn, pool) end
+  on_get_health = Blocks.handler() do |conn| health(conn, schema_version) end
+  on_get_up = Blocks.handler() do |conn| up(conn) end
+  on_after_revalidate = Blocks.handler() do |conn| revalidate(conn) end
+  on_not_found_text = Blocks.handler() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
+
   (
     Bond.app()
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
@@ -73,11 +80,11 @@ export def build(
     |> AvatarsWeb.add(pool, pages, avatar_key(config), config.storage_dir)
     |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
     |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)
-    |> Bond.get(Routes.HOME) do |conn| RoomsWeb.home(conn, pool) end
-    |> Bond.get(Routes.HEALTH) do |conn| health(conn, schema_version) end
-    |> Bond.get(Routes.UP) do |conn| up(conn) end
-    |> Bond.after() do |conn| revalidate(conn) end
-    |> Bond.not_found() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
+    |> Bond.get(Routes.HOME, on_get_home)
+    |> Bond.get(Routes.HEALTH, on_get_health)
+    |> Bond.get(Routes.UP, on_get_up)
+    |> Bond.after(on_after_revalidate)
+    |> Bond.not_found(on_not_found_text)
     |> Bond.on_error() do |conn, message| ok(Failure.answer(conn, message)) end
   )
 end

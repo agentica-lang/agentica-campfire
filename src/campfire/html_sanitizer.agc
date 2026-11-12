@@ -366,7 +366,8 @@ export def plain_text_of_clean(clean: String) -> String
   end
 
   lines = HTML.unescape(out.join("")).split("\n").map do |line| line.strip end
-  lines.select do |line| not line.empty? end.join("\n")
+  kept = lines.select do |line| not line.empty? end
+  kept.join("\n")
 end
 
 # The first character of what follows a `<` makes it markup (a tag, a comment) and not a lone `<` that is text.

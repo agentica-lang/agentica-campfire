@@ -33,7 +33,8 @@ end
 ## The messages one after the other, as `Views.messages_list` writes them for the person `user_id` with the account
 ## `role`, each from the cache when it is there.
 export def list(cache: Optional[Cache.Store], messages: List[Rooms.Stored], user_id: Int, role: String) -> String
-  messages.map do |one| html(cache, one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
+  parts = messages.map do |one| html(cache, one, Rooms.changeable?(one.creator_id, user_id, role)) end
+  parts.join("\n")
 end
 
 # The markup of one message, with its body cleaned. Two requests that miss together both render it, which is the same
@@ -63,11 +64,9 @@ end
 # The boosts as text that tells them apart: how many, and for each its id, its booster and its words, with the size of
 # the two names in bytes.
 def boosts_text(boosts: List[Boosts.Boost]) -> String
-  (
-    "#{boosts.size}" +
-    boosts.map do |one|
-      "\n#{one.id}:#{one.booster_id}:#{one.booster.bytes.size}:#{one.booster}#{one.content.bytes.size}:#{one.content}"
-    end
-      .join("")
-  )
+  parts = boosts.map do |one|
+    "\n#{one.id}:#{one.booster_id}:#{one.booster.bytes.size}:#{one.booster}#{one.content.bytes.size}:#{one.content}"
+  end
+
+  "#{boosts.size}" + parts.join("")
 end

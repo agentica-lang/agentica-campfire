@@ -124,8 +124,10 @@ def main() -> Void
     # Cost 12 takes a quarter of a second or more; an early answer takes a millisecond.
     digest = "$2a$12$.e8gNYy3Yc5qIeU31tvPEuAmRhK8AsHV7iZLhpvYgB6KQoUDvUdMi"
     nul = String.from_bytes("correct horse battery".bytes + Bytes.from_list([0, 88]).unwrap!).unwrap!
-    huge = (0...(Bcrypt.MAX_PASSWORD_BYTES + 1)).to_a.map do |_| "x" end.join("")
-    limit = (0...Bcrypt.MAX_PASSWORD_BYTES).to_a.map do |_| "x" end.join("")
+    huge_letters = (0...(Bcrypt.MAX_PASSWORD_BYTES + 1)).to_a.map do |_| "x" end
+    huge = huge_letters.join("")
+    limit_letters = (0...Bcrypt.MAX_PASSWORD_BYTES).to_a.map do |_| "x" end
+    limit = limit_letters.join("")
     for password in [nul, huge, limit]
       started = Time.now_ms()
       checked = Bcrypt.verify(password, digest, library())

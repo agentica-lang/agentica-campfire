@@ -14,6 +14,7 @@ import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
+import Blocks from "blocks"
 import Boosts from "../campfire/boosts"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
@@ -43,18 +44,26 @@ end
 ## Adds the routes of the boosts to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
 ## where a boost that is added or taken away is broadcast.
 export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable) -> Bond.App
+  on_get_message_boosts = Blocks.handler() do |conn|
+    served(conn, pool, cable) do |db, person| list_answer(conn, db, person) end
+  end
+
+  on_post_message_boosts = Blocks.handler() do |conn|
+    served(conn, pool, cable) do |db, person| add_answer(conn, db, person, wants_stream?(conn)) end
+  end
+
+  on_get_message_boost_new = Blocks.handler() do |conn|
+    served(conn, pool, cable) do |db, person| new_answer(conn, db, person) end
+  end
+
+  on_post_message_boost = Blocks.handler() do |conn| post_boost(conn, pool, cable) end
+
   (
     app
-    |> Bond.get(Routes.MESSAGE_BOOSTS) do |conn|
-      served(conn, pool, cable) do |db, person| list_answer(conn, db, person) end
-    end
-    |> Bond.post(Routes.MESSAGE_BOOSTS) do |conn|
-      served(conn, pool, cable) do |db, person| add_answer(conn, db, person, wants_stream?(conn)) end
-    end
-    |> Bond.get(Routes.MESSAGE_BOOST_NEW) do |conn|
-      served(conn, pool, cable) do |db, person| new_answer(conn, db, person) end
-    end
-    |> Bond.post(Routes.MESSAGE_BOOST) do |conn| post_boost(conn, pool, cable) end
+    |> Bond.get(Routes.MESSAGE_BOOSTS, on_get_message_boosts)
+    |> Bond.post(Routes.MESSAGE_BOOSTS, on_post_message_boosts)
+    |> Bond.get(Routes.MESSAGE_BOOST_NEW, on_get_message_boost_new)
+    |> Bond.post(Routes.MESSAGE_BOOST, on_post_message_boost)
     |> Bond.delete(Routes.MESSAGE_BOOST) do |conn|
       served(conn, pool, cable) do |db, person| remove_answer(conn, db, person, wants_stream?(conn)) end
     end

@@ -502,7 +502,10 @@ end
 
 # A line of the message that starts with a dot gets another one, so that it is not taken for the end `.` (RFC 5321
 # 4.5.2). The data ends with CRLF, so the last piece is empty and the join writes that line end again.
-def dot_stuff(data: String) -> String = data.split(CRLF).map do |line| stuffed(line) end.join(CRLF)
+def dot_stuff(data: String) -> String
+  pieces = data.split(CRLF).map do |line| stuffed(line) end
+  pieces.join(CRLF)
+end
 
 def stuffed(line: String) -> String
   return ".#{line}" if line.start_with?(".")
@@ -532,7 +535,8 @@ end
 # a log, and the 8-bit CSI of C1 is one) nor the Unicode line and bidi controls (they reorder or split a log line),
 # and cut to a length that a log can hold.
 def server_text(text: String) -> String
-  clean = text.split("").select do |char| not control_code?(char.code) end.join("")
+  printable = text.split("").select do |char| not control_code?(char.code) end
+  clean = printable.join("")
   return "#{clean.slice(0, MAX_ERROR_TEXT)}..." if clean.length > MAX_ERROR_TEXT
 
   clean

@@ -20,6 +20,7 @@
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
+import Blocks from "blocks"
 import Boosts from "../campfire/boosts"
 import Bots from "../campfire/bots"
 import CableWeb from "cable"
@@ -120,26 +121,38 @@ end
 ## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at
 ## the room, and `config` says where the links of the answers start (`origin`).
 export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config) -> Bond.App
+  on_get_bot_messages = Blocks.handler() do |conn|
+    serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
+  end
+
+  on_post_bot_messages = Blocks.handler() do |conn|
+    serve(conn, pool, cable) do |db, bot, room| create_answer(conn, db, bot, room, config) end
+  end
+
+  on_patch_bot_message = Blocks.handler() do |conn|
+    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
+  end
+
+  on_put_bot_message = Blocks.handler() do |conn|
+    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
+  end
+
+  on_delete_bot_message = Blocks.handler() do |conn|
+    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
+  end
+
+  on_post_bot_message_boosts = Blocks.handler() do |conn|
+    serve(conn, pool, cable) do |db, bot, room| boost_answer(conn, db, bot, room, origin(conn, config)) end
+  end
+
   (
     app
-    |> Bond.get(Routes.BOT_MESSAGES) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
-    end
-    |> Bond.post(Routes.BOT_MESSAGES) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| create_answer(conn, db, bot, room, config) end
-    end
-    |> Bond.patch(Routes.BOT_MESSAGE) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
-    end
-    |> Bond.put(Routes.BOT_MESSAGE) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
-    end
-    |> Bond.delete(Routes.BOT_MESSAGE) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
-    end
-    |> Bond.post(Routes.BOT_MESSAGE_BOOSTS) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| boost_answer(conn, db, bot, room, origin(conn, config)) end
-    end
+    |> Bond.get(Routes.BOT_MESSAGES, on_get_bot_messages)
+    |> Bond.post(Routes.BOT_MESSAGES, on_post_bot_messages)
+    |> Bond.patch(Routes.BOT_MESSAGE, on_patch_bot_message)
+    |> Bond.put(Routes.BOT_MESSAGE, on_put_bot_message)
+    |> Bond.delete(Routes.BOT_MESSAGE, on_delete_bot_message)
+    |> Bond.post(Routes.BOT_MESSAGE_BOOSTS, on_post_bot_message_boosts)
     |> Bond.delete(Routes.BOT_MESSAGE_BOOST) do |conn|
       serve(conn, pool, cable) do |db, bot, room| unboost_answer(conn, db, bot, room) end
     end

@@ -297,7 +297,10 @@ def unquote(name: String) -> String
   name
 end
 
-def format_all(addresses: List[Address]) -> String = addresses.map do |address| format_address(address) end.join(", ")
+def format_all(addresses: List[Address]) -> String
+  formatted = addresses.map do |address| format_address(address) end
+  formatted.join(", ")
+end
 
 def format_address(address: Address) -> String
   return address.address if address.name.empty?
@@ -418,7 +421,10 @@ end
 
 # RFC 2045 quoted-printable of text with CRLF line ends. Each line is cut at 75 characters with a soft break `=`, and
 # a space or tab that ends a line is written as `=20` or `=09` (a reader drops trailing white space).
-def quoted_printable(text: String) -> String = text.split(CRLF).map do |line| qp_line(line) end.join(CRLF)
+def quoted_printable(text: String) -> String
+  encoded = text.split(CRLF).map do |line| qp_line(line) end
+  encoded.join(CRLF)
+end
 
 def qp_line(line: String) -> String
   bytes = line.bytes.to_a

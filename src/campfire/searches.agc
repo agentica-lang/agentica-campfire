@@ -41,7 +41,8 @@ end
 ## space, which FTS5 reads as `AND`. `words` has no quote left, so the doubling is a second guard.
 export def match(query: String) -> String
   parts = query.split(" ").select do |word| not word.empty? end
-  parts.map do |word| "\"#{word.replace("\"", "\"\"")}\"" end.join(" ")
+  quoted = parts.map do |word| "\"#{word.replace("\"", "\"\"")}\"" end
+  quoted.join(" ")
 end
 
 ## The newest `MAX_MESSAGES` messages of the rooms that the person is in (any involvement) that match `query`, oldest
@@ -59,7 +60,8 @@ export def messages(conn: Db.Connection, user_id: Int, query: String) -> Result[
     [Db.Value.Text(match(query)), Db.Value.Int(user_id), Db.Value.Int(MAX_MESSAGES)],
   )
 
-  ok(rows.map do |row| Rooms.message_of(row) end.reverse)
+  found = rows.map do |row| Rooms.message_of(row) end
+  ok(found.reverse)
 end
 
 ## Remembers `query` (the result of `words`) for the person: one that they searched for before moves to the front, and

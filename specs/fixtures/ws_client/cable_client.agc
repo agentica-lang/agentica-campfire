@@ -83,7 +83,8 @@ def failed(reason: String) -> Json = JSON.from({"error": JSON.from(reason)})
 
 def options_of(order: Order) -> WebSocket.Options
   headers = order.headers.keys.map do |name| Header(name: name, value: order.headers[name]) end
-  protocols = order.protocols.split(",").map do |name| name.strip end.select do |name| not name.empty? end
+  names = order.protocols.split(",").map do |name| name.strip end
+  protocols = names.select do |name| not name.empty? end
   WebSocket.Options(headers: headers, protocols: protocols, read_timeout_ms: FOREVER_MS, close_timeout_ms: CLOSE_MS)
 end
 

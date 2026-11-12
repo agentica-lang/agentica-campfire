@@ -385,7 +385,8 @@ end
 export def mark_read_all(conn: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
   return ok() if user_ids.empty?
 
-  marks = user_ids.map do |_| "?" end.join(", ")
+  holders = user_ids.map do |_| "?" end
+  marks = holders.join(", ")
   params = [Db.Value.Int(room_id)]
   for user_id in user_ids
     params = params.push(Db.Value.Int(user_id))
@@ -515,7 +516,8 @@ end
 ## The role (`member`, `administrator` or `bot`) of each author of `messages`, by user id. An author whose row is gone
 ## is not in the map.
 export def author_roles(conn: Db.Connection, messages: List[Stored]) -> Result[Map[Int, String]]
-  ids = messages.map do |one| one.creator_id end.uniq
+  creators = messages.map do |one| one.creator_id end
+  ids = creators.uniq
   rows = try Db.query(
     conn,
     "select id, role from users where id in (#{placeholders(ids.size)})",
@@ -1054,7 +1056,8 @@ end
 
 # The ids among `ids` that are active users now, so that what is searched for is what gets inserted.
 def active_among(tx: Db.Connection, ids: List[Int]) -> Result[List[Int]]
-  marks = ids.map do |_| "?" end.join(", ")
+  holders = ids.map do |_| "?" end
+  marks = holders.join(", ")
   rows = try Db.query(
     tx,
     "select id from users where status = #{Rails.ACTIVE} and id in (#{marks}) order by id",
@@ -1067,7 +1070,8 @@ end
 # A direct room that has all of `everyone` in it and nobody else: as many members as people, and all of them among
 # the people (a room with the same count but another person is not it).
 def direct_between(tx: Db.Connection, everyone: List[Int]) -> Result[Optional[Int]]
-  marks = everyone.map do |_| "?" end.join(", ")
+  holders = everyone.map do |_| "?" end
+  marks = holders.join(", ")
   size = Db.Value.Int(everyone.size)
   rows = try Db.query(
     tx,
