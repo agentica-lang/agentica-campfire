@@ -43,11 +43,12 @@ Feature: What a session row records, and what keeps the table small
     And I get "/users/me/sidebar"
     Then the status is 200
 
+  # `the first admin exists` signs Ana in through the form: that is the first attempt, so 12 more make 3 too many.
   Scenario: The 11th sign-in attempt from one address in the window is refused with a 429
     Given the browser has no cookies
     When I post to "/session" 12 times at once the form:
       | email_address | nobody@example.com |
-    Then exactly 2 statuses are 429
+    Then exactly 3 statuses are 429
     When I post to "/session" the form:
       | email_address | ana@example.com       |
       | password      | correct horse battery |
@@ -59,7 +60,7 @@ Feature: What a session row records, and what keeps the table small
   Scenario: Another path to the same route does not escape the limit
     When I post to "/session/" 12 times at once the form:
       | email_address | nobody@example.com |
-    Then exactly 2 statuses are 429
+    Then exactly 3 statuses are 429
     When I post to "/session" the form:
       | email_address | nobody@example.com |
     Then the status is 429
