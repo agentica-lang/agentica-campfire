@@ -8,7 +8,6 @@ blank_line_after_end = true
 bond = { git = "https://github.com/agentica-lang/bond", tag = "0.10.1" }
 db = { git = "https://github.com/agentica-lang/agentica-db", tag = "0.8.0", subdir = "src/db" }
 channels = { git = "https://github.com/agentica-lang/packages", tag = "bond-channels-0.3.0", subdir = "bond-channels" }
-websocket-client = { git = "https://github.com/agentica-lang/packages", tag = "websocket-client-0.2.0", subdir = "websocket-client" }
 
 # The system SQLite, for the version reader (`extern "sqlite3"` in src/campfire/repo/version_reader.agc).
 [native.sqlite3]

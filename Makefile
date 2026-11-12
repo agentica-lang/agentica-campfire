@@ -37,8 +37,10 @@ help:
 	@echo "assets     build public/assets/ (Dart Sass and esbuild, fingerprinted) from app/; needs Node 20+ and npm ci"
 	@echo "assets-check  build them and fail if that changed a committed file (what CI runs)"
 
+# The peer of the cable specs has a manifest of its own (specs/fixtures/ws_client), so that the app does not depend on it.
 install:
 	$(AGENTICA) install
+	cd specs/fixtures/ws_client && $(AGENTICA) install
 
 run:
 	$(AGENTICA) campfire.agc

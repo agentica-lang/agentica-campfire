@@ -55,8 +55,8 @@ tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files 
 public/assets/  the built, fingerprinted stylesheet and script (composer, keys, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
-                cookies), cable_steps.agc (WebSocket clients of `/cable` through fixtures/cable_client.agc, a program of
-                websocket-client: a step cannot leave a reader task running), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
+                cookies), cable_steps.agc (WebSocket clients of `/cable` through fixtures/ws_client/cable_client.agc, a program of
+                websocket-client with a manifest of its own, so the app does not depend on it: a step cannot leave a reader task running), smtp_steps.agc (an SMTP client against a peer), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
                 the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
                 down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh),
@@ -67,7 +67,7 @@ tools/          keys_check.js and room_check.js: the by-hand browser checks of t
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond, agentica-db, bond-channels and websocket-client (the clients of the cable specs) are pinned by tag (`pool` comes with `db`, which pins it by commit), agentica.lock has their hashes
+agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by tag (`pool` comes with `db`, which pins it by commit), agentica.lock has their hashes
 ```
 
 ## Commands

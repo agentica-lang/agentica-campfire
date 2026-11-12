@@ -2,7 +2,8 @@
 ## `websocket-client`, which shares no code with the server (Bond over `std/http`), so a scenario can set the Cookie,
 ## the Origin and the subprotocol and keep many connections open at once.
 ##
-## It is a program of its own because a step cannot leave a task running (`RUNTIME-BDD-PENDING-TASKS`), and the reader
+## It has a manifest of its own (this folder), so that the app does not depend on the client: a manifest has one
+## list of dependencies, and a user of the app would fetch it. It is a program of its own because a step cannot leave a task running (`RUNTIME-BDD-PENDING-TASKS`), and the reader
 ## of a connection must: a task per connection reads it into a channel and answers the pings, as a browser does, so
 ## that a command can wait for a frame with a timeout without closing the connection.
 ##
