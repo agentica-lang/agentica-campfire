@@ -76,10 +76,10 @@ def main() -> Void
       )
 
       lines = lines_of(Mail.render(sent))
-      subject_words = lines.drop_while do |line| not line.start_with?("Subject:") end
-        .take_while do |line| line.start_with?("Subject:") or line.start_with?(" ") end
-        .map do |line| line.replace("Subject:", "").strip end
-        .select do |line| not line.empty? end
+      from_subject = lines.drop_while do |line| not line.start_with?("Subject:") end
+      folded = from_subject.take_while do |line| line.start_with?("Subject:") or line.start_with?(" ") end
+      stripped = folded.map do |line| line.replace("Subject:", "").strip end
+      subject_words = stripped.select do |line| not line.empty? end
 
       try Test.eq(decode_words(subject_words.join(" ")), subject)
       try Test.eq(subject_words.all? do |word| word.length <= 75 end, true)
@@ -102,7 +102,8 @@ def main() -> Void
       first = Mail.render(both)
       try Test.eq(first, Mail.render(both))
       lines = lines_of(first)
-      boundary = lines.find do |line| line.start_with?("--=_") end.unwrap!
+      marker = lines.find do |line| line.start_with?("--=_") end
+      boundary = marker.unwrap!
       try Test.eq(
         lines.include?("Content-Type: multipart/alternative; boundary=\"#{boundary.slice(2, boundary.length - 2)}\""),
         true,
@@ -254,6 +255,7 @@ end
 
 # The display name of the From line, decoded: an encoded word before ` <ana@example.com>`.
 def decode_name(lines: List[String]) -> String
-  line = lines.find do |candidate| candidate.start_with?("From: ") end.unwrap!
+  found = lines.find do |candidate| candidate.start_with?("From: ") end
+  line = found.unwrap!
   line.slice(6, line.length - 6 - " <ana@example.com>".length)
 end

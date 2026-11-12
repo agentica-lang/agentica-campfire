@@ -573,7 +573,8 @@ end
 ## (`boost_added_stream`). The link is last, whatever the order of the elements, by the stylesheet. It is the markup
 ## that `GET /messages/ID/boosts` answers.
 export def boosts_area(message_id: Int, boosts: List[Boosts.Boost]) -> String
-  items = boosts.map do |one| boost(message_id, one) end.join("")
+  rendered = boosts.map do |one| boost(message_id, one) end
+  items = rendered.join("")
   <<~EAG.strip
     <%@ escape &Bond.escape %>
     <div id="boosts_message_<%= message_id %>"><%== items %><a href="<%= Routes.message_boosts_new_path(message_id) %>">Boost</a></div>
@@ -639,7 +640,8 @@ end
 ## The messages one after the other, as the room page and the page of older messages write them, with the controls of
 ## the ones that the person (`user_id`, with the account `role`) may change.
 export def messages_list(messages: List[Rooms.Message], user_id: Int, role: String) -> String
-  messages.map do |one| message(one, Rooms.changeable?(one.creator_id, user_id, role)) end.join("\n")
+  rendered = messages.map do |one| message(one, Rooms.changeable?(one.creator_id, user_id, role)) end
+  rendered.join("\n")
 end
 
 ## The Turbo Stream that appends the message to the list of the room: the answer of a post to the person who wrote it,

@@ -10,6 +10,7 @@ import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
 import Avatars from "../campfire/avatars"
 import Channels from "pkg/channels/channels"
+import Blocks from "blocks"
 import Hangup from "hangup"
 import RateLimit from "../campfire/rate_limit"
 import AuthWeb from "auth"
@@ -89,14 +90,21 @@ export def add(
   hub: Channels.Hub,
 ) -> Bond.App
   env = Env(config: config, pool: pool, slots: slots, attempts: RateLimit.new(), key: key, hub: hub)
+  on_get_user = Blocks.handler() do |conn| show_user(conn, env) end
+  on_get_profile = Blocks.handler() do |conn| show_profile(conn, env) end
+  on_post_profile = Blocks.handler() do |conn| post_profile(conn, env) end
+  on_patch_profile = Blocks.handler() do |conn| save_profile(conn, env) end
+  on_put_profile = Blocks.handler() do |conn| save_profile(conn, env) end
+  on_post_avatar = Blocks.handler() do |conn| post_avatar(conn, env) end
+
   (
     app
-    |> Bond.get(Routes.USER) do |conn| show_user(conn, env) end
-    |> Bond.get(Routes.PROFILE) do |conn| show_profile(conn, env) end
-    |> Bond.post(Routes.PROFILE) do |conn| post_profile(conn, env) end
-    |> Bond.patch(Routes.PROFILE) do |conn| save_profile(conn, env) end
-    |> Bond.put(Routes.PROFILE) do |conn| save_profile(conn, env) end
-    |> Bond.post(Routes.AVATAR) do |conn| post_avatar(conn, env) end
+    |> Bond.get(Routes.USER, on_get_user)
+    |> Bond.get(Routes.PROFILE, on_get_profile)
+    |> Bond.post(Routes.PROFILE, on_post_profile)
+    |> Bond.patch(Routes.PROFILE, on_patch_profile)
+    |> Bond.put(Routes.PROFILE, on_put_profile)
+    |> Bond.post(Routes.AVATAR, on_post_avatar)
     |> Bond.delete(Routes.AVATAR) do |conn| remove_avatar(conn, env) end
   )
 end

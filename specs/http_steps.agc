@@ -138,7 +138,8 @@ export def port_of(ctx: BDD.Context) -> Int = JSON.int(BDD.get(ctx, PORT).unwrap
 ## The `Cookie` header of the browser as it is now, "" when it has no cookies: what a WebSocket of the same person sends.
 export def cookie_header(ctx: BDD.Context) -> String
   state = browser(ctx)
-  state.cookies.keys.map do |name| "#{name}=#{state.cookies.get(name, "")}" end.join("; ")
+  pairs = state.cookies.keys.map do |name| "#{name}=#{state.cookies.get(name, "")}" end
+  pairs.join("; ")
 end
 
 ## The body of the answer that `I remember the answer` kept.

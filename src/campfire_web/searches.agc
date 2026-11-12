@@ -8,6 +8,7 @@ import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
+import Blocks from "blocks"
 import Database from "../campfire/repo/database"
 import PageCache from "page_cache"
 import Rooms from "../campfire/rooms"
@@ -26,11 +27,15 @@ end
 ## are kept whole in `pages` for one person, one query, one version of the database and one `last_room` cookie
 ## (`PageCache`); a clear is a commit, so the next page has none of the searches that it took away.
 export def add(app: Bond.App, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Bond.App
+  on_get_searches = Blocks.handler() do |conn| show(conn, pool, pages) end
+  on_post_searches = Blocks.handler() do |conn| remember(conn, pool) end
+  on_post_searches_clear = Blocks.handler() do |conn| post_clear(conn, pool) end
+
   (
     app
-    |> Bond.get(Routes.SEARCHES) do |conn| show(conn, pool, pages) end
-    |> Bond.post(Routes.SEARCHES) do |conn| remember(conn, pool) end
-    |> Bond.post(Routes.SEARCHES_CLEAR) do |conn| post_clear(conn, pool) end
+    |> Bond.get(Routes.SEARCHES, on_get_searches)
+    |> Bond.post(Routes.SEARCHES, on_post_searches)
+    |> Bond.post(Routes.SEARCHES_CLEAR, on_post_searches_clear)
     |> Bond.delete(Routes.SEARCHES_CLEAR) do |conn| clear(conn, pool) end
   )
 end

@@ -1127,7 +1127,8 @@ def with_database[R](ctx: BDD.Context, body: Fn[Db.Connection, Result[R]]) -> Re
 end
 
 def rows_of(ctx: BDD.Context, sql: String) -> List[Db.Row]
-  with_database(ctx) do |conn| Db.query(conn, sql, []) end.unwrap!
+  rows = with_database(ctx) do |conn| Db.query(conn, sql, []) end
+  rows.unwrap!
 end
 
 def value_text(value: Db.Value) -> String

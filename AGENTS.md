@@ -34,7 +34,8 @@ src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a re
 src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
                 smtp_message.agc (sending email: the client and the message builder; they import no other
                 app module, so they can move to their own package)
-src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server), web.agc (the routes), failure.agc (the 500 and
+src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server), web.agc (the routes), blocks.agc (`handler`: names a
+                `do` block before a pipeline of routes, since a chain after `end` is refused), failure.agc (the 500 and
                 the 503 of a failure), routes.agc
                 (the paths), views.agc (EAG templates, the reset email too), auth.agc (cookie sessions,
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and

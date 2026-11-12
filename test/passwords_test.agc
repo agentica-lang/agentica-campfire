@@ -38,7 +38,8 @@ def main() -> Void
       try Test.eq(Passwords.problem("correct horse"), "")
       try Test.assert(Passwords.problem("short") != "", "short")
       try Test.assert(Passwords.problem("12345678") == "", "exactly the minimum")
-      Test.assert(Passwords.problem((0...257).to_a.map do |_| "x" end.join("")) != "", "long")
+      letters = (0...257).to_a.map do |_| "x" end
+      Test.assert(Passwords.problem(letters.join("")) != "", "long")
     end,
   ])
 end

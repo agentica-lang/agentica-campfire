@@ -13,6 +13,7 @@
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
+import Blocks from "blocks"
 import Cache from "std/cache"
 import Cookie from "std/cookie"
 import Accounts from "../campfire/accounts"
@@ -110,29 +111,51 @@ export def add(
   secure: Bool,
   max_length: Int,
 ) -> Bond.App
+  on_get_room_new = Blocks.handler() do |conn| show_new_room(conn, pool) end
+  on_post_rooms = Blocks.handler() do |conn| create_room(conn, pool, cable) end
+  on_get_room = Blocks.handler() do |conn| show_room(conn, pool, cable, cache, pages, secure) end
+  on_get_room_messages = Blocks.handler() do |conn| older_messages(conn, pool, cache, pages) end
+  on_get_room_refresh = Blocks.handler() do |conn| show_refresh(conn, pool, cache) end
+  on_get_room_at = Blocks.handler() do |conn| show_at(conn, pool, cable, cache, secure) end
+  on_post_room_messages = Blocks.handler() do |conn| create_message(conn, pool, cable, cache, max_length) end
+  on_get_closed_room_new = Blocks.handler() do |conn| show_new_closed_room(conn, pool) end
+  on_post_closed_rooms = Blocks.handler() do |conn| create_closed_room(conn, pool, cable) end
+  on_get_direct_room_new = Blocks.handler() do |conn| show_new_direct_room(conn, pool) end
+  on_post_direct_rooms = Blocks.handler() do |conn| create_direct_room(conn, pool, cable) end
+  on_get_room_settings = Blocks.handler() do |conn| show_settings(conn, pool) end
+  on_post_room_settings = Blocks.handler() do |conn| save_settings(conn, pool, cable) end
+  on_get_room_involvement = Blocks.handler() do |conn| show_involvement(conn, pool) end
+  on_post_room_involvement = Blocks.handler() do |conn| post_involvement(conn, pool) end
+  on_put_room_involvement = Blocks.handler() do |conn| save_involvement(conn, pool) end
+  on_post_room = Blocks.handler() do |conn| post_room(conn, pool, cable) end
+  on_delete_room = Blocks.handler() do |conn| delete_room(conn, pool, cable) end
+  on_get_room_message_edit = Blocks.handler() do |conn| edit_message(conn, pool) end
+  on_post_room_message = Blocks.handler() do |conn| post_message(conn, pool, cable, max_length) end
+  on_patch_room_message = Blocks.handler() do |conn| update_message(conn, pool, cable, max_length) end
+
   (
     app
-    |> Bond.get(Routes.ROOM_NEW) do |conn| show_new_room(conn, pool) end
-    |> Bond.post(Routes.ROOMS) do |conn| create_room(conn, pool, cable) end
-    |> Bond.get(Routes.ROOM) do |conn| show_room(conn, pool, cable, cache, pages, secure) end
-    |> Bond.get(Routes.ROOM_MESSAGES) do |conn| older_messages(conn, pool, cache, pages) end
-    |> Bond.get(Routes.ROOM_REFRESH) do |conn| show_refresh(conn, pool, cache) end
-    |> Bond.get(Routes.ROOM_AT) do |conn| show_at(conn, pool, cable, cache, secure) end
-    |> Bond.post(Routes.ROOM_MESSAGES) do |conn| create_message(conn, pool, cable, cache, max_length) end
-    |> Bond.get(Routes.CLOSED_ROOM_NEW) do |conn| show_new_closed_room(conn, pool) end
-    |> Bond.post(Routes.CLOSED_ROOMS) do |conn| create_closed_room(conn, pool, cable) end
-    |> Bond.get(Routes.DIRECT_ROOM_NEW) do |conn| show_new_direct_room(conn, pool) end
-    |> Bond.post(Routes.DIRECT_ROOMS) do |conn| create_direct_room(conn, pool, cable) end
-    |> Bond.get(Routes.ROOM_SETTINGS) do |conn| show_settings(conn, pool) end
-    |> Bond.post(Routes.ROOM_SETTINGS) do |conn| save_settings(conn, pool, cable) end
-    |> Bond.get(Routes.ROOM_INVOLVEMENT) do |conn| show_involvement(conn, pool) end
-    |> Bond.post(Routes.ROOM_INVOLVEMENT) do |conn| post_involvement(conn, pool) end
-    |> Bond.put(Routes.ROOM_INVOLVEMENT) do |conn| save_involvement(conn, pool) end
-    |> Bond.post(Routes.ROOM) do |conn| post_room(conn, pool, cable) end
-    |> Bond.delete(Routes.ROOM) do |conn| delete_room(conn, pool, cable) end
-    |> Bond.get(Routes.ROOM_MESSAGE_EDIT) do |conn| edit_message(conn, pool) end
-    |> Bond.post(Routes.ROOM_MESSAGE) do |conn| post_message(conn, pool, cable, max_length) end
-    |> Bond.patch(Routes.ROOM_MESSAGE) do |conn| update_message(conn, pool, cable, max_length) end
+    |> Bond.get(Routes.ROOM_NEW, on_get_room_new)
+    |> Bond.post(Routes.ROOMS, on_post_rooms)
+    |> Bond.get(Routes.ROOM, on_get_room)
+    |> Bond.get(Routes.ROOM_MESSAGES, on_get_room_messages)
+    |> Bond.get(Routes.ROOM_REFRESH, on_get_room_refresh)
+    |> Bond.get(Routes.ROOM_AT, on_get_room_at)
+    |> Bond.post(Routes.ROOM_MESSAGES, on_post_room_messages)
+    |> Bond.get(Routes.CLOSED_ROOM_NEW, on_get_closed_room_new)
+    |> Bond.post(Routes.CLOSED_ROOMS, on_post_closed_rooms)
+    |> Bond.get(Routes.DIRECT_ROOM_NEW, on_get_direct_room_new)
+    |> Bond.post(Routes.DIRECT_ROOMS, on_post_direct_rooms)
+    |> Bond.get(Routes.ROOM_SETTINGS, on_get_room_settings)
+    |> Bond.post(Routes.ROOM_SETTINGS, on_post_room_settings)
+    |> Bond.get(Routes.ROOM_INVOLVEMENT, on_get_room_involvement)
+    |> Bond.post(Routes.ROOM_INVOLVEMENT, on_post_room_involvement)
+    |> Bond.put(Routes.ROOM_INVOLVEMENT, on_put_room_involvement)
+    |> Bond.post(Routes.ROOM, on_post_room)
+    |> Bond.delete(Routes.ROOM, on_delete_room)
+    |> Bond.get(Routes.ROOM_MESSAGE_EDIT, on_get_room_message_edit)
+    |> Bond.post(Routes.ROOM_MESSAGE, on_post_room_message)
+    |> Bond.patch(Routes.ROOM_MESSAGE, on_patch_room_message)
     |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable) end
   )
 end
@@ -1095,7 +1118,8 @@ def refreshed(
     Views.message_replaced(one.id, MessageCache.list(cache, [one], person.id, person.role))
   end
 
-  ok(Answer.TurboStream([appended].concat(replaced).select do |part| not part.empty? end.join("\n")))
+  parts = [appended].concat(replaced).select do |part| not part.empty? end
+  ok(Answer.TurboStream(parts.join("\n")))
 end
 
 def create_message(
@@ -1290,7 +1314,8 @@ end
 # The ids among `ids` that name one of the `people` that the form offered: the ones that name nobody (an inactive
 # person, a number that is no user) are left out, and so is the person who sends the form, who is never in `people`.
 def chosen_of(people: List[Rooms.Person], ids: List[Int]) -> List[Int]
-  people.select do |person| ids.include?(person.id) end.map do |person| person.id end
+  chosen = people.select do |person| ids.include?(person.id) end
+  chosen.map do |person| person.id end
 end
 
 # A room id that is not a whole number (or is too big for one) names no room, which is a 404 like any other.

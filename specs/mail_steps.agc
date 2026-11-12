@@ -236,10 +236,10 @@ end
 # What the client sent between DATA and the final dot, decoded from quoted-printable (a line that ends with `=` goes on
 # in the next one, and `=3D` is `=`).
 def body_of(lines: List[String]) -> List[String]
-  sent = lines.select do |line| line.start_with?(CLIENT) end
-    .map do |line| line.slice(CLIENT.length, line.length - CLIENT.length) end
-
-  inside = sent.drop_while do |line| line != "DATA" end.drop(1).take_while do |line| line != "." end
+  said = lines.select do |line| line.start_with?(CLIENT) end
+  sent = said.map do |line| line.slice(CLIENT.length, line.length - CLIENT.length) end
+  after_data = sent.drop_while do |line| line != "DATA" end
+  inside = after_data.drop(1).take_while do |line| line != "." end
   unfold(inside).map do |line| unescape(line) end
 end
 

@@ -9,6 +9,7 @@ import Db from "pkg/db/db"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import AuthWeb from "auth"
+import Blocks from "blocks"
 import BotMessagesWeb from "bot_messages"
 import Bots from "../campfire/bots"
 import Database from "../campfire/repo/database"
@@ -40,19 +41,30 @@ end
 
 ## Adds the routes of the chat bots to `app`. `config` says where the curl lines of the list start.
 export def add(app: Bond.App, pool: Database.Pool, config: Config) -> Bond.App
+  on_get_bots = Blocks.handler() do |conn|
+    respond(conn, pool) do |_, db, person| list_answer(db, person, BotMessagesWeb.origin(conn, config)) end
+  end
+
+  on_post_bots = Blocks.handler() do |conn| respond(conn, pool, &create_answer) end
+  on_get_bot_new = Blocks.handler() do |conn| respond(conn, pool, &new_answer) end
+  on_get_bot_edit = Blocks.handler() do |conn| respond(conn, pool, &edit_answer) end
+  on_post_bot = Blocks.handler() do |conn| post_bot(conn, pool) end
+  on_patch_bot = Blocks.handler() do |conn| respond(conn, pool, &rename_answer) end
+  on_put_bot = Blocks.handler() do |conn| respond(conn, pool, &rename_answer) end
+  on_delete_bot = Blocks.handler() do |conn| respond(conn, pool, &remove_answer) end
+  on_post_bot_key = Blocks.handler() do |conn| post_key(conn, pool) end
+
   (
     app
-    |> Bond.get(Routes.BOTS) do |conn|
-      respond(conn, pool) do |_, db, person| list_answer(db, person, BotMessagesWeb.origin(conn, config)) end
-    end
-    |> Bond.post(Routes.BOTS) do |conn| respond(conn, pool, &create_answer) end
-    |> Bond.get(Routes.BOT_NEW) do |conn| respond(conn, pool, &new_answer) end
-    |> Bond.get(Routes.BOT_EDIT) do |conn| respond(conn, pool, &edit_answer) end
-    |> Bond.post(Routes.BOT) do |conn| post_bot(conn, pool) end
-    |> Bond.patch(Routes.BOT) do |conn| respond(conn, pool, &rename_answer) end
-    |> Bond.put(Routes.BOT) do |conn| respond(conn, pool, &rename_answer) end
-    |> Bond.delete(Routes.BOT) do |conn| respond(conn, pool, &remove_answer) end
-    |> Bond.post(Routes.BOT_KEY) do |conn| post_key(conn, pool) end
+    |> Bond.get(Routes.BOTS, on_get_bots)
+    |> Bond.post(Routes.BOTS, on_post_bots)
+    |> Bond.get(Routes.BOT_NEW, on_get_bot_new)
+    |> Bond.get(Routes.BOT_EDIT, on_get_bot_edit)
+    |> Bond.post(Routes.BOT, on_post_bot)
+    |> Bond.patch(Routes.BOT, on_patch_bot)
+    |> Bond.put(Routes.BOT, on_put_bot)
+    |> Bond.delete(Routes.BOT, on_delete_bot)
+    |> Bond.post(Routes.BOT_KEY, on_post_bot_key)
     |> Bond.put(Routes.BOT_KEY) do |conn| respond(conn, pool, &key_answer) end
   )
 end

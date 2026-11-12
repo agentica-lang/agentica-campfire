@@ -175,7 +175,8 @@ export def spot(
 ) -> Optional[Spot]
   return none if room_id.none? or (kind == ROOM and before.some?)
 
-  cursor = before.map do |id| id.to_s end.unwrap_or("")
+  shown = before.map do |id| id.to_s end
+  cursor = shown.unwrap_or("")
   return cursor_spot(pages, seen, kind, person, room_id.unwrap!, cursor) if kind == MESSAGES or kind == AFTER
 
   located(pages, seen, kind, person, "#{room_id.unwrap!}:#{cursor}")
@@ -204,7 +205,8 @@ export def search_spot(
       return none if not version.ok?
 
       words = OpenSSL.Digest.sha256_hexdigest(query.bytes).slice(0, QUERY_DIGITS)
-      cookie = wanted.map do |id| id.to_s end.unwrap_or("")
+      shown = wanted.map do |id| id.to_s end
+      cookie = shown.unwrap_or("")
       place = OpenSSL.Digest.sha256(query.bytes)[0] % found.search_slots
       some(
         Spot(

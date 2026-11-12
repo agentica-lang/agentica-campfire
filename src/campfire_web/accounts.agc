@@ -12,6 +12,7 @@ import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import BanFlag from "ban_flag"
 import Bans from "../campfire/bans"
+import Blocks from "blocks"
 import CableWeb from "cable"
 import ContentRemoval from "content_removal"
 import AuthWeb from "auth"
@@ -59,19 +60,31 @@ export def add(
   bans: ATS[String, Int],
 ) -> Bond.App
   hub = cable.hub
+  on_get_users = Blocks.handler() do |conn| show_users(conn, config, pool) end
+  on_post_user_deactivate = Blocks.handler() do |conn| change_user(conn, pool, hub, true) end
+  on_post_user_reactivate = Blocks.handler() do |conn| change_user(conn, pool, hub, false) end
+  on_post_user_ban = Blocks.handler() do |conn| post_ban(conn, pool, cable, bans) end
+  on_delete_user_ban = Blocks.handler() do |conn| change_ban(conn, pool, cable, bans, false) end
+  on_post_join_code = Blocks.handler() do |conn| regenerate_code(conn, pool) end
+  on_get_account_edit = Blocks.handler() do |conn| show_account(conn, pool) end
+  on_post_account = Blocks.handler() do |conn| post_account(conn, pool) end
+  on_patch_account = Blocks.handler() do |conn| rename_account(conn, pool) end
+  on_post_account_user = Blocks.handler() do |conn| post_account_user(conn, pool, hub) end
+  on_patch_account_user = Blocks.handler() do |conn| set_role(conn, pool) end
+
   (
     app
-    |> Bond.get(Routes.USERS) do |conn| show_users(conn, config, pool) end
-    |> Bond.post(Routes.USER_DEACTIVATE) do |conn| change_user(conn, pool, hub, true) end
-    |> Bond.post(Routes.USER_REACTIVATE) do |conn| change_user(conn, pool, hub, false) end
-    |> Bond.post(Routes.USER_BAN) do |conn| post_ban(conn, pool, cable, bans) end
-    |> Bond.delete(Routes.USER_BAN) do |conn| change_ban(conn, pool, cable, bans, false) end
-    |> Bond.post(Routes.JOIN_CODE) do |conn| regenerate_code(conn, pool) end
-    |> Bond.get(Routes.ACCOUNT_EDIT) do |conn| show_account(conn, pool) end
-    |> Bond.post(Routes.ACCOUNT) do |conn| post_account(conn, pool) end
-    |> Bond.patch(Routes.ACCOUNT) do |conn| rename_account(conn, pool) end
-    |> Bond.post(Routes.ACCOUNT_USER) do |conn| post_account_user(conn, pool, hub) end
-    |> Bond.patch(Routes.ACCOUNT_USER) do |conn| set_role(conn, pool) end
+    |> Bond.get(Routes.USERS, on_get_users)
+    |> Bond.post(Routes.USER_DEACTIVATE, on_post_user_deactivate)
+    |> Bond.post(Routes.USER_REACTIVATE, on_post_user_reactivate)
+    |> Bond.post(Routes.USER_BAN, on_post_user_ban)
+    |> Bond.delete(Routes.USER_BAN, on_delete_user_ban)
+    |> Bond.post(Routes.JOIN_CODE, on_post_join_code)
+    |> Bond.get(Routes.ACCOUNT_EDIT, on_get_account_edit)
+    |> Bond.post(Routes.ACCOUNT, on_post_account)
+    |> Bond.patch(Routes.ACCOUNT, on_patch_account)
+    |> Bond.post(Routes.ACCOUNT_USER, on_post_account_user)
+    |> Bond.patch(Routes.ACCOUNT_USER, on_patch_account_user)
     |> Bond.delete(Routes.ACCOUNT_USER) do |conn| remove_person(conn, pool, hub) end
   )
 end
