@@ -1,0 +1,9 @@
+version = 1
+
+[[package]]
+name = "websocket-client"
+git = "https://github.com/agentica-lang/packages"
+subdir = "websocket-client"
+tag = "websocket-client-0.2.0"
+commit = "af80325a01cbbcd841b4e1d9cb8281c7c770d444"
+hash = "sha256:f455b78cf7c811d08794828ab675d460a1eec50e1f538c110d20d26f3a109f49"
