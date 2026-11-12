@@ -30,3 +30,11 @@ subdir = "src/pool"
 ref = "7df56bf2a4c6780a04fb9f605dcd7a78d4053ebf"
 commit = "7df56bf2a4c6780a04fb9f605dcd7a78d4053ebf"
 hash = "sha256:f3faca0b01ce33791f9bddabf6ff147376fda41ba12b135ca7ef55402ed7bdd2"
+
+[[package]]
+name = "websocket-client"
+git = "https://github.com/agentica-lang/packages"
+subdir = "websocket-client"
+tag = "websocket-client-0.2.0"
+commit = "af80325a01cbbcd841b4e1d9cb8281c7c770d444"
+hash = "sha256:f455b78cf7c811d08794828ab675d460a1eec50e1f538c110d20d26f3a109f49"
