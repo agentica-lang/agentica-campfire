@@ -6,39 +6,8 @@
 import BDD from "std/bdd"
 import Smtp from "../src/campfire/mail/smtp"
 
-PORT = "smtp_port"
-SECURITY = "smtp_security"
-USERNAME = "smtp_username"
-PASSWORD = "smtp_password"
-HOST = "smtp_host"
-TIMEOUT = "smtp_timeout_ms"
-DATA_TIMEOUT = "smtp_data_timeout_ms"
-LEFT_OPEN = "smtp_left_open"
-STAMP = "smtp_stamp"
-OUTCOME = "smtp_outcome"
-TRANSCRIPT = "smtp_transcript"
-ENDED = "smtp_ended"
-SYSTEM_TRUST = "smtp_system_trust"
-
-LISTENING = "listening on "
-CLOSED = "closed"
-STARTUP_MS = 5_000
-TRANSCRIPT_MS = 5_000
-# A client that leaves the connection open makes the peer wait for it, so the wait for "closed" is short: the lines
-# before it are already written, and the close of a client that does close follows its last command within a moment.
-OPEN_TRANSCRIPT_MS = 700
-DEFAULT_TIMEOUT_MS = 5_000
-CERTS_FOLDER = "specs/fixtures/tls"
-FIXED_DATE = "Tue, 03 Nov 2026 10:55:02 +0000"
-FIXED_ID = "<spec@example.com>"
-
-struct Transcript
-  lines: List[String]
-  ended: Bool
-end
-
 ## The steps of the SMTP features.
-export def steps() -> List[BDD.Step]
+def steps() -> List[BDD.Step]
   [
     BDD.step("the SMTP server speaks {string}", &server_speaks),
     BDD.step("the SMTP server offers AUTH {string}", &server_offers_auth),
@@ -86,6 +55,38 @@ export def steps() -> List[BDD.Step]
     BDD.step("the server transcript has no line starting with {string}", &transcript_lacks_prefix),
     BDD.step("the server transcript has {int} lines starting with {string}", &transcript_counts_prefix),
   ]
+end
+
+private
+
+PORT = "smtp_port"
+SECURITY = "smtp_security"
+USERNAME = "smtp_username"
+PASSWORD = "smtp_password"
+HOST = "smtp_host"
+TIMEOUT = "smtp_timeout_ms"
+DATA_TIMEOUT = "smtp_data_timeout_ms"
+LEFT_OPEN = "smtp_left_open"
+STAMP = "smtp_stamp"
+OUTCOME = "smtp_outcome"
+TRANSCRIPT = "smtp_transcript"
+ENDED = "smtp_ended"
+SYSTEM_TRUST = "smtp_system_trust"
+LISTENING = "listening on "
+CLOSED = "closed"
+STARTUP_MS = 5_000
+TRANSCRIPT_MS = 5_000
+# A client that leaves the connection open makes the peer wait for it, so the wait for "closed" is short: the lines
+# before it are already written, and the close of a client that does close follows its last command within a moment.
+OPEN_TRANSCRIPT_MS = 700
+DEFAULT_TIMEOUT_MS = 5_000
+CERTS_FOLDER = "specs/fixtures/tls"
+FIXED_DATE = "Tue, 03 Nov 2026 10:55:02 +0000"
+FIXED_ID = "<spec@example.com>"
+
+struct Transcript
+  lines: List[String]
+  ended: Bool
 end
 
 def server_speaks(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.given_env(ctx, "SMTP_PEER_MODE", args[0])

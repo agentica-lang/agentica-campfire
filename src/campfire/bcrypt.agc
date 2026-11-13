@@ -10,45 +10,15 @@
 ## bcrypt, is an `error` of that check and never stops the app (a function that an `extern` names and the library lacks
 ## would).
 
-# The bcrypt digest: `$2a$` (or `$2b$`, `$2y$`), a two-digit cost, a 22 character salt and a 31 character hash, all in
-# bcrypt's own base 64 alphabet.
-DIGEST_LENGTH = 60
-PREFIX_LENGTH = 7
-COST_START = 4
-COST_LENGTH = 2
-BODY_START = 7
-VERSIONS = Set.new(["$2a$", "$2b$", "$2y$"])
-ALPHABET = Set.new("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".split(""))
-DIGITS = Set.new("0123456789".split(""))
-
-# A cost of 12 (Rails' default) takes about a quarter of a second, and each step up doubles it. A digest sits in the
-# database, so a cost above this is not made by the person who signs in; it is refused rather than run for minutes on
-# a thread of the compute pool.
-MIN_COST = 4
-LIMIT_COST = 31
-export MAX_COST = 15
-
+MAX_COST = 15
 # The most bytes of a password that reaches the library: the same limit as `Passwords.MAX_BYTES`, which the sign-in
 # applies before. bcrypt reads 72 of them, and libxcrypt refuses a passphrase of 512 bytes or more (which would look
 # like a library without bcrypt), so a longer password is handled as one that cannot be checked.
-export MAX_PASSWORD_BYTES = 256
-
-# What is checked in place of a password that cannot be, so that the time is the one of a wrong password.
-STAND_IN = "nobody has this password"
-
-LINUX_LIBRARY = "libcrypt.so.1"
-VARIABLE = "CAMPFIRE_BCRYPT_LIBRARY"
-RESET_HELP = "or have the person reset their password to get an scrypt one"
-# `RTLD_NOW` of Linux and macOS.
-RTLD_NOW = 2
-
-# What C's `struct crypt_data` takes. libxcrypt's is 32,768 bytes and glibc's own, from before libxcrypt, 131,232;
-# `crypt_r` takes no size, so the buffer has room for either.
-CRYPT_DATA_BYTES = 262_144
+MAX_PASSWORD_BYTES = 256
 
 ## True when `text` is a bcrypt digest of a shape that `verify` can check: a version `2a`, `2b` or `2y`, a cost from 04
 ## to 31 and the 53 characters of salt and hash.
-export def digest?(text: String) -> Bool
+def digest?(text: String) -> Bool
   return false if text.length != DIGEST_LENGTH or not VERSIONS.include?(text.slice(0, COST_START))
 
   digits = text.slice(COST_START, COST_LENGTH)
@@ -64,7 +34,7 @@ end
 
 ## The library to open on the system `os` (`System.os()`) when `configured` (`CAMPFIRE_BCRYPT_LIBRARY`, "" when not
 ## set) is: that library, else `libcrypt.so.1` on Linux. Elsewhere there is none: an `error` that says what to set.
-export def library_for(os: String, configured: String) -> Result[String]
+def library_for(os: String, configured: String) -> Result[String]
   return ok(configured) if not configured.empty?
 
   return ok(LINUX_LIBRARY) if os == "linux"
@@ -80,7 +50,7 @@ end
 ## and is not a verdict on the password. `library` is that variable ("" for the default of the system, see
 ## `library_for`). The work runs on the compute pool, so it does not hold a scheduler. Like bcrypt itself it reads the
 ## first 72 bytes of the password only. The hashes are compared in constant time.
-export def verify(password: String, digest: String, library: String = "") -> Result[Bool]
+def verify(password: String, digest: String, library: String = "") -> Result[Bool]
   return ok(false) if not digest?(digest)
 
   cost = digest.slice(COST_START, COST_LENGTH).to_i!
@@ -103,6 +73,34 @@ export def verify(password: String, digest: String, library: String = "") -> Res
   made = try hashed(crypt, attempt, digest)
   ok(usable and OpenSSL.HMAC.secure_compare(made.bytes, digest.bytes))
 end
+
+private
+
+# The bcrypt digest: `$2a$` (or `$2b$`, `$2y$`), a two-digit cost, a 22 character salt and a 31 character hash, all in
+# bcrypt's own base 64 alphabet.
+DIGEST_LENGTH = 60
+PREFIX_LENGTH = 7
+COST_START = 4
+COST_LENGTH = 2
+BODY_START = 7
+VERSIONS = Set.new(["$2a$", "$2b$", "$2y$"])
+ALPHABET = Set.new("./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".split(""))
+DIGITS = Set.new("0123456789".split(""))
+# A cost of 12 (Rails' default) takes about a quarter of a second, and each step up doubles it. A digest sits in the
+# database, so a cost above this is not made by the person who signs in; it is refused rather than run for minutes on
+# a thread of the compute pool.
+MIN_COST = 4
+LIMIT_COST = 31
+# What is checked in place of a password that cannot be, so that the time is the one of a wrong password.
+STAND_IN = "nobody has this password"
+LINUX_LIBRARY = "libcrypt.so.1"
+VARIABLE = "CAMPFIRE_BCRYPT_LIBRARY"
+RESET_HELP = "or have the person reset their password to get an scrypt one"
+# `RTLD_NOW` of Linux and macOS.
+RTLD_NOW = 2
+# What C's `struct crypt_data` takes. libxcrypt's is 32,768 bytes and glibc's own, from before libxcrypt, 131,232;
+# `crypt_r` takes no size, so the buffer has room for either.
+CRYPT_DATA_BYTES = 262_144
 
 # The address of `crypt_r` in the library `name`.
 def find_crypt(os: String, name: String) -> Result[C.Pointer]

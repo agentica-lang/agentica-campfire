@@ -7,53 +7,11 @@ import BDD from "std/bdd"
 import URI from "std/uri"
 import HttpSteps from "http_steps"
 
-PORT = "mail_port"
-AUTH = "mail_auth"
-STALL = "mail_stall"
-REFUSED = "mail_refused"
-ADDRESS = "mail_address"
-QUEUE = "mail_queue"
-USER = "mail_user"
-PASSWORD = "mail_password"
-SERVICE = "mail"
-MESSAGE = "mail_message"
-LINK = "mail_link"
-ENABLED = "mail_enabled"
-
 ## The public address that the app is given, so that the links in its emails do not depend on the port it listens on.
-export BASE_URL = "https://campfire.test"
-
-LISTENING = "listening on "
-CLOSED = "closed"
-CLOSED_PORT = 1
-STARTUP_MS = 10_000
-LINK_PREFIX = "#{BASE_URL}/password_reset/edit?token="
-BODY_START = "C: DATA"
-BODY_END = "C: ."
-CLIENT = "C: "
-SOFT_BREAK = "="
-HEX_DIGITS = "0123456789ABCDEF"
-PEER = "specs/fixtures/smtp_peer.agc"
-
-# Connections that the mail server takes one after the other: a message sent twice shows as two of them.
-PEER_CONNECTIONS = 4
-COUNT_SEGMENTS_MS = 700
-UPDATE_PATH = "/password_reset/confirm"
-
-struct Transcript
-  lines: List[String]
-  ended: Bool
-end
-
-# What a service call asks of the peer: lines up to `closed`, or, when `until` is not empty, up to the first line that
-# starts with it.
-struct Request
-  wait_ms: Int
-  until: String
-end
+BASE_URL = "https://campfire.test"
 
 ## The steps of the mail server and of the links that it receives.
-export def steps() -> List[BDD.Step]
+def steps() -> List[BDD.Step]
   [
     BDD.step("the mail server offers AUTH {string}", &server_offers_auth),
     BDD.step("the mail server never answers {string}", &server_never_answers),
@@ -78,7 +36,7 @@ end
 ## The environment that the app starts with for its email: the url of the mail server when a scenario has one (and the
 ## public address that goes with it), else nothing (but the public address, when a scenario gives one), so that the
 ## environment of whoever runs the specs does not leak.
-export def app_environment(ctx: BDD.Context) -> Map[String, String]
+def app_environment(ctx: BDD.Context) -> Map[String, String]
   if not BDD.get(ctx, PORT).ok? or not flag(ctx, ENABLED)
     # A public address does not need a mail server: the join link starts with it too.
     return {"CAMPFIRE_SMTP_URL": "", "CAMPFIRE_BASE_URL": text_of(ctx, ADDRESS), "CAMPFIRE_MAIL_QUEUE_SIZE": ""}
@@ -100,7 +58,49 @@ export def app_environment(ctx: BDD.Context) -> Map[String, String]
 end
 
 ## The token in the link of the last email that a step opened.
-export def link_token(ctx: BDD.Context) -> String = text_of(ctx, LINK)
+def link_token(ctx: BDD.Context) -> String = text_of(ctx, LINK)
+
+private
+
+PORT = "mail_port"
+AUTH = "mail_auth"
+STALL = "mail_stall"
+REFUSED = "mail_refused"
+ADDRESS = "mail_address"
+QUEUE = "mail_queue"
+USER = "mail_user"
+PASSWORD = "mail_password"
+SERVICE = "mail"
+MESSAGE = "mail_message"
+LINK = "mail_link"
+ENABLED = "mail_enabled"
+LISTENING = "listening on "
+CLOSED = "closed"
+CLOSED_PORT = 1
+STARTUP_MS = 10_000
+LINK_PREFIX = "#{BASE_URL}/password_reset/edit?token="
+BODY_START = "C: DATA"
+BODY_END = "C: ."
+CLIENT = "C: "
+SOFT_BREAK = "="
+HEX_DIGITS = "0123456789ABCDEF"
+PEER = "specs/fixtures/smtp_peer.agc"
+# Connections that the mail server takes one after the other: a message sent twice shows as two of them.
+PEER_CONNECTIONS = 4
+COUNT_SEGMENTS_MS = 700
+UPDATE_PATH = "/password_reset/confirm"
+
+struct Transcript
+  lines: List[String]
+  ended: Bool
+end
+
+# What a service call asks of the peer: lines up to `closed`, or, when `until` is not empty, up to the first line that
+# starts with it.
+struct Request
+  wait_ms: Int
+  until: String
+end
 
 def server_offers_auth(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.set(ctx, AUTH, JSON.from(args[0]))
 
@@ -152,7 +152,7 @@ def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
   BDD.set(kept, PORT, JSON.from(port))
 end
 
-def answer(peer: Process, request: Json) -> Result[Json]
+def answer(peer: Process, request: JSON.Value) -> Result[JSON.Value]
   asked = try JSON.decode(request, Request)
   ok(JSON.from(read_transcript(peer, asked)))
 end

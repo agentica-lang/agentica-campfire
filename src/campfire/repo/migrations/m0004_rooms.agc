@@ -5,7 +5,9 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 4: create rooms.
-export def migration() -> Migrate.Migration = Migrate.sql(4, "create rooms", [rooms()])
+def migration() -> Migrate.Migration = Migrate.sql(4, "create rooms", [rooms()])
+
+private
 
 def rooms() -> String
   <<~SQL

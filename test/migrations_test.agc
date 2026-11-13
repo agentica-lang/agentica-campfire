@@ -1,5 +1,7 @@
 import Migrations from "../src/campfire/repo/migrations"
 
+private
+
 FOLDER = "src/campfire/repo/migrations"
 
 # The number in `m0007_boosts.agc`, or -1 for a name that is not of that form.

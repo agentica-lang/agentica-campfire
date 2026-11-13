@@ -1,5 +1,7 @@
 import Autolink from "../src/campfire/autolink"
 
+private
+
 REL = "rel=\"noopener noreferrer\""
 
 struct Case

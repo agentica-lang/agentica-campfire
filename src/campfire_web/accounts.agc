@@ -24,53 +24,20 @@ import Routes from "routes"
 import Views from "views"
 import {Config} from "../campfire/config"
 
-# What a reactivation of a person whose address is another account's now is told.
-CONFLICT = "That address belongs to another account now"
-
-# The names of the fields of Rails' forms (`params.require(:account)` and `params.require(:user)`).
-ACCOUNT_NAME = "account[name]"
-USER_ROLE = "user[role]"
-RESTRICT_FIELD = "account[settings][restrict_room_creation_to_administrators]"
-
-# What a save of the switch of who may make rooms with a value that is not `true` or `false` is told.
-RESTRICT_REFUSED = "Choose on or off"
-
-# What a save of a role that is neither is told.
-ROLE_REFUSED = "Choose member or administrator"
-
-# What a handler makes of its request, decided while its connection is open and answered after it is closed.
-enum Answer
-  Page(String)
-  Refused(String)
-  NotAllowed(String)
-  Redirect(String)
-  Banned(Int)
-  NotFound
-  Forbidden
-  Conflict
-  SignedOut
-end
-
 ## Adds the routes of the people page to `app`.
-export def add(
-  app: Bond.App,
-  config: Config,
-  pool: Database.Pool,
-  cable: CableWeb.Cable,
-  bans: ATS[String, Int],
-) -> Bond.App
+def add(app: Bond.App, config: Config, pool: Database.Pool, cable: CableWeb.Cable, bans: ATS[String, Int]) -> Bond.App
   hub = cable.hub
-  on_get_users = Blocks.handler() do |conn| show_users(conn, config, pool) end
-  on_post_user_deactivate = Blocks.handler() do |conn| change_user(conn, pool, hub, true) end
-  on_post_user_reactivate = Blocks.handler() do |conn| change_user(conn, pool, hub, false) end
-  on_post_user_ban = Blocks.handler() do |conn| post_ban(conn, pool, cable, bans) end
-  on_delete_user_ban = Blocks.handler() do |conn| change_ban(conn, pool, cable, bans, false) end
-  on_post_join_code = Blocks.handler() do |conn| regenerate_code(conn, pool) end
-  on_get_account_edit = Blocks.handler() do |conn| show_account(conn, pool) end
-  on_post_account = Blocks.handler() do |conn| post_account(conn, pool) end
-  on_patch_account = Blocks.handler() do |conn| rename_account(conn, pool) end
-  on_post_account_user = Blocks.handler() do |conn| post_account_user(conn, pool, hub) end
-  on_patch_account_user = Blocks.handler() do |conn| set_role(conn, pool) end
+  on_get_users = Blocks.handler do |conn| show_users(conn, config, pool) end
+  on_post_user_deactivate = Blocks.handler do |conn| change_user(conn, pool, hub, true) end
+  on_post_user_reactivate = Blocks.handler do |conn| change_user(conn, pool, hub, false) end
+  on_post_user_ban = Blocks.handler do |conn| post_ban(conn, pool, cable, bans) end
+  on_delete_user_ban = Blocks.handler do |conn| change_ban(conn, pool, cable, bans, false) end
+  on_post_join_code = Blocks.handler do |conn| regenerate_code(conn, pool) end
+  on_get_account_edit = Blocks.handler do |conn| show_account(conn, pool) end
+  on_post_account = Blocks.handler do |conn| post_account(conn, pool) end
+  on_patch_account = Blocks.handler do |conn| rename_account(conn, pool) end
+  on_post_account_user = Blocks.handler do |conn| post_account_user(conn, pool, hub) end
+  on_patch_account_user = Blocks.handler do |conn| set_role(conn, pool) end
 
   (
     app
@@ -87,6 +54,32 @@ export def add(
     |> Bond.patch(Routes.ACCOUNT_USER, on_patch_account_user)
     |> Bond.delete(Routes.ACCOUNT_USER) do |conn| remove_person(conn, pool, hub) end
   )
+end
+
+private
+
+# What a reactivation of a person whose address is another account's now is told.
+CONFLICT = "That address belongs to another account now"
+# The names of the fields of Rails' forms (`params.require(:account)` and `params.require(:user)`).
+ACCOUNT_NAME = "account[name]"
+USER_ROLE = "user[role]"
+RESTRICT_FIELD = "account[settings][restrict_room_creation_to_administrators]"
+# What a save of the switch of who may make rooms with a value that is not `true` or `false` is told.
+RESTRICT_REFUSED = "Choose on or off"
+# What a save of a role that is neither is told.
+ROLE_REFUSED = "Choose member or administrator"
+
+# What a handler makes of its request, decided while its connection is open and answered after it is closed.
+enum Answer
+  Page(String)
+  Refused(String)
+  NotAllowed(String)
+  Redirect(String)
+  Banned(Int)
+  NotFound
+  Forbidden
+  Conflict
+  SignedOut
 end
 
 # A `POST` with no `_method` is the ban button of Rails and one with `_method` set to `delete` is the button that

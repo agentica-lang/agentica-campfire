@@ -10,27 +10,12 @@ import Rooms from "rooms"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
-JOIN_CODE_BYTES = 6
-GROUP = 4
-
-# The code that the join page was asked for is a few characters; nothing longer is looked up.
-MAX_CODE_LENGTH = 64
-
-NOW = Rails.NOW
-
-# What a deactivation puts in the address, between the name and the `@` (`deactived_email_address` of Rails).
-MARKER = "-deactivated-"
-UUID_LENGTH = 36
-
 ## The longest name of the account, in characters.
-export MAX_NAME_LENGTH = 100
-
-# The key of the setting in the JSON of `accounts.settings`, the one Rails writes.
-RESTRICT_KEY = "restrict_room_creation_to_administrators"
+MAX_NAME_LENGTH = 100
 
 ## A person of the account as the people page lists them. A bot is not a person, so it is never in the list. A person
 ## who is neither `active` nor `banned` is deactivated.
-export struct Person
+struct Person
   id: Int
   name: String
   email: String
@@ -44,7 +29,7 @@ end
 ## being an active administrator, or who deactivates themselves, which would leave an account without its way in.
 ## `Taken` is a reactivation of a person whose address is another account's now: the address that a deactivation
 ## frees (see `deactivate`) can be used to join again, and one address is one account.
-export enum Change
+enum Change
   Changed
   Unchanged
   Missing
@@ -53,13 +38,13 @@ export enum Change
 end
 
 ## Three groups of four hex digits, `a1b2-c3d4-e5f6`, to type or read out.
-export def new_join_code() -> String
+def new_join_code() -> String
   digits = OpenSSL.Random.hex(JOIN_CODE_BYTES)
   "#{digits.slice(0, GROUP)}-#{digits.slice(GROUP, GROUP)}-#{digits.slice(GROUP * 2, GROUP)}"
 end
 
 ## The join code of the account, or "" before the first run has made it.
-export def join_code(conn: Db.Connection) -> Result[String]
+def join_code(conn: Db.Connection) -> Result[String]
   rows = try Db.query(conn, "select join_code from accounts order by id limit 1", [])
   return ok("") if rows.empty?
 
@@ -67,7 +52,7 @@ export def join_code(conn: Db.Connection) -> Result[String]
 end
 
 ## The name of the account, or "" before the first run has made it.
-export def name(conn: Db.Connection) -> Result[String]
+def name(conn: Db.Connection) -> Result[String]
   rows = try Db.query(conn, "select name from accounts order by id limit 1", [])
   return ok("") if rows.empty?
 
@@ -76,7 +61,7 @@ end
 
 ## What is wrong with an account name, or "". The caller strips it first. Rails has no check (the column only refuses
 ## null); a blank name would leave the page with nothing to show, so it is refused here.
-export def name_problem(name: String) -> String
+def name_problem(name: String) -> String
   if name.empty? or name.length > MAX_NAME_LENGTH
     return "Give the account a name of 1 to #{MAX_NAME_LENGTH} characters"
   end
@@ -88,7 +73,7 @@ end
 ## administrators `restricted` the creation of rooms (the setting `restrict_room_creation_to_administrators`, which Rails
 ## keeps in the JSON of `accounts.settings`; the other keys of that JSON stay as they are). A part that is `none` is left
 ## alone. It gives false, with nothing changed, when `actor_id` is not an active administrator.
-export def save(conn: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
+def save(conn: Db.Connection, actor_id: Int, name: Optional[String], restricted: Optional[Bool]) -> Result[Bool]
   Db.transaction(conn) do |tx| save_in(tx, actor_id, name, restricted) end
 end
 
@@ -96,7 +81,7 @@ end
 ## `ClosedsController` answer 403 to anyone else. A direct message is not a room in that sense and is not restricted, as
 ## in Rails. Only a real true (or the text `true`) restricts: a `settings` that is empty, is not JSON, or holds any other
 ## value under the key (a string `"false"`, `0.0`, an object) is the default, not restricted.
-export def room_creation_restricted?(conn: Db.Connection) -> Result[Bool]
+def room_creation_restricted?(conn: Db.Connection) -> Result[Bool]
   rows = try Db.query(
     conn,
     "select case when json_valid(settings) then " +
@@ -111,7 +96,7 @@ export def room_creation_restricted?(conn: Db.Connection) -> Result[Bool]
 end
 
 ## True when `user_id` is an active person of the account (not a bot), whom the role and the removal can name.
-export def active_person?(conn: Db.Connection, user_id: Int) -> Result[Bool]
+def active_person?(conn: Db.Connection, user_id: Int) -> Result[Bool]
   rows = try Db.query(
     conn,
     "select count(*) as total from users where id = ? and status = #{Rails.ACTIVE} and role <> #{Rails.BOT}",
@@ -123,7 +108,7 @@ end
 
 ## True when `user_id` is an active administrator. The changes of the account (and of its bots) ask it again inside their
 ## transaction.
-export def administrator?(tx: Db.Connection, user_id: Int) -> Result[Bool]
+def administrator?(tx: Db.Connection, user_id: Int) -> Result[Bool]
   rows = try Db.query(
     tx,
     "select count(*) as total from users where id = ? and role = ? and status = #{Rails.ACTIVE}",
@@ -138,12 +123,12 @@ end
 ## without being an active administrator, or who changes their own role: the page has no switch for oneself, and an
 ## administrator who steps down alone could leave the account without one. Rails does not check either on the server;
 ## here the actor stays an administrator, so the account always has one.
-export def set_role(conn: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
+def set_role(conn: Db.Connection, actor_id: Int, user_id: Int, administrator: Bool) -> Result[Change]
   Db.transaction(conn) do |tx| set_role_in(tx, actor_id, user_id, administrator) end
 end
 
 ## True when `code` is the code of the account now: the old code of a regenerated one is not.
-export def join_code_valid?(conn: Db.Connection, code: String) -> Result[Bool]
+def join_code_valid?(conn: Db.Connection, code: String) -> Result[Bool]
   return ok(false) if code.empty? or code.length > MAX_CODE_LENGTH
 
   rows = try Db.query(conn, "select count(*) as total from accounts where join_code = ?", [Db.Value.Text(code)])
@@ -152,13 +137,13 @@ end
 
 ## Makes a new join code, which ends the link of the old one, and gives true. It gives false, with nothing changed,
 ## when `actor_id` is not an active administrator.
-export def regenerate_join_code(conn: Db.Connection, actor_id: Int) -> Result[Bool]
+def regenerate_join_code(conn: Db.Connection, actor_id: Int) -> Result[Bool]
   Db.transaction(conn) do |tx| regenerate_in(tx, actor_id) end
 end
 
 ## The people of the account by name: the active ones, or with `everyone` the deactivated and banned ones too, for the
 ## administrator who may bring them back or lift the ban.
-export def people(conn: Db.Connection, everyone: Bool) -> Result[List[Person]]
+def people(conn: Db.Connection, everyone: Bool) -> Result[List[Person]]
   shown = "status = #{Rails.ACTIVE}"
   if everyone
     shown = "status in (#{Rails.ACTIVE}, #{Rails.DEACTIVATED}, #{Rails.BANNED})"
@@ -184,7 +169,7 @@ end
 ## session, password reset link, push subscription and search of theirs is deleted; they leave every room but the
 ## direct messages (the memberships of the open and closed rooms are deleted); and their address becomes
 ## `name-deactivated-UUID@domain`, which frees it for a new account. Their messages, and the rooms they made, stay.
-export def deactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
+def deactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
   Db.transaction(conn) do |tx| deactivate_in(tx, actor_id, user_id) end
 end
 
@@ -192,9 +177,22 @@ end
 ## (`Rooms.grant_open_rooms`, as a new person does). The closed rooms they left are not given back, as Rails has no way
 ## back at all. `Taken` when the address is another account's now, with nothing changed. A person who was deactivated
 ## before the address was renamed keeps the address they have.
-export def reactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
+def reactivate(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Change]
   Db.transaction(conn) do |tx| reactivate_in(tx, actor_id, user_id) end
 end
+
+private
+
+JOIN_CODE_BYTES = 6
+GROUP = 4
+# The code that the join page was asked for is a few characters; nothing longer is looked up.
+MAX_CODE_LENGTH = 64
+NOW = Rails.NOW
+# What a deactivation puts in the address, between the name and the `@` (`deactived_email_address` of Rails).
+MARKER = "-deactivated-"
+UUID_LENGTH = 36
+# The key of the setting in the JSON of `accounts.settings`, the one Rails writes.
+RESTRICT_KEY = "restrict_room_creation_to_administrators"
 
 def regenerate_in(tx: Db.Connection, actor_id: Int) -> Result[Bool]
   allowed = try administrator?(tx, actor_id)

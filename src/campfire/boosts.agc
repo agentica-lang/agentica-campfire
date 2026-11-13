@@ -14,21 +14,12 @@ import {int_of, text_of} from "repo/rows"
 
 ## The longest boost, in characters (`boosts.content` is `varchar(16)` in the schema; SQLite does not enforce it, so
 ## this module does).
-export MAX_CONTENT_LENGTH = 16
-
-# What a boost is called after, when its booster's row is gone (a database that Rails seeded can have one).
-UNKNOWN_BOOSTER = "Unknown"
-
-NOW = Rails.NOW
-
-# A time of the table as an ISO 8601 instant in UTC with milliseconds, which is how the API of the bots writes it.
-ISO_STAMP = "strftime('%Y-%m-%dT%H:%M:%fZ', boosts.created_at)"
-
+MAX_CONTENT_LENGTH = 16
 ## The column of a message query (one that has `messages` in its `from`) that holds the boosts of the message, as a
 ## JSON array in the order Rails shows them (`ordered`: by time, then id) for `parse`. The inner select fixes the order
 ## that `json_group_array` reads its rows in. A message with no boost gets `[]`, which `parse` answers without
 ## decoding.
-export COLUMN = (
+COLUMN = (
   "(select json_group_array(json_object('id', one.id, 'booster_id', one.booster_id, " +
   "'booster', coalesce(people.name, '#{UNKNOWN_BOOSTER}'), 'content', one.content, 'created_at', one.created_at)) " +
   "from (select id, booster_id, content, #{ISO_STAMP} as created_at from boosts where message_id = messages.id " +
@@ -38,7 +29,7 @@ export COLUMN = (
 
 ## A boost with the name of its booster (`booster_id` is who made it). `created_at` is an ISO 8601 UTC instant with
 ## milliseconds.
-export struct Boost
+struct Boost
   id: Int
   booster_id: Int
   booster: String
@@ -47,25 +38,20 @@ export struct Boost
 end
 
 ## A message that a person can reach, and the room it is in.
-export struct Reach
+struct Reach
   message_id: Int
   room_id: Int
 end
 
-# `JSON.decode` takes a struct, so the array is decoded as the field of one.
-struct Listing
-  boosts: List[Boost]
-end
-
 ## What is wrong with the text of a boost, or "". The caller strips it first.
-export def content_problem(content: String) -> String
+def content_problem(content: String) -> String
   return "A boost is 1 to #{MAX_CONTENT_LENGTH} characters" if content.empty? or content.length > MAX_CONTENT_LENGTH
 
   ""
 end
 
 ## The boosts that the column `COLUMN` of a message query holds, oldest first.
-export def parse(text: String) -> List[Boost]
+def parse(text: String) -> List[Boost]
   return [] if text == "[]" or text.empty?
 
   # SQLite wrote this text with its JSON functions, so it decodes; a column that is not that shows no boosts.
@@ -77,7 +63,7 @@ end
 
 ## The message of the person's rooms with this id, or `none` for a room the person is not in and for a message that
 ## does not exist.
-export def reach(conn: Db.Connection, user_id: Int, message_id: Int) -> Result[Optional[Reach]]
+def reach(conn: Db.Connection, user_id: Int, message_id: Int) -> Result[Optional[Reach]]
   rows = try Db.query(
     conn,
     "select messages.id, messages.room_id from messages " +
@@ -91,7 +77,7 @@ export def reach(conn: Db.Connection, user_id: Int, message_id: Int) -> Result[O
 end
 
 ## The boosts of a message, oldest first.
-export def of_message(conn: Db.Connection, message_id: Int) -> Result[List[Boost]]
+def of_message(conn: Db.Connection, message_id: Int) -> Result[List[Boost]]
   rows = try Db.query(
     conn,
     "select boosts.id, boosts.booster_id, boosts.content, #{ISO_STAMP} as created_at, " +
@@ -108,7 +94,7 @@ end
 ## room of the message, or the message is gone: the insert itself looks at all three, so a change that came after the
 ## caller's check stores nothing. The message and its room are touched in the same transaction. `content` is checked
 ## by the caller (`content_problem`).
-export def add(conn: Db.Connection, user_id: Int, message_id: Int, content: String) -> Result[Optional[Boost]]
+def add(conn: Db.Connection, user_id: Int, message_id: Int, content: String) -> Result[Optional[Boost]]
   Db.transaction(conn) do |tx| add_in(tx, user_id, message_id, content) end
 end
 
@@ -116,8 +102,21 @@ end
 ## (an administrator's right over messages does not reach boosts, as `find_by!(booster: Current.user)` in Rails), a
 ## boost of another message, one that is gone, and a person who is no longer active or in the room. The message and its
 ## room are touched in the same transaction.
-export def remove(conn: Db.Connection, user_id: Int, message_id: Int, boost_id: Int) -> Result[Bool]
+def remove(conn: Db.Connection, user_id: Int, message_id: Int, boost_id: Int) -> Result[Bool]
   Db.transaction(conn) do |tx| remove_in(tx, user_id, message_id, boost_id) end
+end
+
+private
+
+# What a boost is called after, when its booster's row is gone (a database that Rails seeded can have one).
+UNKNOWN_BOOSTER = "Unknown"
+NOW = Rails.NOW
+# A time of the table as an ISO 8601 instant in UTC with milliseconds, which is how the API of the bots writes it.
+ISO_STAMP = "strftime('%Y-%m-%dT%H:%M:%fZ', boosts.created_at)"
+
+# `JSON.decode` takes a struct, so the array is decoded as the field of one.
+struct Listing
+  boosts: List[Boost]
 end
 
 # Whether the person is active and in the room of the message, as SQL for the `where` of a write, with its two

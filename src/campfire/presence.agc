@@ -11,18 +11,18 @@
 import Rails from "repo/rails"
 
 ## How long a person stays connected without a `refresh`.
-export TTL_MS = Rails.CONNECTION_TTL_SECONDS * 1000
+TTL_MS = Rails.CONNECTION_TTL_SECONDS * 1000
 
 ## The tabs of each person in each room (`connections`), when each last said it was there (`connected_at`) and which
 ## connections of the cable are counted in `connections` (`held`, one entry for each room, person and connection).
-export struct Presence
+struct Presence
   connections: ATS[String, Int]
   connected_at: ATS[String, Int]
   held: ATS[String, Int]
 end
 
 ## An empty table.
-export def new() -> Presence
+def new() -> Presence
   connections: ATS[String, Int] = ATS.new()
   connected_at: ATS[String, Int] = ATS.new()
   held: ATS[String, Int] = ATS.new()
@@ -33,7 +33,7 @@ end
 ## `connection` is the cable connection of the tab: a repeat of `present` on the same one only refreshes, so the
 ## count is the number of tabs however often a tab says it is there. A connection runs its handlers one at a time,
 ## so the check and the count cannot race.
-export def present(presence: Presence, room_id: Int, user_id: Int, connection: Int, now_ms: Int) -> Void
+def present(presence: Presence, room_id: Int, user_id: Int, connection: Int, now_ms: Int) -> Void
   key = key_of(room_id, user_id)
   held = held_key(room_id, user_id, connection)
   if presence.held.has_key?(held)
@@ -53,7 +53,7 @@ end
 
 ## A tab closed: one connection less, and the person is not connected when none is left. A connection that is not
 ## counted (it never said it was there, or already left) changes nothing, so a repeat cannot take away another tab.
-export def absent(presence: Presence, room_id: Int, user_id: Int, connection: Int, now_ms: Int) -> Void
+def absent(presence: Presence, room_id: Int, user_id: Int, connection: Int, now_ms: Int) -> Void
   held = held_key(room_id, user_id, connection)
   return if not presence.held.has_key?(held)
 
@@ -74,22 +74,24 @@ end
 
 ## A tab says it is still there: the person stays connected for another `TTL_MS`. A tab that was not counted yet is
 ## counted (`present`); a person whose time had run out is connected again with one connection.
-export def refresh(presence: Presence, room_id: Int, user_id: Int, connection: Int, now_ms: Int) -> Void
+def refresh(presence: Presence, room_id: Int, user_id: Int, connection: Int, now_ms: Int) -> Void
   present(presence, room_id, user_id, connection, now_ms)
 end
 
 ## True when the person was last seen in the room less than `TTL_MS` ago.
-export def connected?(presence: Presence, room_id: Int, user_id: Int, now_ms: Int) -> Bool
+def connected?(presence: Presence, room_id: Int, user_id: Int, now_ms: Int) -> Bool
   seen = presence.connected_at.get(key_of(room_id, user_id))
   seen.ok? and now_ms - seen.unwrap! < TTL_MS
 end
 
 ## How many tabs of the person are in the room, 0 when they are not connected.
-export def tabs(presence: Presence, room_id: Int, user_id: Int, now_ms: Int) -> Int
+def tabs(presence: Presence, room_id: Int, user_id: Int, now_ms: Int) -> Int
   return 0 if not connected?(presence, room_id, user_id, now_ms)
 
   presence.connections.get(key_of(room_id, user_id)).unwrap_or(0)
 end
+
+private
 
 # A counted tab that refreshes: the time moves, and a person whose time had run out has this tab only.
 def refresh_counted(presence: Presence, key: String, room_id: Int, user_id: Int, now_ms: Int) -> Void

@@ -1,5 +1,7 @@
 import SignedId from "../src/campfire/signed_id"
 
+private
+
 # Tokens that Rails made: a real app (`Rails::Application` with this `secret_key_base`, a `User` model, `signed_id`) of
 # Rails 7.1.5, 7.2.2 and 8.0.2, run in a ruby:3.3 container, as `user.signed_id(purpose: :avatar)`. Rails 7.2 and 8.0
 # write the same tokens; 7.1 writes the plain, padded base64, and `load_defaults 7.0` the older envelope.
@@ -9,11 +11,9 @@ SECRET = (
 KEY_HEX = (
   "fb1d27846b838705fda8de769f62c8c0684df441a9f127086c263de5e443873c53e5f033293eb5c1667cfd8cb98bf10b5257be2c65c4116d043404470ce5c144"
 )
-
 # 2026-11-04 in Unix milliseconds, and 2100-01-01T00:00:00Z, the `exp` of one token.
 NOW_MS = 1_793_750_400_000
 EXPIRY_2100_MS = 4_102_444_800_000
-
 RAILS_8_ID_1 = (
   "eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85"
 )

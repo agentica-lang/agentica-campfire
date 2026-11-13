@@ -8,6 +8,14 @@ import Bans from "../campfire/bans"
 import CableWeb from "cable"
 import RoomDeletion from "room_deletion"
 
+## Starts the task for the person and gives it. It does not wait; the task logs a failure and ends. The handle is for a
+## caller that wants to wait for the end (a spec); a request does not.
+def start(pool: Database.Pool, cable: CableWeb.Cable, user_id: Int) -> Task[Result[Void]]
+  Task.spawn(&run, Job(pool: pool, cable: cable, user_id: user_id))
+end
+
+private
+
 ATTEMPTS = 5
 PAUSE_MS = 100
 
@@ -15,12 +23,6 @@ struct Job
   pool: Database.Pool
   cable: CableWeb.Cable
   user_id: Int
-end
-
-## Starts the task for the person and gives it. It does not wait; the task logs a failure and ends. The handle is for a
-## caller that wants to wait for the end (a spec); a request does not.
-export def start(pool: Database.Pool, cable: CableWeb.Cable, user_id: Int) -> Task[Result[Void]]
-  Task.spawn(&run, Job(pool: pool, cable: cable, user_id: user_id))
 end
 
 def run(job: Job) -> Result[Void]

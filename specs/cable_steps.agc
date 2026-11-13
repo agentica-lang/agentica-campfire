@@ -8,35 +8,7 @@
 import BDD from "std/bdd"
 import HttpSteps from "http_steps"
 
-PEER = "cable_client"
-# Relative to the working directory of the run, which is the folder of the repository (`make test`).
-PEER_PROGRAM = "specs/fixtures/ws_client/cable_client.agc"
-ANSWER_MS = 15_000
-RECEIVE_MS = 5_000
-# The most frames that a step skips on the way to the one it waits for (a ping, the confirmations of other streams).
-SKIPPED_FRAMES = 200
-SUBPROTOCOL = "actioncable-v1-json"
-SOURCE_START = "<turbo-cable-stream-source channel=\""
-NAME_START = "\" signed-stream-name=\""
-NAME_END = "\">"
-
-struct Order
-  op: String
-  id: String = ""
-  path: String = ""
-  headers: Map[String, String] = {}
-  protocols: String = ""
-  text: String = ""
-  timeout_ms: Int = 0
-end
-
-# A stream that a page names, as the Rails client subscribes to it.
-struct Source
-  channel: String
-  signed: String
-end
-
-export def steps() -> List[BDD.Step]
+def steps() -> List[BDD.Step]
   [
     BDD.step("the cable peer starts", &peer_starts),
     BDD.step("client {string} connects with the cookies of the browser", &connects),
@@ -71,29 +43,61 @@ export def steps() -> List[BDD.Step]
   ]
 end
 
-def ask(process: Process, request: Json) -> Result[Json]
+private
+
+PEER = "cable_client"
+# Relative to the working directory of the run, which is the folder of the repository (`make test`).
+PEER_PROGRAM = "specs/fixtures/ws_client/cable_client.agc"
+ANSWER_MS = 15_000
+RECEIVE_MS = 5_000
+# The most frames that a step skips on the way to the one it waits for (a ping, the confirmations of other streams).
+SKIPPED_FRAMES = 200
+SUBPROTOCOL = "actioncable-v1-json"
+SOURCE_START = "<turbo-cable-stream-source channel=\""
+NAME_START = "\" signed-stream-name=\""
+NAME_END = "\">"
+
+struct Order
+  op: String
+  id: String = ""
+  path: String = ""
+  headers: Map[String, String] = {}
+  protocols: String = ""
+  text: String = ""
+  timeout_ms: Int = 0
+end
+
+# A stream that a page names, as the Rails client subscribes to it.
+struct Source
+  channel: String
+  signed: String
+end
+
+def ask(process: Process, request: JSON.Value) -> Result[JSON.Value]
   try Process.send(process, JSON.encode(request) + "\n", ANSWER_MS)
   line = try Process.read_line(process, ANSWER_MS)
   JSON.parse(line)
 end
 
-def serving(f: Fn[Json, Result[Json]]) -> Fn[Json, Result[Json]] = f
+def serving(f: Fn[JSON.Value, Result[JSON.Value]]) -> Fn[JSON.Value, Result[JSON.Value]] = f
 
 def peer_starts(ctx: BDD.Context, _args: List[String]) -> BDD.Context
   process = Process.spawn_captured("agentica", [PEER_PROGRAM, "#{HttpSteps.port_of(ctx)}"]).unwrap!
-  service = serving() do |request| ask(process, request) end
+  service = serving do |request| ask(process, request) end
   BDD.keep(ctx, PEER, service)
 end
 
-def peer(ctx: BDD.Context, order: Order) -> Json = BDD.call(ctx, PEER, JSON.from(order)).unwrap!
+def peer(ctx: BDD.Context, order: Order) -> JSON.Value = BDD.call(ctx, PEER, JSON.from(order)).unwrap!
 
-def text_of(answer: Json, name: String) -> String
+def text_of(answer: JSON.Value, name: String) -> String
   JSON.string(JSON.get(answer, name).unwrap_or(JSON.from(""))).unwrap_or("")
 end
 
-def int_of(answer: Json, name: String) -> Int = JSON.int(JSON.get(answer, name).unwrap_or(JSON.from(0))).unwrap_or(0)
+def int_of(answer: JSON.Value, name: String) -> Int
+  JSON.int(JSON.get(answer, name).unwrap_or(JSON.from(0))).unwrap_or(0)
+end
 
-def has?(answer: Json, name: String) -> Bool = JSON.get(answer, name).ok?
+def has?(answer: JSON.Value, name: String) -> Bool = JSON.get(answer, name).ok?
 
 # The Origin is the page of the app, as a browser sends it; without cookies there is no Cookie header at all.
 def connects(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -298,7 +302,7 @@ def mark_reads_are(ctx: BDD.Context, args: List[String]) -> BDD.Context
   BDD.assert(ctx, marks == args[0].to_i!, "the cable marked a room read #{marks} times, expected #{args[0]}")
 end
 
-def next_frame(ctx: BDD.Context, id: String, timeout_ms: Int) -> Json
+def next_frame(ctx: BDD.Context, id: String, timeout_ms: Int) -> JSON.Value
   peer(ctx, Order(op: "recv", id: id, timeout_ms: timeout_ms))
 end
 

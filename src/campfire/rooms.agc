@@ -12,78 +12,24 @@ import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
 ## How many messages a page of a room holds.
-export PAGE_SIZE = 40
-
-## The types of room (`rooms.type`): every active person is in an open room, a closed room has a member list, and a
-## direct room is between people and has no name of its own. `OPEN` is for this module only; the rest of the app never
-## names it.
-OPEN = Rails.ROOM_OPEN
-export CLOSED = Rails.ROOM_CLOSED
-export DIRECT = Rails.ROOM_DIRECT
-
+PAGE_SIZE = 40
+CLOSED = Rails.ROOM_CLOSED
+DIRECT = Rails.ROOM_DIRECT
 ## The label of the role of an account administrator, who may edit any closed room (`Auth.User.role` carries it; it is
 ## not the integer that `users.role` holds, which is `Rails.ADMINISTRATOR`).
-export ADMINISTRATOR_ROLE_NAME = Rails.ADMINISTRATOR_NAME
-export MEMBER_ROLE_NAME = Rails.MEMBER_NAME
-
+ADMINISTRATOR_ROLE_NAME = Rails.ADMINISTRATOR_NAME
+MEMBER_ROLE_NAME = Rails.MEMBER_NAME
 ## The longest name of a room, in characters.
-export MAX_NAME_LENGTH = 100
-
+MAX_NAME_LENGTH = 100
 ## The `client_message_id` that the form of a room page carries is a random hex string, so nothing longer is real.
-export MAX_CLIENT_ID_LENGTH = 64
-
-NAME_PROBLEM = "Give the room a name of 1 to #{MAX_NAME_LENGTH} characters"
-BODY_BLANK = "Write something to send"
-NO_PEOPLE = "Choose at least one person"
-NO_NAME = "Direct message"
-
-# A time in milliseconds (two `?` of the same number) as the columns write it: the second, then three digits of
-# milliseconds and three zeros.
-INSTANT = "(strftime('%Y-%m-%d %H:%M:%S', ? / 1000, 'unixepoch') || printf('.%03d000', ? % 1000))"
-
-# What `updated_at` is set to when a room changes, in the form of the schema.
-NOW = Rails.NOW
-
-# What a message is called when its author's row is gone (a database that Rails seeded can have one).
-UNKNOWN_AUTHOR = "Unknown"
-
-# The form of a timestamp in `<time datetime>`: ISO 8601, UTC, with milliseconds.
-ISO = "%Y-%m-%dT%H:%M:%fZ"
-
-# The columns of a message as `stored_of` reads them and the tables they come from, for `MESSAGE_SELECT` and for
-# `page`, which picks its rows first and then joins only those.
-MESSAGE_COLUMNS = (
-  "messages.id, messages.room_id, messages.creator_id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
-  "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +
-  "messages.updated_at as updated_at, #{Boosts.COLUMN}"
-)
-
-MESSAGE_JOINS = (
-  "left join users on users.id = messages.creator_id " +
-  "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
-  "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}'"
-)
-
+MAX_CLIENT_ID_LENGTH = 64
 ## The select of a message as `stored_of` reads it, up to its tables and with no `where`: the author (or
 ## `UNKNOWN_AUTHOR`), the body that `action_text_rich_texts` holds, the time in the ISO form and `updated_at` as the
 ## column holds it. The search reads its messages through it, so it shows a message as a page of a room does.
-export MESSAGE_SELECT = "select #{MESSAGE_COLUMNS} from messages #{MESSAGE_JOINS}"
-
-# A room as a person sees it. A direct room has no name, so it is called after the other people in it (the column is
-# `others`, looked up only for a direct room, so an open room costs no subquery), and `memberships.involvement` is
-# what the sidebar filters on. The names are joined in the order of the inner select, which the database keeps for
-# `group_concat` in practice.
-ROOM_COLUMNS = (
-  "select rooms.id, rooms.type, rooms.name, rooms.creator_id, " +
-  "case when rooms.type = '#{DIRECT}' then " +
-  "(select group_concat(name, ', ') from (select users.name as name from memberships others " +
-  "join users on users.id = others.user_id where others.room_id = rooms.id and others.user_id <> ? " +
-  "order by users.name)) end as others " +
-  "from memberships join rooms on rooms.id = memberships.room_id where memberships.user_id = ?"
-)
+MESSAGE_SELECT = "select #{MESSAGE_COLUMNS} from messages #{MESSAGE_JOINS}"
 
 ## A room of a person. `name` is what to call it for them: its own name, or for a direct room the other people.
-export struct Room
+struct Room
   id: Int
   name: String
   room_type: String
@@ -91,7 +37,7 @@ export struct Room
 end
 
 ## A person that a room form offers, an active user.
-export struct Person
+struct Person
   id: Int
   name: String
 end
@@ -100,7 +46,7 @@ end
 ## `HtmlSanitizer.sanitize` has cleaned, so a view writes it with `<%== %>`. `created_at` is an ISO 8601 UTC instant
 ## with milliseconds (`2026-03-01T09:00:00.123Z`), made from the Rails form of the column, so that `<time datetime>`
 ## and the scripts that read it take it as UTC. `boosts` are the reactions under it, oldest first.
-export struct Message
+struct Message
   id: Int
   room_id: Int
   creator_id: Int
@@ -113,7 +59,7 @@ end
 ## A message as the database holds it: the body is not cleaned yet, so `clean` must run before a view writes it. A page
 ## of a room hands these out, so that a view that has rendered the message before (`MessageCache`) can skip the
 ## cleaning. `updated_at` is the column as it is.
-export struct Stored
+struct Stored
   id: Int
   room_id: Int
   creator_id: Int
@@ -126,14 +72,14 @@ end
 
 ## A page of a room, oldest message first. `older` is the cursor of the page before it (`before=` of `page`), `none`
 ## when this one reaches the first message. `at_latest` is false for a page that was asked for with a cursor.
-export struct Page
+struct Page
   messages: List[Stored]
   older: Optional[Int]
   at_latest: Bool
 end
 
 ## One person of a room, and whether the room is unread for them (`unread_at` is set).
-export struct Watcher
+struct Watcher
   user_id: Int
   unread: Bool
 end
@@ -142,20 +88,20 @@ end
 ## it lost its connection): `fresh` are the messages created since, oldest first, at most `PAGE_SIZE`; `changed` are the
 ## other messages edited since, the newest `PAGE_SIZE` of them, oldest first. A message created since but past the
 ## first `PAGE_SIZE` is in `changed`, as it is in Rails: the client has no such message to replace, so it ignores it.
-export struct Refresh
+struct Refresh
   fresh: List[Stored]
   changed: List[Stored]
 end
 
 ## What is wrong with a room name, or "". The caller strips it first.
-export def name_problem(name: String) -> String
+def name_problem(name: String) -> String
   return NAME_PROBLEM if name.empty? or name.length > MAX_NAME_LENGTH
 
   ""
 end
 
 ## What is wrong with the people of a direct message, or "": it needs one besides the person who starts it.
-export def people_problem(chosen: List[Int]) -> String
+def people_problem(chosen: List[Int]) -> String
   return NO_PEOPLE if chosen.empty?
 
   ""
@@ -164,7 +110,7 @@ end
 ## What is wrong with a message body, or "": it is blank, or it has more than `max_length` characters
 ## (`Config.max_message_length`). The caller strips it first and calls this before `post` or `update_message`, so the
 ## sanitizer never reads a text that is over the cap.
-export def body_problem(body: String, max_length: Int) -> String
+def body_problem(body: String, max_length: Int) -> String
   return BODY_BLANK if body.empty?
 
   return "A message is at most #{max_length} characters" if body.length > max_length
@@ -173,7 +119,7 @@ export def body_problem(body: String, max_length: Int) -> String
 end
 
 ## A message from a row of `MESSAGE_SELECT` (or of the page query, which has the same columns), as it is stored.
-export def stored_of(row: Db.Row) -> Stored
+def stored_of(row: Db.Row) -> Stored
   Stored(
     id: int_of(row, "id"),
     room_id: int_of(row, "room_id"),
@@ -189,7 +135,7 @@ end
 ## The message with its body cleaned. Every body is cleaned on its way out, since a row that Rails wrote was never
 ## cleaned by this app; a body that `post` stored clean passes unchanged (`sanitize` is idempotent:
 ## test/html_sanitizer_test.agc).
-export def clean(stored: Stored) -> Message
+def clean(stored: Stored) -> Message
   Message(
     id: stored.id,
     room_id: stored.room_id,
@@ -202,11 +148,11 @@ export def clean(stored: Stored) -> Message
 end
 
 ## A message from a row of `MESSAGE_SELECT`, with its body cleaned.
-export def message_of(row: Db.Row) -> Message = clean(stored_of(row))
+def message_of(row: Db.Row) -> Message = clean(stored_of(row))
 
 ## The rooms that the person shows in their sidebar: every room they are in, except the ones they set to invisible,
 ## by name.
-export def visible(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
+def visible(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
   rows = try Db.query(
     conn,
     "select * from (#{ROOM_COLUMNS} and memberships.involvement <> '#{Rails.INVISIBLE}') " +
@@ -218,7 +164,7 @@ export def visible(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
 end
 
 ## Every room the person is in, hidden or not, by name: the list on their profile (`memberships.with_ordered_room`).
-export def memberships(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
+def memberships(conn: Db.Connection, user_id: Int) -> Result[List[Room]]
   rows = try Db.query(
     conn,
     "select * from (#{ROOM_COLUMNS}) order by lower(coalesce(name, others, '')), id",
@@ -230,7 +176,7 @@ end
 
 ## The room, when the person is in it (any involvement), and `none` for a room that does not exist and for one that
 ## the person is not in.
-export def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
+def find(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
   rows = try Db.query(
     conn,
     "#{ROOM_COLUMNS} and rooms.id = ?",
@@ -245,7 +191,7 @@ end
 ## Whether the person is in the room, and if so whether it is unread for them: `none` for no membership (or a room that
 ## is gone), else `some(unread)`. One indexed lookup of the membership alone, for the live checks of `/cable`, which do
 ## not need the room's name; a page still goes through `find`.
-export def membership(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Bool]]
+def membership(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Bool]]
   rows = try Db.query(
     conn,
     "select memberships.unread_at is not null as unread from memberships " +
@@ -260,7 +206,7 @@ end
 
 ## The room as the person's sidebar lists it (`visible`), `none` when they are not in it or have hidden it: what a live
 ## change to the sidebar shows them.
-export def visible_room(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
+def visible_room(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
   rows = try Db.query(
     conn,
     "#{ROOM_COLUMNS} and rooms.id = ? and memberships.involvement <> '#{Rails.INVISIBLE}'",
@@ -276,7 +222,7 @@ end
 ## last, from their cookie) when they are in it, else the oldest room that they are in (`Room.original`: by `created_at`,
 ## then id), any involvement and any kind. `none` when they are in no room, which is the welcome page. A `wanted` that
 ## names a room they left, or never were in, or that does not exist, is the oldest like any other.
-export def last_visited(conn: Db.Connection, user_id: Int, wanted: Optional[Int]) -> Result[Optional[Room]]
+def last_visited(conn: Db.Connection, user_id: Int, wanted: Optional[Int]) -> Result[Optional[Room]]
   if wanted.some?
     found = try find(conn, user_id, wanted.unwrap!)
     return ok(found) if found.some?
@@ -286,13 +232,13 @@ export def last_visited(conn: Db.Connection, user_id: Int, wanted: Optional[Int]
 end
 
 ## Makes an open room that `creator_id` made and puts every active person in it, in one transaction. It gives the id.
-export def create_open(conn: Db.Connection, creator_id: Int, name: String) -> Result[Int]
+def create_open(conn: Db.Connection, creator_id: Int, name: String) -> Result[Int]
   Db.transaction(conn) do |tx| create_open_in(tx, creator_id, name) end
 end
 
 ## `create_open` inside a transaction that the caller has begun (the first run makes its room in the transaction that
 ## makes the administrator). The creator must be an active user, or they are not in their own room.
-export def create_open_in(tx: Db.Connection, creator_id: Int, name: String) -> Result[Int]
+def create_open_in(tx: Db.Connection, creator_id: Int, name: String) -> Result[Int]
   room_id = try insert_room(tx, Db.Value.Text(name), OPEN, creator_id)
   try Db.execute(
     tx,
@@ -306,7 +252,7 @@ end
 
 ## Puts the person in every open room, for whoever makes a user after the rooms exist (an invitation). A room that
 ## they are in already is left as it is.
-export def grant_open_rooms(conn: Db.Connection, user_id: Int) -> Result[Void]
+def grant_open_rooms(conn: Db.Connection, user_id: Int) -> Result[Void]
   try Db.execute(
     conn,
     "insert into memberships (room_id, user_id, created_at, updated_at) " +
@@ -319,31 +265,31 @@ end
 
 ## True when the person may administer the room, whatever its kind: they made it or are an account administrator
 ## (`User#can_administer?` of upstream). Being in the room is not enough.
-export def administrable?(room: Room, user_id: Int, role: String) -> Bool
+def administrable?(room: Room, user_id: Int, role: String) -> Bool
   room.creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
 end
 
 ## True for an open room.
-export def open?(room: Room) -> Bool = room.room_type == OPEN
+def open?(room: Room) -> Bool = room.room_type == OPEN
 
 ## True when the settings of the room exist: an open or a closed room. A direct room has none, and never converts: its
 ## people agreed to a private conversation, not to one that someone else widens afterwards (`Room` of Rails).
-export def has_settings?(room: Room) -> Bool = room.room_type != DIRECT
+def has_settings?(room: Room) -> Bool = room.room_type != DIRECT
 
 ## True when the person may edit or delete a message that `creator_id` wrote: they wrote it or are an account
 ## administrator (`User#can_administer?(message)` of upstream), in a room that they are in.
-export def changeable?(creator_id: Int, user_id: Int, role: String) -> Bool
+def changeable?(creator_id: Int, user_id: Int, role: String) -> Bool
   creator_id == user_id or role == ADMINISTRATOR_ROLE_NAME
 end
 
 ## True when the person may change the settings of the room: it has settings and they may administer it.
-export def editable?(room: Room, user_id: Int, role: String) -> Bool
+def editable?(room: Room, user_id: Int, role: String) -> Bool
   has_settings?(room) and administrable?(room, user_id, role)
 end
 
 ## The active people that a person can put in a room, other than themselves (they are always in what they make), by
 ## name.
-export def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
+def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
   rows = try Db.query(
     conn,
     "select id, name from users where status = #{Rails.ACTIVE} and id <> ? order by lower(name), id",
@@ -354,13 +300,13 @@ export def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
 end
 
 ## The ids of everyone in the room, the people who are not active included.
-export def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
+def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
   rows = try Db.query(conn, "select user_id from memberships where room_id = ?", [Db.Value.Int(room_id)])
   ok(rows.map do |row| int_of(row, "user_id") end)
 end
 
 ## The ids of the rooms that are unread for the person (`unread_at` is set): what the sidebar marks.
-export def unread_ids(conn: Db.Connection, user_id: Int) -> Result[List[Int]]
+def unread_ids(conn: Db.Connection, user_id: Int) -> Result[List[Int]]
   rows = try Db.query(
     conn,
     "select room_id from memberships where user_id = ? and unread_at is not null",
@@ -371,7 +317,7 @@ export def unread_ids(conn: Db.Connection, user_id: Int) -> Result[List[Int]]
 end
 
 ## Everyone in the room, with whether it is unread for them: who a live notice about the room may concern.
-export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
+def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
   rows = try Db.query(
     conn,
     "select user_id, unread_at is not null as unread from memberships where room_id = ?",
@@ -382,7 +328,7 @@ export def watchers(conn: Db.Connection, room_id: Int) -> Result[List[Watcher]]
 end
 
 ## The room is read for each of the people, in one statement: the same as `mark_read` for each. Nobody is a no-op.
-export def mark_read_all(conn: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
+def mark_read_all(conn: Db.Connection, room_id: Int, user_ids: List[Int]) -> Result[Void]
   return ok() if user_ids.empty?
 
   holders = user_ids.map do |_| "?" end
@@ -403,7 +349,7 @@ end
 
 ## The room is read for the person: it is no longer unread. It does not touch `updated_at`, as `Membership#read` of
 ## Rails does not (`update_all`).
-export def mark_read(conn: Db.Connection, room_id: Int, user_id: Int) -> Result[Void]
+def mark_read(conn: Db.Connection, room_id: Int, user_id: Int) -> Result[Void]
   try Db.execute(
     conn,
     "update memberships set unread_at = null where room_id = ? and user_id = ? and unread_at is not null",
@@ -415,7 +361,7 @@ end
 
 ## Makes a closed room of `creator_id` with them and `members` in it, in one transaction, and gives its id. A member
 ## that is not an active user is left out, and the creator may be in `members`.
-export def create_closed(conn: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
+def create_closed(conn: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
   Db.transaction(conn) do |tx| create_closed_in(tx, creator_id, name, members) end
 end
 
@@ -430,7 +376,7 @@ end
 ## nothing, when the room is a direct one or `editor_id` may not edit it or is not in it (they were taken out, or lost
 ## the role, since the caller looked); the active people are read inside the transaction for the same reason. An error is
 ## a failure of the database.
-export def update_room(
+def update_room(
   conn: Db.Connection,
   room_id: Int,
   editor_id: Int,
@@ -447,7 +393,7 @@ end
 ## people are checked, the room is searched for and it is made in one write transaction, so a person who is made
 ## inactive meanwhile does not make a room with fewer people than the search counted, and two requests for the same
 ## people get one room.
-export def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]
+def open_direct(conn: Db.Connection, creator_id: Int, others: List[Int]) -> Result[Optional[Int]]
   Db.transaction(conn) do |tx| open_direct_in(tx, creator_id, others) end
 end
 
@@ -457,26 +403,26 @@ end
 ## every sidebar and is a 404 for everybody. A direct room keeps its type, which Rails does not let change. It gives
 ## false, and changes nothing, when `actor_id` is not in the room or may not administer it (they were taken out, or lost
 ## the role, since the caller looked), as `update_room` does. An error is a failure of the database.
-export def destroy_later(conn: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]
+def destroy_later(conn: Db.Connection, room_id: Int, actor_id: Int) -> Result[Bool]
   Db.transaction(conn) do |tx| destroy_later_in(tx, room_id, actor_id) end
 end
 
 ## Deletes one message of the room with its body, its search row and its boosts, in a transaction of its own, so that the
 ## other writers get through between two messages (a room of many messages deleted in one transaction held the write
 ## lock until the last one). It gives false when the room has no message left.
-export def delete_next_message(conn: Db.Connection, room_id: Int) -> Result[Bool]
+def delete_next_message(conn: Db.Connection, room_id: Int) -> Result[Bool]
   Db.transaction(conn) do |tx| delete_first_message(tx, room_id) end
 end
 
 ## Deletes the room, in one transaction, with whatever messages and memberships it still has: a message that was posted
 ## after `destroy_later` goes with the room, as `dependent: :destroy` does in Rails.
-export def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
+def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
   Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
 end
 
 ## Takes the person out of every room but the direct messages, which is what a deactivation does
 ## (`memberships.without_direct_rooms.delete_all` of Rails). It runs in the caller's transaction.
-export def leave_shared_rooms(tx: Db.Connection, user_id: Int) -> Result[Void]
+def leave_shared_rooms(tx: Db.Connection, user_id: Int) -> Result[Void]
   try Db.execute(
     tx,
     "delete from memberships where user_id = ? and room_id in (select id from rooms where type <> '#{DIRECT}')",
@@ -488,7 +434,7 @@ end
 
 ## The message of the room, as it is stored, or `none` when the room has no such message (one of another room is none
 ## too, so a room's path cannot reach into another). The caller has checked that the person is in the room.
-export def find_message(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Stored]]
+def find_message(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Stored]]
   rows = try Db.query(
     conn,
     "#{MESSAGE_SELECT} where messages.room_id = ? and messages.id = ?",
@@ -502,20 +448,20 @@ end
 
 ## How many messages the room has (the `X-Total-Count` of the messages API). The schema has no counter column, so the
 ## index on `room_id` is counted.
-export def message_count(conn: Db.Connection, room_id: Int) -> Result[Int]
+def message_count(conn: Db.Connection, room_id: Int) -> Result[Int]
   rows = try Db.query(conn, "select count(*) as total from messages where room_id = ?", [Db.Value.Int(room_id)])
   ok(int_of(rows[0], "total"))
 end
 
 ## True when the room has a message after `message_id`, by `created_at` and then `id` as `page_after` reads them.
-export def newer?(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Bool]
+def newer?(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Bool]
   rows = try after_rows(conn, room_id, message_id, 1)
   ok(not rows.empty?)
 end
 
 ## The role (`member`, `administrator` or `bot`) of each author of `messages`, by user id. An author whose row is gone
 ## is not in the map.
-export def author_roles(conn: Db.Connection, messages: List[Stored]) -> Result[Map[Int, String]]
+def author_roles(conn: Db.Connection, messages: List[Stored]) -> Result[Map[Int, String]]
   creators = messages.map do |one| one.creator_id end
   ids = creators.uniq
   rows = try Db.query(
@@ -534,13 +480,7 @@ end
 ## a message touches its room). The right is checked inside, as `update_closed` does: the message is in the room, the
 ## editor is in the room and wrote it or is an active administrator. It gives false, and changes nothing, when it does
 ## not hold. Unlike a new message, an edit sets no `unread_at`. An error is a failure of the database.
-export def update_message(
-  conn: Db.Connection,
-  room_id: Int,
-  message_id: Int,
-  editor_id: Int,
-  html: String,
-) -> Result[Bool]
+def update_message(conn: Db.Connection, room_id: Int, message_id: Int, editor_id: Int, html: String) -> Result[Bool]
   body = HtmlSanitizer.sanitize(html)
   text = HtmlSanitizer.plain_text_of_clean(body)
   Db.transaction(conn) do |tx| update_message_in(tx, room_id, message_id, editor_id, body, text) end
@@ -549,13 +489,13 @@ end
 ## Deletes a message with its body, its search row and its boosts, in one transaction, when it is in the room and the
 ## person is in the room and wrote it or is an active administrator (the same check as `update_message`). It gives false,
 ## and changes nothing, when it does not hold. The room is not touched, as `destroy` of Rails does not touch it.
-export def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
+def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
   Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
 end
 
 ## Deletes the rows of a message (its body, search row and boosts, then the message) in the transaction `tx` that the
 ## caller holds; `Bans` takes the messages of a banned person away this way.
-export def delete_message_rows_of(tx: Db.Connection, message_id: Int) -> Result[Void]
+def delete_message_rows_of(tx: Db.Connection, message_id: Int) -> Result[Void]
   delete_message_rows(tx, Db.Value.Int(message_id))
 end
 
@@ -563,18 +503,18 @@ end
 ## out of the sidebar, still reachable). A direct room has none, as in Rails (`DIRECT_INVOLVEMENT_ORDER` has no
 ## `invisible`): a hidden conversation would be one that its people cannot find again. The other levels of Rails
 ## (`everything`, `nothing`) only matter for notifications, which do not exist yet (#57, #81 bring them back).
-export def involvement_levels(room: Room) -> List[String]
+def involvement_levels(room: Room) -> List[String]
   return [] if room.room_type == DIRECT
 
   [Rails.MENTIONS, Rails.INVISIBLE]
 end
 
 ## True for the level of a room that the person has hidden from their sidebar.
-export def hidden?(level: String) -> Bool = level == Rails.INVISIBLE
+def hidden?(level: String) -> Bool = level == Rails.INVISIBLE
 
 ## The level that the person has in the room, or `none` when they are not in it. A row with no level (a database that
 ## Rails seeded) is the default, `mentions`.
-export def involvement(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[String]]
+def involvement(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[String]]
   rows = try Db.query(
     conn,
     "select coalesce(involvement, '#{Rails.MENTIONS}') as involvement from memberships " +
@@ -592,7 +532,7 @@ end
 ## ("shown") only brings back a room that was hidden: on a room that is shown already it keeps the level the row has (a
 ## Rails database may hold `everything` or `nothing`, which the page cannot set but must not lose). It sets no
 ## `unread_at`: a room made invisible keeps what it had.
-export def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level: String) -> Result[Bool]
+def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level: String) -> Result[Bool]
   return ok(false) if not involvement_levels(room).include?(level)
 
   hidden = "(involvement is null or involvement = '#{Rails.INVISIBLE}')"
@@ -619,7 +559,7 @@ end
 ## so the id says nothing about it. Messages that share an instant go by `id`, so a page and the one before it neither
 ## repeat nor skip one; a `before` that is no message of this room (unknown, or of another room) gives an empty page.
 ## It reads one more than a page, to know whether there is an older page without a count.
-export def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Page]
+def page(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[Page]
   params = [Db.Value.Int(room_id)]
   cursor = ""
   case before
@@ -658,7 +598,7 @@ end
 ## The `PAGE_SIZE` messages of the room that come after the message `after`, oldest first (`page_after` of Rails), by
 ## `created_at` and then `id` as `page` does. An `after` that is no message of this room gives an empty list, as `page`
 ## does for `before`.
-export def page_after(conn: Db.Connection, room_id: Int, after: Int) -> Result[List[Stored]]
+def page_after(conn: Db.Connection, room_id: Int, after: Int) -> Result[List[Stored]]
   after_rows(conn, room_id, after, PAGE_SIZE)
 end
 
@@ -666,7 +606,7 @@ end
 ## messages before it, it, and the `PAGE_SIZE` after it. `none` when the room has no such message (one of another room
 ## is none too); the caller then shows the newest page, as Rails does. `older` is the cursor of the page before the
 ## window and `at_latest` is true when nothing comes after it.
-export def around(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Page]]
+def around(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Page]]
   found = try find_message(conn, room_id, message_id)
   case found
     none -> ok(none)
@@ -680,7 +620,7 @@ end
 ## Rails has `>`: a client keeps the time in milliseconds, and a message made in the same millisecond as the last one it
 ## saw would be skipped by `>`. The message that the client has is sent again, and a Turbo Stream that appends or
 ## replaces an element that has the id of one in the page puts the new one in its place, so the repeat is harmless.
-export def since(conn: Db.Connection, room_id: Int, millis: Int) -> Result[Refresh]
+def since(conn: Db.Connection, room_id: Int, millis: Int) -> Result[Refresh]
   at = millis
   if at < 0
     at = 0
@@ -722,7 +662,7 @@ end
 ## `Room#receive`), the room is touched and the people in it who are not the author, who did not set the room to
 ## invisible and are not connected get `unread_at`. `client_message_id` is what the browser made for the message; it is
 ## stored, and there is no check on it (Rails has none): a second post with the same one is a second message.
-export def post(
+def post(
   conn: Db.Connection,
   room_id: Int,
   user_id: Int,
@@ -733,6 +673,50 @@ export def post(
   text = HtmlSanitizer.plain_text_of_clean(body)
   Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text) end
 end
+
+private
+
+## The types of room (`rooms.type`): every active person is in an open room, a closed room has a member list, and a
+## direct room is between people and has no name of its own. `OPEN` is for this module only; the rest of the app never
+## names it.
+OPEN = Rails.ROOM_OPEN
+NAME_PROBLEM = "Give the room a name of 1 to #{MAX_NAME_LENGTH} characters"
+BODY_BLANK = "Write something to send"
+NO_PEOPLE = "Choose at least one person"
+NO_NAME = "Direct message"
+# A time in milliseconds (two `?` of the same number) as the columns write it: the second, then three digits of
+# milliseconds and three zeros.
+INSTANT = "(strftime('%Y-%m-%d %H:%M:%S', ? / 1000, 'unixepoch') || printf('.%03d000', ? % 1000))"
+# What `updated_at` is set to when a room changes, in the form of the schema.
+NOW = Rails.NOW
+# What a message is called when its author's row is gone (a database that Rails seeded can have one).
+UNKNOWN_AUTHOR = "Unknown"
+# The form of a timestamp in `<time datetime>`: ISO 8601, UTC, with milliseconds.
+ISO = "%Y-%m-%dT%H:%M:%fZ"
+# The columns of a message as `stored_of` reads them and the tables they come from, for `MESSAGE_SELECT` and for
+# `page`, which picks its rows first and then joins only those.
+MESSAGE_COLUMNS = (
+  "messages.id, messages.room_id, messages.creator_id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
+  "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +
+  "messages.updated_at as updated_at, #{Boosts.COLUMN}"
+)
+MESSAGE_JOINS = (
+  "left join users on users.id = messages.creator_id " +
+  "left join action_text_rich_texts rich_texts on rich_texts.record_type = '#{Rails.MESSAGE_RECORD}' " +
+  "and rich_texts.record_id = messages.id and rich_texts.name = '#{Rails.BODY_NAME}'"
+)
+# A room as a person sees it. A direct room has no name, so it is called after the other people in it (the column is
+# `others`, looked up only for a direct room, so an open room costs no subquery), and `memberships.involvement` is
+# what the sidebar filters on. The names are joined in the order of the inner select, which the database keeps for
+# `group_concat` in practice.
+ROOM_COLUMNS = (
+  "select rooms.id, rooms.type, rooms.name, rooms.creator_id, " +
+  "case when rooms.type = '#{DIRECT}' then " +
+  "(select group_concat(name, ', ') from (select users.name as name from memberships others " +
+  "join users on users.id = others.user_id where others.room_id = rooms.id and others.user_id <> ? " +
+  "order by users.name)) end as others " +
+  "from memberships join rooms on rooms.id = memberships.room_id where memberships.user_id = ?"
+)
 
 # The `limit` messages that come after the message `after` of the room, oldest first.
 def after_rows(conn: Db.Connection, room_id: Int, after: Int, limit: Int) -> Result[List[Stored]]

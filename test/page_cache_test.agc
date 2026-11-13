@@ -8,6 +8,8 @@ import Database from "../src/campfire/repo/database"
 import AvatarsWeb from "../src/campfire_web/avatars"
 import PageCache from "../src/campfire_web/page_cache"
 
+private
+
 SLOTS = 8
 READERS = 6
 READS = 2_000
@@ -487,7 +489,7 @@ def respond_matches_html() -> Result[Void]
   try Test.eq(sent.body, PAGE.bytes)
   try Test.eq(HTTP.header_values(sent.headers, "content-type"), ["text/html; charset=utf-8"])
   tag = HTTP.header_values(sent.headers, "etag")[0]
-  same = Testing.request(app, "GET", "/sent", [Header(name: "if-none-match", value: tag)])
+  same = Testing.request(app, "GET", "/sent", [HTTP.Header(name: "if-none-match", value: tag)])
   try Test.eq(same.status, 304)
   try Test.assert(same.body.empty?, "a 304 has no body")
   Test.eq(HTTP.header_values(same.headers, "etag"), [tag])

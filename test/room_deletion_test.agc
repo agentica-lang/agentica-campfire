@@ -1,5 +1,7 @@
 import RoomDeletion from "../src/campfire_web/room_deletion"
 
+private
+
 BUSY = "sqlite error 5: database is locked"
 
 # One try of a step that fails `failing` times with `message` and then works; the table counts the tries.

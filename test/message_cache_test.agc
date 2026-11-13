@@ -3,6 +3,8 @@ import Boosts from "../src/campfire/boosts"
 import MessageCache from "../src/campfire_web/message_cache"
 import Rooms from "../src/campfire/rooms"
 
+private
+
 def stored(id: Int, body: String) -> Rooms.Stored
   Rooms.Stored(
     id: id,

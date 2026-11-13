@@ -6,13 +6,16 @@
 import Bond from "pkg/bond/bond"
 import Database from "../campfire/repo/database"
 
-export BUSY = "The server is busy, try again in a moment"
-export RETRY_AFTER_SECONDS = "1"
-INTERNAL = "Internal Server Error"
+BUSY = "The server is busy, try again in a moment"
+RETRY_AFTER_SECONDS = "1"
 
 ## The answer to `conn` for a failure with this message (Bond has written it to stderr already; it is never sent).
-export def answer(conn: Bond.Conn, message: String) -> Bond.Conn
+def answer(conn: Bond.Conn, message: String) -> Bond.Conn
   return Bond.header(Bond.text(conn, 503, BUSY), "retry-after", RETRY_AFTER_SECONDS) if Database.busy?(message)
 
   Bond.text(conn, 500, INTERNAL)
 end
+
+private
+
+INTERNAL = "Internal Server Error"

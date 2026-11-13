@@ -1,5 +1,7 @@
 import Searches from "../src/campfire/searches"
 
+private
+
 def main() -> Void
   Test.run([
     Test.test("what is typed is words: anything that is not a letter, digit or underscore separates them") do

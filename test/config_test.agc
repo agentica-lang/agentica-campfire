@@ -2,6 +2,8 @@ import AuthWeb from "../src/campfire_web/auth"
 import Config from "../src/campfire/config"
 import Smtp from "../src/campfire/mail/smtp"
 
+private
+
 SECRET = "0123456789abcdef0123456789abcdef"
 
 # `parse` with the defaults for the address and the folder, to test the secret and the flag.

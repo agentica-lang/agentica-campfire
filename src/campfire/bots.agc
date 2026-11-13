@@ -10,23 +10,11 @@ import Rails from "repo/rails"
 import Rooms from "rooms"
 import {int_of, text_of} from "repo/rows"
 
-# The characters of a token (`OpenSSL.Random.alphanumeric`).
-ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-TOKEN_LENGTH = 12
-
-# 256 is not a multiple of 62, so the bytes from 248 on are skipped: each character is then as likely as any other.
-FAIR_BELOW = 248
-
-NOW = Rails.NOW
-
-# The active bots; a caller adds `and id = ?` or an order.
-SELECT = "select id, name, bot_token from users where role = #{Rails.BOT} and status = #{Rails.ACTIVE}"
-
 ## The longest name of a bot, in characters.
-export MAX_NAME_LENGTH = 100
+MAX_NAME_LENGTH = 100
 
 ## A bot as the page lists it. `key` is the secret that names it: `ID-TOKEN`.
-export struct Bot
+struct Bot
   id: Int
   name: String
   key: String
@@ -34,20 +22,20 @@ end
 
 ## What is wrong with a bot name, or "". The caller strips it first. Rails only asks the form for the field; a blank
 ## name would leave the bot with nothing to show, so it is refused here.
-export def name_problem(name: String) -> String
+def name_problem(name: String) -> String
   return "Give the bot a name of 1 to #{MAX_NAME_LENGTH} characters" if name.empty? or name.length > MAX_NAME_LENGTH
 
   ""
 end
 
 ## The active bots by name, as `User.active_bots.ordered` lists them.
-export def active(conn: Db.Connection) -> Result[List[Bot]]
+def active(conn: Db.Connection) -> Result[List[Bot]]
   rows = try Db.query(conn, "#{SELECT} order by lower(name), id", [])
   ok(rows.map do |row| bot_of(row) end)
 end
 
 ## The active bot with this id, or `none`.
-export def find(conn: Db.Connection, bot_id: Int) -> Result[Optional[Bot]]
+def find(conn: Db.Connection, bot_id: Int) -> Result[Optional[Bot]]
   rows = try Db.query(conn, "#{SELECT} and id = ?", [Db.Value.Int(bot_id)])
   return ok(none) if rows.empty?
 
@@ -59,7 +47,7 @@ end
 ## (`role = bot and status = active`), and the key is then compared with the stored one in constant time, since the
 ## token is stored as plain text and a `=` in SQL would stop at the first byte that differs. An empty token never
 ## matches, so a user with no token is not reached by a key that ends at the dash.
-export def authenticate(conn: Db.Connection, key: String) -> Result[Optional[Bot]]
+def authenticate(conn: Db.Connection, key: String) -> Result[Optional[Bot]]
   given = key.strip
   dash = given.index_of("-")
   return ok(none) if dash.none?
@@ -77,26 +65,37 @@ end
 
 ## Makes a bot named `name` for `actor_id` and puts it in every open room, as a new person is. It gives false, with
 ## nothing made, when the actor is not an active administrator.
-export def create(conn: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
+def create(conn: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
   Db.transaction(conn) do |tx| create_in(tx, actor_id, name) end
 end
 
 ## Renames the bot. `Refused` is an actor who is not an active administrator; `Missing` is no active bot with this id.
-export def rename(conn: Db.Connection, actor_id: Int, bot_id: Int, name: String) -> Result[Accounts.Change]
+def rename(conn: Db.Connection, actor_id: Int, bot_id: Int, name: String) -> Result[Accounts.Change]
   Db.transaction(conn) do |tx| change_in(tx, actor_id, bot_id, "name = ?", [Db.Value.Text(name)]) end
 end
 
 ## Gives the bot a new token, so the old key stops working (`reset_bot_key`). Results as `rename`.
-export def reset_key(conn: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accounts.Change]
+def reset_key(conn: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accounts.Change]
   Db.transaction(conn) do |tx| change_in(tx, actor_id, bot_id, "bot_token = ?", [Db.Value.Text(new_token())]) end
 end
 
 ## Deactivates the bot as `User#deactivate` does: it leaves the open and closed rooms (the direct messages stay) and is
 ## no longer an active bot, so its key finds nobody. Its messages stay. A bot has no sessions, searches or address to
 ## clean up. Results as `rename`.
-export def deactivate(conn: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accounts.Change]
+def deactivate(conn: Db.Connection, actor_id: Int, bot_id: Int) -> Result[Accounts.Change]
   Db.transaction(conn) do |tx| deactivate_in(tx, actor_id, bot_id) end
 end
+
+private
+
+# The characters of a token (`OpenSSL.Random.alphanumeric`).
+ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+TOKEN_LENGTH = 12
+# 256 is not a multiple of 62, so the bytes from 248 on are skipped: each character is then as likely as any other.
+FAIR_BELOW = 248
+NOW = Rails.NOW
+# The active bots; a caller adds `and id = ?` or an order.
+SELECT = "select id, name, bot_token from users where role = #{Rails.BOT} and status = #{Rails.ACTIVE}"
 
 def bot_of(row: Db.Row) -> Bot
   id = int_of(row, "id")

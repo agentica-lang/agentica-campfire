@@ -8,29 +8,10 @@ import Db from "pkg/db/db"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
-# The colours of the circle behind the initials, in the order of `AVATAR_COLORS` of `Users::AvatarsHelper`.
-COLORS = [
-  "#AF2E1B", "#CC6324", "#3B4B59", "#BFA07A", "#ED8008", "#ED3F1C", "#BF1B1B", "#736B1E", "#D07B53", "#736356",
-  "#AD1D1D", "#BF7C2A", "#C09C6F", "#698F9C", "#7C956B", "#5D618F", "#3B3633", "#67695E",
-]
-
-# `\b\w` of `User#initials`: the first letter of each word.
-INITIALS = /\b\w/
-# The runs of digits of a timestamp, for `version`.
-DIGITS = /\d+/
-
-# Active Storage keys are 28 characters of base 36 (`OpenSSL.Random.base36`). Only those can be a name in the folder of
-# the files: whatever else a row holds (it came from a database, not from a visitor) is never turned into a path.
-KEY = /\A[0-9a-z]{4,64}\z/
-
-# The shape of the type of an original that is sent as it is: `image/...` from a database, with nothing that
-# could carry a line break into a header (`sendable?` also leaves out SVG).
-SENDABLE_TYPE = /\Aimage\/(?:[a-z0-9.+-]+)\z/
-
 ## A user as the avatar link needs them: the name for the initials, and the file to send, `none` for a person with no
 ## avatar. `file_key` is the key of the blob to send and `content_type` its type: the WebP that Rails made for the
 ## avatar, or, when Rails has not processed one yet (it does so on the first request), the original image.
-export struct Avatar
+struct Avatar
   name: String
   file_key: Optional[String]
   content_type: String
@@ -42,7 +23,7 @@ end
 ## a hash of a Ruby `Marshal` dump, is not something to compute). Without one, it is the avatar's own blob, since the
 ## app makes no variant and a person who has a picture should not lose it: only a type that is a plain `image/...`
 ## and not SVG (which can hold a script) is sent, anything else counts as no avatar.
-export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Avatar]]
+def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Avatar]]
   users = try Db.query(conn, "select name from users where id = ?", [Db.Value.Int(user_id)])
   return ok(none) if users.empty?
 
@@ -87,7 +68,7 @@ end
 
 ## The file of a blob under `storage_dir`, where the Disk service of Rails puts it: `xx/yy/KEY`, the first two and the
 ## next two characters of the key as folders. `none` for a key that is not one of Active Storage's.
-export def path(storage_dir: String, key: String) -> Optional[String]
+def path(storage_dir: String, key: String) -> Optional[String]
   return none if not Regex.match?(key, KEY)
 
   joined = Path.join([storage_dir, key.slice(0, 2), key.slice(2, 2), key])
@@ -97,13 +78,13 @@ export def path(storage_dir: String, key: String) -> Optional[String]
 end
 
 ## The letters in the circle: the first letter of each word of the name (`Bea Smith` is `BS`).
-export def initials(name: String) -> String
+def initials(name: String) -> String
   letters = Regex.find_all(name, INITIALS).map do |found| found.text end
   letters.join("")
 end
 
 ## The colour behind the initials of the user, from the CRC-32 of their id, as `avatar_background_color` of Rails does.
-export def color(user_id: Int) -> String
+def color(user_id: Int) -> String
   checksum = Zlib.crc32("#{user_id}".bytes).unwrap!
   COLORS[checksum % COLORS.size]
 end
@@ -111,13 +92,13 @@ end
 ## The cache buster of an avatar link, `?v=` as in Rails (`updated_at.to_fs(:number)`, 14 digits): the digits of the
 ## `updated_at` of the user, but with the fraction of a second too (unlike Rails), so two changes in one second are two
 ## links.
-export def version(updated_at: String) -> String
+def version(updated_at: String) -> String
   digits = Regex.find_all(updated_at, DIGITS).map do |found| found.text end
   digits.join("")
 end
 
 ## True when the user has an avatar attached.
-export def attached?(conn: Db.Connection, user_id: Int) -> Result[Bool]
+def attached?(conn: Db.Connection, user_id: Int) -> Result[Bool]
   rows = try Db.query(
     conn,
     "select 1 from active_storage_attachments where record_type = '#{Rails.USER_RECORD}' and record_id = ? " +
@@ -134,9 +115,27 @@ end
 ## delete their files once the transaction has committed (a file is not undone by a rollback), and `updated_at` of
 ## the user changes, since the avatar links carry its digits (`version`) as a cache buster. A user with no avatar is no
 ## change: no keys.
-export def remove(conn: Db.Connection, user_id: Int) -> Result[List[String]]
+def remove(conn: Db.Connection, user_id: Int) -> Result[List[String]]
   Db.transaction(conn) do |tx| remove_in(tx, user_id) end
 end
+
+private
+
+# The colours of the circle behind the initials, in the order of `AVATAR_COLORS` of `Users::AvatarsHelper`.
+COLORS = [
+  "#AF2E1B", "#CC6324", "#3B4B59", "#BFA07A", "#ED8008", "#ED3F1C", "#BF1B1B", "#736B1E", "#D07B53", "#736356",
+  "#AD1D1D", "#BF7C2A", "#C09C6F", "#698F9C", "#7C956B", "#5D618F", "#3B3633", "#67695E",
+]
+# `\b\w` of `User#initials`: the first letter of each word.
+INITIALS = /\b\w/
+# The runs of digits of a timestamp, for `version`.
+DIGITS = /\d+/
+# Active Storage keys are 28 characters of base 36 (`OpenSSL.Random.base36`). Only those can be a name in the folder of
+# the files: whatever else a row holds (it came from a database, not from a visitor) is never turned into a path.
+KEY = /\A[0-9a-z]{4,64}\z/
+# The shape of the type of an original that is sent as it is: `image/...` from a database, with nothing that
+# could carry a line break into a header (`sendable?` also leaves out SVG).
+SENDABLE_TYPE = /\Aimage\/(?:[a-z0-9.+-]+)\z/
 
 def remove_in(tx: Db.Connection, user_id: Int) -> Result[List[String]]
   attached = try Db.query(

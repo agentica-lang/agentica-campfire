@@ -15,9 +15,11 @@ import Views from "views"
 
 ## Adds the route of the sidebar to `app`. It is not in `AuthWeb.PUBLIC_PATHS`, so it needs a sign-in. The page is kept
 ## whole in `pages` for one person and one version of the database (`PageCache`), as the room page is.
-export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, pages: Optional[PageCache.Pages]) -> Bond.App
+def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, pages: Optional[PageCache.Pages]) -> Bond.App
   app |> Bond.get(Routes.SIDEBAR) do |conn| show(conn, pool, cable, pages) end
 end
+
+private
 
 # `none` for a request that has no person, which the sign-in filter does not let through.
 def show(

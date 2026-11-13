@@ -3,7 +3,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 12: create bans.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     12,
     "create bans",
@@ -14,6 +14,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def bans() -> String
   <<~SQL

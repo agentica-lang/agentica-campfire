@@ -1,5 +1,7 @@
 import AuthWeb from "../src/campfire_web/auth"
 
+private
+
 # The paths that skip the sign-in filter and the check of the site are the API of the bots and nothing a browser can
 # reach, so the shape is checked on its own: the router reads the non-empty segments, and so does `bot_api?`.
 def main() -> Void

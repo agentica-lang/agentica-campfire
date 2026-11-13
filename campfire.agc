@@ -6,9 +6,11 @@ import Config from "src/campfire/config"
 import App from "src/campfire_web/app"
 import DataDir from "src/campfire/data_dir"
 
+private
+
 def main() -> Void
   case Config.load()
-    error(message) -> fail(message)
+    error(message) -> fail(message.message)
     ok(config) ->
       made = DataDir.ensure(config.data_dir)
       if not made.ok?

@@ -8,21 +8,11 @@
 import Config from "../config"
 import Smtp from "smtp"
 
-# How long the task waits for a message before it looks at the queue again, and how long `stop` waits for it to
-# finish what is queued before it gives up on it.
-IDLE_MS = 1_000
-STOP_WAIT_MS = 10_000
-
 ## A mailer. `queue` and `worker` are `none` when email is off.
-export struct Mailer
+struct Mailer
   queue: Optional[Channel[Smtp.Message]]
   capacity: Int
   worker: Optional[Task[Result[Void]]]
-end
-
-struct Job
-  queue: Channel[Smtp.Message]
-  options: Smtp.Options
 end
 
 ## Starts the task for these options, or a mailer that sends nothing for `none` (whatever `capacity` is). `capacity`
@@ -30,7 +20,7 @@ end
 ## links that people ask for, one at a time for each person and five minutes apart, so a queue that fills up means a
 ## mail server that is down, and the next messages are dropped, not held. It belongs to the task that calls it, and the
 ## task that it starts owns its queue: if it ever crashes, the queue closes and `enqueue` finds out.
-export def start(options: Optional[Smtp.Options], capacity: Int) -> Result[Mailer]
+def start(options: Optional[Smtp.Options], capacity: Int) -> Result[Mailer]
   case options
     none -> ok(Mailer(queue: none, capacity: 0, worker: none))
     some(chosen) ->
@@ -46,7 +36,7 @@ end
 
 ## One line for the start-up output that says where mail goes, or that it is off. It never has the user or the
 ## password.
-export def status(options: Optional[Smtp.Options]) -> String
+def status(options: Optional[Smtp.Options]) -> String
   case options
     none -> "mail: off (CAMPFIRE_SMTP_URL is not set, so no email is sent)"
     some(chosen) -> "mail: sending through #{chosen.host}:#{chosen.port} (#{security_name(chosen.security)})"
@@ -55,7 +45,7 @@ end
 
 ## True when the app can send email: there is a task and its queue is open. A task that crashed has closed it, so the
 ## pages that need email are not offered after that.
-export def enabled?(mailer: Mailer) -> Bool
+def enabled?(mailer: Mailer) -> Bool
   case mailer.queue
     none -> false
     some(queue) -> not Channel.closed?(queue)
@@ -65,7 +55,7 @@ end
 ## Hands the message to the task and gives true, or gives false (and logs why) when there is no task, the queue is full
 ## or the task has stopped. It never waits and never fails the caller: the page that asks for an email does not change
 ## with the outcome.
-export def enqueue(mailer: Mailer, message: Smtp.Message) -> Bool
+def enqueue(mailer: Mailer, message: Smtp.Message) -> Bool
   case mailer.queue
     none -> false
     some(queue) ->
@@ -85,7 +75,7 @@ end
 ## Sends what is queued and ends the task, waiting for it up to ten seconds (a mail server that does not answer is cut
 ## off then). A task that crashed is not an error here: its crash was reported when it happened. The mailer may not be
 ## used after this.
-export def stop(mailer: Mailer) -> Void
+def stop(mailer: Mailer) -> Void
   case mailer.queue
     none -> return
     some(queue) -> Channel.close(queue)
@@ -100,6 +90,18 @@ export def stop(mailer: Mailer) -> Void
         Await.TimedOut -> give_up(worker, mailer.queue)
       end
   end
+end
+
+private
+
+# How long the task waits for a message before it looks at the queue again, and how long `stop` waits for it to
+# finish what is queued before it gives up on it.
+IDLE_MS = 1_000
+STOP_WAIT_MS = 10_000
+
+struct Job
+  queue: Channel[Smtp.Message]
+  options: Smtp.Options
 end
 
 # The task did not finish in time: it is cut off, and the messages that still wait are counted and dropped (the one

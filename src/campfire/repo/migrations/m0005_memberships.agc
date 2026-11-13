@@ -7,7 +7,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 5: create memberships.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     5,
     "create memberships",
@@ -20,6 +20,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def memberships() -> String
   <<~SQL

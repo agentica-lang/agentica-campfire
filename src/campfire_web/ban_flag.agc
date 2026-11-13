@@ -6,24 +6,20 @@
 import Db from "pkg/db/db"
 import Bans from "../campfire/bans"
 
-KNOWN = "known"
-ANY = "any"
-CHANGES = "changes"
-
 ## A new flag, unknown, shared by every task that gets the handle.
-export def new() -> ATS[String, Int]
+def new() -> ATS[String, Int]
   flag: ATS[String, Int] = ATS.new()
   flag
 end
 
 ## True once the flag has been read or set.
-export def known?(flag: ATS[String, Int]) -> Bool = ATS.has_key?(flag, KNOWN)
+def known?(flag: ATS[String, Int]) -> Bool = ATS.has_key?(flag, KNOWN)
 
 ## True when a ban may exist. An unknown flag says true: the caller reads the table.
-export def any?(flag: ATS[String, Int]) -> Bool = not known?(flag) or ATS.get(flag, ANY).unwrap_or(0) > 0
+def any?(flag: ATS[String, Int]) -> Bool = not known?(flag) or ATS.get(flag, ANY).unwrap_or(0) > 0
 
 ## Sets the flag to `value`. Setting it true counts as a change that a `refresh` in progress must not undo.
-export def mark(flag: ATS[String, Int], value: Bool) -> Void
+def mark(flag: ATS[String, Int], value: Bool) -> Void
   wanted = 0
   if value
     wanted = 1
@@ -38,7 +34,7 @@ end
 ## ban is newer than the read. If a ban set it between the check and the write, the write is undone: the counter is read
 ## again after it, and a move puts the flag back to true. The `mark` that a ban makes after its commit covers a ban whose
 ## mark came before the whole `refresh`.
-export def refresh(flag: ATS[String, Int], conn: Db.Connection) -> Result[Bool]
+def refresh(flag: ATS[String, Int], conn: Db.Connection) -> Result[Bool]
   before = ATS.get(flag, CHANGES).unwrap_or(0)
   found = try Bans.any?(conn)
   if found
@@ -56,3 +52,9 @@ export def refresh(flag: ATS[String, Int], conn: Db.Connection) -> Result[Bool]
 
   ok(false)
 end
+
+private
+
+KNOWN = "known"
+ANY = "any"
+CHANGES = "changes"

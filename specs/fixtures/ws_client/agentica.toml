@@ -5,4 +5,4 @@ name = "campfire-cable-client"
 blank_line_after_end = true
 
 [dependencies]
-websocket-client = { git = "https://github.com/agentica-lang/packages", tag = "websocket-client-0.2.0", subdir = "websocket-client" }
+websocket-client = { git = "https://github.com/agentica-lang/packages", tag = "websocket-client-0.3.0", subdir = "websocket-client" }

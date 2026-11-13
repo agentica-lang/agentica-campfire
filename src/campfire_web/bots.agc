@@ -19,6 +19,38 @@ import Routes from "routes"
 import Views from "views"
 import {Config} from "../campfire/config"
 
+## Adds the routes of the chat bots to `app`. `config` says where the curl lines of the list start.
+def add(app: Bond.App, pool: Database.Pool, config: Config) -> Bond.App
+  on_get_bots = Blocks.handler do |conn|
+    respond(conn, pool) do |_, db, person| list_answer(db, person, BotMessagesWeb.origin(conn, config)) end
+  end
+
+  on_post_bots = Blocks.handler do |conn| respond(conn, pool, &create_answer) end
+  on_get_bot_new = Blocks.handler do |conn| respond(conn, pool, &new_answer) end
+  on_get_bot_edit = Blocks.handler do |conn| respond(conn, pool, &edit_answer) end
+  on_post_bot = Blocks.handler do |conn| post_bot(conn, pool) end
+  on_patch_bot = Blocks.handler do |conn| respond(conn, pool, &rename_answer) end
+  on_put_bot = Blocks.handler do |conn| respond(conn, pool, &rename_answer) end
+  on_delete_bot = Blocks.handler do |conn| respond(conn, pool, &remove_answer) end
+  on_post_bot_key = Blocks.handler do |conn| post_key(conn, pool) end
+
+  (
+    app
+    |> Bond.get(Routes.BOTS, on_get_bots)
+    |> Bond.post(Routes.BOTS, on_post_bots)
+    |> Bond.get(Routes.BOT_NEW, on_get_bot_new)
+    |> Bond.get(Routes.BOT_EDIT, on_get_bot_edit)
+    |> Bond.post(Routes.BOT, on_post_bot)
+    |> Bond.patch(Routes.BOT, on_patch_bot)
+    |> Bond.put(Routes.BOT, on_put_bot)
+    |> Bond.delete(Routes.BOT, on_delete_bot)
+    |> Bond.post(Routes.BOT_KEY, on_post_bot_key)
+    |> Bond.put(Routes.BOT_KEY) do |conn| respond(conn, pool, &key_answer) end
+  )
+end
+
+private
+
 # The name of the field of Rails' form (`params.require(:user)`).
 USER_NAME = "user[name]"
 
@@ -37,36 +69,6 @@ end
 enum Actor
   Administrator(Auth.User)
   Turned(Answer)
-end
-
-## Adds the routes of the chat bots to `app`. `config` says where the curl lines of the list start.
-export def add(app: Bond.App, pool: Database.Pool, config: Config) -> Bond.App
-  on_get_bots = Blocks.handler() do |conn|
-    respond(conn, pool) do |_, db, person| list_answer(db, person, BotMessagesWeb.origin(conn, config)) end
-  end
-
-  on_post_bots = Blocks.handler() do |conn| respond(conn, pool, &create_answer) end
-  on_get_bot_new = Blocks.handler() do |conn| respond(conn, pool, &new_answer) end
-  on_get_bot_edit = Blocks.handler() do |conn| respond(conn, pool, &edit_answer) end
-  on_post_bot = Blocks.handler() do |conn| post_bot(conn, pool) end
-  on_patch_bot = Blocks.handler() do |conn| respond(conn, pool, &rename_answer) end
-  on_put_bot = Blocks.handler() do |conn| respond(conn, pool, &rename_answer) end
-  on_delete_bot = Blocks.handler() do |conn| respond(conn, pool, &remove_answer) end
-  on_post_bot_key = Blocks.handler() do |conn| post_key(conn, pool) end
-
-  (
-    app
-    |> Bond.get(Routes.BOTS, on_get_bots)
-    |> Bond.post(Routes.BOTS, on_post_bots)
-    |> Bond.get(Routes.BOT_NEW, on_get_bot_new)
-    |> Bond.get(Routes.BOT_EDIT, on_get_bot_edit)
-    |> Bond.post(Routes.BOT, on_post_bot)
-    |> Bond.patch(Routes.BOT, on_patch_bot)
-    |> Bond.put(Routes.BOT, on_put_bot)
-    |> Bond.delete(Routes.BOT, on_delete_bot)
-    |> Bond.post(Routes.BOT_KEY, on_post_bot_key)
-    |> Bond.put(Routes.BOT_KEY) do |conn| respond(conn, pool, &key_answer) end
-  )
 end
 
 # A `POST` with `_method` set to `patch` or `put` renames the bot and one set to `delete` removes it, as the forms of

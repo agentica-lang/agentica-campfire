@@ -29,30 +29,134 @@ import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
 
+## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
+## where a new message and a room that is made or renamed are broadcast, and whose stream of a room the room page
+## names. `cache` keeps the markup of the messages that a room page and the older messages write (`MessageCache`),
+## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache. `secure` makes the
+## cookie of the last room `Secure`, as `CAMPFIRE_SECURE_COOKIES` does the session cookie. `max_length` is the most
+## characters that a message may have (`CAMPFIRE_MAX_MESSAGE_LENGTH`), for a new one and for an edit.
+def add(
+  app: Bond.App,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  cache: Optional[Cache.Store],
+  pages: Optional[PageCache.Pages],
+  secure: Bool,
+  max_length: Int,
+) -> Bond.App
+  on_get_room_new = Blocks.handler do |conn| show_new_room(conn, pool) end
+  on_post_rooms = Blocks.handler do |conn| create_room(conn, pool, cable) end
+  on_get_room = Blocks.handler do |conn| show_room(conn, pool, cable, cache, pages, secure) end
+  on_get_room_messages = Blocks.handler do |conn| older_messages(conn, pool, cache, pages) end
+  on_get_room_refresh = Blocks.handler do |conn| show_refresh(conn, pool, cache) end
+  on_get_room_at = Blocks.handler do |conn| show_at(conn, pool, cable, cache, secure) end
+  on_post_room_messages = Blocks.handler do |conn| create_message(conn, pool, cable, cache, max_length) end
+  on_get_closed_room_new = Blocks.handler do |conn| show_new_closed_room(conn, pool) end
+  on_post_closed_rooms = Blocks.handler do |conn| create_closed_room(conn, pool, cable) end
+  on_get_direct_room_new = Blocks.handler do |conn| show_new_direct_room(conn, pool) end
+  on_post_direct_rooms = Blocks.handler do |conn| create_direct_room(conn, pool, cable) end
+  on_get_room_settings = Blocks.handler do |conn| show_settings(conn, pool) end
+  on_post_room_settings = Blocks.handler do |conn| save_settings(conn, pool, cable) end
+  on_get_room_involvement = Blocks.handler do |conn| show_involvement(conn, pool) end
+  on_post_room_involvement = Blocks.handler do |conn| post_involvement(conn, pool) end
+  on_put_room_involvement = Blocks.handler do |conn| save_involvement(conn, pool) end
+  on_post_room = Blocks.handler do |conn| post_room(conn, pool, cable) end
+  on_delete_room = Blocks.handler do |conn| delete_room(conn, pool, cable) end
+  on_get_room_message_edit = Blocks.handler do |conn| edit_message(conn, pool) end
+  on_post_room_message = Blocks.handler do |conn| post_message(conn, pool, cable, max_length) end
+  on_patch_room_message = Blocks.handler do |conn| update_message(conn, pool, cable, max_length) end
+
+  (
+    app
+    |> Bond.get(Routes.ROOM_NEW, on_get_room_new)
+    |> Bond.post(Routes.ROOMS, on_post_rooms)
+    |> Bond.get(Routes.ROOM, on_get_room)
+    |> Bond.get(Routes.ROOM_MESSAGES, on_get_room_messages)
+    |> Bond.get(Routes.ROOM_REFRESH, on_get_room_refresh)
+    |> Bond.get(Routes.ROOM_AT, on_get_room_at)
+    |> Bond.post(Routes.ROOM_MESSAGES, on_post_room_messages)
+    |> Bond.get(Routes.CLOSED_ROOM_NEW, on_get_closed_room_new)
+    |> Bond.post(Routes.CLOSED_ROOMS, on_post_closed_rooms)
+    |> Bond.get(Routes.DIRECT_ROOM_NEW, on_get_direct_room_new)
+    |> Bond.post(Routes.DIRECT_ROOMS, on_post_direct_rooms)
+    |> Bond.get(Routes.ROOM_SETTINGS, on_get_room_settings)
+    |> Bond.post(Routes.ROOM_SETTINGS, on_post_room_settings)
+    |> Bond.get(Routes.ROOM_INVOLVEMENT, on_get_room_involvement)
+    |> Bond.post(Routes.ROOM_INVOLVEMENT, on_post_room_involvement)
+    |> Bond.put(Routes.ROOM_INVOLVEMENT, on_put_room_involvement)
+    |> Bond.post(Routes.ROOM, on_post_room)
+    |> Bond.delete(Routes.ROOM, on_delete_room)
+    |> Bond.get(Routes.ROOM_MESSAGE_EDIT, on_get_room_message_edit)
+    |> Bond.post(Routes.ROOM_MESSAGE, on_post_room_message)
+    |> Bond.patch(Routes.ROOM_MESSAGE, on_patch_room_message)
+    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable) end
+  )
+end
+
+## The home page of the person: it sends them to the room they were in last, or the oldest one they are in (`Rooms.
+## last_visited`), and for a person in no room it is the welcome page, their sidebar and nothing else.
+def home(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
+  wanted = last_room_cookie(conn)
+  answer = try Database.with_connection(pool) do |db| home_answer(conn, db, wanted) end
+  ok(respond(conn, answer))
+end
+
+## The column at the side of a page for the person: their rooms that are not hidden and the ways to make one.
+def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String] = sidebar_without(db, person, -1)
+
+## The sidebar with the room that the page shows left unmarked: it is read by being looked at, and the page cannot wait
+## for the script to say so.
+def sidebar_without(db: Db.Connection, person: Auth.User, open_room: Int) -> Result[String]
+  rooms = try Rooms.visible(db, person.id)
+  unread = try Rooms.unread_ids(db, person.id)
+  can_create = try may_create_rooms?(db, person)
+  ok(Views.sidebar(person.name, rooms, can_create, unread.select do |id| id != open_room end))
+end
+
+## `?before=ID` or `?after=ID`, the message that the page shows the ones before (or after). A value that is not a number
+## is a 400. The messages API of the bots reads its cursors the same way.
+def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
+  values = try Bond.query_all(conn, name)
+  return ok(none) if values.empty?
+
+  parsed = values[0].to_i
+  return Bond.bad_request("#{name} must be a whole number") if not parsed.ok?
+
+  ok(some(parsed.unwrap!))
+end
+
+## The room in the `last_room` cookie, `none` for no cookie and for one that is not a whole number (a client made it up).
+## It is only a wish: `Rooms.last_visited` checks the membership.
+def last_room_cookie(conn: Bond.Conn) -> Optional[Int]
+  sent = Bond.cookie(conn, LAST_ROOM_COOKIE)
+  return none if not sent.ok?
+
+  parsed = sent.unwrap!.to_i
+  return some(parsed.unwrap!) if parsed.ok?
+
+  none
+end
+
+private
+
 # The field names of the form of a message, as Rails nests them (`params.require(:message)`).
 MESSAGE_BODY = "message[body]"
 MESSAGE_CLIENT_ID = "message[client_message_id]"
-
 # `message[format]` says what `message[body]` is: `html` for the HTML of an editor (cleaned, not escaped), anything
 # else, or nothing, for the plain text of the textarea. Rails has no such field because its only form has the editor.
 MESSAGE_FORMAT = "message[format]"
 HTML_FORMAT = "html"
-
 # What a post that asks for a Turbo Stream sends in `Accept`, and what the answer is typed.
 TURBO_STREAM_TYPE = "text/vnd.turbo-stream.html"
-
 # The cookie that remembers the room that the person was in last (`cookies.permanent[:last_room]` of Rails), and how
 # long it lives: 20 years, as Rails' `permanent` is.
 LAST_ROOM_COOKIE = "last_room"
 LAST_ROOM_SECONDS = 20 * 365 * 24 * 60 * 60
-
 # What a save of a level that the room does not offer is told.
 INVOLVEMENT_REFUSED = "That is not a choice for this room"
-
 # The most digits of a `since` that is read as it is; one with more is `SINCE_FAR`, a time that no message is after.
 SINCE_DIGITS = 15
 SINCE_FAR = 1_000_000_000_000_000
-
 # Bytes of randomness in the `client_message_id` of a form, which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
 
@@ -94,114 +198,6 @@ enum Located
   Missing
   Refused
   Found(Rooms.Room, Rooms.Message)
-end
-
-## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
-## where a new message and a room that is made or renamed are broadcast, and whose stream of a room the room page
-## names. `cache` keeps the markup of the messages that a room page and the older messages write (`MessageCache`),
-## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache. `secure` makes the
-## cookie of the last room `Secure`, as `CAMPFIRE_SECURE_COOKIES` does the session cookie. `max_length` is the most
-## characters that a message may have (`CAMPFIRE_MAX_MESSAGE_LENGTH`), for a new one and for an edit.
-export def add(
-  app: Bond.App,
-  pool: Database.Pool,
-  cable: CableWeb.Cable,
-  cache: Optional[Cache.Store],
-  pages: Optional[PageCache.Pages],
-  secure: Bool,
-  max_length: Int,
-) -> Bond.App
-  on_get_room_new = Blocks.handler() do |conn| show_new_room(conn, pool) end
-  on_post_rooms = Blocks.handler() do |conn| create_room(conn, pool, cable) end
-  on_get_room = Blocks.handler() do |conn| show_room(conn, pool, cable, cache, pages, secure) end
-  on_get_room_messages = Blocks.handler() do |conn| older_messages(conn, pool, cache, pages) end
-  on_get_room_refresh = Blocks.handler() do |conn| show_refresh(conn, pool, cache) end
-  on_get_room_at = Blocks.handler() do |conn| show_at(conn, pool, cable, cache, secure) end
-  on_post_room_messages = Blocks.handler() do |conn| create_message(conn, pool, cable, cache, max_length) end
-  on_get_closed_room_new = Blocks.handler() do |conn| show_new_closed_room(conn, pool) end
-  on_post_closed_rooms = Blocks.handler() do |conn| create_closed_room(conn, pool, cable) end
-  on_get_direct_room_new = Blocks.handler() do |conn| show_new_direct_room(conn, pool) end
-  on_post_direct_rooms = Blocks.handler() do |conn| create_direct_room(conn, pool, cable) end
-  on_get_room_settings = Blocks.handler() do |conn| show_settings(conn, pool) end
-  on_post_room_settings = Blocks.handler() do |conn| save_settings(conn, pool, cable) end
-  on_get_room_involvement = Blocks.handler() do |conn| show_involvement(conn, pool) end
-  on_post_room_involvement = Blocks.handler() do |conn| post_involvement(conn, pool) end
-  on_put_room_involvement = Blocks.handler() do |conn| save_involvement(conn, pool) end
-  on_post_room = Blocks.handler() do |conn| post_room(conn, pool, cable) end
-  on_delete_room = Blocks.handler() do |conn| delete_room(conn, pool, cable) end
-  on_get_room_message_edit = Blocks.handler() do |conn| edit_message(conn, pool) end
-  on_post_room_message = Blocks.handler() do |conn| post_message(conn, pool, cable, max_length) end
-  on_patch_room_message = Blocks.handler() do |conn| update_message(conn, pool, cable, max_length) end
-
-  (
-    app
-    |> Bond.get(Routes.ROOM_NEW, on_get_room_new)
-    |> Bond.post(Routes.ROOMS, on_post_rooms)
-    |> Bond.get(Routes.ROOM, on_get_room)
-    |> Bond.get(Routes.ROOM_MESSAGES, on_get_room_messages)
-    |> Bond.get(Routes.ROOM_REFRESH, on_get_room_refresh)
-    |> Bond.get(Routes.ROOM_AT, on_get_room_at)
-    |> Bond.post(Routes.ROOM_MESSAGES, on_post_room_messages)
-    |> Bond.get(Routes.CLOSED_ROOM_NEW, on_get_closed_room_new)
-    |> Bond.post(Routes.CLOSED_ROOMS, on_post_closed_rooms)
-    |> Bond.get(Routes.DIRECT_ROOM_NEW, on_get_direct_room_new)
-    |> Bond.post(Routes.DIRECT_ROOMS, on_post_direct_rooms)
-    |> Bond.get(Routes.ROOM_SETTINGS, on_get_room_settings)
-    |> Bond.post(Routes.ROOM_SETTINGS, on_post_room_settings)
-    |> Bond.get(Routes.ROOM_INVOLVEMENT, on_get_room_involvement)
-    |> Bond.post(Routes.ROOM_INVOLVEMENT, on_post_room_involvement)
-    |> Bond.put(Routes.ROOM_INVOLVEMENT, on_put_room_involvement)
-    |> Bond.post(Routes.ROOM, on_post_room)
-    |> Bond.delete(Routes.ROOM, on_delete_room)
-    |> Bond.get(Routes.ROOM_MESSAGE_EDIT, on_get_room_message_edit)
-    |> Bond.post(Routes.ROOM_MESSAGE, on_post_room_message)
-    |> Bond.patch(Routes.ROOM_MESSAGE, on_patch_room_message)
-    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable) end
-  )
-end
-
-## The home page of the person: it sends them to the room they were in last, or the oldest one they are in (`Rooms.
-## last_visited`), and for a person in no room it is the welcome page, their sidebar and nothing else.
-export def home(conn: Bond.Conn, pool: Database.Pool) -> Result[Bond.Conn]
-  wanted = last_room_cookie(conn)
-  answer = try Database.with_connection(pool) do |db| home_answer(conn, db, wanted) end
-  ok(respond(conn, answer))
-end
-
-## The column at the side of a page for the person: their rooms that are not hidden and the ways to make one.
-export def sidebar_of(db: Db.Connection, person: Auth.User) -> Result[String] = sidebar_without(db, person, -1)
-
-## The sidebar with the room that the page shows left unmarked: it is read by being looked at, and the page cannot wait
-## for the script to say so.
-export def sidebar_without(db: Db.Connection, person: Auth.User, open_room: Int) -> Result[String]
-  rooms = try Rooms.visible(db, person.id)
-  unread = try Rooms.unread_ids(db, person.id)
-  can_create = try may_create_rooms?(db, person)
-  ok(Views.sidebar(person.name, rooms, can_create, unread.select do |id| id != open_room end))
-end
-
-## `?before=ID` or `?after=ID`, the message that the page shows the ones before (or after). A value that is not a number
-## is a 400. The messages API of the bots reads its cursors the same way.
-export def cursor(conn: Bond.Conn, name: String) -> Result[Optional[Int]]
-  values = try Bond.query_all(conn, name)
-  return ok(none) if values.empty?
-
-  parsed = values[0].to_i
-  return Bond.bad_request("#{name} must be a whole number") if not parsed.ok?
-
-  ok(some(parsed.unwrap!))
-end
-
-## The room in the `last_room` cookie, `none` for no cookie and for one that is not a whole number (a client made it up).
-## It is only a wish: `Rooms.last_visited` checks the membership.
-export def last_room_cookie(conn: Bond.Conn) -> Optional[Int]
-  sent = Bond.cookie(conn, LAST_ROOM_COOKIE)
-  return none if not sent.ok?
-
-  parsed = sent.unwrap!.to_i
-  return some(parsed.unwrap!) if parsed.ok?
-
-  none
 end
 
 # Whether the person may make an open or a closed room: an administrator always, anybody else unless the account

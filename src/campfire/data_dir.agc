@@ -3,7 +3,7 @@
 
 ## Makes the folder `path` and the parents that are missing, each with mode 0700, and leaves a folder that exists as it
 ## is. SQLite makes `campfire.db` with the umask, so the private folder is what keeps others out of it.
-export def ensure(path: String) -> Result[Void]
+def ensure(path: String) -> Result[Void]
   parts = path.split("/")
   current = ""
   for index in 0...parts.length

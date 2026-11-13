@@ -1,11 +1,11 @@
 import HtmlSanitizer from "../src/campfire/html_sanitizer"
 
+private
+
 NUL = String.from_code(0)
 LINK_REL = "rel=\"noopener noreferrer\""
-
 # The new tags of the editor, which keep no attribute.
 EDITOR_TAGS = ["u", "mark", "h2", "h3", "h4", "h5", "h6", "sub", "sup", "span", "cite"]
-
 # The names that the output may open or close; the one tag with attributes is the link.
 OUTPUT_TAGS = Set.new([
   "p",
@@ -45,7 +45,6 @@ OUTPUT_TAGS = Set.new([
   "th",
   "td",
 ])
-
 ATTACHMENT = (
   "<action-text-attachment sgid=\"abc\"><figure><img src=\"/x.png\">" +
   "<figcaption>cap</figcaption></figure></action-text-attachment>"
@@ -378,9 +377,9 @@ end
 # The steps of one sanitize of `piece` repeated `times` times.
 def steps_of(piece: String, times: Int) -> Int
   input = List.repeat(piece, times).join("")
-  before = Profile.steps()
+  before = System.Profile.steps()
   HtmlSanitizer.sanitize(input)
-  Profile.steps() - before
+  System.Profile.steps() - before
 end
 
 # Four times the input must cost about four times the steps; a scan that starts again at each tag or each end tag

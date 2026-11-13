@@ -3,6 +3,8 @@ import HTTP from "std/http"
 import Testing from "pkg/bond/testing"
 import Web from "../src/campfire_web/web"
 
+private
+
 # A handler that names its own policy with the name in the casing it likes: Bond keeps the name as written.
 def own(conn: Bond.Conn) -> Result[Bond.Conn]
   ok(Bond.header(Bond.html(conn, 200, "<p>a</p>"), "Cache-Control", "no-store"))

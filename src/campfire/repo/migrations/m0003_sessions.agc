@@ -5,7 +5,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 3: create sessions.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     3,
     "create sessions",
@@ -16,6 +16,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def sessions() -> String
   <<~SQL

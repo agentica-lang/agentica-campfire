@@ -4,9 +4,11 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 11: create webhooks.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(11, "create webhooks", [webhooks(), "create index index_webhooks_on_user_id on webhooks (user_id)"])
 end
+
+private
 
 def webhooks() -> String
   <<~SQL

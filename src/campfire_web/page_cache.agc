@@ -59,48 +59,20 @@ import Auth from "../campfire/auth"
 import Database from "../campfire/repo/database"
 import Routes from "routes"
 
-# What a megabyte of `CAMPFIRE_RESPONSE_CACHE_MB` is.
-BYTES_PER_MB = 1024 * 1024
-
-# `W/"` and 32 hex digits and `"`: the tag has this length always, so the cached text is the tag followed by the page.
-ETAG_WIDTH = 36
-ETAG_DIGITS = 32
-
 # The kinds of page: the room page, the fragment of the older messages, the one of the messages after a message, the
 # sidebar and the search.
-export ROOM = "room"
-export MESSAGES = "messages"
-export AFTER = "after"
-export SIDEBAR = "sidebar"
-export SEARCH = "search"
+ROOM = "room"
+MESSAGES = "messages"
+AFTER = "after"
+SIDEBAR = "sidebar"
+SEARCH = "search"
 ## The kind of the answer of an avatar link, which is the same for everybody who is signed in (`shared_spot`).
-export AVATAR = "avatar"
-
-# The content type that `Bond.html` sets, for a page answered as bytes.
-HTML_TYPE = "text/html; charset=utf-8"
-
-# Where the sign-in filter keeps the version of the database for the handler (`Bond.assign`).
-VERSION_KEY = "database_version"
-
-# The version that `watch` keeps when the observer failed: no real version is empty.
-UNREADABLE = ""
-
-# How much of the digest of the words of a search goes in the stamp of its page.
-QUERY_DIGITS = 32
-
-# How much of the digest of the name and the role of the person goes in the key.
-SEEN_DIGITS = 16
-
+AVATAR = "avatar"
 ## What Rails sends for a page that says nothing else: the browser keeps a copy but asks again each time.
-export CACHE_CONTROL = "max-age=0, private, must-revalidate"
-
-# The version of the database that a request was made at, as it is assigned.
-struct Version
-  text: String
-end
+CACHE_CONTROL = "max-age=0, private, must-revalidate"
 
 ## The cache and the connection that watches the database for it.
-export struct Pages
+struct Pages
   store: Cache.Store
   people: Cache.Store
   search_slots: Int
@@ -110,7 +82,7 @@ end
 
 ## A page and its tag. The body is `Bytes`: the page is sent as bytes, and a cached page is cut out of the cached text
 ## by bytes (`unpack`), since `String.slice` walks every character of a text that has a non-ASCII one.
-export struct Page
+struct Page
   etag: String
   body: Bytes
 end
@@ -118,7 +90,7 @@ end
 ## Where a page of a request is kept: the cache and the key. A `stamp` that is not empty is what a page at a key that
 ## does not name its version is kept with (a search page or a page of older messages: the version, the state of the
 ## person and what the page was made for), and it must be the stamp of the page that is looked up.
-export struct Spot
+struct Spot
   pages: Pages
   key: String
   stamp: String
@@ -127,7 +99,7 @@ end
 ## The cache for `megabytes` of pages, `search_slots` search pages and `cursor_slots` pages of each kind of older
 ## messages for each person and `session_mb` megabytes for the people of the sessions, and its observer of the database
 ## at `url`, or `none` for 0 megabytes of pages, which turns it off. An `error` is an observer that does not open.
-export def start(
+def start(
   megabytes: Int,
   search_slots: Int,
   cursor_slots: Int,
@@ -151,7 +123,7 @@ export def start(
 end
 
 ## Closes the observer of `pages`, if there are any.
-export def stop(pages: Optional[Pages]) -> Void
+def stop(pages: Optional[Pages]) -> Void
   case pages
     none -> return
     some(found) -> Database.close_observer(found.observer)
@@ -165,7 +137,7 @@ end
 ## (the page is then made and not kept). The name and the role of the person are in the key (or in the stamp, for the
 ## older messages, which are kept in one of the `cursor_slots` places of the person), so the pages of two states of one
 ## person are never mixed, whichever lookup gave the person.
-export def spot(
+def spot(
   pages: Optional[Pages],
   seen: Optional[String],
   kind: String,
@@ -183,7 +155,7 @@ export def spot(
 end
 
 ## Where the sidebar page of `person` goes (see `spot`).
-export def sidebar_spot(pages: Optional[Pages], seen: Optional[String], person: Auth.User) -> Optional[Spot]
+def sidebar_spot(pages: Optional[Pages], seen: Optional[String], person: Auth.User) -> Optional[Spot]
   located(pages, seen, SIDEBAR, person, "")
 end
 
@@ -191,7 +163,7 @@ end
 ## person, which the words choose, kept with the version, the state of the person, the words and `wanted`, the room of
 ## the `last_room` cookie: the page links back to a room that the cookie picks (`RoomsWeb.last_room_cookie`), which no
 ## commit changes, so the cookie is part of the stamp, as the words are.
-export def search_spot(
+def search_spot(
   pages: Optional[Pages],
   seen: Optional[String],
   person: Auth.User,
@@ -220,7 +192,7 @@ end
 
 ## Where an answer of `kind` that does not depend on the person goes, as the database is now (see `spot`), `scope`
 ## being what names it (the id of the user of an avatar). It is kept for the version only, so any commit makes it a miss.
-export def shared_spot(pages: Optional[Pages], seen: Optional[String], kind: String, scope: String) -> Optional[Spot]
+def shared_spot(pages: Optional[Pages], seen: Optional[String], kind: String, scope: String) -> Optional[Spot]
   case pages
     none -> none
     some(found) ->
@@ -232,7 +204,7 @@ export def shared_spot(pages: Optional[Pages], seen: Optional[String], kind: Str
 end
 
 ## The text kept at `spot`, if there is one.
-export def recall(spot: Optional[Spot]) -> Optional[String]
+def recall(spot: Optional[Spot]) -> Optional[String]
   case spot
     none -> none
     some(found) -> Cache.get(found.pages.store, found.key)
@@ -240,7 +212,7 @@ export def recall(spot: Optional[Spot]) -> Optional[String]
 end
 
 ## Keeps `text` at `spot`, if there is one.
-export def remember(spot: Optional[Spot], text: String) -> Void
+def remember(spot: Optional[Spot], text: String) -> Void
   case spot
     none -> return
     some(found) -> Cache.put(found.pages.store, found.key, text)
@@ -249,7 +221,7 @@ end
 
 ## Whether the page at `path` is one that the cache keeps (a room page, the older messages, the sidebar, the search) or
 ## the answer of an avatar link, so that the sign-in filter reads the version for it and for no other.
-export def cached?(path: String) -> Bool
+def cached?(path: String) -> Bool
   return true if path == Routes.SIDEBAR or path == Routes.SEARCHES
 
   parts = path.split("/")
@@ -265,7 +237,7 @@ end
 ## as it is when there is no cache. The sign-in filter calls it before it looks the person up, so everything that the
 ## request then reads is at that version or later. A version that cannot be read is kept as unreadable, so that the
 ## handler does not read the observer again: nothing is kept for the request.
-export def watch(conn: Bond.Conn, pages: Optional[Pages]) -> Bond.Conn
+def watch(conn: Bond.Conn, pages: Optional[Pages]) -> Bond.Conn
   case pages
     none -> conn
     some(found) ->
@@ -277,7 +249,7 @@ end
 ## The version of the database now, for a reader that keeps what it reads under it (the checks of `/cable`: what is
 ## kept under a version is what the database held at that version or later, so a commit makes it a miss). `none` with
 ## no cache, or when the observer cannot read the version: such a reader reads the database.
-export def current_version(pages: Optional[Pages]) -> Optional[String]
+def current_version(pages: Optional[Pages]) -> Optional[String]
   case pages
     none -> none
     some(found) ->
@@ -290,7 +262,7 @@ end
 
 ## The version that `watch` kept for the request, if it did (empty if the observer failed: the spots and the kept
 ## people take it as no version).
-export def seen(conn: Bond.Conn) -> Optional[String]
+def seen(conn: Bond.Conn) -> Optional[String]
   return none if not Bond.assigned?(conn, VERSION_KEY)
 
   version = Bond.assigned(conn, VERSION_KEY, Version.codec)
@@ -301,7 +273,7 @@ end
 
 ## The person of the session with `token`, if the database is at the version that `watch` read, the person was kept at
 ## it (`remember_user`) and the session has not ended since.
-export def known_user(pages: Optional[Pages], seen: Optional[String], token: String) -> Optional[Auth.User]
+def known_user(pages: Optional[Pages], seen: Optional[String], token: String) -> Optional[Auth.User]
   case pages
     none -> none
     some(found) -> recalled(found, seen, token)
@@ -311,7 +283,7 @@ end
 ## Keeps the session with `token` for the version `seen`. A session that is ended, or a person who is deactivated,
 ## banned, renamed or changed, is a commit, so it is another version; a session that grows too old is not (no one has to
 ## commit), so the time it ends at is kept with the person, and `known_user` refuses the person after it.
-export def remember_user(pages: Optional[Pages], seen: Optional[String], token: String, session: Auth.Session) -> Void
+def remember_user(pages: Optional[Pages], seen: Optional[String], token: String, session: Auth.Session) -> Void
   case pages
     none -> return
     some(found) ->
@@ -325,7 +297,7 @@ export def remember_user(pages: Optional[Pages], seen: Optional[String], token: 
 end
 
 ## The page that is kept at `spot`, if there is one.
-export def lookup(spot: Optional[Spot]) -> Optional[Page]
+def lookup(spot: Optional[Spot]) -> Optional[Page]
   case spot
     none -> none
     some(found) -> unpack(found, Cache.get(found.pages.store, found.key))
@@ -333,7 +305,7 @@ export def lookup(spot: Optional[Spot]) -> Optional[Page]
 end
 
 ## The page for `html`, with its tag, kept at `spot` when there is one.
-export def keep(spot: Optional[Spot], html: String) -> Page
+def keep(spot: Optional[Spot], html: String) -> Page
   digest = OpenSSL.Digest.sha256_hexdigest(html.bytes).slice(0, ETAG_DIGITS)
   etag = "W/\"#{digest}\""
   case spot
@@ -345,10 +317,33 @@ export def keep(spot: Optional[Spot], html: String) -> Page
 end
 
 ## The answer for `page`: a 304 when `If-None-Match` of the request names its tag, else a 200 with the page.
-export def respond(conn: Bond.Conn, page: Page) -> Bond.Conn
+def respond(conn: Bond.Conn, page: Page) -> Bond.Conn
   return tagged(Bond.status(conn, 304), page) if matches?(conn, page.etag)
 
   tagged(Bond.header(Bond.bytes(conn, 200, page.body), "content-type", HTML_TYPE), page)
+end
+
+private
+
+# What a megabyte of `CAMPFIRE_RESPONSE_CACHE_MB` is.
+BYTES_PER_MB = 1024 * 1024
+# `W/"` and 32 hex digits and `"`: the tag has this length always, so the cached text is the tag followed by the page.
+ETAG_WIDTH = 36
+ETAG_DIGITS = 32
+# The content type that `Bond.html` sets, for a page answered as bytes.
+HTML_TYPE = "text/html; charset=utf-8"
+# Where the sign-in filter keeps the version of the database for the handler (`Bond.assign`).
+VERSION_KEY = "database_version"
+# The version that `watch` keeps when the observer failed: no real version is empty.
+UNREADABLE = ""
+# How much of the digest of the words of a search goes in the stamp of its page.
+QUERY_DIGITS = 32
+# How much of the digest of the name and the role of the person goes in the key.
+SEEN_DIGITS = 16
+
+# The version of the database that a request was made at, as it is assigned.
+struct Version
+  text: String
 end
 
 # The place of the older messages of `kind` that the hash of the room and the cursor chooses among the `cursor_slots`

@@ -4,7 +4,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 14: create push subscriptions.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     14,
     "create push subscriptions",
@@ -16,6 +16,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def push_subscriptions() -> String
   <<~SQL

@@ -10,28 +10,19 @@ import Rooms from "rooms"
 import {text_of} from "repo/rows"
 
 ## The most messages that a search gives.
-export MAX_MESSAGES = 100
-
+MAX_MESSAGES = 100
 ## How many recent searches a person keeps (`trim_recent_searches` of `Search`).
-export RECENT = 10
-
+RECENT = 10
 ## The most words of a query that a search uses: the rest is dropped, so a long query string cannot make thousands of
 ## phrases for the index. Rails has no limit; nobody types more.
-export MAX_WORDS = 50
-
+MAX_WORDS = 50
 ## The longest query that is remembered, in characters. Rails has no limit; this one keeps a table of tens of kilobytes
 ## out of reach of whoever posts one.
-export MAX_QUERY_LENGTH = 200
-
-# What `params[:q].gsub(/[^[:word:]]/, " ")` of `SearchesController` removes. `[:word:]` is every letter, mark, number
-# and connector of Unicode; here, every character that is not ASCII counts as a word character, so a word in any
-# script stays whole and the tokenizer of the index (which knows Unicode) decides what is a letter. A stray symbol
-# that this keeps goes inside quotes and is only text there.
-NOT_WORD = /[^0-9A-Za-z_\x{80}-\x{10FFFF}]+/
+MAX_QUERY_LENGTH = 200
 
 ## The words of what a person typed, with one space between them: `Coffee, & tea!` is `Coffee tea`. Everything that is
 ## not a letter, digit or `_` is a separator, as `SearchesController#query` does. At most `MAX_WORDS` are kept. It is "" when nothing is left.
-export def words(typed: String) -> String
+def words(typed: String) -> String
   spaced = Regex.replace(typed, NOT_WORD, " ")
   spaced.unwrap_or("").strip.split(" ").take(MAX_WORDS).join(" ")
 end
@@ -39,7 +30,7 @@ end
 ## The FTS5 expression for `query` (the result of `words`): each word in double quotes, so FTS5 reads it as text and
 ## not as an operator, and a quote inside a word is doubled (`Message.match_terms` of Rails). Words are joined by a
 ## space, which FTS5 reads as `AND`. `words` has no quote left, so the doubling is a second guard.
-export def match(query: String) -> String
+def match(query: String) -> String
   parts = query.split(" ").select do |word| not word.empty? end
   quoted = parts.map do |word| "\"#{word.replace("\"", "\"\"")}\"" end
   quoted.join(" ")
@@ -49,7 +40,7 @@ end
 ## first, which is how the page shows them. `query` is `words` of what was typed: with no word there is nothing to
 ## search for, and no message is read. The order is the index's `rowid`, which is the message id, so SQLite can read the
 ## index from its newest end, but matches in rooms the person is not in are read and skipped.
-export def messages(conn: Db.Connection, user_id: Int, query: String) -> Result[List[Rooms.Message]]
+def messages(conn: Db.Connection, user_id: Int, query: String) -> Result[List[Rooms.Message]]
   return ok([]) if query.empty?
 
   rows = try Db.query(
@@ -66,12 +57,12 @@ end
 
 ## Remembers `query` (the result of `words`) for the person: one that they searched for before moves to the front, and
 ## only the `RECENT` last are kept. The three statements are one transaction, so two searches at once do not keep more.
-export def record(conn: Db.Connection, user_id: Int, query: String) -> Result[Void]
+def record(conn: Db.Connection, user_id: Int, query: String) -> Result[Void]
   Db.transaction(conn) do |tx| record_in(tx, user_id, query) end
 end
 
 ## The queries that the person searched for, the latest first.
-export def recent(conn: Db.Connection, user_id: Int) -> Result[List[String]]
+def recent(conn: Db.Connection, user_id: Int) -> Result[List[String]]
   rows = try Db.query(
     conn,
     "select query from searches where user_id = ? order by updated_at desc, id desc limit ?",
@@ -83,9 +74,17 @@ end
 
 ## Forgets every recent search of the person and no one else's (`Current.user.searches.destroy_all` of
 ## `SearchesController#clear`). It gives how many it removed.
-export def clear(conn: Db.Connection, user_id: Int) -> Result[Int]
+def clear(conn: Db.Connection, user_id: Int) -> Result[Int]
   Db.execute(conn, "delete from searches where user_id = ?", [Db.Value.Int(user_id)])
 end
+
+private
+
+# What `params[:q].gsub(/[^[:word:]]/, " ")` of `SearchesController` removes. `[:word:]` is every letter, mark, number
+# and connector of Unicode; here, every character that is not ASCII counts as a word character, so a word in any
+# script stays whole and the tokenizer of the index (which knows Unicode) decides what is a letter. A stray symbol
+# that this keeps goes inside quotes and is only text there.
+NOT_WORD = /[^0-9A-Za-z_\x{80}-\x{10FFFF}]+/
 
 def record_in(tx: Db.Connection, user_id: Int, query: String) -> Result[Void]
   touched = try Db.execute(

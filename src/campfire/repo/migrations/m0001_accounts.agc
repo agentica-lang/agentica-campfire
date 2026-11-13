@@ -5,13 +5,15 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 1: create accounts.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     1,
     "create accounts",
     [accounts(), "create unique index index_accounts_on_singleton_guard on accounts (singleton_guard)"],
   )
 end
+
+private
 
 def accounts() -> String
   <<~SQL

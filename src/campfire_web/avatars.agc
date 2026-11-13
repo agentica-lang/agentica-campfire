@@ -22,20 +22,9 @@ import Routes from "routes"
 import SignedId from "../campfire/signed_id"
 import Views from "views"
 
-# `expires_in 30.minutes, stale_while_revalidate: 1.week` of the controller of Rails, but `private`: Rails
-# says `public`,
-# yet the route needs a sign-in, so a shared cache must not hand the picture to someone who is not signed in.
-CACHE_CONTROL = "private, max-age=1800, stale-while-revalidate=604800"
-SVG_TYPE = "image/svg+xml; charset=utf-8"
-
-# The marks of the kept forms of an answer (`encode`).
-STORED_MARK = "S"
-INITIALS_MARK = "I\n"
-MISSING_MARK = "M"
-
 # What the handler found while its connection was open. The stored file (its path and its type) is sent after it is
 # closed, since a download can take long and the connection is not needed for it.
-export enum Answer
+enum Answer
   Stored(String, String)
   Initials(String)
   Missing
@@ -43,7 +32,7 @@ end
 
 ## Adds the route of the avatars to `app`. `key` is `SignedId.key` of the `SECRET_KEY_BASE`, `none` without one (every
 ## link is then a 404), and `storage_dir` the folder of the files of Active Storage.
-export def add(
+def add(
   app: Bond.App,
   pool: Database.Pool,
   pages: Optional[PageCache.Pages],
@@ -54,7 +43,7 @@ export def add(
 end
 
 ## The answer in the kept form `text`, `none` for a text that `encode` did not write.
-export def decode(text: String) -> Optional[Answer]
+def decode(text: String) -> Optional[Answer]
   if text.start_with?(STORED_MARK)
     parts = text.split("\n")
     return some(Answer.Stored(parts[2], parts[1])) if parts.size == 3
@@ -74,13 +63,25 @@ end
 
 ## The kept form of an answer: a mark, then its parts. The type and the path of a stored file have no line break (the
 ## type is checked in `Avatars`, the path is made from a checked key), so the line break separates them.
-export def encode(answer: Answer) -> String
+def encode(answer: Answer) -> String
   case answer
     Answer.Stored(path, content_type) -> "#{STORED_MARK}\n#{content_type}\n#{path}"
     Answer.Initials(svg) -> INITIALS_MARK + svg
     Answer.Missing -> MISSING_MARK
   end
 end
+
+private
+
+# `expires_in 30.minutes, stale_while_revalidate: 1.week` of the controller of Rails, but `private`: Rails
+# says `public`,
+# yet the route needs a sign-in, so a shared cache must not hand the picture to someone who is not signed in.
+CACHE_CONTROL = "private, max-age=1800, stale-while-revalidate=604800"
+SVG_TYPE = "image/svg+xml; charset=utf-8"
+# The marks of the kept forms of an answer (`encode`).
+STORED_MARK = "S"
+INITIALS_MARK = "I\n"
+MISSING_MARK = "M"
 
 def show(
   conn: Bond.Conn,

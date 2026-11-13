@@ -21,70 +21,19 @@ export Mail.Envelope
 
 # The ports that the `smtp://` and `smtps://` urls of the config use when they name none: STARTTLS on 587 and implicit
 # TLS on 465 (RFC 6409 and 8314).
-export STARTTLS_PORT = 587
-export IMPLICIT_TLS_PORT = 465
-
+STARTTLS_PORT = 587
+IMPLICIT_TLS_PORT = 465
 # A server that does not answer in a minute is not coming back (the default of aiosmtplib too).
-export DEFAULT_TIMEOUT_MS = 60_000
-
+DEFAULT_TIMEOUT_MS = 60_000
 # RFC 5321 4.5.3.2.6: the server may take 10 minutes to accept the message (it scans it, or stores it, before it says
 # 250), so the end of the message has its own, longer wait.
-export DEFAULT_DATA_TIMEOUT_MS = 600_000
-
-# The most lines a reply may have, so that a server cannot keep a client reading.
-MAX_REPLY_LINES = 100
-
-# RFC 5321 4.5.3.1.5 allows a reply line 512 octets with its CRLF, so 510 once the line is read without it. A client
-# has no use for a whole reply of more than 32 KiB: 100 lines of 510 octets would be 51,000, so this is the limit that
-# a server of many long lines meets first.
-MAX_REPLY_LINE_BYTES = 510
-MAX_REPLY_BYTES = 32_768
-
-# The server text that goes into an error is cut here: it comes from the other side.
-MAX_ERROR_TEXT = 200
-
-# The reply codes the dialogue waits for.
-CODE_READY = 220
-CODE_OK = 250
-CODE_AUTHENTICATED = 235
-CODE_CHALLENGE = 334
-CODE_START_DATA = 354
-CODE_CLOSING = 221
-CODE_FORWARDED = 251
-CODE_UNAVAILABLE = 421
-MIN_REPLY_CODE = 200
-MAX_REPLY_CODE = 599
-
-# The code points of the Unicode line, bidirectional and zero-width controls that `server_text` drops (the C1
-# controls, 127 to 159, are a range of their own).
-ARABIC_LETTER_MARK = 0x061C
-ZERO_WIDTH_SPACE = 0x200B
-ZERO_WIDTH_JOINER = 0x200D
-LEFT_TO_RIGHT_MARK = 0x200E
-RIGHT_TO_LEFT_MARK = 0x200F
-LINE_SEPARATOR = 0x2028
-RIGHT_TO_LEFT_OVERRIDE = 0x202E
-LEFT_TO_RIGHT_ISOLATE = 0x2066
-POP_DIRECTIONAL_ISOLATE = 0x2069
-INHIBIT_SYMMETRIC_SWAPPING = 0x206A
-NOMINAL_DIGIT_SHAPES = 0x206F
-BYTE_ORDER_MARK = 0xFEFF
-
-AUTH_FAILED = "authentication failed"
-
-CRLF = "\r\n"
-
-# The errors that tell a reply start `smtp NNN:` (see `expect`); `error_code` reads the code back from there.
-ERROR_PREFIX = "smtp "
-ERROR_CODE_DIGITS = 3
-CODE_FIRST_REFUSAL = 400
-NUL = String.from_code(0)
+DEFAULT_DATA_TIMEOUT_MS = 600_000
 
 ## How the connection is protected. `Starttls` starts in plain text and upgrades with STARTTLS, which the server must
 ## offer (port 587). `Implicit` is TLS from the first byte (port 465). `Plain` never uses TLS and is only for a host
 ## on this machine (`localhost`, `127.0.0.0/8`, `::1`), such as a mail catcher in development: any other host is an
 ## error.
-export enum Security
+enum Security
   Starttls
   Implicit
   Plain
@@ -95,7 +44,7 @@ end
 ## `ca_file` is a PEM file of certificate authorities that replaces the system's. `timeout_ms` is the time for each
 ## connection, each reply and each write, and `data_timeout_ms` the time for the reply after the message. `password`
 ## is a secret: never print or log an `Options`.
-export struct Options
+struct Options
   host: String
   local_hostname: String
   port: Int = STARTTLS_PORT
@@ -108,27 +57,16 @@ export struct Options
 end
 
 ## An open connection to a server. It belongs to the task that opened it, as every socket does.
-export struct Client
-  socket: Socket
+struct Client
+  socket: TCP.Socket
   options: Options
   secure: Bool
   features: List[String]
 end
 
-struct Reply
-  code: Int
-  lines: List[String]
-end
-
-# What `send_message` needs from a message, checked before a connection is made.
-struct Prepared
-  envelope: Mail.Envelope
-  data: String
-end
-
 ## Sends one message: connects, logs in when the options have a username, sends and quits. The connection is closed
 ## in every case. The message is checked first, so a bad message never opens a connection.
-export def send(message: Mail.Message, options: Options) -> Result[Void]
+def send(message: Mail.Message, options: Options) -> Result[Void]
   prepared = try prepare(message)
   client = try connect(options)
   sent = deliver(client, prepared)
@@ -145,14 +83,14 @@ end
 ## Opens the connection, reads the greeting, says EHLO, upgrades with STARTTLS (for `Security.Starttls`) and logs in
 ## (when `username` is not empty). On an `error` nothing stays open. The `Client` that it gives no longer holds the
 ## password: it is not needed once the login is done.
-export def connect(options: Options) -> Result[Client]
+def connect(options: Options) -> Result[Client]
   opened = try open(options)
   setup(opened)
 end
 
 ## Opens a TCP connection (TLS from the start for `Security.Implicit`) and reads the greeting of the server. The
 ## client has not said EHLO yet. The host is taken without the spaces around it, here and for every later use.
-export def open(options: Options) -> Result[Client]
+def open(options: Options) -> Result[Client]
   host = options.host.strip
   if options.security == Security.Plain and not loopback?(host)
     return error("smtp: a plain connection is only allowed to this machine, not to #{host}")
@@ -181,7 +119,7 @@ end
 ## Says EHLO and keeps the features that the server lists (`STARTTLS`, `AUTH PLAIN LOGIN`). The connection is closed
 ## by an `error` that is not a refusal (a timeout, a line that is not a reply, a broken connection) and by a 421; it
 ## stays open for any other refusal, and for a bad `local_hostname`, which sends nothing.
-export def ehlo(client: Client) -> Result[Client]
+def ehlo(client: Client) -> Result[Client]
   name = client.options.local_hostname
   if name.empty? or name.include?(" ") or name.bytes.to_a.any? do |byte| byte < 32 or byte > 126 end
     return error("smtp: the local hostname #{name.inspect} is not a host name")
@@ -205,7 +143,7 @@ end
 ## closed: a caller never has to find a half-upgraded one. The `error`s that leave it open are the one for a server
 ## without STARTTLS, which is no reason to give up the connection (but nothing is sent over it either), and the one
 ## for a connection that is already encrypted, which nothing was sent over.
-export def starttls(client: Client) -> Result[Client]
+def starttls(client: Client) -> Result[Client]
   return error("smtp: the connection is already encrypted") if client.secure
 
   if not offers?(client, "STARTTLS")
@@ -225,7 +163,7 @@ end
 ## over a connection that is plain (only possible to this machine), are an `error` that sends nothing and leaves the
 ## connection open. An `error` for a reply that refuses the login leaves it open too, except a 421; one that is no
 ## reply (a timeout, a broken connection) closes it.
-export def login(client: Client, username: String, password: String) -> Result[Void]
+def login(client: Client, username: String, password: String) -> Result[Void]
   if not client.secure and not loopback?(client.options.host)
     return error("smtp: the password is only sent over an encrypted connection")
   end
@@ -255,13 +193,13 @@ end
 ## reset for the next message and the `error` has the code of the refusal. An error without a code that comes from the
 ## dialogue (a timeout, a line that is not a reply) closes the connection, and so does a 421. A bad message, and a
 ## connection that is plain to a host that is not this machine (nothing is sent: use `starttls`), leave it as it is.
-export def send_message(client: Client, message: Mail.Message) -> Result[Void]
+def send_message(client: Client, message: Mail.Message) -> Result[Void]
   prepared = try prepare(message)
   deliver(client, prepared)
 end
 
 ## Says QUIT and closes the connection, even when the server does not answer.
-export def quit(client: Client) -> Result[Void]
+def quit(client: Client) -> Result[Void]
   reply = ask(client, "QUIT", "QUIT", [CODE_CLOSING], "QUIT refused")
   close(client)
   return error(reply.message) if not reply.ok?
@@ -270,13 +208,13 @@ export def quit(client: Client) -> Result[Void]
 end
 
 ## Closes the connection without saying QUIT.
-export def close(client: Client) -> Void
+def close(client: Client) -> Void
   TCP.close(client.socket)
 end
 
 ## The code of the reply that an `error` of this module tells, or `none` for an error that has no reply (a timeout, a
 ## broken connection, a bad message).
-export def error_code(message: String) -> Optional[Int]
+def error_code(message: String) -> Optional[Int]
   colon = ERROR_PREFIX.length + ERROR_CODE_DIGITS
   return none if not message.start_with?(ERROR_PREFIX) or message.length <= colon or message.slice(colon, 1) != ":"
 
@@ -290,7 +228,7 @@ end
 ## (`smtp 550: a recipient was refused`), or the first words of an error without a code (`smtp: timed out waiting for
 ## the reply to RCPT TO`). It has no server text, no address and no system message. Anything else (a message that is
 ## not valid, whose error names what is wrong with it, such as an address) is `the message was not valid`.
-export def error_summary(message: String) -> String
+def error_summary(message: String) -> String
   parts = message.split(": ")
   return "#{parts[0]}: #{parts[1]}" if error_code(message).some? and parts.size > 1
 
@@ -301,7 +239,7 @@ end
 
 ## True for a host on this machine: `localhost`, an address of `127.0.0.0/8` and `::1`. A name that only starts with
 ## `127.` is not.
-export def loopback?(host: String) -> Bool
+def loopback?(host: String) -> Bool
   name = host.strip.downcase
   return true if name == "localhost" or name == "::1" or name == "[::1]"
 
@@ -309,6 +247,61 @@ export def loopback?(host: String) -> Bool
   return false if parts.size != 4 or parts[0] != "127"
 
   parts.all? do |part| octet?(part) end
+end
+
+private
+
+# The most lines a reply may have, so that a server cannot keep a client reading.
+MAX_REPLY_LINES = 100
+# RFC 5321 4.5.3.1.5 allows a reply line 512 octets with its CRLF, so 510 once the line is read without it. A client
+# has no use for a whole reply of more than 32 KiB: 100 lines of 510 octets would be 51,000, so this is the limit that
+# a server of many long lines meets first.
+MAX_REPLY_LINE_BYTES = 510
+MAX_REPLY_BYTES = 32_768
+# The server text that goes into an error is cut here: it comes from the other side.
+MAX_ERROR_TEXT = 200
+# The reply codes the dialogue waits for.
+CODE_READY = 220
+CODE_OK = 250
+CODE_AUTHENTICATED = 235
+CODE_CHALLENGE = 334
+CODE_START_DATA = 354
+CODE_CLOSING = 221
+CODE_FORWARDED = 251
+CODE_UNAVAILABLE = 421
+MIN_REPLY_CODE = 200
+MAX_REPLY_CODE = 599
+# The code points of the Unicode line, bidirectional and zero-width controls that `server_text` drops (the C1
+# controls, 127 to 159, are a range of their own).
+ARABIC_LETTER_MARK = 0x061C
+ZERO_WIDTH_SPACE = 0x200B
+ZERO_WIDTH_JOINER = 0x200D
+LEFT_TO_RIGHT_MARK = 0x200E
+RIGHT_TO_LEFT_MARK = 0x200F
+LINE_SEPARATOR = 0x2028
+RIGHT_TO_LEFT_OVERRIDE = 0x202E
+LEFT_TO_RIGHT_ISOLATE = 0x2066
+POP_DIRECTIONAL_ISOLATE = 0x2069
+INHIBIT_SYMMETRIC_SWAPPING = 0x206A
+NOMINAL_DIGIT_SHAPES = 0x206F
+BYTE_ORDER_MARK = 0xFEFF
+AUTH_FAILED = "authentication failed"
+CRLF = "\r\n"
+# The errors that tell a reply start `smtp NNN:` (see `expect`); `error_code` reads the code back from there.
+ERROR_PREFIX = "smtp "
+ERROR_CODE_DIGITS = 3
+CODE_FIRST_REFUSAL = 400
+NUL = String.from_code(0)
+
+struct Reply
+  code: Int
+  lines: List[String]
+end
+
+# What `send_message` needs from a message, checked before a connection is made.
+struct Prepared
+  envelope: Mail.Envelope
+  data: String
 end
 
 def octet?(part: String) -> Bool
@@ -373,7 +366,7 @@ def setup(opened: Client) -> Result[Client]
   ok(client.with(options: client.options.with(password: "")))
 end
 
-def connect_socket(options: Options) -> Result[Socket]
+def connect_socket(options: Options) -> Result[TCP.Socket]
   if options.security == Security.Implicit
     context = try tls_context(options)
     return connected(TLS.connect(tls_host(options.host), options.port, context, options.timeout_ms))
@@ -384,14 +377,14 @@ end
 
 # The system's message names the host and the port, and is more than one line: it goes after the part that a summary
 # keeps.
-def connected(socket: Result[Socket]) -> Result[Socket]
+def connected(socket: Result[TCP.Socket]) -> Result[TCP.Socket]
   return socket if socket.ok?
 
   error(network_failure(socket.message, "connecting"))
 end
 
-def tls_context(options: Options) -> Result[TlsContext]
-  context = TLS.client_context(TlsClientOptions(ca_file: options.ca_file))
+def tls_context(options: Options) -> Result[TLS.Context]
+  context = TLS.client_context(TLS.ClientOptions(ca_file: options.ca_file))
   return error(network_failure(context.message, "setting up TLS")) if not context.ok?
 
   context

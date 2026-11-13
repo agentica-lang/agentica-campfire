@@ -6,7 +6,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 9: create message search index.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     9,
     "create message search index",

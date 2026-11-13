@@ -23,6 +23,8 @@ import Migrations from "../src/campfire/repo/migrations"
 import Rails from "../src/campfire/repo/rails"
 import Rooms from "../src/campfire/rooms"
 
+private
+
 DB_DIR = "db_dir"
 DB_URL = "db_url"
 RAILS_URL = "rails_url"
@@ -940,7 +942,7 @@ def copy_path(source: String, to: String) -> Result[Void]
   copied
 end
 
-def copy_bytes(from: FileHandle, target: FileHandle) -> Result[Void]
+def copy_bytes(from: File.Handle, target: File.Handle) -> Result[Void]
   while true
     chunk = try File.read_bytes(from, COPY_CHUNK, FILE_MS)
     return ok() if chunk.size == 0
