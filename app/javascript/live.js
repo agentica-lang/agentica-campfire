@@ -398,6 +398,7 @@ export function startLive() {
   // ones (the page shows the newest 40); an edited one is replaced and the ones that came are added, in the server's
   // order. What arrived live since the catch-up began (a message that is not in the first list, or one that a stream
   // touched) stays as the stream made it, as the fetch may be older than the stream. The composer is not touched.
+  // A fetched page with no message in common with the list (a gap) replaces it, with a link to the older ones.
   function catchUp() {
     if (!list || !latest() || !roomId) {
       return;
