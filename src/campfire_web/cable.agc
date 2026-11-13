@@ -31,45 +31,11 @@ import Routes from "routes"
 import Views from "views"
 import {Config} from "../campfire/config"
 
-ROOM_MESSAGES_CHANNEL = "RoomMessagesChannel"
-TURBO_CHANNEL = "Turbo::StreamsChannel"
-ROOMS_STREAM = "rooms"
-MESSAGES_SUFFIX = ":messages"
-ROOM_PREFIX = "room:"
-
-# How many times the membership of a room is looked up when the database is busy, and the pause after the first
-# failure (it grows with each try).
-MEMBER_TRIES = 3
-MEMBER_PAUSE_MS = 50
-
-# The megabytes of the memberships that the checks keep for a version of the database.
-MEMBER_CACHE_MB = 1
-
-# The names of the counters of `Cable.reads`.
-SESSION_READS = "session_reads"
-MEMBER_READS = "member_reads"
-MARK_READS = "mark_reads"
-
-# What a membership says besides the version it was read at: not in the room (never kept), in it and read, in it and
-# unread.
-OUTSIDE = "outside"
-READ = "read"
-UNREAD = "unread"
-
-# How long `stop` waits for the connections to say goodbye, and how often it looks.
-GOODBYE_MS = 3_000
-GOODBYE_POLL_MS = 50
-
-# The room that a presence subscription or a stream name names, as a number.
-NO_ROOM = -1
-
-BYTES_PER_MB = 1024 * 1024
-
 ## What the routes and the handlers share: the hub that carries the broadcasts, the key that signs the stream names, the
 ## pool for the membership checks, the table of who is connected to which room, and what the checks keep for a version
 ## of the database: the page cache (its observer gives the version, and it keeps the people of the sessions) and the
 ## memberships. With no page cache (`CAMPFIRE_RESPONSE_CACHE_MB=0`) nothing is kept and every check reads the database.
-export struct Cable
+struct Cable
   hub: Channels.Hub
   key: Bytes
   pool: Database.Pool
@@ -78,6 +44,145 @@ export struct Cable
   members: Cache.Store
   reads: ATS[String, Int]
 end
+
+## Starts the hub and derives the key of the stream names from `SECRET_KEY_BASE` (the secret of a Rails app: a name that
+## Rails signed with it verifies), or from the session secret when that is not set. An `error` is a start that could
+## not make either.
+def start(config: Config, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Cable]
+  secret = config.secret_key_base
+  if secret.empty?
+    secret = config.session_secret
+  end
+
+  key = try Channels.stream_key(secret)
+  hub = try Channels.start_hub()
+  members = Cache.memory(MEMBER_CACHE_MB * BYTES_PER_MB)
+  reads: ATS[String, Int] = ATS.new()
+  ok(Cable(hub: hub, key: key, pool: pool, presence: Presence.new(), pages: pages, members: members, reads: reads))
+end
+
+## Ends the hub: its connections are told to reconnect and are closed. It waits until the hub task is over, and then
+## until the connections have said goodbye, for at most `GOODBYE_MS`: a connection finds out that the hub is gone at
+## its next look (every 2 s), and a server that stopped before that would cut the sockets with no frame.
+def stop(cable: Cable) -> Void
+  _ = Channels.stop_hub(cable.hub)
+  _ = Task.await(cable.hub.task)
+  waited = 0
+  while Channels.stats(cable.hub).connections > 0 and waited < GOODBYE_MS
+    Task.sleep(GOODBYE_POLL_MS)
+    waited += GOODBYE_POLL_MS
+  end
+end
+
+## Adds the WebSocket at `Routes.CABLE` to `app`. The sign-in filter lets the path through (`AuthWeb.PUBLIC_PATHS`),
+## and `connect` looks up the session itself.
+def add(app: Bond.App, cable: Cable, config: Config) -> Bond.App
+  origins: List[String] = []
+  if not config.base_url.empty?
+    origins = [config.base_url]
+  end
+
+  options = Channels.MountOptions(connect: connecting(cable), handlers: handlers(cable), allowed_origins: origins)
+  # The settings are constants of this file, which `mount` accepts.
+  mounted = Channels.mount(app, Routes.CABLE, cable.hub, options).unwrap!
+  mounted |> Bond.get(Routes.CABLE_STATS) do |conn| show_stats(conn, cable) end
+end
+
+## The `<turbo-cable-stream-source>` of the messages of the room, for the room page.
+def room_sources(cable: Cable, room_id: Int) -> String = source(cable, ROOM_MESSAGES_CHANNEL, messages_stream(room_id))
+
+## The `<turbo-cable-stream-source>` elements of the sidebar of the person: the rooms of the account and their own.
+def sidebar_sources(cable: Cable, user_id: Int) -> String
+  [source(cable, TURBO_CHANNEL, ROOMS_STREAM), source(cable, TURBO_CHANNEL, user_rooms_stream(user_id))].join("\n")
+end
+
+## A message was stored: appends it to the page of everyone who is looking at the room, and tells the people it
+## concerns that the room has something new. The second part runs in a task of its own, as Rails runs it in a job, so
+## the post does not wait for a notice for each member. A broadcast that cannot be queued is counted as lost by the hub
+## and does not fail the post.
+def message_created(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
+  message_announced(cable, room, message, Views.message_stream(room, message, false))
+end
+
+## `message_created` for a caller that has the stream of the message already (`Views.message_streams`, `broadcast`),
+## so it is not written twice.
+def message_announced(cable: Cable, room: Rooms.Room, message: Rooms.Message, stream: String) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), stream)
+  # With no socket open nobody can hear a notice or be looking at the room (`Presence` is made of open sockets), and
+  # the unread flag was stored by the post itself, so the task would only read the members to do nothing. A presence
+  # entry that outlives a socket which died without a close handler (until its TTL) is not marked read either; the
+  # person's next visit to the room marks it.
+  if Channels.stats(cable.hub).connections > 0
+    _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
+  end
+end
+
+## A message was edited or deleted: the people who are looking at the room see it replaced or gone.
+def message_edited(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_replaced_stream(message))
+end
+
+def message_removed(cable: Cable, room_id: Int, message_id: Int) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.message_removed(message_id))
+end
+
+## A boost was added to a message of the room, or taken away: it appears under the message, or leaves it, for the
+## people who are looking at the room, as Rails appends it and removes it on the stream of the room's messages.
+def boost_added(cable: Cable, room_id: Int, message_id: Int, boost: Boosts.Boost) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.boost_added_stream(message_id, boost))
+end
+
+def boost_removed(cable: Cable, room_id: Int, boost_id: Int) -> Void
+  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.boost_removed_stream(boost_id))
+end
+
+## A room was made (`renamed` false) or renamed: its entry goes to the sidebars that list it, in a task of its own.
+## `actor_id` is the person who did it, who always sees the room.
+def room_changed(cable: Cable, room_id: Int, actor_id: Int, renamed: Bool) -> Void
+  _ = Task.spawn(&room_news, RoomEvent(cable: cable, room_id: room_id, actor_id: actor_id, renamed: renamed))
+end
+
+## A room was deleted: the people looking at it are shown that it is gone, and it leaves the sidebars that listed it
+## (an open room's entry goes to `rooms`, a closed or direct one to the people who were in it, as when it was made).
+## It runs in a task of its own, for the same reason as `room_changed`. `members` are the people who were in it.
+def room_deleted(cable: Cable, room: Rooms.Room, members: List[Int]) -> Void
+  _ = Task.spawn(&room_news_gone, Gone(cable: cable, room: room, members: members))
+end
+
+## Ends the sockets of the people who were taken out of a closed room, so that they reconnect and subscribe again only
+## where they are still allowed (`Hangup.users`).
+def members_removed(cable: Cable, user_ids: List[Int]) -> Void
+  Hangup.users(cable.hub, user_ids, true)
+end
+
+private
+
+ROOM_MESSAGES_CHANNEL = "RoomMessagesChannel"
+TURBO_CHANNEL = "Turbo::StreamsChannel"
+ROOMS_STREAM = "rooms"
+MESSAGES_SUFFIX = ":messages"
+ROOM_PREFIX = "room:"
+# How many times the membership of a room is looked up when the database is busy, and the pause after the first
+# failure (it grows with each try).
+MEMBER_TRIES = 3
+MEMBER_PAUSE_MS = 50
+# The megabytes of the memberships that the checks keep for a version of the database.
+MEMBER_CACHE_MB = 1
+# The names of the counters of `Cable.reads`.
+SESSION_READS = "session_reads"
+MEMBER_READS = "member_reads"
+MARK_READS = "mark_reads"
+# What a membership says besides the version it was read at: not in the room (never kept), in it and read, in it and
+# unread.
+OUTSIDE = "outside"
+READ = "read"
+UNREAD = "unread"
+# How long `stop` waits for the connections to say goodbye, and how often it looks.
+GOODBYE_MS = 3_000
+GOODBYE_POLL_MS = 50
+# The room that a presence subscription or a stream name names, as a number.
+NO_ROOM = -1
+BYTES_PER_MB = 1024 * 1024
 
 # What `/cable/stats` shows besides the hub's counts: the reads of the database that the checks made (not the ones a
 # kept answer saved) and the `mark_read` writes of the presence subscriptions, since the start.
@@ -131,118 +236,6 @@ end
 struct Delivery
   stream: String
   room: Rooms.Room
-end
-
-## Starts the hub and derives the key of the stream names from `SECRET_KEY_BASE` (the secret of a Rails app: a name that
-## Rails signed with it verifies), or from the session secret when that is not set. An `error` is a start that could
-## not make either.
-export def start(config: Config, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Cable]
-  secret = config.secret_key_base
-  if secret.empty?
-    secret = config.session_secret
-  end
-
-  key = try Channels.stream_key(secret)
-  hub = try Channels.start_hub()
-  members = Cache.memory(MEMBER_CACHE_MB * BYTES_PER_MB)
-  reads: ATS[String, Int] = ATS.new()
-  ok(Cable(hub: hub, key: key, pool: pool, presence: Presence.new(), pages: pages, members: members, reads: reads))
-end
-
-## Ends the hub: its connections are told to reconnect and are closed. It waits until the hub task is over, and then
-## until the connections have said goodbye, for at most `GOODBYE_MS`: a connection finds out that the hub is gone at
-## its next look (every 2 s), and a server that stopped before that would cut the sockets with no frame.
-export def stop(cable: Cable) -> Void
-  _ = Channels.stop_hub(cable.hub)
-  _ = Task.await(cable.hub.task)
-  waited = 0
-  while Channels.stats(cable.hub).connections > 0 and waited < GOODBYE_MS
-    Task.sleep(GOODBYE_POLL_MS)
-    waited += GOODBYE_POLL_MS
-  end
-end
-
-## Adds the WebSocket at `Routes.CABLE` to `app`. The sign-in filter lets the path through (`AuthWeb.PUBLIC_PATHS`),
-## and `connect` looks up the session itself.
-export def add(app: Bond.App, cable: Cable, config: Config) -> Bond.App
-  origins: List[String] = []
-  if not config.base_url.empty?
-    origins = [config.base_url]
-  end
-
-  options = Channels.MountOptions(connect: connecting(cable), handlers: handlers(cable), allowed_origins: origins)
-  # The settings are constants of this file, which `mount` accepts.
-  mounted = Channels.mount(app, Routes.CABLE, cable.hub, options).unwrap!
-  mounted |> Bond.get(Routes.CABLE_STATS) do |conn| show_stats(conn, cable) end
-end
-
-## The `<turbo-cable-stream-source>` of the messages of the room, for the room page.
-export def room_sources(cable: Cable, room_id: Int) -> String
-  source(cable, ROOM_MESSAGES_CHANNEL, messages_stream(room_id))
-end
-
-## The `<turbo-cable-stream-source>` elements of the sidebar of the person: the rooms of the account and their own.
-export def sidebar_sources(cable: Cable, user_id: Int) -> String
-  [source(cable, TURBO_CHANNEL, ROOMS_STREAM), source(cable, TURBO_CHANNEL, user_rooms_stream(user_id))].join("\n")
-end
-
-## A message was stored: appends it to the page of everyone who is looking at the room, and tells the people it
-## concerns that the room has something new. The second part runs in a task of its own, as Rails runs it in a job, so
-## the post does not wait for a notice for each member. A broadcast that cannot be queued is counted as lost by the hub
-## and does not fail the post.
-export def message_created(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
-  message_announced(cable, room, message, Views.message_stream(room, message, false))
-end
-
-## `message_created` for a caller that has the stream of the message already (`Views.message_streams`, `broadcast`),
-## so it is not written twice.
-export def message_announced(cable: Cable, room: Rooms.Room, message: Rooms.Message, stream: String) -> Void
-  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), stream)
-  # With no socket open nobody can hear a notice or be looking at the room (`Presence` is made of open sockets), and
-  # the unread flag was stored by the post itself, so the task would only read the members to do nothing. A presence
-  # entry that outlives a socket which died without a close handler (until its TTL) is not marked read either; the
-  # person's next visit to the room marks it.
-  if Channels.stats(cable.hub).connections > 0
-    _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
-  end
-end
-
-## A message was edited or deleted: the people who are looking at the room see it replaced or gone.
-export def message_edited(cable: Cable, room: Rooms.Room, message: Rooms.Message) -> Void
-  _ = Channels.broadcast_text(cable.hub, messages_stream(room.id), Views.message_replaced_stream(message))
-end
-
-export def message_removed(cable: Cable, room_id: Int, message_id: Int) -> Void
-  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.message_removed(message_id))
-end
-
-## A boost was added to a message of the room, or taken away: it appears under the message, or leaves it, for the
-## people who are looking at the room, as Rails appends it and removes it on the stream of the room's messages.
-export def boost_added(cable: Cable, room_id: Int, message_id: Int, boost: Boosts.Boost) -> Void
-  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.boost_added_stream(message_id, boost))
-end
-
-export def boost_removed(cable: Cable, room_id: Int, boost_id: Int) -> Void
-  _ = Channels.broadcast_text(cable.hub, messages_stream(room_id), Views.boost_removed_stream(boost_id))
-end
-
-## A room was made (`renamed` false) or renamed: its entry goes to the sidebars that list it, in a task of its own.
-## `actor_id` is the person who did it, who always sees the room.
-export def room_changed(cable: Cable, room_id: Int, actor_id: Int, renamed: Bool) -> Void
-  _ = Task.spawn(&room_news, RoomEvent(cable: cable, room_id: room_id, actor_id: actor_id, renamed: renamed))
-end
-
-## A room was deleted: the people looking at it are shown that it is gone, and it leaves the sidebars that listed it
-## (an open room's entry goes to `rooms`, a closed or direct one to the people who were in it, as when it was made).
-## It runs in a task of its own, for the same reason as `room_changed`. `members` are the people who were in it.
-export def room_deleted(cable: Cable, room: Rooms.Room, members: List[Int]) -> Void
-  _ = Task.spawn(&room_news_gone, Gone(cable: cable, room: room, members: members))
-end
-
-## Ends the sockets of the people who were taken out of a closed room, so that they reconnect and subscribe again only
-## where they are still allowed (`Hangup.users`).
-export def members_removed(cable: Cable, user_ids: List[Int]) -> Void
-  Hangup.users(cable.hub, user_ids, true)
 end
 
 # What the hub counted, for an administrator: the connections and subscriptions now, and the connections it dropped for
@@ -368,7 +361,7 @@ end
 def not_a_message_stream?(session: Channels.Session, name: String) -> Bool = not name.end_with?(MESSAGES_SUFFIX)
 
 # The `room_id` of the params of a presence subscription, a number or the text of one.
-def room_id_of(params: Json) -> Int
+def room_id_of(params: JSON.Value) -> Int
   field = JSON.get(params, "room_id")
   return NO_ROOM if not field.ok?
 
@@ -381,24 +374,22 @@ def room_id_of(params: Json) -> Int
   text.unwrap!.to_i.unwrap_or(NO_ROOM)
 end
 
-def connecting(cable: Cable) -> Fn[Bond.Conn, Result[Channels.Identity]]
-  opening() do |conn| identify(cable, conn) end
-end
+def connecting(cable: Cable) -> Fn[Bond.Conn, Result[Channels.Identity]] = opening do |conn| identify(cable, conn) end
 
 # A block cannot be assigned to a name: these give it a typed parameter first.
 def opening(f: Fn[Bond.Conn, Result[Channels.Identity]]) -> Fn[Bond.Conn, Result[Channels.Identity]] = f
 
 def subscribing(
-  f: Fn[Channels.Session, Json, Result[Channels.Subscription]],
-) -> Fn[Channels.Session, Json, Result[Channels.Subscription]]
+  f: Fn[Channels.Session, JSON.Value, Result[Channels.Subscription]],
+) -> Fn[Channels.Session, JSON.Value, Result[Channels.Subscription]]
   f
 end
 
-def leaving(f: Fn[Channels.Session, Json, Result[Void]]) -> Fn[Channels.Session, Json, Result[Void]] = f
+def leaving(f: Fn[Channels.Session, JSON.Value, Result[Void]]) -> Fn[Channels.Session, JSON.Value, Result[Void]] = f
 
 def acting(
-  f: Fn[Channels.Session, Json, String, Json, Result[List[Json]]],
-) -> Fn[Channels.Session, Json, String, Json, Result[List[Json]]]
+  f: Fn[Channels.Session, JSON.Value, String, JSON.Value, Result[List[JSON.Value]]],
+) -> Fn[Channels.Session, JSON.Value, String, JSON.Value, Result[List[JSON.Value]]]
   f
 end
 
@@ -436,12 +427,12 @@ def session_person(cable: Cable, token: String) -> Result[Optional[Auth.User]]
 end
 
 def handlers(cable: Cable) -> Map[String, Channels.Handler]
-  in_room = allowing() do |session, name| message_stream_allowed?(cable, session, name) end
-  present = subscribing() do |session, params| present_in_room(cable, session, params) end
-  absent = leaving() do |session, params| absent_from_room(cable, session, params) end
-  refreshed = acting() do |session, params, action, _data| presence_action(cable, session, params, action) end
-  unreads = subscribing() do |session, _params| unread_subscribed(session) end
-  checked = acting() do |session, _params, _action, _data| check_session(cable, session) end
+  in_room = allowing do |session, name| message_stream_allowed?(cable, session, name) end
+  present = subscribing do |session, params| present_in_room(cable, session, params) end
+  absent = leaving do |session, params| absent_from_room(cable, session, params) end
+  refreshed = acting do |session, params, action, _data| presence_action(cable, session, params, action) end
+  unreads = subscribing do |session, _params| unread_subscribed(session) end
+  checked = acting do |session, _params, _action, _data| check_session(cable, session) end
   {
     ROOM_MESSAGES_CHANNEL: Channels.turbo_streams(cable.key, in_room),
     TURBO_CHANNEL: Channels.turbo_streams(cable.key, &not_a_message_stream?),
@@ -451,7 +442,7 @@ def handlers(cable: Cable) -> Map[String, Channels.Handler]
   }
 end
 
-def heartbeat_subscribed(session: Channels.Session, params: Json) -> Result[Channels.Subscription]
+def heartbeat_subscribed(session: Channels.Session, params: JSON.Value) -> Result[Channels.Subscription]
   ok(Channels.Subscription())
 end
 
@@ -462,7 +453,7 @@ end
 
 # A member that looks at the room: one more tab, and the room is read. A non-member, or a params without a room, is
 # rejected, and a rejection runs `absent`, which does nothing for a person who was never counted.
-def present_in_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Channels.Subscription]
+def present_in_room(cable: Cable, session: Channels.Session, params: JSON.Value) -> Result[Channels.Subscription]
   room_id = room_id_of(params)
   person = try user_of(session)
   return ok(Channels.Subscription(rejected: true)) if room_id == NO_ROOM
@@ -493,7 +484,7 @@ def should_mark_read?(cable: Cable, found: Standing) -> Bool
   now.none? or now.unwrap! != found.version
 end
 
-def absent_from_room(cable: Cable, session: Channels.Session, params: Json) -> Result[Void]
+def absent_from_room(cable: Cable, session: Channels.Session, params: JSON.Value) -> Result[Void]
   person = try user_of(session)
   Presence.absent(cable.presence, room_id_of(params), person.id, session.connection, Time.now_ms())
   ok()
@@ -503,7 +494,7 @@ end
 # browser, a password reset, a purge, the end of the cookie's life) does not keep listening. A session that is gone
 # gets its person's sockets told to reconnect: the ones that still have a session are welcomed again at once, and this
 # one is refused. A failure of the database leaves the socket as it is; the next check tries again.
-def check_session(cable: Cable, session: Channels.Session) -> Result[List[Json]]
+def check_session(cable: Cable, session: Channels.Session) -> Result[List[JSON.Value]]
   seat = try seat_of(session)
   left = try Database.with_connection(cable.pool) do |db| Auth.seconds_left(db, seat.token) end
   if left == 0
@@ -516,7 +507,12 @@ end
 # `refresh` is what the page sends every 50 s while it is visible, and checks the session; `present` and `absent` are
 # the same as the subscription and its end, for a page that comes back to the tab or leaves it. Any other action is
 # ignored.
-def presence_action(cable: Cable, session: Channels.Session, params: Json, action: String) -> Result[List[Json]]
+def presence_action(
+  cable: Cable,
+  session: Channels.Session,
+  params: JSON.Value,
+  action: String,
+) -> Result[List[JSON.Value]]
   person = try user_of(session)
   room_id = room_id_of(params)
   now = Time.now_ms()

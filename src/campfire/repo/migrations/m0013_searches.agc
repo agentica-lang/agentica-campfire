@@ -3,9 +3,11 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 13: create searches.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(13, "create searches", [searches(), "create index index_searches_on_user_id on searches (user_id)"])
 end
+
+private
 
 def searches() -> String
   <<~SQL

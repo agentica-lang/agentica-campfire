@@ -17,19 +17,13 @@ import Routes from "routes"
 import Searches from "../campfire/searches"
 import Views from "views"
 
-# What a handler makes of its request while its connection is open, answered after it is closed.
-enum Answer
-  Redirect(String)
-  SignedOut
-end
-
 ## Adds the routes of the search to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. The results
 ## are kept whole in `pages` for one person, one query, one version of the database and one `last_room` cookie
 ## (`PageCache`); a clear is a commit, so the next page has none of the searches that it took away.
-export def add(app: Bond.App, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Bond.App
-  on_get_searches = Blocks.handler() do |conn| show(conn, pool, pages) end
-  on_post_searches = Blocks.handler() do |conn| remember(conn, pool) end
-  on_post_searches_clear = Blocks.handler() do |conn| post_clear(conn, pool) end
+def add(app: Bond.App, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Bond.App
+  on_get_searches = Blocks.handler do |conn| show(conn, pool, pages) end
+  on_post_searches = Blocks.handler do |conn| remember(conn, pool) end
+  on_post_searches_clear = Blocks.handler do |conn| post_clear(conn, pool) end
 
   (
     app
@@ -38,6 +32,14 @@ export def add(app: Bond.App, pool: Database.Pool, pages: Optional[PageCache.Pag
     |> Bond.post(Routes.SEARCHES_CLEAR, on_post_searches_clear)
     |> Bond.delete(Routes.SEARCHES_CLEAR) do |conn| clear(conn, pool) end
   )
+end
+
+private
+
+# What a handler makes of its request while its connection is open, answered after it is closed.
+enum Answer
+  Redirect(String)
+  SignedOut
 end
 
 def show(conn: Bond.Conn, pool: Database.Pool, pages: Optional[PageCache.Pages]) -> Result[Bond.Conn]

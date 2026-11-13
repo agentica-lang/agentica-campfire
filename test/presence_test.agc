@@ -1,5 +1,7 @@
 import Presence from "../src/campfire/presence"
 
+private
+
 def main() -> Void
   Test.run([
     Test.test("a person is connected after present and not before, in the room only") do

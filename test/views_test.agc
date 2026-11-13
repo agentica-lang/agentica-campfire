@@ -2,6 +2,8 @@ import Boosts from "../src/campfire/boosts"
 import Rooms from "../src/campfire/rooms"
 import Views from "../src/campfire_web/views"
 
+private
+
 def message() -> Rooms.Message
   Rooms.Message(
     id: 7,

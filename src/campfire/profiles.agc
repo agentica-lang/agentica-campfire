@@ -9,21 +9,18 @@ import Passwords from "passwords"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
-NOW = Rails.NOW
-
 ## The longest name and bio, in characters (the bio's is the `maxlength` of Rails' form).
-export MAX_NAME_LENGTH = 100
-export MAX_BIO_LENGTH = 200
-
+MAX_NAME_LENGTH = 100
+MAX_BIO_LENGTH = 200
 ## What a profile form is told when a part of it does not do.
-export NAME_PROBLEM = "Enter your name"
-export CHALLENGE_PROBLEM = "Enter your current password to set a new one"
-export EMAIL_PROBLEM = "Enter a valid email address"
-export EMAIL_TAKEN = "An account with that email exists already"
-export BIO_PROBLEM = "The bio can have at most #{MAX_BIO_LENGTH} characters"
+NAME_PROBLEM = "Enter your name"
+CHALLENGE_PROBLEM = "Enter your current password to set a new one"
+EMAIL_PROBLEM = "Enter a valid email address"
+EMAIL_TAKEN = "An account with that email exists already"
+BIO_PROBLEM = "The bio can have at most #{MAX_BIO_LENGTH} characters"
 
 ## A user as their page shows them. `email` is "" for a bot, which has none.
-export struct Detail
+struct Detail
   id: Int
   name: String
   email: String
@@ -35,14 +32,14 @@ end
 
 ## How a save ended: `Saved`, `Taken` when another account has the address by now, and `Gone` when the person is not
 ## active any more (nothing is written then).
-export enum Change
+enum Change
   Saved
   Taken
   Gone
 end
 
 ## The user with this id in any status (Rails' `User.find`), or `none`.
-export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Detail]]
+def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Detail]]
   rows = try Db.query(
     conn,
     "select id, name, coalesce(email_address, '') as email_address, coalesce(bio, '') as bio, role, status, " +
@@ -69,15 +66,15 @@ export def find(conn: Db.Connection, user_id: Int) -> Result[Optional[Detail]]
 end
 
 ## True for a user whose page says that they are no longer on the account.
-export def deactivated?(profile: Detail) -> Bool = profile.status == Rails.DEACTIVATED
+def deactivated?(profile: Detail) -> Bool = profile.status == Rails.DEACTIVATED
 
 ## True for a user who can be written to: active.
-export def active?(profile: Detail) -> Bool = profile.status == Rails.ACTIVE
+def active?(profile: Detail) -> Bool = profile.status == Rails.ACTIVE
 
 ## What is wrong with a profile form, or "". A part that is `none` is not being changed. A blank email or password is
 ## not a change either (Rails ignores a blank password; a blank email would lock the person out, so it is ignored
 ## too). The address is looked for among the other accounts, in any case.
-export def problem(
+def problem(
   conn: Db.Connection,
   user_id: Int,
   name: Optional[String],
@@ -104,7 +101,7 @@ end
 
 ## True when `current` is the password of the person (`password_challenge`). It hashes, so the caller holds a hashing
 ## slot. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY`, for a digest that Rails made.
-export def challenge_ok?(conn: Db.Connection, user_id: Int, current: String, bcrypt_library: String) -> Result[Bool]
+def challenge_ok?(conn: Db.Connection, user_id: Int, current: String, bcrypt_library: String) -> Result[Bool]
   return ok(false) if current.bytes.size > Passwords.MAX_BYTES
 
   rows = try Db.query(conn, "select password_digest from users where id = ?", [Db.Value.Int(user_id)])
@@ -118,7 +115,7 @@ end
 ## `none` to keep the old one; a new digest also ends every session of the person but the one with the token
 ## `keep_token`, and deletes their push subscriptions (`sign_out_all_sessions` of Rails), so a stolen cookie or a
 ## forgotten browser stops working. A blank email is left as it is. A bio can be emptied.
-export def save(
+def save(
   conn: Db.Connection,
   user_id: Int,
   name: Optional[String],
@@ -129,6 +126,10 @@ export def save(
 ) -> Result[Change]
   Db.transaction(conn) do |tx| save_in(tx, user_id, name, email, digest, bio, keep_token) end
 end
+
+private
+
+NOW = Rails.NOW
 
 def save_in(
   tx: Db.Connection,

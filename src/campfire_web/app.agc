@@ -3,6 +3,7 @@
 import Bond from "pkg/bond/bond"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
+import HTTP from "std/http"
 import Mailer from "../campfire/mail/mailer"
 import MessageCache from "message_cache"
 import PageCache from "page_cache"
@@ -10,8 +11,8 @@ import Web from "web"
 import {Config, plain_link?} from "../campfire/config"
 
 ## The server, the mailer and the pool of database connections that a start made, for `stop` and `wait`.
-export struct Running
-  server: HttpServer
+struct Running
+  server: HTTP.Server
   mailer: Mailer.Mailer
   pool: Database.Pool
   pages: Optional[PageCache.Pages]
@@ -27,7 +28,7 @@ end
 ## (`CAMPFIRE_ASSETS_DIR`), or a failure to listen (it names `CAMPFIRE_HOST`
 ## and `CAMPFIRE_PORT`). The server, the mailer and the pool belong to the task that calls this, which must live as long
 ## as the app does (the pool opens its connections in it).
-export def start(config: Config) -> Result[Running]
+def start(config: Config) -> Result[Running]
   puts(cookie_line(config.secure_cookies))
   puts(Mailer.status(config.smtp))
   if config.smtp.some? and plain_link?(config)
@@ -67,7 +68,7 @@ end
 ## Stops the hub (its connections are told to reconnect and are closed), then the server, then the mailer, which sends
 ## what is queued first, then closes the pool. The hub goes first because a WebSocket holds a connection of the server
 ## for as long as its tab is open, and a server that waits for the open ones waits for the tabs.
-export def stop(running: Running) -> Void
+def stop(running: Running) -> Void
   CableWeb.stop(running.cable)
   Bond.stop(running.server)
   Mailer.stop(running.mailer)
@@ -76,7 +77,7 @@ export def stop(running: Running) -> Void
 end
 
 ## Starts the app and waits until the server stops, then lets the mailer finish what is queued and closes the pool.
-export def run(config: Config) -> Result[Void]
+def run(config: Config) -> Result[Void]
   running = try start(config)
   waited = Bond.wait(running.server)
   CableWeb.stop(running.cable)
@@ -85,6 +86,8 @@ export def run(config: Config) -> Result[Void]
   Database.close_pool(running.pool)
   waited
 end
+
+private
 
 # The mailer, then the server on the pool. The caller closes the pool when this fails.
 def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[Running]
@@ -122,7 +125,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
 
   cable = made.unwrap!
   # A WebSocket holds a connection of the server for as long as its tab is open, so the limit is a setting.
-  limits = HttpServerOptions(max_connections: config.max_connections)
+  limits = HTTP.ServerOptions(max_connections: config.max_connections)
   started = Bond.start_with(
     Web.build(config, pool, schema_version, mailer, cable, messages, pages),
     config.host,

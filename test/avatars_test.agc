@@ -1,5 +1,7 @@
 import Avatars from "../src/campfire/avatars"
 
+private
+
 def main() -> Void
   Test.run([
     Test.test("the initials are the first letter of each word of the name, as User#initials makes them") do

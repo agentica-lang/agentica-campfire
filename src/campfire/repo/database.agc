@@ -7,19 +7,16 @@ import Migrations from "migrations"
 import VersionReader from "version_reader"
 import {int_of, text_of} from "rows"
 
-# How long `close_pool` lets the running requests finish.
-CLOSE_MS = 1_000
-
 ## The connections of the app, opened once at the start (see `open_pool`).
-export type Pool = DbPool.Pool
+type Pool = DbPool.Pool
 
 ## The one connection that watches the database for changes (see `open_observer`).
-export type Observer = VersionReader.Reader
+type Observer = VersionReader.Reader
 
 ## The schema version of a database after `migrate`, and the migrations that this call applied (none when the database
 ## was already up to date). `rails` is a database that Rails made, which `migrate` left as it was: its version is the
 ## last one that Rails recorded (`20251212154340` for the schema of Campfire at 90b3300), not one of this app's.
-export struct Schema
+struct Schema
   version: Int
   applied: List[Int]
   rails: Bool
@@ -31,7 +28,7 @@ end
 ## app already, so it is opened as it is and no migration runs, not even a history table: the only thing added is the
 ## table of the password resets, which Rails has not (`Migrations.extensions`). An `error` says what failed, and stops
 ## the start.
-export def migrate(url: String) -> Result[Schema]
+def migrate(url: String) -> Result[Schema]
   conn = try Db.open(url)
   migrated = migrate_open(conn)
   Db.close(conn)
@@ -43,12 +40,12 @@ end
 ## that `timeout?` tells. The connections belong to the task that calls this, so it must live as long as the app does.
 ## The migrations ran before (`migrate`), and the url is a file: a `sqlite::memory:` database would be one empty
 ## database per connection. An `error` says what failed (a url that does not open), and stops the start.
-export def open_pool(url: String, size: Int, checkout_ms: Int) -> Result[Pool]
+def open_pool(url: String, size: Int, checkout_ms: Int) -> Result[Pool]
   DbPool.start(DbPool.Options(url: url, size: size, checkout_ms: checkout_ms))
 end
 
 ## Closes the pool: the requests that run finish first (for up to a second), and the rest is turned away.
-export def close_pool(pool: Pool) -> Void
+def close_pool(pool: Pool) -> Void
   DbPool.close(pool, CLOSE_MS)
 end
 
@@ -57,10 +54,10 @@ end
 ## on a connection that serves requests it would miss its own writes. See `version_reader.agc` for how the schedulers
 ## share it. As for `open_pool`, the connection belongs to the task that calls this, which must live as long as the
 ## app does. An `error` says what failed.
-export def open_observer(url: String) -> Result[Observer] = VersionReader.open(url)
+def open_observer(url: String) -> Result[Observer] = VersionReader.open(url)
 
 ## Closes the observer, once nothing reads it any more.
-export def close_observer(observer: Observer) -> Void
+def close_observer(observer: Observer) -> Void
   VersionReader.close(observer)
 end
 
@@ -68,18 +65,18 @@ end
 ## any program (the app itself, a Rails app, the `sqlite3` tool): the `data_version` of the observer. A change of the
 ## schema or of a table that nothing reads is a change too: that only costs a page that is made again. An `error`
 ## means that nothing is known, so the caller must not trust or keep anything it saw before.
-export def version(observer: Observer) -> Result[String] = VersionReader.version(observer)
+def version(observer: Observer) -> Result[String] = VersionReader.version(observer)
 
 ## Runs `body` with a connection of the pool and gives its result: a request takes one connection, does all its work
 ## on it and gives it back, whatever `body` gives (a transaction it left open is rolled back). The block runs in a task
 ## of the pool, not in the task of the request.
-export def with_connection[R](pool: Pool, body: Fn[Db.Connection, Result[R]]) -> Result[R] = DbPool.with(pool, body)
+def with_connection[R](pool: Pool, body: Fn[Db.Connection, Result[R]]) -> Result[R] = DbPool.with(pool, body)
 
 ## True for the message of a failure that means the database is busy, not broken: no free connection within
 ## `checkout_ms`, more callers in line than the pool takes, a pool that is closing, a block or a statement that ran too
 ## long (`DbPool.timeout?`), and SQLite's `database is locked` (error 5) once its `busy_timeout` is over. The app
 ## answers those with a 503 instead of a 500.
-export def busy?(message: String) -> Bool
+def busy?(message: String) -> Bool
   (
     DbPool.timeout?(message) or
     message.include?("pool error: queue full") or
@@ -87,6 +84,11 @@ export def busy?(message: String) -> Bool
     message.include?("sqlite error 5:")
   )
 end
+
+private
+
+# How long `close_pool` lets the running requests finish.
+CLOSE_MS = 1_000
 
 # The keys of the schema (a message needs its room and its author) need foreign keys on, and a `foreign_keys=off` in
 # the url turns them off without a word. A Rails database has them on in the app too.

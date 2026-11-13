@@ -26,214 +26,9 @@
 
 import HTML from "std/html"
 
-# The tags that are kept, with the attributes dropped. `br` and `hr` are void, `a` is handled apart.
-ALLOWED_TAG_NAMES = [
-  "p",
-  "br",
-  "hr",
-  "div",
-  "strong",
-  "em",
-  "b",
-  "i",
-  "s",
-  "del",
-  "code",
-  "pre",
-  "blockquote",
-  "ul",
-  "ol",
-  "li",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "u",
-  "mark",
-  "sub",
-  "sup",
-  "span",
-  "cite",
-  "a",
-  "table",
-  "thead",
-  "tbody",
-  "tfoot",
-  "tr",
-  "th",
-  "td",
-]
-
-ALLOWED_TAGS = Set.new(ALLOWED_TAG_NAMES)
-
-# The allowed tags that `sanitize` writes with no more than the name; `a` has the address.
-PLAIN_TAGS = Set.new(ALLOWED_TAG_NAMES.select do |name| name != "a" end)
-
-# The characters of the language of a code block, and its longest name.
-LANGUAGE_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+#.-".split(""))
-MAX_LANGUAGE = 32
-
-# What lies between `<` and `>` of an end tag with no attribute: `/p`.
-END_TAGS = Set.new(ALLOWED_TAG_NAMES.map do |name| "/#{name}" end)
-
-VOID_TAGS = Set.new(["br", "hr"])
-
-# The implied end tags of HTML, in the common cases. A start tag ends the innermost open tag of a kind (the targets)
-# and what lies inside it, as long as no wall comes first: a wall starts a context of its own, so a `li` in a nested
-# `ul` does not end the `li` outside it. What is closed here is what the output closes, so sanitizing it again changes
-# nothing.
-LIST_ITEMS = Set.new(["li"])
-PARAGRAPHS = Set.new(["p"])
-TABLE_ROWS = Set.new(["tr"])
-TABLE_CELLS = Set.new(["td", "th"])
-LIST_ITEM_WALLS = Set.new(["ul", "ol", "blockquote", "pre", "table", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"])
-PARAGRAPH_WALLS = Set.new(["table", "td", "th"])
-TABLE_ROW_WALLS = Set.new(["table"])
-TABLE_CELL_WALLS = Set.new(["tr", "table"])
-
-# The tags that end an open `p` when they start.
-PARAGRAPH_ENDERS = [
-  "p",
-  "div",
-  "blockquote",
-  "ul",
-  "ol",
-  "li",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "pre",
-  "table",
-  "hr",
-]
-
-ENDS_PARAGRAPH = Set.new(PARAGRAPH_ENDERS)
-
-# The tags that end an open tag when they start, whichever it is.
-AUTO_CLOSING = Set.new(PARAGRAPH_ENDERS.concat(["tr", "td", "th"]))
-
-# The tags that go with everything in them. The ones with raw text (script, style, textarea, title, iframe, xmp,
-# noembed, noframes, noscript, plaintext) end at their own end tag, so a `<` in them is not a tag; the others are
-# there so that what they hold (a form, a vector drawing, a template) never reaches the page.
-DROPPED_WITH_CONTENT = Set.new([
-  "script",
-  "style",
-  "textarea",
-  "title",
-  "iframe",
-  "xmp",
-  "noembed",
-  "noframes",
-  "noscript",
-  "plaintext",
-  "template",
-  "object",
-  "svg",
-  "math",
-])
-
-# The tags where `plain_text` breaks the line: the ones that end a block, and `br`.
-BREAKING_TAGS = Set.new([
-  "p",
-  "br",
-  "hr",
-  "div",
-  "pre",
-  "blockquote",
-  "ul",
-  "ol",
-  "li",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "table",
-  "tr",
-  "th",
-  "td",
-])
-
-ALLOWED_SCHEMES = Set.new(["http", "https", "mailto"])
-
-# A link is the one tag with a rel: the page that it opens gets no handle on this one.
-LINK_REL = "noopener noreferrer"
-
-# The depth of open tags. A message is a few levels deep; the cap keeps the cost of closing a tag from growing with
-# the input, and a tag past it is dropped.
-MAX_DEPTH = 64
-
-# How many characters `find_from` looks at in one `index_of`.
-SEARCH_WINDOW = 256
-
-# The longest entity that is let through as it is (`&thinsp;`): a name or digits then `;`.
-MAX_ENTITY = 32
-
-NUL = String.from_code(0)
-FORM_FEED = String.from_code(12)
-WHITESPACE = Set.new([" ", "\t", "\n", "\r", FORM_FEED])
-LETTERS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""))
-DIGITS = Set.new("0123456789".split(""))
-HEX_DIGITS = Set.new("0123456789abcdefABCDEF".split(""))
-ENTITY_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split(""))
-
-# Where the name of a tag ends, where the name of an attribute ends, and what lies between attributes. The HTML
-# tokenizer takes an `=` at the start of an attribute name as part of the name, so the name always has one character.
-NAME_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/", ">"])
-ATTRIBUTE_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/", ">", "="])
-BETWEEN_ATTRIBUTES = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/"])
-UNQUOTED_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, ">"])
-
-# What may follow `</script` for it to be that end tag (and "" is the end of the text).
-AFTER_END_NAME = Set.new(["", " ", "\t", "\n", "\r", FORM_FEED, "/", ">"])
-URL_DELIMITERS = Set.new([":", "/", "?", "#"])
-
-# Some text of the input and the place after it.
-struct Run
-  text: String
-  next: Int
-end
-
-struct Tag
-  name: String
-  closing: Bool
-  href: Optional[String]
-  language: Optional[String]
-  next: Int
-end
-
-# The HTML to write and the open tags after the tags that a start tag ends.
-struct Closed
-  html: String
-  open: List[String]
-end
-
-# The text that `markup` reads: the characters, which are the places that it counts in, and the text itself, which a
-# run is cut from in one `slice` when `ascii` (a slice of other text costs the length up to where it starts, so
-# many of them would be quadratic).
-struct Text
-  source: String
-  chars: List[String]
-  size: Int
-  ascii: Bool
-end
-
-# What one `<` makes: the HTML to write, the open tags after it, and where the input goes on.
-struct Piece
-  html: String
-  open: List[String]
-  next: Int
-end
-
 ## The safe HTML of `html`. A text with no markup comes back escaped; a text with markup comes back with only the
 ## allowed tags, closed, and without any attribute but the `href` of a link that is http, https, mailto or relative.
-export def sanitize(html: String) -> String
+def sanitize(html: String) -> String
   # A NUL is dropped before anything reads the text: a browser ignores it in a name, so `<scr\0ipt>` is a script.
   source = html
   if html.include?(NUL)
@@ -321,12 +116,12 @@ end
 
 ## The HTML of a plain text, as a body that `sanitize` leaves as it is: `&`, `<`, `>` and the quotes escaped, and a new
 ## line made a `<br>`, since HTML shows a new line as a space.
-export def from_text(text: String) -> String = HTML.escape(text).replace("\r\n", "\n").replace("\n", "<br>")
+def from_text(text: String) -> String = HTML.escape(text).replace("\r\n", "\n").replace("\n", "<br>")
 
 ## The text that an edit form shows for a clean body. A body that is plain text as `from_text` wrote it (no tag but
 ## `<br>`) gives that text back exactly, blank lines included, so saving the form again changes nothing. Any other markup
 ## (a body that Rails wrote) gives `plain_text_of_clean`, which keeps no blank line and no formatting.
-export def text_of_clean(clean: String) -> String
+def text_of_clean(clean: String) -> String
   return plain_text_of_clean(clean) if clean.replace("<br>", "").include?("<")
 
   HTML.unescape(clean.replace("<br>", "\n"))
@@ -336,11 +131,11 @@ end
 ## same for Rails): the text of the sanitized body, the entities read back (`&amp;` is `&`), a line break at the end of
 ## a block and at a `<br>`, and no empty line. It reads what `sanitize` wrote, so a tag in it is a name, maybe the
 ## attributes of a link, then the first `>`: a `>` in a value is written as `&gt;`.
-export def plain_text(html: String) -> String = plain_text_of_clean(sanitize(html))
+def plain_text(html: String) -> String = plain_text_of_clean(sanitize(html))
 
 ## `plain_text` of a body that `sanitize` has cleaned already, for the caller that has the clean text and so does not
 ## sanitize it a second time.
-export def plain_text_of_clean(clean: String) -> String
+def plain_text_of_clean(clean: String) -> String
   text = read_text(clean)
   cs = text.chars
   n = text.size
@@ -368,6 +163,194 @@ export def plain_text_of_clean(clean: String) -> String
   lines = HTML.unescape(out.join("")).split("\n").map do |line| line.strip end
   kept = lines.select do |line| not line.empty? end
   kept.join("\n")
+end
+
+private
+
+# The tags that are kept, with the attributes dropped. `br` and `hr` are void, `a` is handled apart.
+ALLOWED_TAG_NAMES = [
+  "p",
+  "br",
+  "hr",
+  "div",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "s",
+  "del",
+  "code",
+  "pre",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "u",
+  "mark",
+  "sub",
+  "sup",
+  "span",
+  "cite",
+  "a",
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "th",
+  "td",
+]
+ALLOWED_TAGS = Set.new(ALLOWED_TAG_NAMES)
+# The allowed tags that `sanitize` writes with no more than the name; `a` has the address.
+PLAIN_TAGS = Set.new(ALLOWED_TAG_NAMES.select do |name| name != "a" end)
+# The characters of the language of a code block, and its longest name.
+LANGUAGE_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+#.-".split(""))
+MAX_LANGUAGE = 32
+# What lies between `<` and `>` of an end tag with no attribute: `/p`.
+END_TAGS = Set.new(ALLOWED_TAG_NAMES.map do |name| "/#{name}" end)
+VOID_TAGS = Set.new(["br", "hr"])
+# The implied end tags of HTML, in the common cases. A start tag ends the innermost open tag of a kind (the targets)
+# and what lies inside it, as long as no wall comes first: a wall starts a context of its own, so a `li` in a nested
+# `ul` does not end the `li` outside it. What is closed here is what the output closes, so sanitizing it again changes
+# nothing.
+LIST_ITEMS = Set.new(["li"])
+PARAGRAPHS = Set.new(["p"])
+TABLE_ROWS = Set.new(["tr"])
+TABLE_CELLS = Set.new(["td", "th"])
+LIST_ITEM_WALLS = Set.new(["ul", "ol", "blockquote", "pre", "table", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"])
+PARAGRAPH_WALLS = Set.new(["table", "td", "th"])
+TABLE_ROW_WALLS = Set.new(["table"])
+TABLE_CELL_WALLS = Set.new(["tr", "table"])
+# The tags that end an open `p` when they start.
+PARAGRAPH_ENDERS = [
+  "p",
+  "div",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "pre",
+  "table",
+  "hr",
+]
+ENDS_PARAGRAPH = Set.new(PARAGRAPH_ENDERS)
+# The tags that end an open tag when they start, whichever it is.
+AUTO_CLOSING = Set.new(PARAGRAPH_ENDERS.concat(["tr", "td", "th"]))
+# The tags that go with everything in them. The ones with raw text (script, style, textarea, title, iframe, xmp,
+# noembed, noframes, noscript, plaintext) end at their own end tag, so a `<` in them is not a tag; the others are
+# there so that what they hold (a form, a vector drawing, a template) never reaches the page.
+DROPPED_WITH_CONTENT = Set.new([
+  "script",
+  "style",
+  "textarea",
+  "title",
+  "iframe",
+  "xmp",
+  "noembed",
+  "noframes",
+  "noscript",
+  "plaintext",
+  "template",
+  "object",
+  "svg",
+  "math",
+])
+# The tags where `plain_text` breaks the line: the ones that end a block, and `br`.
+BREAKING_TAGS = Set.new([
+  "p",
+  "br",
+  "hr",
+  "div",
+  "pre",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "table",
+  "tr",
+  "th",
+  "td",
+])
+ALLOWED_SCHEMES = Set.new(["http", "https", "mailto"])
+# A link is the one tag with a rel: the page that it opens gets no handle on this one.
+LINK_REL = "noopener noreferrer"
+# The depth of open tags. A message is a few levels deep; the cap keeps the cost of closing a tag from growing with
+# the input, and a tag past it is dropped.
+MAX_DEPTH = 64
+# How many characters `find_from` looks at in one `index_of`.
+SEARCH_WINDOW = 256
+# The longest entity that is let through as it is (`&thinsp;`): a name or digits then `;`.
+MAX_ENTITY = 32
+NUL = String.from_code(0)
+FORM_FEED = String.from_code(12)
+WHITESPACE = Set.new([" ", "\t", "\n", "\r", FORM_FEED])
+LETTERS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""))
+DIGITS = Set.new("0123456789".split(""))
+HEX_DIGITS = Set.new("0123456789abcdefABCDEF".split(""))
+ENTITY_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split(""))
+# Where the name of a tag ends, where the name of an attribute ends, and what lies between attributes. The HTML
+# tokenizer takes an `=` at the start of an attribute name as part of the name, so the name always has one character.
+NAME_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/", ">"])
+ATTRIBUTE_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/", ">", "="])
+BETWEEN_ATTRIBUTES = Set.new([" ", "\t", "\n", "\r", FORM_FEED, "/"])
+UNQUOTED_END = Set.new([" ", "\t", "\n", "\r", FORM_FEED, ">"])
+# What may follow `</script` for it to be that end tag (and "" is the end of the text).
+AFTER_END_NAME = Set.new(["", " ", "\t", "\n", "\r", FORM_FEED, "/", ">"])
+URL_DELIMITERS = Set.new([":", "/", "?", "#"])
+
+# Some text of the input and the place after it.
+struct Run
+  text: String
+  next: Int
+end
+
+struct Tag
+  name: String
+  closing: Bool
+  href: Optional[String]
+  language: Optional[String]
+  next: Int
+end
+
+# The HTML to write and the open tags after the tags that a start tag ends.
+struct Closed
+  html: String
+  open: List[String]
+end
+
+# The text that `markup` reads: the characters, which are the places that it counts in, and the text itself, which a
+# run is cut from in one `slice` when `ascii` (a slice of other text costs the length up to where it starts, so
+# many of them would be quadratic).
+struct Text
+  source: String
+  chars: List[String]
+  size: Int
+  ascii: Bool
+end
+
+# What one `<` makes: the HTML to write, the open tags after it, and where the input goes on.
+struct Piece
+  html: String
+  open: List[String]
+  next: Int
 end
 
 # The first character of what follows a `<` makes it markup (a tag, a comment) and not a lone `<` that is text.

@@ -13,12 +13,14 @@ import Migrate from "pkg/db/migrate"
 import Rails from "../rails"
 
 ## Migration 15: create password resets.
-export def migration() -> Migrate.Migration = Migrate.sql(15, "create password resets", statements())
+def migration() -> Migrate.Migration = Migrate.sql(15, "create password resets", statements())
 
 ## The statements of the migration, which do nothing when the table is there.
-export def statements() -> List[String]
+def statements() -> List[String]
   [password_resets(), "create index if not exists password_resets_user_id on password_resets (user_id)"]
 end
+
+private
 
 def password_resets() -> String
   <<~SQL

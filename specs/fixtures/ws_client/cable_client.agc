@@ -13,7 +13,10 @@
 ##   recv id timeout_ms -> {text} | {closed: code} | {timeout: true}
 ##   close id (a close frame) | drop id (no close frame)
 
+import HTTP from "std/http"
 import WebSocket from "pkg/websocket-client/websocket"
+
+private
 
 # One day: a reader never times out by itself, `recv` has its own timeout.
 FOREVER_MS = 86_400_000
@@ -43,7 +46,7 @@ end
 
 # What a command gives: its answer, and the connections after it.
 struct Pair
-  answer: Json
+  answer: JSON.Value
   lines: Map[String, Line]
 end
 
@@ -77,12 +80,12 @@ def pump(line: Line) -> Void
   line.inbox.close
 end
 
-def nothing() -> Json = JSON.parse("{}").unwrap!
+def nothing() -> JSON.Value = JSON.parse("{}").unwrap!
 
-def failed(reason: String) -> Json = JSON.from({"error": JSON.from(reason)})
+def failed(reason: String) -> JSON.Value = JSON.from({"error": JSON.from(reason)})
 
 def options_of(order: Order) -> WebSocket.Options
-  headers = order.headers.keys.map do |name| Header(name: name, value: order.headers[name]) end
+  headers = order.headers.keys.map do |name| HTTP.Header(name: name, value: order.headers[name]) end
   names = order.protocols.split(",").map do |name| name.strip end
   protocols = names.select do |name| not name.empty? end
   WebSocket.Options(headers: headers, protocols: protocols, read_timeout_ms: FOREVER_MS, close_timeout_ms: CLOSE_MS)
@@ -91,7 +94,7 @@ end
 # The answer of a handshake: `Open` keeps the connection and starts its reader; a refusal has the status alone.
 def connect(port: Int, order: Order, lines: Map[String, Line]) -> Pair
   case WebSocket.handshake("ws://127.0.0.1:#{port}#{order.path}", options_of(order))
-    error(reason) -> Pair(answer: failed(reason), lines: lines)
+    error(reason) -> Pair(answer: failed(reason.message), lines: lines)
 
     ok(answer) ->
       case answer
@@ -108,7 +111,7 @@ def connect(port: Int, order: Order, lines: Map[String, Line]) -> Pair
   end
 end
 
-def frame_json(message: WebSocket.Message) -> Json
+def frame_json(message: WebSocket.Message) -> JSON.Value
   case message
     WebSocket.Message.Text(text) -> JSON.from({"text": JSON.from(text)})
     WebSocket.Message.Binary(_) -> JSON.from({"binary": JSON.from(true)})
@@ -116,7 +119,7 @@ def frame_json(message: WebSocket.Message) -> Json
   end
 end
 
-def receive(line: Line, timeout_ms: Int) -> Json
+def receive(line: Line, timeout_ms: Int) -> JSON.Value
   case line.inbox.recv(timeout_ms)
     ok(message) -> frame_json(message)
 
@@ -128,12 +131,12 @@ def receive(line: Line, timeout_ms: Int) -> Json
   end
 end
 
-def on_line(line: Line, order: Order) -> Json
+def on_line(line: Line, order: Order) -> JSON.Value
   case order.op
     "send" ->
       case WebSocket.send_text(line.ws, order.text)
         ok(_) -> nothing()
-        error(reason) -> failed(reason)
+        error(reason) -> failed(reason.message)
       end
 
     "recv" -> receive(line, order.timeout_ms)
@@ -172,7 +175,7 @@ def main() -> Void
       error(_) -> break
       ok(text) ->
         case decode(text)
-          error(reason) -> puts(JSON.encode(failed(reason)))
+          error(reason) -> puts(JSON.encode(failed(reason.message)))
           ok(order) ->
             done = run(port, order, lines)
             lines = done.lines

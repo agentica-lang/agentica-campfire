@@ -11,17 +11,13 @@
 
 import Channels from "pkg/channels/channels"
 
-# How many times the hub is asked, and the pause after the first failure (it grows with each try).
-TRIES = 3
-PAUSE_MS = 100
-
 ## The `Identity.id` that `/cable` gives to the connections of a person.
-export def identity_of(user_id: Int) -> String = "#{user_id}"
+def identity_of(user_id: Int) -> String = "#{user_id}"
 
 ## Ends every connection of the person. A hub whose inbox stays full is asked again a few times, with a longer pause
 ## each time; when it still does not take the request it is logged, and the sockets stay until the next check of the
 ## session (`CableWeb`), which is the net for this one.
-export def user(hub: Channels.Hub, user_id: Int, reconnect: Bool) -> Void
+def user(hub: Channels.Hub, user_id: Int, reconnect: Bool) -> Void
   ended = Channels.disconnect(hub, identity_of(user_id), reconnect)
   tries = 1
   while not ended.ok? and tries < TRIES and not hub.inbox.closed?
@@ -36,8 +32,14 @@ export def user(hub: Channels.Hub, user_id: Int, reconnect: Bool) -> Void
 end
 
 ## Ends the connections of each of the people.
-export def users(hub: Channels.Hub, user_ids: List[Int], reconnect: Bool) -> Void
+def users(hub: Channels.Hub, user_ids: List[Int], reconnect: Bool) -> Void
   for user_id in user_ids
     user(hub, user_id, reconnect)
   end
 end
+
+private
+
+# How many times the hub is asked, and the pause after the first failure (it grows with each try).
+TRIES = 3
+PAUSE_MS = 100

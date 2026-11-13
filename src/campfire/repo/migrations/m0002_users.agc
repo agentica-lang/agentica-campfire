@@ -6,7 +6,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 2: create users.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     2,
     "create users",
@@ -17,6 +17,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def users() -> String
   <<~SQL

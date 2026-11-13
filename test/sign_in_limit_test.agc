@@ -9,10 +9,12 @@ import RateLimit from "../src/campfire/rate_limit"
 import CableWeb from "../src/campfire_web/cable"
 import Web from "../src/campfire_web/web"
 
+private
+
 SECRET = "0123456789abcdef0123456789abcdef"
 ATTEMPTS = 10
 WINDOW_MS = 180_000
-FORM = [Header(name: "content-type", value: "application/x-www-form-urlencoded")]
+FORM = [HTTP.Header(name: "content-type", value: "application/x-www-form-urlencoded")]
 FIRST_CLIENT = "203.0.113.9"
 OTHER_CLIENT = "198.51.100.7"
 
@@ -60,22 +62,22 @@ end
 
 # A post with no password: the handler refuses it at once (400) without hashing, so the limit is reached in no time.
 # The limit counts it all the same, as it counts every post to the route.
-def attempt(app: Bond.App, client: String, target: String) -> HttpResponse
+def attempt(app: Bond.App, client: String, target: String) -> HTTP.Response
   Testing.request_from(app, client, "POST", target, FORM, "email=nobody%40example.com")
 end
 
 # The cookie of the first administrator, so that a request is signed in and reaches the handlers of public routes.
-def sign_up(app: Bond.App) -> Result[Header]
+def sign_up(app: Bond.App) -> Result[HTTP.Header]
   form = "name=Ana&email=ana%40example.com&password=correct+horse+battery"
   made = Testing.request_from(app, FIRST_CLIENT, "POST", "/first_run", FORM, form)
   try Test.eq(made.status, 302)
-  ok(Header(name: "cookie", value: HTTP.header_values(made.headers, "set-cookie")[0].split(";")[0]))
+  ok(HTTP.Header(name: "cookie", value: HTTP.header_values(made.headers, "set-cookie")[0].split(";")[0]))
 end
 
 def main() -> Void
   Test.run([
     Test.test("the 11th attempt from one address is a 429 with Retry-After, and another address is not affected") do
-      in_folder() do |site|
+      in_folder do |site|
         app = site.app
         statuses = (1..ATTEMPTS).to_a.map do |_| attempt(app, FIRST_CLIENT, "/session").status end
         try Test.assert(statuses.all? do |status| status != 429 end, "refused before the limit: #{statuses}")
@@ -88,7 +90,7 @@ def main() -> Void
       end
     end,
     Test.test("no spelling of the path escapes the limit for a person who is signed in") do
-      in_folder() do |site|
+      in_folder do |site|
         app = site.app
         cookie = try sign_up(app)
         headers = FORM.concat([cookie])
@@ -109,7 +111,7 @@ def main() -> Void
       end
     end,
     Test.test("a session keeps the address of the client that made it") do
-      in_folder() do |site|
+      in_folder do |site|
         app = site.app
         form = "name=Ana&email=ana%40example.com&password=correct+horse+battery"
         made = Testing.request_from(app, FIRST_CLIENT, "POST", "/first_run", FORM, form)

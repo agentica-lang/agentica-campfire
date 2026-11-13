@@ -1,5 +1,7 @@
 import Boosts from "../src/campfire/boosts"
 
+private
+
 def main() -> Void
   Test.run([
     Test.test("the column of a message query is read back as the boosts it holds, in order, with their text intact") do

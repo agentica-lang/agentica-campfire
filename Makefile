@@ -1,4 +1,4 @@
-# Needs Agentica 0.30.0 or later on PATH (CI tests with it; the `OpenSSL` crypto family wants 0.27.0, `agentica test --jobs` is new in
+# Needs Agentica 0.31.0 or later on PATH (CI tests with it; the `OpenSSL` crypto family wants 0.27.0, `agentica test --jobs` is new in
 # 0.24.1, `std/cache` in 0.24.3, bond-channels wants 0.24.4, `T.codec` and Bond 0.9.0 want 0.25.0, and the native
 # SQLite driver of agentica-db 0.6.0 wants 0.26.1) and
 # a C compiler: the first run of a program that imports agentica-db builds that driver into the package cache.

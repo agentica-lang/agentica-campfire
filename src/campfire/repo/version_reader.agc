@@ -29,30 +29,8 @@
 
 import SqliteUrl from "pkg/db/sqlite/url"
 
-SQLITE_ROW = 100
-# SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_FULLMUTEX.
-OPEN_FLAGS = 65_601
-# The length argument that means "up to the NUL" for the sql.
-NUL_TERMINATED = -1
-SQL = "PRAGMA data_version"
-SCHEME = "sqlite:"
-# A holder keeps the token for microseconds, unless its thread is starved of CPU. A waiter that has waited this long
-# gives up with an error, and the page is made and not kept.
-TURN_MS = 1_000
-
-extern "sqlite3"
-  resource Handle, free: sqlite3_close_v2
-  resource Stmt, free: sqlite3_finalize
-  def sqlite3_open_v2(filename: C.String, out db: Handle, flags: C.Int32, vfs: C.Pointer) -> C.Int32
-  def sqlite3_prepare_v2(db: Handle, sql: C.Pointer, bytes: C.Int32, out stmt: Stmt, out tail: C.Pointer) -> C.Int32
-  def sqlite3_step(stmt: Stmt) -> C.Int32
-  def sqlite3_reset(stmt: Stmt) -> C.Int32
-  def sqlite3_column_int64(stmt: Stmt, col: C.Int32) -> C.Int64
-  def sqlite3_errstr(code: C.Int32) -> C.String
-end
-
 ## The connection and the turn that its readers take. The task that opened it owns the connection.
-export struct Reader
+struct Reader
   db: Handle
   stmt: Stmt
   turn: Channel[Bool]
@@ -61,7 +39,7 @@ end
 ## Opens a read-only connection to the database that `url` names (`sqlite:PATH`, as the pool takes it; the settings
 ## after a `?` do not matter here) and prepares the statement. The connection belongs to the task that calls this,
 ## which must live as long as the app does. An `error` says what failed.
-export def open(url: String) -> Result[Reader]
+def open(url: String) -> Result[Reader]
   # The same refusals as `Db.open`, and the in-memory databases: each connection has a private one, so this connection
   # would never see a commit of another and the pages would never change. Errors name no more of the url than the
   # scheme, which can hold a password.
@@ -99,7 +77,7 @@ end
 ## Closes the connection after the reader that holds the turn is done: a read after it is an `error`. The app calls
 ## it after the server has stopped. When the turn does not come in `TURN_MS` the connection is left open (it is closed
 ## with the task that owns it, at the end of the run): closing it under a reader would be worse.
-export def close(reader: Reader) -> Void
+def close(reader: Reader) -> Void
   if take(reader.turn)
     Native.close(reader.stmt)
     Native.close(reader.db)
@@ -110,7 +88,7 @@ end
 ## A text that is the same for two calls only when no other connection committed in between. An `error` (the database
 ## is busy, the reader is closed or the turn did not come) means that nothing is known, so the caller must not trust
 ## or keep anything it saw before.
-export def version(reader: Reader) -> Result[String]
+def version(reader: Reader) -> Result[String]
   return error("database error: the version reader is closed") if Native.closed?(reader.stmt)
 
   return error("database error: the version reader is busy") if not take(reader.turn)
@@ -120,6 +98,30 @@ export def version(reader: Reader) -> Result[String]
   return error("database error: PRAGMA data_version could not be read") if value <= 0
 
   ok(value.to_s)
+end
+
+private
+
+SQLITE_ROW = 100
+# SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_FULLMUTEX.
+OPEN_FLAGS = 65_601
+# The length argument that means "up to the NUL" for the sql.
+NUL_TERMINATED = -1
+SQL = "PRAGMA data_version"
+SCHEME = "sqlite:"
+# A holder keeps the token for microseconds, unless its thread is starved of CPU. A waiter that has waited this long
+# gives up with an error, and the page is made and not kept.
+TURN_MS = 1_000
+
+extern "sqlite3"
+  resource Handle, free: sqlite3_close_v2
+  resource Stmt, free: sqlite3_finalize
+  def sqlite3_open_v2(filename: C.String, out db: Handle, flags: C.Int32, vfs: C.Pointer) -> C.Int32
+  def sqlite3_prepare_v2(db: Handle, sql: C.Pointer, bytes: C.Int32, out stmt: Stmt, out tail: C.Pointer) -> C.Int32
+  def sqlite3_step(stmt: Stmt) -> C.Int32
+  def sqlite3_reset(stmt: Stmt) -> C.Int32
+  def sqlite3_column_int64(stmt: Stmt, col: C.Int32) -> C.Int64
+  def sqlite3_errstr(code: C.Int32) -> C.String
 end
 
 # The counter, or -1 for no row or an error of SQLite (the counter of a database that is open is never 0, and a 0 must

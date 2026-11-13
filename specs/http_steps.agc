@@ -7,67 +7,15 @@ import HTTP from "std/http"
 import URI from "std/uri"
 
 ## The scenario value that holds the port of the app, set when the app says where it listens.
-export PORT = "port"
-
+PORT = "port"
 ## The first person that `the first admin exists` makes, and the steps use to sign in again.
-export ADMIN_EMAIL = "ana@example.com"
-export ADMIN_PASSWORD = "correct horse battery"
-
+ADMIN_EMAIL = "ana@example.com"
+ADMIN_PASSWORD = "correct horse battery"
 ## The password of every other person that `a member ... exists` makes.
-export MEMBER_PASSWORD = "another long password"
-
-REPLY = "reply"
-REMEMBERED = "remembered_reply"
-THREAD = "remembered_thread"
-# The messages of a room page: from the start of the thread to the form that posts (which holds an id that every page
-# draws anew, so the whole page differs from one answer to the next).
-THREAD_START = "<div class=\"thread\">"
-THREAD_END = "<form method=\"post\" action=\"/rooms/"
-JOIN_LINK = "join_link"
-STATUSES = "statuses"
-ALL_AT_ONCE_MS = 60_000
-RAW_MS = 5_000
-RAW_CHUNK = 65_536
-BROWSER = "browser"
-FORM_TYPE = "application/x-www-form-urlencoded"
-# A WebP file starts with `RIFF`, four bytes of size and `WEBP`: 12 bytes.
-HEAD_BYTES = 12
-WEBP_MAGIC_START = "52494646"
-WEBP_MAGIC_END = "57454250"
-
-# `body` is the text of the body ("" for one that is not UTF-8), so `size`, `sha256` (hex) and `head` (the first
-# bytes in hex) say what a binary body is. `path` is what was asked for.
-struct Reply
-  status: Int
-  headers: Map[String, String]
-  body: String
-  elapsed_ms: Int
-  path: String
-  size: Int
-  sha256: String
-  head: String
-end
-
-# What a parallel request answered: the status, the `Retry-After` header ("" when it has none) and the body.
-struct Answer
-  status: Int
-  retry_after: String
-  body: String
-end
-
-struct Answers
-  values: List[Answer]
-end
-
-# `saved` is the copy that `the browser saves a copy of its cookies` makes.
-struct Browser
-  cookies: Map[String, String]
-  saved: Map[String, String]
-  headers: Map[String, String]
-end
+MEMBER_PASSWORD = "another long password"
 
 ## The steps that talk to the app and read its last answer.
-export def steps() -> List[BDD.Step]
+def steps() -> List[BDD.Step]
   [
     BDD.step("I get {string}", &get),
     BDD.step("I post to {string} the form:", &post_form),
@@ -133,7 +81,7 @@ end
 
 ## A new session: the browser forgets its cookies and signs in through the form, as a person does. The first admin has
 ## its own password and the members that `a member ... exists` makes share another.
-export def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
+def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
   password = MEMBER_PASSWORD
   if args[0] == ADMIN_EMAIL
     password = ADMIN_PASSWORD
@@ -149,32 +97,30 @@ export def sign_in_as(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 ## The port that the app listens on.
-export def port_of(ctx: BDD.Context) -> Int = JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
+def port_of(ctx: BDD.Context) -> Int = JSON.int(BDD.get(ctx, PORT).unwrap!).unwrap!
 
 ## The `Cookie` header of the browser as it is now, "" when it has no cookies: what a WebSocket of the same person sends.
-export def cookie_header(ctx: BDD.Context) -> String
+def cookie_header(ctx: BDD.Context) -> String
   state = browser(ctx)
   pairs = state.cookies.keys.map do |name| "#{name}=#{state.cookies.get(name, "")}" end
   pairs.join("; ")
 end
 
 ## The body of the answer that `I remember the answer` kept.
-export def remembered_body(ctx: BDD.Context) -> String
-  JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!.body
-end
+def remembered_body(ctx: BDD.Context) -> String = JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!.body
 
 ## The last answer of the app, for the steps that read its body.
-export def last_body(ctx: BDD.Context) -> String = last_reply(ctx).body
+def last_body(ctx: BDD.Context) -> String = last_reply(ctx).body
 
 ## Gets `args[0]`, a path, with the cookies of the browser.
-export def get(ctx: BDD.Context, args: List[String]) -> BDD.Context = send(ctx, "GET", args[0], "")
+def get(ctx: BDD.Context, args: List[String]) -> BDD.Context = send(ctx, "GET", args[0], "")
 
 ## Posts `body`, a form that a step encoded, to `path`.
-export def post(ctx: BDD.Context, path: String, body: String) -> BDD.Context = send(ctx, "POST", path, body)
+def post(ctx: BDD.Context, path: String, body: String) -> BDD.Context = send(ctx, "POST", path, body)
 
 ## Posts `body` to `path` `count` times in parallel with the browser as it is, and keeps the statuses (see
 ## `I post to {string} {int} times at once the form:`).
-export def post_at_once(ctx: BDD.Context, path: String, body: String, count: Int) -> BDD.Context
+def post_at_once(ctx: BDD.Context, path: String, body: String, count: Int) -> BDD.Context
   port = port_of(ctx)
   state = browser(ctx)
   attempts = (1..count).to_a
@@ -183,13 +129,65 @@ export def post_at_once(ctx: BDD.Context, path: String, body: String, count: Int
 end
 
 ## Whether the body of the last answer is, byte for byte, the file at `path`.
-export def body_is_file(ctx: BDD.Context, path: String) -> BDD.Context
+def body_is_file(ctx: BDD.Context, path: String) -> BDD.Context
   reply = last_reply(ctx)
   expected = File.sha256(path)
   return BDD.assert(ctx, false, "cannot read #{path}: #{expected.message}") if not expected.ok?
 
   same = reply.sha256 == OpenSSL.Digest.hexencode(expected.unwrap!)
   BDD.assert(ctx, same, "the body (#{reply.size} bytes) is not the file #{path}")
+end
+
+private
+
+REPLY = "reply"
+REMEMBERED = "remembered_reply"
+THREAD = "remembered_thread"
+# The messages of a room page: from the start of the thread to the form that posts (which holds an id that every page
+# draws anew, so the whole page differs from one answer to the next).
+THREAD_START = "<div class=\"thread\">"
+THREAD_END = "<form method=\"post\" action=\"/rooms/"
+JOIN_LINK = "join_link"
+STATUSES = "statuses"
+ALL_AT_ONCE_MS = 60_000
+RAW_MS = 5_000
+RAW_CHUNK = 65_536
+BROWSER = "browser"
+FORM_TYPE = "application/x-www-form-urlencoded"
+# A WebP file starts with `RIFF`, four bytes of size and `WEBP`: 12 bytes.
+HEAD_BYTES = 12
+WEBP_MAGIC_START = "52494646"
+WEBP_MAGIC_END = "57454250"
+
+# `body` is the text of the body ("" for one that is not UTF-8), so `size`, `sha256` (hex) and `head` (the first
+# bytes in hex) say what a binary body is. `path` is what was asked for.
+struct Reply
+  status: Int
+  headers: Map[String, String]
+  body: String
+  elapsed_ms: Int
+  path: String
+  size: Int
+  sha256: String
+  head: String
+end
+
+# What a parallel request answered: the status, the `Retry-After` header ("" when it has none) and the body.
+struct Answer
+  status: Int
+  retry_after: String
+  body: String
+end
+
+struct Answers
+  values: List[Answer]
+end
+
+# `saved` is the copy that `the browser saves a copy of its cookies` makes.
+struct Browser
+  cookies: Map[String, String]
+  saved: Map[String, String]
+  headers: Map[String, String]
 end
 
 ## Posts `args[0]` messages to the room path `args[1]` in parallel, each with a body and a `client_message_id` of its
@@ -360,7 +358,7 @@ def raw_request(port: Int, method: String, path: String, body: String, host: Str
 end
 
 # Everything the socket sends until it closes, or until it stops for `RAW_MS`.
-def read_all(socket: Socket, sent: Bool) -> Bytes
+def read_all(socket: TCP.Socket, sent: Bool) -> Bytes
   parts: List[Bytes] = []
   while sent
     chunk = TCP.recv_bytes(socket, RAW_CHUNK, RAW_MS)
@@ -449,15 +447,15 @@ def post_answer(port: Int, state: Browser, path: String, body: String) -> Result
   ok(Answer(status: response.status, retry_after: retries.join(","), body: text))
 end
 
-def perform(port: Int, state: Browser, method: String, path: String, body: String) -> Result[HttpResponse]
-  headers = state.headers.keys.map do |name| Header(name: name, value: state.headers.get(name, "")) end
+def perform(port: Int, state: Browser, method: String, path: String, body: String) -> Result[HTTP.Response]
+  headers = state.headers.keys.map do |name| HTTP.Header(name: name, value: state.headers.get(name, "")) end
   if not state.cookies.empty?
     pairs = state.cookies.keys.map do |name| "#{name}=#{state.cookies.get(name, "")}" end
-    headers = headers.push(Header(name: "cookie", value: pairs.join("; ")))
+    headers = headers.push(HTTP.Header(name: "cookie", value: pairs.join("; ")))
   end
 
   if (method == "POST" or method == "PATCH" or method == "PUT") and not state.headers.key?("content-type")
-    headers = headers.push(Header(name: "content-type", value: FORM_TYPE))
+    headers = headers.push(HTTP.Header(name: "content-type", value: FORM_TYPE))
   end
 
   client = try HTTP.client()
@@ -467,7 +465,7 @@ def perform(port: Int, state: Browser, method: String, path: String, body: Strin
 end
 
 # A `Set-Cookie` with an empty value, or `Max-Age=0`, deletes the cookie, as a browser does.
-def cookies_after(cookies: Map[String, String], response: HttpResponse) -> Map[String, String]
+def cookies_after(cookies: Map[String, String], response: HTTP.Response) -> Map[String, String]
   lines = HTTP.header_values(response.headers, "set-cookie")
   lines.reduce(cookies) do |kept, line| apply_set_cookie(kept, line) end
 end
@@ -484,7 +482,7 @@ def apply_set_cookie(cookies: Map[String, String], line: String) -> Map[String, 
   cookies.put(name, value)
 end
 
-def reply_of(response: HttpResponse, elapsed_ms: Int, path: String) -> Reply
+def reply_of(response: HTTP.Response, elapsed_ms: Int, path: String) -> Reply
   start: Map[String, String] = {}
   headers = response.headers.reduce(start) do |acc, header| acc.put(header.name.downcase, header.value) end
   body = String.from_bytes(response.body).unwrap_or("")

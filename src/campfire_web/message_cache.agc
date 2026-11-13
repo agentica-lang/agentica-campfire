@@ -20,11 +20,8 @@ import Boosts from "../campfire/boosts"
 import Rooms from "../campfire/rooms"
 import Views from "views"
 
-# What a megabyte of `CAMPFIRE_CACHE_MB` is.
-BYTES_PER_MB = 1024 * 1024
-
 ## The cache for `megabytes` of messages, or `none` for 0, which turns it off: every message is rendered each time.
-export def start(megabytes: Int) -> Optional[Cache.Store]
+def start(megabytes: Int) -> Optional[Cache.Store]
   return none if megabytes <= 0
 
   some(Cache.memory(megabytes * BYTES_PER_MB))
@@ -32,10 +29,15 @@ end
 
 ## The messages one after the other, as `Views.messages_list` writes them for the person `user_id` with the account
 ## `role`, each from the cache when it is there.
-export def list(cache: Optional[Cache.Store], messages: List[Rooms.Stored], user_id: Int, role: String) -> String
+def list(cache: Optional[Cache.Store], messages: List[Rooms.Stored], user_id: Int, role: String) -> String
   parts = messages.map do |one| html(cache, one, Rooms.changeable?(one.creator_id, user_id, role)) end
   parts.join("\n")
 end
+
+private
+
+# What a megabyte of `CAMPFIRE_CACHE_MB` is.
+BYTES_PER_MB = 1024 * 1024
 
 # The markup of one message, with its body cleaned. Two requests that miss together both render it, which is the same
 # text, so one of them wins and nothing is wrong.

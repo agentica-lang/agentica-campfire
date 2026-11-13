@@ -6,6 +6,8 @@ import Mailer from "../src/campfire/mail/mailer"
 import CableWeb from "../src/campfire_web/cable"
 import Web from "../src/campfire_web/web"
 
+private
+
 SECRET = "0123456789abcdef0123456789abcdef"
 WAIT_MS = 5_000
 CHECKOUT_MS = 50

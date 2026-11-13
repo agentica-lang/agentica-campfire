@@ -25,18 +25,49 @@ import Slots from "../campfire/slots"
 import Views from "views"
 import {Config} from "../campfire/config"
 
+## Adds the routes of the user page and of the profile to `app`. `slots` is the bound on hashing that the sign-in
+## shares, and `key` is `SignedId.key` of the `SECRET_KEY_BASE`, `none` without one (no page then shows a picture). A
+## new password ends the other sessions of the person, and `hub` their sockets.
+def add(
+  app: Bond.App,
+  config: Config,
+  pool: Database.Pool,
+  slots: ATS[String, Int],
+  key: Optional[Bytes],
+  hub: Channels.Hub,
+) -> Bond.App
+  env = Env(config: config, pool: pool, slots: slots, attempts: RateLimit.new(), key: key, hub: hub)
+  on_get_user = Blocks.handler do |conn| show_user(conn, env) end
+  on_get_profile = Blocks.handler do |conn| show_profile(conn, env) end
+  on_post_profile = Blocks.handler do |conn| post_profile(conn, env) end
+  on_patch_profile = Blocks.handler do |conn| save_profile(conn, env) end
+  on_put_profile = Blocks.handler do |conn| save_profile(conn, env) end
+  on_post_avatar = Blocks.handler do |conn| post_avatar(conn, env) end
+
+  (
+    app
+    |> Bond.get(Routes.USER, on_get_user)
+    |> Bond.get(Routes.PROFILE, on_get_profile)
+    |> Bond.post(Routes.PROFILE, on_post_profile)
+    |> Bond.patch(Routes.PROFILE, on_patch_profile)
+    |> Bond.put(Routes.PROFILE, on_put_profile)
+    |> Bond.post(Routes.AVATAR, on_post_avatar)
+    |> Bond.delete(Routes.AVATAR) do |conn| remove_avatar(conn, env) end
+  )
+end
+
+private
+
 # The names of the fields of Rails' form (`params.require(:user)`).
 FIELD_NAME = "user[name]"
 FIELD_EMAIL = "user[email_address]"
 FIELD_PASSWORD = "user[password]"
 FIELD_BIO = "user[bio]"
 FIELD_CHALLENGE = "user[password_challenge]"
-
 # A person may try their current password this many times in this long (Rails' `rate_limit` of the sign-in).
 CHALLENGE_ATTEMPTS = 10
 CHALLENGE_WINDOW_MS = 180_000
 TOO_MANY = "Too many attempts, try again later"
-
 # The `:id` that the links use for the person who is signed in.
 ME = "me"
 
@@ -76,37 +107,6 @@ struct Env
   attempts: ATS[String, Int]
   key: Optional[Bytes]
   hub: Channels.Hub
-end
-
-## Adds the routes of the user page and of the profile to `app`. `slots` is the bound on hashing that the sign-in
-## shares, and `key` is `SignedId.key` of the `SECRET_KEY_BASE`, `none` without one (no page then shows a picture). A
-## new password ends the other sessions of the person, and `hub` their sockets.
-export def add(
-  app: Bond.App,
-  config: Config,
-  pool: Database.Pool,
-  slots: ATS[String, Int],
-  key: Optional[Bytes],
-  hub: Channels.Hub,
-) -> Bond.App
-  env = Env(config: config, pool: pool, slots: slots, attempts: RateLimit.new(), key: key, hub: hub)
-  on_get_user = Blocks.handler() do |conn| show_user(conn, env) end
-  on_get_profile = Blocks.handler() do |conn| show_profile(conn, env) end
-  on_post_profile = Blocks.handler() do |conn| post_profile(conn, env) end
-  on_patch_profile = Blocks.handler() do |conn| save_profile(conn, env) end
-  on_put_profile = Blocks.handler() do |conn| save_profile(conn, env) end
-  on_post_avatar = Blocks.handler() do |conn| post_avatar(conn, env) end
-
-  (
-    app
-    |> Bond.get(Routes.USER, on_get_user)
-    |> Bond.get(Routes.PROFILE, on_get_profile)
-    |> Bond.post(Routes.PROFILE, on_post_profile)
-    |> Bond.patch(Routes.PROFILE, on_patch_profile)
-    |> Bond.put(Routes.PROFILE, on_put_profile)
-    |> Bond.post(Routes.AVATAR, on_post_avatar)
-    |> Bond.delete(Routes.AVATAR) do |conn| remove_avatar(conn, env) end
-  )
 end
 
 def show_user(conn: Bond.Conn, env: Env) -> Result[Bond.Conn]

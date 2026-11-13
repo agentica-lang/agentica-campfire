@@ -21,12 +21,42 @@ import Database from "../campfire/repo/database"
 import Routes from "routes"
 import Views from "views"
 
+## Adds the routes of the boosts to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
+## where a boost that is added or taken away is broadcast.
+def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable) -> Bond.App
+  on_get_message_boosts = Blocks.handler do |conn|
+    served(conn, pool, cable) do |db, person| list_answer(conn, db, person) end
+  end
+
+  on_post_message_boosts = Blocks.handler do |conn|
+    served(conn, pool, cable) do |db, person| add_answer(conn, db, person, wants_stream?(conn)) end
+  end
+
+  on_get_message_boost_new = Blocks.handler do |conn|
+    served(conn, pool, cable) do |db, person| new_answer(conn, db, person) end
+  end
+
+  on_post_message_boost = Blocks.handler do |conn| post_boost(conn, pool, cable) end
+
+  (
+    app
+    |> Bond.get(Routes.MESSAGE_BOOSTS, on_get_message_boosts)
+    |> Bond.post(Routes.MESSAGE_BOOSTS, on_post_message_boosts)
+    |> Bond.get(Routes.MESSAGE_BOOST_NEW, on_get_message_boost_new)
+    |> Bond.post(Routes.MESSAGE_BOOST, on_post_message_boost)
+    |> Bond.delete(Routes.MESSAGE_BOOST) do |conn|
+      served(conn, pool, cable) do |db, person| remove_answer(conn, db, person, wants_stream?(conn)) end
+    end
+  )
+end
+
+private
+
 # The field of the form, as Rails nests it (`params.require(:boost)`), and the parts of the paths that name the message
 # and the boost.
 CONTENT = "boost[content]"
 MESSAGE = "message_id"
 BOOST = "id"
-
 # What a request that asks for a Turbo Stream sends in `Accept`, and what the answer is typed.
 TURBO_STREAM_TYPE = "text/vnd.turbo-stream.html"
 
@@ -39,35 +69,6 @@ enum Answer
   NotFound
   NotAllowed(String)
   SignedOut
-end
-
-## Adds the routes of the boosts to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
-## where a boost that is added or taken away is broadcast.
-export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable) -> Bond.App
-  on_get_message_boosts = Blocks.handler() do |conn|
-    served(conn, pool, cable) do |db, person| list_answer(conn, db, person) end
-  end
-
-  on_post_message_boosts = Blocks.handler() do |conn|
-    served(conn, pool, cable) do |db, person| add_answer(conn, db, person, wants_stream?(conn)) end
-  end
-
-  on_get_message_boost_new = Blocks.handler() do |conn|
-    served(conn, pool, cable) do |db, person| new_answer(conn, db, person) end
-  end
-
-  on_post_message_boost = Blocks.handler() do |conn| post_boost(conn, pool, cable) end
-
-  (
-    app
-    |> Bond.get(Routes.MESSAGE_BOOSTS, on_get_message_boosts)
-    |> Bond.post(Routes.MESSAGE_BOOSTS, on_post_message_boosts)
-    |> Bond.get(Routes.MESSAGE_BOOST_NEW, on_get_message_boost_new)
-    |> Bond.post(Routes.MESSAGE_BOOST, on_post_message_boost)
-    |> Bond.delete(Routes.MESSAGE_BOOST) do |conn|
-      served(conn, pool, cable) do |db, person| remove_answer(conn, db, person, wants_stream?(conn)) end
-    end
-  )
 end
 
 # The form of Rails posts to a boost with `_method` `delete` to take it away (in any case, as Rails reads it); any

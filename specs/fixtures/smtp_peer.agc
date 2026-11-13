@@ -21,6 +21,8 @@
 ## 250. SMTP_PEER_CONNECTIONS (1 by default) is how many connections it serves one after the other, each ending with
 ## `closed`.
 
+private
+
 HANDSHAKE_MS = 5_000
 ACCEPT_MS = 10_000
 # A client that says nothing for this long is gone; the specs end long before.
@@ -29,7 +31,6 @@ IDLE_MS = 10_000
 # it stops (`STOP_WAIT_MS` in src/campfire/mail/mailer.agc, 10 s), so the app is always the one that hangs up, never
 # the peer.
 STALL_MS = 20_000
-
 USER = "ana"
 PASSWORD = "secret"
 NUL = String.from_code(0)
@@ -44,7 +45,7 @@ struct Settings
   line_delay_ms: Int
   data_delay_ms: Int
   connections: Int
-  context: Optional[TlsContext]
+  context: Optional[TLS.Context]
 end
 
 def main() -> Void
@@ -69,10 +70,10 @@ end
 
 def load_settings() -> Settings
   certs = System.env("SMTP_PEER_CERTS").unwrap_or("")
-  context: Optional[TlsContext] = none
+  context: Optional[TLS.Context] = none
   if not certs.empty?
     name = System.env("SMTP_PEER_CERT").unwrap_or("server")
-    options = TlsServerOptions(cert_file: "#{certs}/#{name}.pem", key_file: "#{certs}/#{name}-key.pem")
+    options = TLS.ServerOptions(cert_file: "#{certs}/#{name}.pem", key_file: "#{certs}/#{name}-key.pem")
     context = some(TLS.server_context(options).unwrap!)
   end
 
@@ -90,19 +91,19 @@ def load_settings() -> Settings
   )
 end
 
-def open_listener(settings: Settings) -> Listener
+def open_listener(settings: Settings) -> TCP.Listener
   return TLS.listen("127.0.0.1", 0, settings.context.unwrap!).unwrap! if settings.mode == "implicit"
 
   TCP.listen("127.0.0.1", 0).unwrap!
 end
 
-def say(socket: Socket, text: String) -> Void
+def say(socket: TCP.Socket, text: String) -> Void
   puts("S: #{text}")
   # A client that has gone fails the send; the next read ends the session.
   _ = TCP.send(socket, "#{text}\r\n", IDLE_MS)
 end
 
-def hear(socket: Socket, wait_ms: Int = IDLE_MS) -> Result[String]
+def hear(socket: TCP.Socket, wait_ms: Int = IDLE_MS) -> Result[String]
   line = try TCP.read_line(socket, wait_ms)
   if line.empty?
     puts("C:")
@@ -115,7 +116,7 @@ end
 
 # One command after another until QUIT, a stall or the end of the connection. STARTTLS swaps the socket for the
 # encrypted one, which is why the socket is a variable of the loop.
-def serve(first: Socket, settings: Settings) -> Void
+def serve(first: TCP.Socket, settings: Settings) -> Void
   socket = first
   say(socket, "220 peer.test ready")
   running = true
@@ -160,7 +161,7 @@ def serve(first: Socket, settings: Settings) -> Void
   end
 end
 
-def say_canned(socket: Socket, settings: Settings) -> Void
+def say_canned(socket: TCP.Socket, settings: Settings) -> Void
   lines = settings.canned.split("|").map do |line| controls(line) end
   if settings.canned.start_with?("^")
     count = settings.canned.slice(1, settings.canned.length - 1).to_i!
@@ -196,18 +197,18 @@ def controls(line: String) -> String
 end
 
 # Never answers: reads until the client gives up and closes.
-def stall(socket: Socket) -> Void
+def stall(socket: TCP.Socket) -> Void
   while hear(socket, STALL_MS).ok?
     puts("S: (silence)")
   end
 end
 
-def quit(socket: Socket) -> Bool
+def quit(socket: TCP.Socket) -> Bool
   say(socket, "221 bye")
   false
 end
 
-def ehlo(socket: Socket, settings: Settings) -> Void
+def ehlo(socket: TCP.Socket, settings: Settings) -> Void
   features: List[String] = []
   if settings.mode == "starttls"
     features = features.push("STARTTLS")
@@ -233,7 +234,7 @@ def ehlo(socket: Socket, settings: Settings) -> Void
   end
 end
 
-def starttls(socket: Socket, settings: Settings) -> Socket
+def starttls(socket: TCP.Socket, settings: Settings) -> TCP.Socket
   say(socket, "220 ready to start TLS")
   upgraded = TLS.upgrade(socket, settings.context.unwrap!, "", HANDSHAKE_MS)
   if not upgraded.ok?
@@ -245,7 +246,7 @@ def starttls(socket: Socket, settings: Settings) -> Socket
   upgraded.unwrap!
 end
 
-def auth(socket: Socket, settings: Settings, line: String) -> Void
+def auth(socket: TCP.Socket, settings: Settings, line: String) -> Void
   words = line.split(" ")
   mechanism = ""
   if words.size > 1
@@ -271,7 +272,7 @@ def auth(socket: Socket, settings: Settings, line: String) -> Void
 end
 
 # AUTH LOGIN: the server asks for the user, then for the password, each in base64.
-def login(socket: Socket) -> Void
+def login(socket: TCP.Socket) -> Void
   say(socket, "334 VXNlcm5hbWU6")
   user = hear(socket)
   return if not user.ok?
@@ -287,7 +288,7 @@ end
 
 def decoded(text: String) -> String = Base64.strict_decode64(text).unwrap!.decode("utf-8").unwrap!
 
-def verdict(socket: Socket, accepted: Bool) -> Void
+def verdict(socket: TCP.Socket, accepted: Bool) -> Void
   if accepted
     say(socket, "235 2.7.0 authenticated")
     return
@@ -296,7 +297,7 @@ def verdict(socket: Socket, accepted: Bool) -> Void
   say(socket, "535 5.7.8 credentials rejected")
 end
 
-def rcpt(socket: Socket, settings: Settings, line: String) -> Void
+def rcpt(socket: TCP.Socket, settings: Settings, line: String) -> Void
   if not settings.reject_rcpt.empty? and line.include?("<#{settings.reject_rcpt}>")
     say(socket, "550 5.1.1 mailbox unavailable")
     return
@@ -306,7 +307,7 @@ def rcpt(socket: Socket, settings: Settings, line: String) -> Void
 end
 
 # The message ends at a line with a single dot. The lines go to the transcript as they came.
-def data(socket: Socket, settings: Settings) -> Void
+def data(socket: TCP.Socket, settings: Settings) -> Void
   say(socket, "354 end data with a dot")
   reading = true
   while reading

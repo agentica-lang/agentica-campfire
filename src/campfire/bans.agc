@@ -10,22 +10,20 @@ import Rooms from "rooms"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
-NOW = Rails.NOW
-
 ## A message that `delete_next_message` took away: where it was, so that the caller can tell the people in the room.
-export struct Gone
+struct Gone
   room_id: Int
   message_id: Int
 end
 
 ## True when a ban holds the address (`Ban.banned?`).
-export def banned?(conn: Db.Connection, address: String) -> Result[Bool]
+def banned?(conn: Db.Connection, address: String) -> Result[Bool]
   rows = try Db.query(conn, "select 1 from bans where ip_address = ? limit 1", [Db.Value.Text(address)])
   ok(not rows.empty?)
 end
 
 ## True when the table holds a ban at all.
-export def any?(conn: Db.Connection) -> Result[Bool]
+def any?(conn: Db.Connection) -> Result[Bool]
   rows = try Db.query(conn, "select 1 from bans limit 1", [])
   ok(not rows.empty?)
 end
@@ -35,13 +33,13 @@ end
 ## ban of it would lock out everyone behind it), then `status` banned and no session left. `Missing` is nobody active
 ## (no such user, a bot, a person who is deactivated); a person who is banned already is `Unchanged`. `Refused` is an
 ## actor who is not an active administrator, or who bans themselves.
-export def ban(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Accounts.Change]
+def ban(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Accounts.Change]
   Db.transaction(conn) do |tx| ban_in(tx, actor_id, user_id) end
 end
 
 ## Lifts the ban of `user_id`: the bans go and the person is active again, as before. A person who is active already
 ## is `Unchanged`; `Missing` and `Refused` are as for `ban`.
-export def unban(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Accounts.Change]
+def unban(conn: Db.Connection, actor_id: Int, user_id: Int) -> Result[Accounts.Change]
   Db.transaction(conn) do |tx| unban_in(tx, actor_id, user_id) end
 end
 
@@ -49,7 +47,7 @@ end
 ## (the content of a banned person can be long, and the other writers get through between two messages). It gives
 ## where the message was, or `none` when the person has none left or is not banned any more: a ban that was lifted
 ## ends the task, so what the person writes after they sign in again stays.
-export def delete_next_message(conn: Db.Connection, user_id: Int) -> Result[Optional[Gone]]
+def delete_next_message(conn: Db.Connection, user_id: Int) -> Result[Optional[Gone]]
   Db.transaction(conn) do |tx| delete_first_message(tx, user_id) end
 end
 
@@ -61,7 +59,7 @@ end
 ## ranges that are not the open internet: 0.0.0.0/8, 192.0.0.0/24, 198.18.0.0/15, and multicast and reserved
 ## (224.0.0.0/3). An IPv6 address is held only inside `2000::/3`, and not in `2001:db8::/32`, `2001:2::/48` or
 ## `3fff::/20`. An IPv4-mapped address (`::ffff:a.b.c.d` or `::ffff:xxxx:xxxx`) is judged as the IPv4 address it holds.
-export def public_address?(address: String) -> Bool
+def public_address?(address: String) -> Bool
   text = address.downcase
   return public_mapped?(text.slice(7, text.length - 7)) if text.start_with?("::ffff:")
 
@@ -69,6 +67,10 @@ export def public_address?(address: String) -> Bool
 
   public_v4?(text)
 end
+
+private
+
+NOW = Rails.NOW
 
 def ban_in(tx: Db.Connection, actor_id: Int, user_id: Int) -> Result[Accounts.Change]
   return ok(Accounts.Change.Refused) if not try administrator?(tx, actor_id) or actor_id == user_id

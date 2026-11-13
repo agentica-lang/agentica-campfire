@@ -6,118 +6,80 @@ import URI from "std/uri"
 
 ## The host and the port when the environment says nothing: only this machine, on a port that is free in most setups.
 ## The port is text, like the variable that it stands for, so `parse` can take it as a default.
-export DEFAULT_HOST = "127.0.0.1"
-export DEFAULT_PORT = "3000"
-
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = "3000"
 ## The folder for the files of the app (the database now, the uploads later), relative to where the program runs.
-export DEFAULT_DATA_DIR = "data"
-
+DEFAULT_DATA_DIR = "data"
 ## The folder of the stylesheet that every page links (`Routes.STYLESHEET` names a file in it), relative to where the
 ## program runs, which is the folder of the repository for `make run`.
-export DEFAULT_ASSETS_DIR = "public/assets"
-
-## The shortest session secret, the size of the SHA-256 digest that signs the cookie (Bond refuses a shorter one).
-MIN_SECRET_BYTES = 32
-
+DEFAULT_ASSETS_DIR = "public/assets"
 ## Cookies are `Secure` only when the environment says so, since a browser drops them on plain HTTP (a laptop).
-export DEFAULT_SECURE_COOKIES = "false"
-
+DEFAULT_SECURE_COOKIES = "false"
 ## The connections of the pool when `CAMPFIRE_DB_POOL_SIZE` is not set: 0 takes the size of the database (4 for SQLite).
-export DEFAULT_DB_POOL_SIZE = 0
-
+DEFAULT_DB_POOL_SIZE = 0
 ## The fewest connections that `CAMPFIRE_DB_POOL_SIZE` may ask for, when it is not 0. Hashing a password runs while the
 ## request holds its connection, and the web side lets `AuthWeb.MAX_HASHES` (2) hashes run at once, so a pool that small
 ## could be held entirely by sign-ins of strangers. One more keeps a connection for everything else.
-export MIN_DB_POOL_SIZE = 3
-
+MIN_DB_POOL_SIZE = 3
 ## The most connections `CAMPFIRE_DB_POOL_SIZE` may ask for.
-export MAX_DB_POOL_SIZE = 64
-
+MAX_DB_POOL_SIZE = 64
 ## How long a request waits for a free connection when `CAMPFIRE_DB_CHECKOUT_MS` is not set. A request that waits longer
 ## is answered 503: the server is busy, and a person would rather retry than stare at a spinner.
-export DEFAULT_DB_CHECKOUT_MS = 3_000
-
+DEFAULT_DB_CHECKOUT_MS = 3_000
 ## The most that `CAMPFIRE_DB_CHECKOUT_MS` may ask for.
-export MAX_DB_CHECKOUT_MS = 60_000
-
+MAX_DB_CHECKOUT_MS = 60_000
 ## The megabytes of the cache of rendered messages when `CAMPFIRE_CACHE_MB` is not set; 0 turns the cache off. A message
 ## takes about a kilobyte, so this holds tens of thousands of them.
-export DEFAULT_CACHE_MB = 64
-
+DEFAULT_CACHE_MB = 64
 ## The most that `CAMPFIRE_CACHE_MB` may ask for (4 GiB).
-export MAX_CACHE_MB = 4096
-
+MAX_CACHE_MB = 4096
 ## The megabytes of the cache of whole pages (the room page and the older messages) when `CAMPFIRE_RESPONSE_CACHE_MB`
 ## is not set, the name and the default of the Rails Campfire setting; 0 turns the cache off. A page of a room is about
 ## 16 KB, so this holds a few thousand.
-export DEFAULT_RESPONSE_CACHE_MB = 64
-
+DEFAULT_RESPONSE_CACHE_MB = 64
 ## The most that `CAMPFIRE_RESPONSE_CACHE_MB` may ask for (4 GiB).
-export MAX_RESPONSE_CACHE_MB = 4096
-
+MAX_RESPONSE_CACHE_MB = 4096
 ## The search pages that one person keeps in the cache of whole pages when `CAMPFIRE_SEARCH_PAGES` is not set. A search
 ## has no cursor to bound it, so the cache gives each person this many places for search pages and no more.
-export DEFAULT_SEARCH_PAGES = 8
-
+DEFAULT_SEARCH_PAGES = 8
 ## The fewest and the most that `CAMPFIRE_SEARCH_PAGES` may ask for.
-export MIN_SEARCH_PAGES = 1
-export MAX_SEARCH_PAGES = 64
-
+MIN_SEARCH_PAGES = 1
+MAX_SEARCH_PAGES = 64
 ## The pages of older messages of each kind (`?before=` and `?after=`) that one person keeps in the cache of whole
 ## pages when `CAMPFIRE_CURSOR_PAGES` is not set. The cursor is a number that the client chooses, so the cache gives
 ## each person this many places for each kind and no more. A person who reads back through a room asks for a new cursor
 ## for each screen, so this holds the last few screens of a few rooms.
-export DEFAULT_CURSOR_PAGES = 16
-
+DEFAULT_CURSOR_PAGES = 16
 ## The fewest and the most that `CAMPFIRE_CURSOR_PAGES` may ask for.
-export MIN_CURSOR_PAGES = 1
-export MAX_CURSOR_PAGES = 64
-
+MIN_CURSOR_PAGES = 1
+MAX_CURSOR_PAGES = 64
 ## The longest message that `CAMPFIRE_MAX_MESSAGE_LENGTH` may leave when it is not set, in characters of what is sent (the
 ## HTML of the editor counts its tags). The check comes before the sanitizer reads the text, which costs about 0.7 s a
 ## megabyte, so this bounds that work (a form's text is first made HTML, which grows it by a few times).
-export DEFAULT_MAX_MESSAGE_LENGTH = 10_000
-
+DEFAULT_MAX_MESSAGE_LENGTH = 10_000
 ## The fewest and the most that `CAMPFIRE_MAX_MESSAGE_LENGTH` may ask for. The most is what fits in the 1 MiB body that
 ## the server takes: a form sends a character as up to 12 bytes (4 bytes of UTF-8, each percent-encoded), and a longer
 ## limit would be answered 413 before the message was checked.
-export MIN_MAX_MESSAGE_LENGTH = 1
-export MAX_MAX_MESSAGE_LENGTH = 80_000
-
+MIN_MAX_MESSAGE_LENGTH = 1
+MAX_MAX_MESSAGE_LENGTH = 80_000
 ## The megabytes of the store of the people of the sessions (kept apart from the pages, so that the pages cannot push a
 ## session out) when `CAMPFIRE_SESSION_CACHE_MB` is not set. A person is about a hundred bytes for every version of the
 ## database, so this holds tens of thousands.
-export DEFAULT_SESSION_CACHE_MB = 4
-
+DEFAULT_SESSION_CACHE_MB = 4
 ## The fewest and the most that `CAMPFIRE_SESSION_CACHE_MB` may ask for.
-export MIN_SESSION_CACHE_MB = 1
-export MAX_SESSION_CACHE_MB = 1024
-
+MIN_SESSION_CACHE_MB = 1
+MAX_SESSION_CACHE_MB = 1024
 ## The connections that the server holds at once when `CAMPFIRE_MAX_CONNECTIONS` is not set. A WebSocket of `/cable`
 ## holds one for as long as its tab is open, so this is the tabs that can be connected, and the requests share what is
 ## left: set it above the clients and the posters.
-export DEFAULT_MAX_CONNECTIONS = 4_096
-
+DEFAULT_MAX_CONNECTIONS = 4_096
 ## The fewest and the most that `CAMPFIRE_MAX_CONNECTIONS` may ask for.
-export MIN_MAX_CONNECTIONS = 16
-export MAX_MAX_CONNECTIONS = 65_535
-
+MIN_MAX_CONNECTIONS = 16
+MAX_MAX_CONNECTIONS = 65_535
 ## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set.
-export DEFAULT_MAIL_QUEUE = 32
-
+DEFAULT_MAIL_QUEUE = 32
 ## The most emails that may wait for the mail server (`CAMPFIRE_MAIL_QUEUE_SIZE` and `Mailer.start` both refuse more).
-export MAX_MAIL_QUEUE = 1024
-
-## The plain port that a `smtp+plain://` url uses when it names none (a mail catcher on this machine).
-PLAIN_SMTP_PORT = 25
-
-## The form of `CAMPFIRE_BASE_URL`.
-BASE_URL_FORM = "https://campfire.example.com (a scheme, a host and maybe a port)"
-
-## The form of `CAMPFIRE_SMTP_URL`, which the errors tell instead of the url: it holds the password.
-SMTP_URL_FORM = (
-  "smtp://user:password@host:587 (smtps:// for TLS from the first byte, smtp+plain:// for this machine only)"
-)
+MAX_MAIL_QUEUE = 1024
 
 ## The address to listen on, the data folder and the url of the database. Port 0 asks the system for a free port (the
 ## specs use it). `session_secret` signs the session cookie and has no default, since a default is a secret that
@@ -139,7 +101,7 @@ SMTP_URL_FORM = (
 ## messages (`?before=` and `?after=`) it keeps, and `session_cache_mb` the size of the store of the people of the
 ## sessions in megabytes (all three are used only while `response_cache_mb` is not 0). `max_message_length` is the
 ## longest body of a message, in characters, that a post or an edit may send.
-export struct Config
+struct Config
   host: String
   port: Int
   data_dir: String
@@ -165,22 +127,6 @@ export struct Config
   max_message_length: Int = DEFAULT_MAX_MESSAGE_LENGTH
 end
 
-# What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
-struct Mail
-  smtp: Optional[Smtp.Options]
-  from: String
-end
-
-struct SmtpLogin
-  name: String
-  password: String
-end
-
-struct SmtpPlace
-  host: String
-  port: Optional[Int]
-end
-
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
 ## `CAMPFIRE_SESSION_SECRET`, `CAMPFIRE_SECURE_COOKIES`, `CAMPFIRE_SMTP_URL`, `CAMPFIRE_BASE_URL`,
 ## `CAMPFIRE_SMTP_FROM`, `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`,
@@ -189,7 +135,7 @@ end
 ## `CAMPFIRE_MAX_MESSAGE_LENGTH`, with
 ## the defaults for a variable that is not set (the secret has none, and without the smtp url there is no email). An
 ## `error` says which value is wrong.
-export def load() -> Result[Config]
+def load() -> Result[Config]
   host = System.env("CAMPFIRE_HOST").unwrap_or(DEFAULT_HOST)
   port = System.env("CAMPFIRE_PORT").unwrap_or(DEFAULT_PORT)
   data_dir = System.env("CAMPFIRE_DATA_DIR").unwrap_or(DEFAULT_DATA_DIR)
@@ -272,7 +218,7 @@ end
 ## (`CAMPFIRE_CURSOR_PAGES`) is `MIN_CURSOR_PAGES` to `MAX_CURSOR_PAGES` (`DEFAULT_CURSOR_PAGES` when left out).
 ## `max_message_length` (`CAMPFIRE_MAX_MESSAGE_LENGTH`) is `MIN_MAX_MESSAGE_LENGTH` to `MAX_MAX_MESSAGE_LENGTH`
 ## (`DEFAULT_MAX_MESSAGE_LENGTH` when left out).
-export def parse(
+def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
   data_dir: String = DEFAULT_DATA_DIR,
@@ -443,8 +389,37 @@ end
 
 ## True when the links in emails go over plain HTTP to a host that is not this machine: a token that crosses the
 ## network in the clear. The app says so at start; with secure cookies it is an error of `parse` instead.
-export def plain_link?(config: Config) -> Bool
+def plain_link?(config: Config) -> Bool
   config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
+end
+
+private
+
+## The shortest session secret, the size of the SHA-256 digest that signs the cookie (Bond refuses a shorter one).
+MIN_SECRET_BYTES = 32
+## The plain port that a `smtp+plain://` url uses when it names none (a mail catcher on this machine).
+PLAIN_SMTP_PORT = 25
+## The form of `CAMPFIRE_BASE_URL`.
+BASE_URL_FORM = "https://campfire.example.com (a scheme, a host and maybe a port)"
+## The form of `CAMPFIRE_SMTP_URL`, which the errors tell instead of the url: it holds the password.
+SMTP_URL_FORM = (
+  "smtp://user:password@host:587 (smtps:// for TLS from the first byte, smtp+plain:// for this machine only)"
+)
+
+# What `CAMPFIRE_SMTP_URL` and its companions make: how to send, and as whom.
+struct Mail
+  smtp: Optional[Smtp.Options]
+  from: String
+end
+
+struct SmtpLogin
+  name: String
+  password: String
+end
+
+struct SmtpPlace
+  host: String
+  port: Optional[Int]
 end
 
 # A whole number of `name` from `low` to `high`, `fallback` when the text is empty.

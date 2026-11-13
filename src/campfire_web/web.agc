@@ -24,22 +24,6 @@ import SignedId from "../campfire/signed_id"
 import Slots from "../campfire/slots"
 import {Config} from "../campfire/config"
 
-UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>"
-
-# The biggest file that the assets folder serves: 4 MiB, far above a stylesheet or a script of this app.
-STYLESHEET_MAX_BYTES = 4 * 1024 * 1024
-
-# The statuses of a redirect (not 304, which answers a conditional request and keeps the headers of the cached copy).
-REDIRECTS = [301, 302, 303, 307, 308]
-NOT_MODIFIED = 304
-CACHE_CONTROL_NAME_LENGTH = 13
-CONTENT_TYPE_NAME_LENGTH = 12
-
-struct Health
-  status: String
-  schema_version: Int
-end
-
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
 ## `AccountsWeb`, the boosts of the messages (`BoostsWeb`), the messages API of the chat bots (`BotMessagesWeb`), the
@@ -49,7 +33,7 @@ end
 ## of rendered messages for the room pages (`MessageCache.start`); without it every message is rendered each time.
 ## `pages` keeps the room page, the older messages, the sidebar and the search whole (`PageCache.start`); without it
 ## each is made for every request.
-export def build(
+def build(
   config: Config,
   pool: Database.Pool,
   schema_version: Int,
@@ -60,11 +44,11 @@ export def build(
 ) -> Bond.App
   slots = Slots.new()
   bans = BanFlag.new()
-  on_get_home = Blocks.handler() do |conn| RoomsWeb.home(conn, pool) end
-  on_get_health = Blocks.handler() do |conn| health(conn, schema_version) end
-  on_get_up = Blocks.handler() do |conn| up(conn) end
-  on_after_revalidate = Blocks.handler() do |conn| revalidate(conn) end
-  on_not_found_text = Blocks.handler() do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
+  on_get_home = Blocks.handler do |conn| RoomsWeb.home(conn, pool) end
+  on_get_health = Blocks.handler do |conn| health(conn, schema_version) end
+  on_get_up = Blocks.handler do |conn| up(conn) end
+  on_after_revalidate = Blocks.handler do |conn| revalidate(conn) end
+  on_not_found_text = Blocks.handler do |conn| ok(Bond.text(conn, 404, Routes.MISSING)) end
 
   (
     Bond.app()
@@ -95,7 +79,7 @@ end
 ## avatars. A 304 and every other status are left as they are. It runs on every answer, so it reads the header list
 ## once and compares the length of a name before it lowercases it (Bond writes `content-type: text/html;
 ## charset=utf-8` exactly, so the value is compared as written).
-export def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
+def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
   page = false
   for header in conn.response_headers
     name = header.name
@@ -111,6 +95,22 @@ export def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
   end
 
   ok(conn)
+end
+
+private
+
+UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>"
+# The biggest file that the assets folder serves: 4 MiB, far above a stylesheet or a script of this app.
+STYLESHEET_MAX_BYTES = 4 * 1024 * 1024
+# The statuses of a redirect (not 304, which answers a conditional request and keeps the headers of the cached copy).
+REDIRECTS = [301, 302, 303, 307, 308]
+NOT_MODIFIED = 304
+CACHE_CONTROL_NAME_LENGTH = 13
+CONTENT_TYPE_NAME_LENGTH = 12
+
+struct Health
+  status: String
+  schema_version: Int
 end
 
 # For a load balancer or a container check: 200 while the process serves, and the schema that it started on.

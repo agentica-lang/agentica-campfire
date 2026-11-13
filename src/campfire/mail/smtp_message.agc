@@ -5,57 +5,8 @@
 
 import UTC from "std/utc"
 
-# The line end of a message (RFC 5322 2.1).
-CRLF = "\r\n"
-
-# The longest header line that folding aims for (RFC 5322 asks for 78 or less, and the line ends take two more).
-FOLD_WIDTH = 76
-
-# The most bytes of one RFC 2047 encoded word: 42 bytes make 56 base64 characters, and with `=?UTF-8?B?` and `?=` the
-# word has 68, under the 75 that the RFC allows, and `Subject: ` and the word fit in 78 characters.
-WORD_BYTES = 42
-
-# RFC 5322 2.1.1: a line of a message has 998 octets at most, without its CRLF.
-MAX_HEADER_LINE = 998
-
-# RFC 5321 4.5.3.1.3: a path has 256 octets with its angle brackets. With `RCPT TO:` and CRLF the command line is far
-# under the 512 octets that a command line may have.
-MAX_ADDRESS_BYTES = 254
-
-# A quoted-printable line has at most 76 characters with its soft break `=`.
-QP_WIDTH = 75
-MAX_BODY_LINE = 76
-
-HEX_DIGITS = "0123456789ABCDEF"
-WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-MS_PER_DAY = 86_400_000
-UNIX_EPOCH_WEEKDAY = 4
-
-# What a display name may not hold without quotes (RFC 5322 specials).
-SPECIALS = Set.new(["(", ")", "<", ">", "[", "]", ":", ";", "@", "\\", ",", ".", "\""])
-
-# What an address may not hold: the specials, the space and the quote make it a mailbox that this module does
-# not write.
-ADDRESS_FORBIDDEN = Set.new(["(", ")", "<", ">", "[", "]", ":", ";", "\\", ",", "\"", " "])
-
-# Headers that the fields of a `Message` write, so `headers` may not repeat them.
-OWN_HEADERS = Set.new([
-  "date",
-  "from",
-  "to",
-  "cc",
-  "bcc",
-  "reply-to",
-  "subject",
-  "message-id",
-  "mime-version",
-  "content-type",
-  "content-transfer-encoding",
-])
-
 ## A header that is not one of the fields of a `Message`, such as `List-Unsubscribe`.
-export struct Field
+struct Field
   name: String
   value: String
 end
@@ -64,7 +15,7 @@ end
 ## `html` (or both: the reader's client picks one) must have something in it. `bcc` addresses get the message but are
 ## not in its headers. An empty `date` and `message_id` are made by `complete` when the message is sent; a text in them
 ## is written as it is.
-export struct Message
+struct Message
   from: String
   to: List[String]
   subject: String
@@ -79,19 +30,14 @@ export struct Message
 end
 
 ## The addresses of the SMTP dialogue, `MAIL FROM` and one `RCPT TO` each, apart from the names in the headers.
-export struct Envelope
+struct Envelope
   sender: String
   recipients: List[String]
 end
 
-struct Address
-  name: String
-  address: String
-end
-
 ## The message with `date` and `message_id` made when they are empty: the date of now, and a random id at the domain of
 ## the sender. A sender that is not an address leaves the id empty, and `render` or `envelope` tell what is wrong.
-export def complete(message: Message) -> Message
+def complete(message: Message) -> Message
   date = message.date
   if date.empty?
     date = rfc5322_date(Time.now_ms())
@@ -107,7 +53,7 @@ end
 
 ## The sender and every recipient of `to`, `cc` and `bcc`, without repeats, or an `error` that names the address that
 ## is wrong or says that there is no recipient.
-export def envelope(message: Message) -> Result[Envelope]
+def envelope(message: Message) -> Result[Envelope]
   sender = try parse_address(message.from)
   recipients = try parse_all(message.to.concat(message.cc).concat(message.bcc))
   return error("a message needs at least one recipient") if recipients.empty?
@@ -119,7 +65,7 @@ end
 ## The message as it goes after `DATA`: the headers, an empty line and the body, with CRLF line ends and a CRLF at the
 ## end. An `error` is a line break (or another control character) in a header, an address that is not one, no
 ## recipient or no body.
-export def render(message: Message) -> Result[String]
+def render(message: Message) -> Result[String]
   try check_headers(message)
   return error("a message needs a text or an html body") if message.text.empty? and message.html.empty?
 
@@ -164,6 +110,53 @@ export def render(message: Message) -> Result[String]
   end
 
   ok("#{head}#{CRLF}#{body(message)}")
+end
+
+private
+
+# The line end of a message (RFC 5322 2.1).
+CRLF = "\r\n"
+# The longest header line that folding aims for (RFC 5322 asks for 78 or less, and the line ends take two more).
+FOLD_WIDTH = 76
+# The most bytes of one RFC 2047 encoded word: 42 bytes make 56 base64 characters, and with `=?UTF-8?B?` and `?=` the
+# word has 68, under the 75 that the RFC allows, and `Subject: ` and the word fit in 78 characters.
+WORD_BYTES = 42
+# RFC 5322 2.1.1: a line of a message has 998 octets at most, without its CRLF.
+MAX_HEADER_LINE = 998
+# RFC 5321 4.5.3.1.3: a path has 256 octets with its angle brackets. With `RCPT TO:` and CRLF the command line is far
+# under the 512 octets that a command line may have.
+MAX_ADDRESS_BYTES = 254
+# A quoted-printable line has at most 76 characters with its soft break `=`.
+QP_WIDTH = 75
+MAX_BODY_LINE = 76
+HEX_DIGITS = "0123456789ABCDEF"
+WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+MS_PER_DAY = 86_400_000
+UNIX_EPOCH_WEEKDAY = 4
+# What a display name may not hold without quotes (RFC 5322 specials).
+SPECIALS = Set.new(["(", ")", "<", ">", "[", "]", ":", ";", "@", "\\", ",", ".", "\""])
+# What an address may not hold: the specials, the space and the quote make it a mailbox that this module does
+# not write.
+ADDRESS_FORBIDDEN = Set.new(["(", ")", "<", ">", "[", "]", ":", ";", "\\", ",", "\"", " "])
+# Headers that the fields of a `Message` write, so `headers` may not repeat them.
+OWN_HEADERS = Set.new([
+  "date",
+  "from",
+  "to",
+  "cc",
+  "bcc",
+  "reply-to",
+  "subject",
+  "message-id",
+  "mime-version",
+  "content-type",
+  "content-transfer-encoding",
+])
+
+struct Address
+  name: String
+  address: String
 end
 
 # Every value a person wrote goes through here before it becomes part of a line: a CR or LF would end the header and

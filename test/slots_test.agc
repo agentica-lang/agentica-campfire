@@ -1,5 +1,7 @@
 import Slots from "../src/campfire/slots"
 
+private
+
 def main() -> Void
   Test.run([
     Test.test("no more slots are given than the limit, and a released one can be taken again") do

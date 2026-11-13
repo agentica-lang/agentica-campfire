@@ -23,62 +23,13 @@ import Smtp from "../campfire/mail/smtp"
 import Views from "views"
 import {Config} from "../campfire/config"
 
-# The cookie of the session, and the name that browsers only take from the host itself (`__Host-`, which also needs
-# `Secure`, no domain and the path `/`).
-COOKIE_NAME = "session_token"
-SECURE_COOKIE_NAME = "__Host-session_token"
-TOKEN_KEY = "token"
-# Where the sign-in filter keeps the person for the handler (`Bond.assign`).
-USER_KEY = "user"
-
-PUBLIC_PATHS = Set.new([
-  Routes.HEALTH,
-  Routes.CABLE,
-  Routes.UP,
-  Routes.FIRST_RUN,
-  Routes.SIGN_IN,
-  Routes.SESSION,
-  Routes.PASSWORD_RESET_NEW,
-  Routes.PASSWORD_RESET,
-  Routes.PASSWORD_RESET_EDIT,
-  Routes.PASSWORD_RESET_UPDATE,
-])
-
-# Everything under `/assets/` is public: the files of the assets folder, which are not secret.
-ASSETS_PREFIX = "#{Routes.ASSETS}/"
-
-# `/join/CODE` (and nothing longer) is the join page: its code is the secret that lets a stranger in, so it cannot be a
-# fixed path of `PUBLIC_PATHS`. A path with more segments, or none, is not public, and a wrong code answers 404 inside
-# the handler without telling anything else.
-JOIN_SEGMENTS = 3
-
-# The segments of `/rooms/ID/KEY/messages`, of `/rooms/ID/KEY/messages/ID`, and of the boosts under a message,
-# `/rooms/ID/KEY/messages/ID/boosts` and `/rooms/ID/KEY/messages/ID/boosts/ID`.
-BOT_LIST_SEGMENTS = 4
-BOT_MESSAGE_SEGMENTS = 5
-BOT_BOOSTS_SEGMENTS = 6
-BOT_BOOST_SEGMENTS = 7
-
-# The request headers that `Bond.csrf` reads.
-CROSS_SITE_HEADERS = Set.new(["origin", "sec-fetch-site"])
-
-BAD_LOGIN = "Wrong email or password"
-TOO_MANY = "Too many sign-in attempts, try again later"
-
-# At most this many attempts to sign in (every post to `Routes.SESSION`, right or wrong) from one address in this time,
-# as upstream Campfire has it: 10 in 3 minutes.
-SIGN_IN_ATTEMPTS = 10
-SIGN_IN_WINDOW_MS = 180_000
-
 # How many password hashes may run at once: 64 MiB and about a second of a scheduler each for scrypt, and a thread of
 # the compute pool for about a quarter of a second for a bcrypt digest of cost 12. The routes that hash are open to
 # anyone, so a burst past this is answered 503 with `Retry-After` at once instead of queueing.
-export MAX_HASHES = 2
-
-RESET_SUBJECT = "Reset your Campfire password"
+MAX_HASHES = 2
 
 ## What `person_in` found: the person, or the page that the sign-in filter sends a visitor to.
-export enum Found
+enum Found
   Person(Auth.User)
   Entry(String)
 end
@@ -89,7 +40,7 @@ end
 ## any work. A missing `Sec-Fetch-Site` and `Origin` (a tool, not a browser) passes, which is what the specs and `curl`
 ## send. The messages API of the bots is the exception to the check (`unmarked`), and a path that `bot_api?` names needs
 ## no session.
-export def add(
+def add(
   app: Bond.App,
   config: Config,
   pool: Database.Pool,
@@ -102,19 +53,19 @@ export def add(
   # `slots` bounds the hashing for everyone together (the profile shares it); `attempts` bounds the sign-in posts of
   # one address.
   attempts = RateLimit.new()
-  on_before_unmarked = Blocks.handler() do |conn| ok(unmarked(conn)) end
-  on_before_reject_banned = Blocks.handler() do |conn| reject_banned(conn, pool, bans) end
-  on_before_require_sign_in = Blocks.handler() do |conn| require_sign_in(conn, pool, pages) end
-  on_get_first_run = Blocks.handler() do |conn| show_first_run(conn, pool) end
-  on_post_first_run = Blocks.handler() do |conn| create_first_run(conn, pool, slots) end
-  on_get_join = Blocks.handler() do |conn| show_join(conn, pool) end
-  on_post_join = Blocks.handler() do |conn| create_join(conn, pool, slots) end
-  on_get_sign_in = Blocks.handler() do |conn| show_sign_in(conn, pool, mailer) end
-  on_post_session = Blocks.handler() do |conn| create_session(conn, config, pool, slots, attempts, mailer) end
-  on_post_sign_out = Blocks.handler() do |conn| destroy_session(conn, pool, hub) end
-  on_get_password_reset_new = Blocks.handler() do |conn| show_forgot_password(conn, mailer) end
-  on_post_password_reset = Blocks.handler() do |conn| create_password_reset(conn, config, pool, mailer) end
-  on_get_password_reset_edit = Blocks.handler() do |conn| show_reset_password(conn, pool) end
+  on_before_unmarked = Blocks.handler do |conn| ok(unmarked(conn)) end
+  on_before_reject_banned = Blocks.handler do |conn| reject_banned(conn, pool, bans) end
+  on_before_require_sign_in = Blocks.handler do |conn| require_sign_in(conn, pool, pages) end
+  on_get_first_run = Blocks.handler do |conn| show_first_run(conn, pool) end
+  on_post_first_run = Blocks.handler do |conn| create_first_run(conn, pool, slots) end
+  on_get_join = Blocks.handler do |conn| show_join(conn, pool) end
+  on_post_join = Blocks.handler do |conn| create_join(conn, pool, slots) end
+  on_get_sign_in = Blocks.handler do |conn| show_sign_in(conn, pool, mailer) end
+  on_post_session = Blocks.handler do |conn| create_session(conn, config, pool, slots, attempts, mailer) end
+  on_post_sign_out = Blocks.handler do |conn| destroy_session(conn, pool, hub) end
+  on_get_password_reset_new = Blocks.handler do |conn| show_forgot_password(conn, mailer) end
+  on_post_password_reset = Blocks.handler do |conn| create_password_reset(conn, config, pool, mailer) end
+  on_get_password_reset_edit = Blocks.handler do |conn| show_reset_password(conn, pool) end
 
   (
     app
@@ -138,22 +89,22 @@ export def add(
 end
 
 ## The token of the session cookie, "" when the request has none.
-export def session_token(conn: Bond.Conn) -> String = Bond.get_session(conn, TOKEN_KEY).unwrap_or("")
+def session_token(conn: Bond.Conn) -> String = Bond.get_session(conn, TOKEN_KEY).unwrap_or("")
 
 ## The person of the request, or `none` for a visitor with no session, a session that was ended, or a user that was
 ## deactivated.
-export def current_user(conn: Bond.Conn, pool: Database.Pool) -> Result[Optional[Auth.User]]
+def current_user(conn: Bond.Conn, pool: Database.Pool) -> Result[Optional[Auth.User]]
   Database.with_connection(pool) do |db| user_of_session(conn, db) end
 end
 
 ## True for the post of a message (`Routes.ROOM_MESSAGES`), whose handler looks the person up in the connection that it
 ## writes with (`person_in`), so that the post takes one connection of the pool and not two: the filter leaves the
 ## lookup to it for a request that has a session cookie. A path of the bots (`bot_api?`) has more segments.
-export def lookup_in_handler?(conn: Bond.Conn) -> Bool = message_post?(conn.method, conn.path)
+def lookup_in_handler?(conn: Bond.Conn) -> Bool = message_post?(conn.method, conn.path)
 
 ## `lookup_in_handler?` for a method and a path. The path is read as the router reads it, by its non-empty segments,
 ## against the segments of `Routes.ROOM_MESSAGES`, where a segment that starts with ":" is any value.
-export def message_post?(method: String, path: String) -> Bool
+def message_post?(method: String, path: String) -> Bool
   return false if method != "POST"
 
   wanted = Routes.ROOM_MESSAGES.split("/").select do |part| not part.empty? end
@@ -170,7 +121,7 @@ end
 ## The person of a request, for a handler that has a connection `db`: when `lookup_in_handler?` left the lookup to it,
 ## the lookup is made in `db` (and a visitor is sent where the filter sends them: the first run while there is no
 ## account, else the sign-in page); otherwise it is the person that the filter kept (`assigned_user`).
-export def person_in(conn: Bond.Conn, db: Db.Connection) -> Result[Found]
+def person_in(conn: Bond.Conn, db: Db.Connection) -> Result[Found]
   if not lookup_in_handler?(conn)
     kept = try assigned_user(conn)
     case kept
@@ -191,7 +142,7 @@ end
 
 ## The person that the sign-in filter looked up and kept with `Bond.assign`, so a handler does not look them up again.
 ## `none` for a request that the filter did not see (a public page); a signed-in page always has one.
-export def assigned_user(conn: Bond.Conn) -> Result[Optional[Auth.User]]
+def assigned_user(conn: Bond.Conn) -> Result[Optional[Auth.User]]
   return ok(none) if not Bond.assigned?(conn, USER_KEY)
 
   user = try Bond.assigned(conn, USER_KEY, Auth.User.codec)
@@ -200,7 +151,7 @@ end
 
 ## The `_method` field of a form, lower case ("" when it has none), which is how Rails reads it
 ## (`Rack::MethodOverride`): a browser form cannot send `PATCH`, `PUT` or `DELETE`, so it posts and names the method.
-export def form_method(conn: Bond.Conn) -> Result[String]
+def form_method(conn: Bond.Conn) -> Result[String]
   methods = try Bond.form_all(conn, "_method")
   return ok("") if methods.empty?
 
@@ -213,7 +164,7 @@ end
 ## The parts are the non-empty segments, which is how the router reads a path, so a path that is true here is a path
 ## of the API and not a browser path with an odd shape (`/rooms/1//messages` is the messages of room 1, and
 ## `/rooms/1/messages/9`, the message 9, have `messages` where the key is).
-export def bot_api?(path: String) -> Bool
+def bot_api?(path: String) -> Bool
   parts = path.split("/").select do |part| not part.empty? end
   return false if parts.size < BOT_LIST_SEGMENTS or parts.size > BOT_BOOST_SEGMENTS
 
@@ -227,9 +178,52 @@ end
 ## is `same-origin`, not `no-referrer`: with `no-referrer` a browser on plain HTTP sends `Origin: null` on the forms of
 ## the page, which `Bond.csrf` refuses (a post to the page's own site carries its real `Origin`). A link to another site
 ## still gets no `Referer`.
-export def private_page(conn: Bond.Conn) -> Bond.Conn
+def private_page(conn: Bond.Conn) -> Bond.Conn
   Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "same-origin")
 end
+
+private
+
+# The cookie of the session, and the name that browsers only take from the host itself (`__Host-`, which also needs
+# `Secure`, no domain and the path `/`).
+COOKIE_NAME = "session_token"
+SECURE_COOKIE_NAME = "__Host-session_token"
+TOKEN_KEY = "token"
+# Where the sign-in filter keeps the person for the handler (`Bond.assign`).
+USER_KEY = "user"
+PUBLIC_PATHS = Set.new([
+  Routes.HEALTH,
+  Routes.CABLE,
+  Routes.UP,
+  Routes.FIRST_RUN,
+  Routes.SIGN_IN,
+  Routes.SESSION,
+  Routes.PASSWORD_RESET_NEW,
+  Routes.PASSWORD_RESET,
+  Routes.PASSWORD_RESET_EDIT,
+  Routes.PASSWORD_RESET_UPDATE,
+])
+# Everything under `/assets/` is public: the files of the assets folder, which are not secret.
+ASSETS_PREFIX = "#{Routes.ASSETS}/"
+# `/join/CODE` (and nothing longer) is the join page: its code is the secret that lets a stranger in, so it cannot be a
+# fixed path of `PUBLIC_PATHS`. A path with more segments, or none, is not public, and a wrong code answers 404 inside
+# the handler without telling anything else.
+JOIN_SEGMENTS = 3
+# The segments of `/rooms/ID/KEY/messages`, of `/rooms/ID/KEY/messages/ID`, and of the boosts under a message,
+# `/rooms/ID/KEY/messages/ID/boosts` and `/rooms/ID/KEY/messages/ID/boosts/ID`.
+BOT_LIST_SEGMENTS = 4
+BOT_MESSAGE_SEGMENTS = 5
+BOT_BOOSTS_SEGMENTS = 6
+BOT_BOOST_SEGMENTS = 7
+# The request headers that `Bond.csrf` reads.
+CROSS_SITE_HEADERS = Set.new(["origin", "sec-fetch-site"])
+BAD_LOGIN = "Wrong email or password"
+TOO_MANY = "Too many sign-in attempts, try again later"
+# At most this many attempts to sign in (every post to `Routes.SESSION`, right or wrong) from one address in this time,
+# as upstream Campfire has it: 10 in 3 minutes.
+SIGN_IN_ATTEMPTS = 10
+SIGN_IN_WINDOW_MS = 180_000
+RESET_SUBJECT = "Reset your Campfire password"
 
 # `Bond.csrf` refuses a post that a page of another site sent, judging by `Sec-Fetch-Site` and `Origin`. The messages
 # API of the bots is the one place where a page of another site may call (a dashboard that posts with a key, as Rails

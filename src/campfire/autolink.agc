@@ -17,42 +17,8 @@
 
 import Regex from "std/regex"
 
-# What `auto_link` takes as the start of a URL: `http://`, `https://` or `www.`; it goes on to the next space,
-# `<`, `"` or no-break space. The first group is the scheme and its colon. A literal cannot be broken over lines.
-URL = /(?i)(?:((?:https|http):)\/\/|www\.)[^\s<"\x{A0}]+/
-
-# An address, as rails_autolink writes it; a match that has more of the local part before it is not one.
-EMAIL = /[\w.!#$%+-]\.?[\w.!#$%&'*\/=?^`{|}~+-]*@[\w-]+(?:\.[\w-]+)+/
-
-EMAIL_LOCAL = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.!#$%&'*/=?^`{|}~+-".split(""))
-
-# The closing characters that stay in a URL when it has more openings than they have closings.
-BRACKETS = {"]": "[", ")": "(", "}": "{"}
-
-# Besides letters and digits, the characters that a URL may end with.
-URL_END = Set.new(["/", "-", "=", ";", "_"])
-
-LINK_ATTRIBUTES = "target=\"_blank\""
-LINK_REL = "rel=\"noopener noreferrer\""
-
-# The characters from 128 up that are not letters, as ranges of code points (first and last).
-SYMBOL_RANGES = [
-  [128, 169],
-  [171, 180],
-  [182, 185],
-  [187, 191],
-  [215, 215],
-  [247, 247],
-  [8192, 8303],
-  [8592, 11263],
-  [12288, 12351],
-  [65281, 65295],
-  [65306, 65312],
-  [126976, 129791],
-]
-
 ## `clean` with the URLs and the email addresses of its text made links. A text that has none comes back as it is.
-export def link(clean: String) -> String
+def link(clean: String) -> String
   return clean if not linkable?(clean)
 
   parts = clean.split("<")
@@ -82,6 +48,36 @@ export def link(clean: String) -> String
 
   out.join("")
 end
+
+private
+
+# What `auto_link` takes as the start of a URL: `http://`, `https://` or `www.`; it goes on to the next space,
+# `<`, `"` or no-break space. The first group is the scheme and its colon. A literal cannot be broken over lines.
+URL = /(?i)(?:((?:https|http):)\/\/|www\.)[^\s<"\x{A0}]+/
+# An address, as rails_autolink writes it; a match that has more of the local part before it is not one.
+EMAIL = /[\w.!#$%+-]\.?[\w.!#$%&'*\/=?^`{|}~+-]*@[\w-]+(?:\.[\w-]+)+/
+EMAIL_LOCAL = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.!#$%&'*/=?^`{|}~+-".split(""))
+# The closing characters that stay in a URL when it has more openings than they have closings.
+BRACKETS = {"]": "[", ")": "(", "}": "{"}
+# Besides letters and digits, the characters that a URL may end with.
+URL_END = Set.new(["/", "-", "=", ";", "_"])
+LINK_ATTRIBUTES = "target=\"_blank\""
+LINK_REL = "rel=\"noopener noreferrer\""
+# The characters from 128 up that are not letters, as ranges of code points (first and last).
+SYMBOL_RANGES = [
+  [128, 169],
+  [171, 180],
+  [182, 185],
+  [187, 191],
+  [215, 215],
+  [247, 247],
+  [8192, 8303],
+  [8592, 11263],
+  [12288, 12351],
+  [65281, 65295],
+  [65306, 65312],
+  [126976, 129791],
+]
 
 # Only text with a colon, an `@` or `www.` can hold what `URL` or `EMAIL` matches.
 def linkable?(text: String) -> Bool = text.include?(":") or text.include?("@") or text.downcase.include?("www.")

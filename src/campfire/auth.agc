@@ -12,41 +12,18 @@ import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
 ## The name of the account that the first run makes, and of the open room that it starts with (as upstream does).
-export ACCOUNT_NAME = "Campfire"
-export FIRST_ROOM_NAME = "All Talk"
-
-MAX_NAME_LENGTH = 100
-MAX_EMAIL_LENGTH = 254
-TOKEN_BYTES = 32
-EMAIL_TAKEN = "An account with that email exists already"
-
+ACCOUNT_NAME = "Campfire"
+FIRST_ROOM_NAME = "All Talk"
 # A reset link works for this long. While a link works nobody gets another one, and after it was used a new one comes
 # only this long after it was made: a stranger who types an email into the form can neither make the app send mail to
 # that address more often than that, nor replace the link that the person is about to open.
-export RESET_MINUTES = 30
-RESEND_SECONDS = 300
-
+RESET_MINUTES = 30
 # A session works for this long, as the cookie does (the web side takes its `max_age` from here): a row older than that
 # is dead whatever the cookie says (`user_for` refuses it, and `purge_sessions` removes it).
-export SESSION_SECONDS = 2_592_000
-
-# `last_active_at` is written at most this often per session, so a busy tab does not write on every request.
-TOUCH_SECONDS = 300
-
-# A reset token is TOKEN_BYTES of hex, which is 64 characters: nothing longer is looked up.
-MAX_TOKEN_LENGTH = 128
-
-# The time as the schema writes it (Rails' form, see `repo/rails.agc`), and the times that the rules below count from.
-NOW = Rails.NOW
-RESET_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '+#{RESET_MINUTES} minutes')"
-RESEND_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{RESEND_SECONDS} seconds')"
-SESSION_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '-#{SESSION_SECONDS} seconds')"
-# The second at which a session row stops working (Unix seconds): `user_for` and `seconds_left` both count from it.
-SESSION_ENDS = "coalesce(cast(strftime('%s', sessions.created_at) as integer), 0) + #{SESSION_SECONDS}"
-TOUCH_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{TOUCH_SECONDS} seconds')"
+SESSION_SECONDS = 2_592_000
 
 ## A person who is signed in.
-export struct User
+struct User
   id: Int
   name: String
   role: String
@@ -54,31 +31,24 @@ end
 
 ## A person who is signed in, and when their session stops working (Unix ms), which a copy of the person must not
 ## outlive.
-export struct Session
+struct Session
   user: User
   ends_at_ms: Int
 end
 
 ## What the email of a password reset needs: the name and the address of the person, and the token that goes in the
 ## link (it is not kept: the table has its hash).
-export struct PasswordReset
+struct PasswordReset
   name: String
   email: String
   token: String
-end
-
-# Who a session is for, as far as the server knows: the `User-Agent` and the address of the client, each ""
-# when unknown.
-struct Client
-  user_agent: String
-  ip_address: String
 end
 
 ## What setting a new password with a reset link did. `SignedIn` holds the token of the new session and the id of the
 ## person, whose other sessions it ended. `Gone` is a link
 ## that does not work (unknown, used, expired, or its person was deactivated). `Invalid` holds what is wrong with the
 ## password, to show again; the link is still good.
-export enum ResetOutcome
+enum ResetOutcome
   SignedIn(String, Int)
   Gone
   Invalid(String)
@@ -86,7 +56,7 @@ end
 
 ## What the first run did. `Created` holds the token of the session of the new administrator. `Closed` is an app that
 ## already has its account. `Invalid` holds what is wrong with the form, to show again.
-export enum FirstRun
+enum FirstRun
   Created(String)
   Closed
   Invalid(String)
@@ -95,14 +65,14 @@ end
 ## What joining with a code did. `Joined` holds the token of the session of the new person. `Gone` is a code that is not
 ## the account's (unknown, or the old one of a regenerated code). `Invalid` holds what is wrong with the form, to show
 ## again.
-export enum JoinOutcome
+enum JoinOutcome
   Joined(String)
   Gone
   Invalid(String)
 end
 
 ## True while the app has no account: the first run has not happened.
-export def first_run?(conn: Db.Connection) -> Result[Bool]
+def first_run?(conn: Db.Connection) -> Result[Bool]
   exists = try account_exists?(conn)
   ok(not exists)
 end
@@ -111,7 +81,7 @@ end
 ## checks again that there is no account, so two forms sent together make one. `password` is hashed before the
 ## transaction starts, since hashing is slow and the transaction holds the write lock. An `error` is a database or
 ## hashing failure, not a bad form.
-export def first_run(
+def first_run(
   conn: Db.Connection,
   name: String,
   email: String,
@@ -141,7 +111,7 @@ end
 ## email, so forms that arrive together with one email make one person. `password` is hashed before the transaction
 ## starts, since hashing is slow and the transaction holds the write lock; the code and the email are looked at before
 ## the hashing too, so a form that cannot work costs none. An `error` is a database or hashing failure, not a bad form.
-export def join(
+def join(
   conn: Db.Connection,
   code: String,
   name: String,
@@ -162,7 +132,7 @@ end
 
 ## What is wrong with a join form, or "": a name, email or password that does not do, or an email that has an account
 ## already. It hashes nothing, so the web layer asks it before it takes a hashing slot.
-export def join_problem(conn: Db.Connection, name: String, email: String, password: String) -> Result[String]
+def join_problem(conn: Db.Connection, name: String, email: String, password: String) -> Result[String]
   problem = form_problem(name, email, password)
   return ok(problem) if problem != ""
 
@@ -176,7 +146,7 @@ end
 ## is the account's and that the email is free. `join` has looked at both before the hashing, so only a code that was
 ## regenerated, or an email that was taken, while the password was being hashed gets here; the specs call this to
 ## reach those checks directly.
-export def join_hashed(
+def join_hashed(
   conn: Db.Connection,
   code: String,
   name: String,
@@ -193,7 +163,7 @@ end
 ## Starts a session for the user whose email and password these are and gives its token, or `none` when the email is
 ## not a person's (a bot has none), the user is deactivated or the password is wrong. The three look alike, in answer
 ## and in time. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY`, for the check of a bcrypt digest.
-export def sign_in(
+def sign_in(
   conn: Db.Connection,
   email: String,
   password: String,
@@ -225,12 +195,7 @@ end
 ## The session of a person who just proved their password, or `none` when they were deactivated meanwhile. The insert
 ## reads `status` itself, in the one statement, so a deactivation that commits first leaves no row, and one that
 ## commits after it deletes the row: no session survives for a later reactivation to revive.
-export def open_session(
-  conn: Db.Connection,
-  user_id: Int,
-  user_agent: String,
-  ip_address: String,
-) -> Result[Optional[String]]
+def open_session(conn: Db.Connection, user_id: Int, user_agent: String, ip_address: String) -> Result[Optional[String]]
   try purge_sessions(conn)
   token = OpenSSL.Random.hex(TOKEN_BYTES)
   inserted = try Db.execute(
@@ -248,7 +213,7 @@ end
 ## The session with this token and its user, or `none` when there is no such session, it is older than the cookie life
 ## (`SESSION_SECONDS`, whether or not `purge_sessions` has removed it yet) or its user is deactivated. A session that
 ## was last active more than five minutes ago is marked active now; a request inside that time only reads.
-export def user_for(conn: Db.Connection, token: String) -> Result[Optional[Session]]
+def user_for(conn: Db.Connection, token: String) -> Result[Optional[Session]]
   rows = try Db.query(
     conn,
     "select users.id, users.name, users.role, (#{SESSION_ENDS}) * 1000 as ends_at_ms, " +
@@ -276,7 +241,7 @@ end
 ## How many seconds the session with this token has before it is as old as a cookie lives (`SESSION_SECONDS`): the
 ## time after which `purge_sessions` removes it. 0 for a session that is not there, is older, or is of a deactivated
 ## person. A socket that holds the session is closed at the next check that finds 0 (`CableWeb`), not at that time.
-export def seconds_left(conn: Db.Connection, token: String) -> Result[Int]
+def seconds_left(conn: Db.Connection, token: String) -> Result[Int]
   rows = try Db.query(
     conn,
     "select #{SESSION_ENDS} - cast(strftime('%s', 'now') as integer) as remaining " +
@@ -294,7 +259,7 @@ export def seconds_left(conn: Db.Connection, token: String) -> Result[Int]
 end
 
 ## Ends the session with this token. A token that is not there is not an error.
-export def sign_out(conn: Db.Connection, token: String) -> Result[Void]
+def sign_out(conn: Db.Connection, token: String) -> Result[Void]
   try Db.execute(conn, "delete from sessions where token = ?", [Db.Value.Text(token)])
   ok()
 end
@@ -305,7 +270,7 @@ end
 ## than five minutes ago. The caller answers the same whatever this gives. The expired links of everybody go with it.
 ## It is one transaction, which takes the write lock first, so requests that come together find each other's link and
 ## only one of them sends.
-export def request_password_reset(conn: Db.Connection, email: String) -> Result[Optional[PasswordReset]]
+def request_password_reset(conn: Db.Connection, email: String) -> Result[Optional[PasswordReset]]
   return ok(none) if email.length > MAX_EMAIL_LENGTH
 
   token = OpenSSL.Random.hex(TOKEN_BYTES)
@@ -314,7 +279,7 @@ end
 
 ## Deletes the link of this token, if it was not used: for a link that was made and could not be sent, which would
 ## otherwise keep the person from having another for as long as it works. A token that is not there is not an error.
-export def cancel_password_reset(conn: Db.Connection, token: String) -> Result[Void]
+def cancel_password_reset(conn: Db.Connection, token: String) -> Result[Void]
   try Db.execute(
     conn,
     "delete from password_resets where token_digest = ? and used_at is null",
@@ -325,7 +290,7 @@ export def cancel_password_reset(conn: Db.Connection, token: String) -> Result[V
 end
 
 ## True when the token belongs to a link that has not been used or expired. It changes nothing, so a page may call it.
-export def reset_token_valid?(conn: Db.Connection, token: String) -> Result[Bool]
+def reset_token_valid?(conn: Db.Connection, token: String) -> Result[Bool]
   return ok(false) if token.empty? or token.length > MAX_TOKEN_LENGTH
 
   rows = try Db.query(
@@ -343,7 +308,7 @@ end
 ## does not work costs no hashing. The web layer looks at it too, before it takes a hash slot: a link that does not
 ## work is answered at once, even while the slots are all busy, and this function stays right for any other caller. An
 ## `error` is a database or hashing failure.
-export def reset_password(
+def reset_password(
   conn: Db.Connection,
   token: String,
   password: String,
@@ -367,7 +332,7 @@ end
 
 ## True when `email` (in the `normal` form) is a single `@` between a name and a domain with a dot, with no space
 ## and not too long: enough to catch a typo. Only a mail sent to the address proves that it works.
-export def valid_email?(email: String) -> Bool
+def valid_email?(email: String) -> Bool
   parts = email.split("@")
   return false if parts.size != 2 or email.length > MAX_EMAIL_LENGTH or email.include?(" ")
 
@@ -380,7 +345,34 @@ end
 ## which scans `users`: a row that Rails made as `David@37signals.com` signs in as `david@37signals.com`, and is not
 ## made twice by a join. Where two rows differ only in case (the index lets Rails make them), the one that is already
 ## lower case is the person, and among the others the oldest.
-export def normal(email: String) -> String = email.strip.downcase
+def normal(email: String) -> String = email.strip.downcase
+
+private
+
+MAX_NAME_LENGTH = 100
+MAX_EMAIL_LENGTH = 254
+TOKEN_BYTES = 32
+EMAIL_TAKEN = "An account with that email exists already"
+RESEND_SECONDS = 300
+# `last_active_at` is written at most this often per session, so a busy tab does not write on every request.
+TOUCH_SECONDS = 300
+# A reset token is TOKEN_BYTES of hex, which is 64 characters: nothing longer is looked up.
+MAX_TOKEN_LENGTH = 128
+# The time as the schema writes it (Rails' form, see `repo/rails.agc`), and the times that the rules below count from.
+NOW = Rails.NOW
+RESET_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '+#{RESET_MINUTES} minutes')"
+RESEND_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{RESEND_SECONDS} seconds')"
+SESSION_EXPIRY = "strftime('#{Rails.STAMP}', 'now', '-#{SESSION_SECONDS} seconds')"
+# The second at which a session row stops working (Unix seconds): `user_for` and `seconds_left` both count from it.
+SESSION_ENDS = "coalesce(cast(strftime('%s', sessions.created_at) as integer), 0) + #{SESSION_SECONDS}"
+TOUCH_LIMIT = "strftime('#{Rails.STAMP}', 'now', '-#{TOUCH_SECONDS} seconds')"
+
+# Who a session is for, as far as the server knows: the `User-Agent` and the address of the client, each ""
+# when unknown.
+struct Client
+  user_agent: String
+  ip_address: String
+end
 
 ## True when an account has `email` (in the `normal` form), in any status: the unique index compares bytes, so the
 ## lookup falls back to `lower(email_address)`, which finds a row that Rails made with capitals.

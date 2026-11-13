@@ -6,7 +6,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 10: create active storage.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     10,
     "create active storage",
@@ -23,6 +23,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def blobs() -> String
   <<~SQL

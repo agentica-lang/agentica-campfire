@@ -10,29 +10,14 @@
 ## unless the flood itself uses up the shared limit. Addresses already in the table keep their own counts. An unknown
 ## address ("") is one client like any other.
 
-# The entries of a client `key`: when its first window started (`key|s`) and the attempts of each window
-# (`key|c|WINDOW`). A key never contains "|", since it is an address. The sweep marker has no "|" either.
-START = "|s"
-COUNT = "|c|"
-SWEEP = "sweep"
-
 ## The most entries the table holds before it counts the addresses it has not seen together. About 33,000 clients, and
 ## about 30 MB of memory when full.
-export MAX_ENTRIES = 100_000
-
+MAX_ENTRIES = 100_000
 ## How many times the limit of one address the overflow client gets, for all the addresses that are not in a full table.
-export OVERFLOW_FACTOR = 10
-
-# The key of the overflow client. An address is never "overflow", and it has no "|", so the sweep treats it as a client
-# and drops it when idle.
-OVERFLOW = "overflow"
-
-MS_PER_SECOND = 1000
-IPV6_GROUPS = 8
-PREFIX_GROUPS = 4
+OVERFLOW_FACTOR = 10
 
 ## A new table of windows, shared by every task that gets the handle.
-export def new() -> ATS[String, Int]
+def new() -> ATS[String, Int]
   windows: ATS[String, Int] = ATS.new()
   windows
 end
@@ -42,7 +27,7 @@ end
 ## one starts (when the table is full and the address is not in it, the window and the limit are those of the overflow
 ## client). A sweep that runs at the same moment can make an attempt count once too many or too few, never more than
 ## the requests in flight.
-export def hit(windows: ATS[String, Int], address: String, now_ms: Int, limit: Int, window_ms: Int) -> Int
+def hit(windows: ATS[String, Int], address: String, now_ms: Int, limit: Int, window_ms: Int) -> Int
   sweep(windows, now_ms, window_ms)
   key = key_of(address)
   if not ATS.has_key?(windows, "#{key}#{START}") and ATS.size(windows) >= MAX_ENTRIES
@@ -56,7 +41,7 @@ end
 ## The key of the client at `address`: an IPv4 address (or any text that is not IPv6) as it is, an IPv4-mapped IPv6
 ## address as its IPv4 address, and any other IPv6 address as its first 64 bits, `2001:db8:0:1::/64` written out in
 ## full. The system writes the address of a peer in lowercase and in one form, so no case or zero folding is done.
-export def key_of(address: String) -> String
+def key_of(address: String) -> String
   return address if not address.include?(":")
 
   return address.split(":").last if address.include?(".")
@@ -66,6 +51,20 @@ export def key_of(address: String) -> String
 
   "#{groups.take(PREFIX_GROUPS).join(":")}::/64"
 end
+
+private
+
+# The entries of a client `key`: when its first window started (`key|s`) and the attempts of each window
+# (`key|c|WINDOW`). A key never contains "|", since it is an address. The sweep marker has no "|" either.
+START = "|s"
+COUNT = "|c|"
+SWEEP = "sweep"
+# The key of the overflow client. An address is never "overflow", and it has no "|", so the sweep treats it as a client
+# and drops it when idle.
+OVERFLOW = "overflow"
+MS_PER_SECOND = 1000
+IPV6_GROUPS = 8
+PREFIX_GROUPS = 4
 
 # Counts an attempt of the client `key` in its current window; the result is that of `hit`.
 def count(windows: ATS[String, Int], key: String, now_ms: Int, limit: Int, window_ms: Int) -> Int

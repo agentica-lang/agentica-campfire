@@ -6,9 +6,11 @@
 import App from "../../src/campfire_web/app"
 import Config from "../../src/campfire/config"
 
+private
+
 def main() -> Void
   case Config.load()
-    error(message) -> fail(message)
+    error(message) -> fail(message.message)
     ok(config) -> serve(config, start(config))
   end
 end

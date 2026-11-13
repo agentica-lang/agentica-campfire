@@ -19,7 +19,47 @@
 import UTC from "std/utc"
 
 ## The purpose of the avatar link of a user in Campfire.
-export AVATAR_PURPOSE = "user/avatar"
+AVATAR_PURPOSE = "user/avatar"
+
+## The signing key for `secret_key_base`. Make it once, at start-up: 1000 rounds of PBKDF2 are cheap, but there is no
+## reason to repeat them.
+def key(secret_key_base: String) -> Result[Bytes]
+  return error("signed id: SECRET_KEY_BASE is empty") if secret_key_base.empty?
+
+  OpenSSL.KDF.pbkdf2_hmac_sha256(secret_key_base.bytes, SALT.bytes, ITERATIONS, KEY_BYTES)
+end
+
+## The token for `id` and `purpose` (`AVATAR_PURPOSE`), without an expiry, in the form of Rails 7.2 and later. A purpose
+## is lowercase letters, digits and `_`, `/`, `-`, which is all that a model name and a purpose are, so it needs no
+## JSON escaping.
+def generate(key: Bytes, id: Int, purpose: String) -> Result[String]
+  if purpose.empty? or not purpose.split("").all? do |ch| PLAIN_PURPOSE.include?(ch) end
+    return error("signed id: the purpose #{purpose.inspect} is not a plain one")
+  end
+
+  json = "{\"_rails\":{\"data\":#{id},\"pur\":\"#{purpose}\"}}"
+  encoded = Base64.urlsafe_encode64(json.bytes, false)
+  ok("#{encoded}#{SEPARATOR}#{OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes)}")
+end
+
+## The id in `token` when it was signed with `key`, for `purpose`, and has not expired at `now_ms` (Unix milliseconds,
+## `Time.now_ms()`); `none` for anything else. The reason is not told, as in Rails (`find_signed` is nil). The
+## signature is checked before the text is decoded, in constant time.
+def verify(key: Bytes, token: String, purpose: String, now_ms: Int) -> Optional[Int]
+  cut = token.length - DIGEST_LENGTH - SEPARATOR.length
+  return none if cut <= 0 or token.slice(cut, SEPARATOR.length) != SEPARATOR
+
+  encoded = token.slice(0, cut)
+  digest = token.slice(cut + SEPARATOR.length, DIGEST_LENGTH)
+  return none if not OpenSSL.HMAC.secure_compare(OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
+
+  envelope = envelope_of(encoded)
+  return none if envelope.none? or envelope.unwrap!.pur != some(purpose) or expired?(envelope.unwrap!.exp, now_ms)
+
+  id_of(envelope.unwrap!)
+end
+
+private
 
 SALT = "active_record/signed_id"
 ITERATIONS = 1000
@@ -37,44 +77,6 @@ struct Envelope
   message: Optional[String] = none
   exp: Optional[String] = none
   pur: Optional[String] = none
-end
-
-## The signing key for `secret_key_base`. Make it once, at start-up: 1000 rounds of PBKDF2 are cheap, but there is no
-## reason to repeat them.
-export def key(secret_key_base: String) -> Result[Bytes]
-  return error("signed id: SECRET_KEY_BASE is empty") if secret_key_base.empty?
-
-  OpenSSL.KDF.pbkdf2_hmac_sha256(secret_key_base.bytes, SALT.bytes, ITERATIONS, KEY_BYTES)
-end
-
-## The token for `id` and `purpose` (`AVATAR_PURPOSE`), without an expiry, in the form of Rails 7.2 and later. A purpose
-## is lowercase letters, digits and `_`, `/`, `-`, which is all that a model name and a purpose are, so it needs no
-## JSON escaping.
-export def generate(key: Bytes, id: Int, purpose: String) -> Result[String]
-  if purpose.empty? or not purpose.split("").all? do |ch| PLAIN_PURPOSE.include?(ch) end
-    return error("signed id: the purpose #{purpose.inspect} is not a plain one")
-  end
-
-  json = "{\"_rails\":{\"data\":#{id},\"pur\":\"#{purpose}\"}}"
-  encoded = Base64.urlsafe_encode64(json.bytes, false)
-  ok("#{encoded}#{SEPARATOR}#{OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes)}")
-end
-
-## The id in `token` when it was signed with `key`, for `purpose`, and has not expired at `now_ms` (Unix milliseconds,
-## `Time.now_ms()`); `none` for anything else. The reason is not told, as in Rails (`find_signed` is nil). The
-## signature is checked before the text is decoded, in constant time.
-export def verify(key: Bytes, token: String, purpose: String, now_ms: Int) -> Optional[Int]
-  cut = token.length - DIGEST_LENGTH - SEPARATOR.length
-  return none if cut <= 0 or token.slice(cut, SEPARATOR.length) != SEPARATOR
-
-  encoded = token.slice(0, cut)
-  digest = token.slice(cut + SEPARATOR.length, DIGEST_LENGTH)
-  return none if not OpenSSL.HMAC.secure_compare(OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
-
-  envelope = envelope_of(encoded)
-  return none if envelope.none? or envelope.unwrap!.pur != some(purpose) or expired?(envelope.unwrap!.exp, now_ms)
-
-  id_of(envelope.unwrap!)
 end
 
 # The decoded envelope, from the URL-safe base64 of Rails 7.2 or the plain one of 7.1.

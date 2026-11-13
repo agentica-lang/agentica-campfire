@@ -6,7 +6,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 7: create action text rich texts.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     7,
     "create action text rich texts",
@@ -17,6 +17,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def rich_texts() -> String
   <<~SQL

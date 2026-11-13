@@ -9,7 +9,7 @@
 import Migrate from "pkg/db/migrate"
 
 ## Migration 6: create messages.
-export def migration() -> Migrate.Migration
+def migration() -> Migrate.Migration
   Migrate.sql(
     6,
     "create messages",
@@ -20,6 +20,8 @@ export def migration() -> Migrate.Migration
     ],
   )
 end
+
+private
 
 def messages() -> String
   <<~SQL

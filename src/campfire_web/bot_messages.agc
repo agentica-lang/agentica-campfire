@@ -31,23 +31,78 @@ import RoomsWeb from "rooms"
 import Routes from "routes"
 import {Config} from "../campfire/config"
 
+## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at
+## the room, and `config` says where the links of the answers start (`origin`).
+def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config) -> Bond.App
+  on_get_bot_messages = Blocks.handler do |conn|
+    serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
+  end
+
+  on_post_bot_messages = Blocks.handler do |conn|
+    serve(conn, pool, cable) do |db, bot, room| create_answer(conn, db, bot, room, config) end
+  end
+
+  on_patch_bot_message = Blocks.handler do |conn|
+    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
+  end
+
+  on_put_bot_message = Blocks.handler do |conn|
+    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
+  end
+
+  on_delete_bot_message = Blocks.handler do |conn|
+    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
+  end
+
+  on_post_bot_message_boosts = Blocks.handler do |conn|
+    serve(conn, pool, cable) do |db, bot, room| boost_answer(conn, db, bot, room, origin(conn, config)) end
+  end
+
+  (
+    app
+    |> Bond.get(Routes.BOT_MESSAGES, on_get_bot_messages)
+    |> Bond.post(Routes.BOT_MESSAGES, on_post_bot_messages)
+    |> Bond.patch(Routes.BOT_MESSAGE, on_patch_bot_message)
+    |> Bond.put(Routes.BOT_MESSAGE, on_put_bot_message)
+    |> Bond.delete(Routes.BOT_MESSAGE, on_delete_bot_message)
+    |> Bond.post(Routes.BOT_MESSAGE_BOOSTS, on_post_bot_message_boosts)
+    |> Bond.delete(Routes.BOT_MESSAGE_BOOST) do |conn|
+      serve(conn, pool, cable) do |db, bot, room| unboost_answer(conn, db, bot, room) end
+    end
+  )
+end
+
+## Where the links that the app writes for a client start: `CAMPFIRE_BASE_URL` when it is set, else the scheme of the
+## app and the `Host` of the request. A `Host` that is not a host name or address with an optional port (letters,
+## digits, `.` and `-`, or an IPv6 address in brackets) is left out, and so is a missing one: the links are then paths.
+## The links go to the one who asked and are never stored or sent by email, but a `Host` with a byte that a header
+## cannot carry would make the answer fail after the message is stored, and the bot would post it twice.
+def origin(conn: Bond.Conn, config: Config) -> String
+  return config.base_url if config.base_url != ""
+
+  host = Bond.request_header(conn, "host").unwrap_or("")
+  return "" if not host_text?(host)
+
+  return "https://#{host}" if config.secure_cookies
+
+  "http://#{host}"
+end
+
+private
+
 # The segment of the paths that holds the key, and the name of the message and of the boost in them.
 KEY = "segment"
 MESSAGE = "message_id"
 BOOST = "boost_id"
-
 # Bytes of randomness in the `client_message_id` of a post (a bot sends none), which is that many bytes in hex.
 CLIENT_ID_BYTES = 16
-
 # The characters that `origin` takes in a `Host`: a name (`_` is in the service names of Docker and Kubernetes) or an
 # IPv4 address, and the inside of an IPv6 address.
 DIGITS = Set.new("0123456789".split(""))
 HOST_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_".split(""))
 HOST_V6_CHARS = Set.new("abcdefABCDEF0123456789:.".split(""))
-
 UPLOAD_TYPE = "multipart/form-data"
 UPLOAD_REFUSED = "Attachments are not supported yet"
-
 # The role of a bot in `creator.role`; a bot only edits its own messages, so it is the role of the author of an edit.
 BOT_ROLE = "bot"
 
@@ -106,73 +161,16 @@ end
 # What a handler makes of its request, decided while its connection is open and answered after it is closed (the
 # broadcast of a change waits for room in the hub, which the connection must not).
 enum Answer
-  Listed(Json, Int, String)
+  Listed(JSON.Value, Int, String)
   Created(Rooms.Room, Rooms.Message, String)
-  Edited(Rooms.Room, Rooms.Message, Json)
+  Edited(Rooms.Room, Rooms.Message, JSON.Value)
   Removed(Rooms.Room, Int)
-  Boosted(Boosts.Reach, Boosts.Boost, Json)
+  Boosted(Boosts.Reach, Boosts.Boost, JSON.Value)
   Unboosted(Boosts.Reach, Int)
   Refused(String)
   Unsupported
   NotFound
   Forbidden
-end
-
-## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at
-## the room, and `config` says where the links of the answers start (`origin`).
-export def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config) -> Bond.App
-  on_get_bot_messages = Blocks.handler() do |conn|
-    serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
-  end
-
-  on_post_bot_messages = Blocks.handler() do |conn|
-    serve(conn, pool, cable) do |db, bot, room| create_answer(conn, db, bot, room, config) end
-  end
-
-  on_patch_bot_message = Blocks.handler() do |conn|
-    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
-  end
-
-  on_put_bot_message = Blocks.handler() do |conn|
-    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
-  end
-
-  on_delete_bot_message = Blocks.handler() do |conn|
-    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
-  end
-
-  on_post_bot_message_boosts = Blocks.handler() do |conn|
-    serve(conn, pool, cable) do |db, bot, room| boost_answer(conn, db, bot, room, origin(conn, config)) end
-  end
-
-  (
-    app
-    |> Bond.get(Routes.BOT_MESSAGES, on_get_bot_messages)
-    |> Bond.post(Routes.BOT_MESSAGES, on_post_bot_messages)
-    |> Bond.patch(Routes.BOT_MESSAGE, on_patch_bot_message)
-    |> Bond.put(Routes.BOT_MESSAGE, on_put_bot_message)
-    |> Bond.delete(Routes.BOT_MESSAGE, on_delete_bot_message)
-    |> Bond.post(Routes.BOT_MESSAGE_BOOSTS, on_post_bot_message_boosts)
-    |> Bond.delete(Routes.BOT_MESSAGE_BOOST) do |conn|
-      serve(conn, pool, cable) do |db, bot, room| unboost_answer(conn, db, bot, room) end
-    end
-  )
-end
-
-## Where the links that the app writes for a client start: `CAMPFIRE_BASE_URL` when it is set, else the scheme of the
-## app and the `Host` of the request. A `Host` that is not a host name or address with an optional port (letters,
-## digits, `.` and `-`, or an IPv6 address in brackets) is left out, and so is a missing one: the links are then paths.
-## The links go to the one who asked and are never stored or sent by email, but a `Host` with a byte that a header
-## cannot carry would make the answer fail after the message is stored, and the bot would post it twice.
-export def origin(conn: Bond.Conn, config: Config) -> String
-  return config.base_url if config.base_url != ""
-
-  host = Bond.request_header(conn, "host").unwrap_or("")
-  return "" if not host_text?(host)
-
-  return "https://#{host}" if config.secure_cookies
-
-  "http://#{host}"
 end
 
 # `name`, `name:port`, `1.2.3.4:port` or `[v6]:port`, written with the characters of a host and nothing else.

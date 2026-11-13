@@ -1,6 +1,8 @@
 import Bcrypt from "../src/campfire/bcrypt"
 import Passwords from "../src/campfire/passwords"
 
+private
+
 # Digests that other implementations made, and the passwords that made them. The first five are the vectors of the
 # crypt_blowfish test suite (Openwall, `wrapper.c`; OpenBSD and libxcrypt test the same ones), which bcrypt-ruby gives
 # back too. `$2b$` is from pyca/bcrypt (Python), `$2y$` from PHP's `password_hash`, and the `$2a$12$` ones from Ruby's
@@ -21,7 +23,6 @@ WRAPPER_VECTORS = [
   ["correct horse battery", "$2a$12$.e8gNYy3Yc5qIeU31tvPEuAmRhK8AsHV7iZLhpvYgB6KQoUDvUdMi"],
   ["correct horse battery", "$2y$12$1jFHU53lJapRtuGG/Se1qO0ZjSPSvBewzTvJ0T4DbNo1jZJv.mTm."],
 ]
-
 # Well under what cost 12 takes, well over what a refusal before the check takes.
 MIN_WORK_MS = 50
 
