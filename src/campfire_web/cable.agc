@@ -239,7 +239,7 @@ struct Delivery
 end
 
 # What the hub counted, for an administrator: the connections and subscriptions now, and the connections it dropped for
-# a full inbox and the broadcasts it could not queue since the start. A benchmark run reads there that no client was
+# a full queue and the broadcasts it could not queue since the start. A benchmark run reads there that no client was
 # dropped and no broadcast was lost; the reads of the checks are there for the specs that a kept answer is used.
 # Anyone else gets the 404 of a path with no route.
 def show_stats(conn: Bond.Conn, cable: Cable) -> Result[Bond.Conn]

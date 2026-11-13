@@ -131,7 +131,7 @@ does for people who are not connected in the database, so the page that looks at
   at the hub every 2 s), and only then stops the server.
 
 `GET /cable/stats` answers the counts of the hub as JSON (`connections`, `subscriptions`, `drops`, `lost`) to an
-administrator, and 404 to anyone else. A benchmark run reads there that no tab was dropped for a full inbox
+administrator, and 404 to anyone else. A benchmark run reads there that no tab was dropped for a full queue
 (`drops`) and no broadcast could not be queued (`lost`).
 
 ## Acceptance with the benchmark's load generator

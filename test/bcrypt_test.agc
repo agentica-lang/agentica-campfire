@@ -44,146 +44,133 @@ def ready() -> Result[Bool]
 end
 
 def main() -> Void
-  # Each test is bound to a local: a modifier `if` in a `do` block inside list brackets breaks `agentica fmt` of 0.30.0
-  # (agentica#1414); move the tests back into `Test.run([...])` once that is fixed.
-  verifies_known_digests = Test.test(
-    "every known digest verifies the password that made it, through Passwords.verify too",
-  ) do
-    return ok() if not try ready()
-
-    for pair in WRAPPER_VECTORS
-      try Test.assert(Bcrypt.verify(pair[0], pair[1], library()).unwrap!, pair[1])
-      try Test.assert(Passwords.verify(pair[0], pair[1], library()).unwrap!, pair[1])
-    end
-
-    return ok()
-  end
-
-  rejects_wrong_passwords = Test.test("a wrong password, a changed letter and a longer password do not verify") do
-    return ok() if not try ready()
-
-    digest = "$2a$12$.e8gNYy3Yc5qIeU31tvPEuAmRhK8AsHV7iZLhpvYgB6KQoUDvUdMi"
-    try Test.assert(not Bcrypt.verify("correct horse batterz", digest, library()).unwrap!, "wrong")
-    try Test.assert(not Bcrypt.verify("Correct horse battery", digest, library()).unwrap!, "case")
-    try Test.assert(not Bcrypt.verify("correct horse battery ", digest, library()).unwrap!, "longer")
-    try Test.assert(not Bcrypt.verify("", digest, library()).unwrap!, "empty")
-    Test.assert(
-      not Bcrypt.verify("U*U", "$2a$05$CCCCCCCCCCCCCCCCCCCCC.VGOzA784oUp/Z0DY336zx7pLYAy0lwK", library()).unwrap!,
-      "other",
-    )
-  end
-
-  reads_72_bytes = Test.test("bcrypt reads the first 72 bytes of a password only, and a NUL in it is refused") do
-    return ok() if not try ready()
-
-    long = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789chars after 72 are ignored"
-    digest = "$2a$05$abcdefghijklmnopqrstuu5s2v8.iXieOjg/.AySBTTZIIVFJeBui"
-    try Test.assert(Bcrypt.verify(long.slice(0, 72) + " other", digest, library()).unwrap!, "same first 72 bytes")
-    try Test.assert(not Bcrypt.verify(long.slice(0, 71), digest, library()).unwrap!, "71 bytes")
-    nul = String.from_bytes("U*U".bytes + Bytes.from_list([0, 88]).unwrap!).unwrap!
-    Test.assert(
-      not Bcrypt.verify(nul, "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW", library()).unwrap!,
-      "NUL",
-    )
-  end
-
-  rejects_non_digests = Test.test("a text that is not a bcrypt digest of a usable shape is false") do
-    good = "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW"
-    bad = [
-      "",
-      "$2a$",
-      "$2x$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
-      "$2a$03$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
-      "$2a$32$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
-      "$2a$+5$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
-      "$2a$05CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW$",
-      good.slice(0, 59),
-      good + "x",
-      "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOe!",
-      "$1$salt$hashhashhashhashhashhash",
-    ]
-
-    for text in bad
-      try Test.assert(not Bcrypt.digest?(text), text)
-      try Test.assert(not Bcrypt.verify("U*U", text).unwrap!, text)
-    end
-
-    try Test.assert(Bcrypt.digest?(good), "good")
-    try Test.assert(
-      Bcrypt.digest?("$2y$31$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW"),
-      "cost 31 has a shape",
-    )
-
-    Test.assert(Passwords.verify("x", "$1$salt$hashhashhashhashhashhash").unwrap! == false, "not ours")
-  end
-
-  costs_real_check = Test.test(
-    "a password that cannot be checked costs a real check, so the time does not tell it from a wrong one",
-  ) do
-    return ok() if not try ready()
-
-    # Cost 12 takes a quarter of a second or more; an early answer takes a millisecond.
-    digest = "$2a$12$.e8gNYy3Yc5qIeU31tvPEuAmRhK8AsHV7iZLhpvYgB6KQoUDvUdMi"
-    nul = String.from_bytes("correct horse battery".bytes + Bytes.from_list([0, 88]).unwrap!).unwrap!
-    huge_letters = (0...(Bcrypt.MAX_PASSWORD_BYTES + 1)).to_a.map do |_| "x" end
-    huge = huge_letters.join("")
-    limit_letters = (0...Bcrypt.MAX_PASSWORD_BYTES).to_a.map do |_| "x" end
-    limit = limit_letters.join("")
-    for password in [nul, huge, limit]
-      started = Time.now_ms()
-      checked = Bcrypt.verify(password, digest, library())
-      try Test.eq(checked, ok(false))
-      try Test.assert(Time.now_ms() - started >= MIN_WORK_MS, "answered too quickly to be a real check")
-    end
-
-    # The right password of 72 bytes or fewer still works.
-    Test.eq(Bcrypt.verify("correct horse battery", digest, library()), ok(true))
-  end
-
-  refuses_high_cost = Test.test("a cost over the limit is an error that says so, and runs nothing") do
-    started = Time.now_ms()
-    checked = Bcrypt.verify("x", "$2b$20$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW")
-    try Test.assert(not checked.ok?, "a cost of 20 ran")
-    try Test.assert(checked.message.include?("limit of #{Bcrypt.MAX_COST}"), checked.message)
-    try Test.assert(checked.message.include?("until their password is reset"), checked.message)
-    Test.assert(Time.now_ms() - started < 1000, "it took the time of the hash")
-  end
-
-  picks_library = Test.test(
-    "the library is the one that is set, else libcrypt.so.1 on Linux, else an error that says what to set",
-  ) do
-    try Test.eq(Bcrypt.library_for("linux", ""), ok("libcrypt.so.1"))
-    try Test.eq(Bcrypt.library_for("linux", "/opt/lib/libcrypt.so"), ok("/opt/lib/libcrypt.so"))
-    try Test.eq(Bcrypt.library_for("macos", "/opt/homebrew/opt/libxcrypt/lib/libcrypt.1.dylib").unwrap!.size > 0, true)
-
-    for os in ["macos", "windows"]
-      problem = Bcrypt.library_for(os, "")
-      try Test.assert(not problem.ok?, os)
-      try Test.assert(problem.message.include?("CAMPFIRE_BCRYPT_LIBRARY"), problem.message)
-    end
-
-    return ok()
-  end
-
-  reports_missing_library = Test.test(
-    "a library that is missing, or has no crypt_r, is an error that names the variable, never a wrong password",
-  ) do
-    digest = "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW"
-    missing = Bcrypt.verify("U*U", digest, "/nonexistent/libcrypt.so.1")
-    try Test.assert(not missing.ok?, "a library that is not there was used")
-    try Test.assert(missing.message.include?("cannot open /nonexistent/libcrypt.so.1"), missing.message)
-    try Test.assert(missing.message.include?("CAMPFIRE_BCRYPT_LIBRARY"), missing.message)
-    # The system's own maths library opens but has no `crypt_r`.
-    return ok() if System.os() != "linux"
-
-    bare = Bcrypt.verify("U*U", digest, "libm.so.6")
-    try Test.assert(not bare.ok?, "a library without crypt_r was used")
-    try Test.assert(bare.message.include?("has no crypt_r"), bare.message)
-    Test.assert(bare.message.include?("CAMPFIRE_BCRYPT_LIBRARY"), bare.message)
-  end
-
   Test.run([
-    verifies_known_digests, rejects_wrong_passwords, reads_72_bytes, rejects_non_digests, costs_real_check,
-    refuses_high_cost, picks_library, reports_missing_library,
+    Test.test("every known digest verifies the password that made it, through Passwords.verify too") do
+      return ok() if not try ready()
+
+      for pair in WRAPPER_VECTORS
+        try Test.assert(Bcrypt.verify(pair[0], pair[1], library()).unwrap!, pair[1])
+        try Test.assert(Passwords.verify(pair[0], pair[1], library()).unwrap!, pair[1])
+      end
+
+      return ok()
+    end,
+    Test.test("a wrong password, a changed letter and a longer password do not verify") do
+      return ok() if not try ready()
+
+      digest = "$2a$12$.e8gNYy3Yc5qIeU31tvPEuAmRhK8AsHV7iZLhpvYgB6KQoUDvUdMi"
+      try Test.assert(not Bcrypt.verify("correct horse batterz", digest, library()).unwrap!, "wrong")
+      try Test.assert(not Bcrypt.verify("Correct horse battery", digest, library()).unwrap!, "case")
+      try Test.assert(not Bcrypt.verify("correct horse battery ", digest, library()).unwrap!, "longer")
+      try Test.assert(not Bcrypt.verify("", digest, library()).unwrap!, "empty")
+      Test.assert(
+        not Bcrypt.verify("U*U", "$2a$05$CCCCCCCCCCCCCCCCCCCCC.VGOzA784oUp/Z0DY336zx7pLYAy0lwK", library()).unwrap!,
+        "other",
+      )
+    end,
+    Test.test("bcrypt reads the first 72 bytes of a password only, and a NUL in it is refused") do
+      return ok() if not try ready()
+
+      long = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789chars after 72 are ignored"
+      digest = "$2a$05$abcdefghijklmnopqrstuu5s2v8.iXieOjg/.AySBTTZIIVFJeBui"
+      try Test.assert(Bcrypt.verify(long.slice(0, 72) + " other", digest, library()).unwrap!, "same first 72 bytes")
+      try Test.assert(not Bcrypt.verify(long.slice(0, 71), digest, library()).unwrap!, "71 bytes")
+      nul = String.from_bytes("U*U".bytes + Bytes.from_list([0, 88]).unwrap!).unwrap!
+      Test.assert(
+        not Bcrypt.verify(nul, "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW", library()).unwrap!,
+        "NUL",
+      )
+    end,
+    Test.test("a text that is not a bcrypt digest of a usable shape is false") do
+      good = "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW"
+      bad = [
+        "",
+        "$2a$",
+        "$2x$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
+        "$2a$03$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
+        "$2a$32$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
+        "$2a$+5$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
+        "$2a$05CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW$",
+        good.slice(0, 59),
+        good + "x",
+        "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOe!",
+        "$1$salt$hashhashhashhashhashhash",
+      ]
+
+      for text in bad
+        try Test.assert(not Bcrypt.digest?(text), text)
+        try Test.assert(not Bcrypt.verify("U*U", text).unwrap!, text)
+      end
+
+      try Test.assert(Bcrypt.digest?(good), "good")
+      try Test.assert(
+        Bcrypt.digest?("$2y$31$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW"),
+        "cost 31 has a shape",
+      )
+
+      Test.assert(Passwords.verify("x", "$1$salt$hashhashhashhashhashhash").unwrap! == false, "not ours")
+    end,
+    Test.test("a password that cannot be checked costs a real check, so the time does not tell it from a wrong one") do
+      return ok() if not try ready()
+
+      # Cost 12 takes a quarter of a second or more; an early answer takes a millisecond.
+      digest = "$2a$12$.e8gNYy3Yc5qIeU31tvPEuAmRhK8AsHV7iZLhpvYgB6KQoUDvUdMi"
+      nul = String.from_bytes("correct horse battery".bytes + Bytes.from_list([0, 88]).unwrap!).unwrap!
+      huge_letters = (0...(Bcrypt.MAX_PASSWORD_BYTES + 1)).to_a.map do |_| "x" end
+      huge = huge_letters.join("")
+      limit_letters = (0...Bcrypt.MAX_PASSWORD_BYTES).to_a.map do |_| "x" end
+      limit = limit_letters.join("")
+      for password in [nul, huge, limit]
+        started = Time.now_ms()
+        checked = Bcrypt.verify(password, digest, library())
+        try Test.eq(checked, ok(false))
+        try Test.assert(Time.now_ms() - started >= MIN_WORK_MS, "answered too quickly to be a real check")
+      end
+
+      # The right password of 72 bytes or fewer still works.
+      Test.eq(Bcrypt.verify("correct horse battery", digest, library()), ok(true))
+    end,
+    Test.test("a cost over the limit is an error that says so, and runs nothing") do
+      started = Time.now_ms()
+      checked = Bcrypt.verify("x", "$2b$20$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW")
+      try Test.assert(not checked.ok?, "a cost of 20 ran")
+      try Test.assert(checked.message.include?("limit of #{Bcrypt.MAX_COST}"), checked.message)
+      try Test.assert(checked.message.include?("until their password is reset"), checked.message)
+      Test.assert(Time.now_ms() - started < 1000, "it took the time of the hash")
+    end,
+    Test.test(
+      "the library is the one that is set, else libcrypt.so.1 on Linux, else an error that says what to set",
+    ) do
+      try Test.eq(Bcrypt.library_for("linux", ""), ok("libcrypt.so.1"))
+      try Test.eq(Bcrypt.library_for("linux", "/opt/lib/libcrypt.so"), ok("/opt/lib/libcrypt.so"))
+      try Test.eq(
+        Bcrypt.library_for("macos", "/opt/homebrew/opt/libxcrypt/lib/libcrypt.1.dylib").unwrap!.size > 0,
+        true,
+      )
+
+      for os in ["macos", "windows"]
+        problem = Bcrypt.library_for(os, "")
+        try Test.assert(not problem.ok?, os)
+        try Test.assert(problem.message.include?("CAMPFIRE_BCRYPT_LIBRARY"), problem.message)
+      end
+
+      return ok()
+    end,
+    Test.test(
+      "a library that is missing, or has no crypt_r, is an error that names the variable, never a wrong password",
+    ) do
+      digest = "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW"
+      missing = Bcrypt.verify("U*U", digest, "/nonexistent/libcrypt.so.1")
+      try Test.assert(not missing.ok?, "a library that is not there was used")
+      try Test.assert(missing.message.include?("cannot open /nonexistent/libcrypt.so.1"), missing.message)
+      try Test.assert(missing.message.include?("CAMPFIRE_BCRYPT_LIBRARY"), missing.message)
+      # The system's own maths library opens but has no `crypt_r`.
+      return ok() if System.os() != "linux"
+
+      bare = Bcrypt.verify("U*U", digest, "libm.so.6")
+      try Test.assert(not bare.ok?, "a library without crypt_r was used")
+      try Test.assert(bare.message.include?("has no crypt_r"), bare.message)
+      Test.assert(bare.message.include?("CAMPFIRE_BCRYPT_LIBRARY"), bare.message)
+    end,
   ])
 end
