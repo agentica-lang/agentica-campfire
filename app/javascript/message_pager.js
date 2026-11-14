@@ -21,6 +21,8 @@ var REACH = REACH_PX + "px 0px";
 var RETRY_MS = 2000;
 var TRIES = 3;
 var LONGEST_WAIT_S = 30;
+// How many messages from the edge are tried as the cursor, when the ones before were deleted.
+var CURSORS = 8;
 
 export function startMessagePager(page) {
   "use strict";
@@ -36,6 +38,8 @@ export function startMessagePager(page) {
   var failures = { before: 0, after: 0 };
   // The side whose tries ran out: nothing is asked for until `wake`.
   var asleep = { before: false, after: false };
+  // Bumped when the list is made a new page, so a load that began before does not touch it.
+  var generation = 0;
 
   // The paragraph (`.more`) with the link, for each direction; null when the page lacks it.
   function notice(side) {
@@ -73,11 +77,11 @@ export function startMessagePager(page) {
     });
   }
 
-  // The messages of the list that the cursor can be, the edge one first and its neighbour second: the first and second for
-  // `before`, the last and the one before it for `after`.
+  // The messages of the list that the cursor can be, from the edge inwards: the first ones for `before`, the last ones
+  // for `after`.
   function cursors(side) {
     var items = Array.prototype.slice.call(list.querySelectorAll("[data-message-id]"));
-    var near = side === "before" ? items.slice(0, 2) : items.slice(-2).reverse();
+    var near = side === "before" ? items.slice(0, CURSORS) : items.slice(-CURSORS).reverse();
     return near
       .map(function (item) {
         return parseInt(item.getAttribute("data-message-id"), 10) || 0;
@@ -110,7 +114,7 @@ export function startMessagePager(page) {
   }
 
   // Asks for the page at the first cursor. A 204 is not the end when the message that was the cursor may be gone (deleted
-  // since the list got it): the room answers 204 for a message it does not have. So the neighbour is asked once; at the
+  // since the list got it): the room answers 204 for a message it does not have. So the next one inwards is asked; at the
   // real end it answers with the edge message that the list has already, which is no news and ends the walk.
   function ask(side, ids, n) {
     return fetch(base + "?" + side + "=" + ids[n], { credentials: "same-origin", headers: { Accept: "text/html" } })
@@ -127,10 +131,11 @@ export function startMessagePager(page) {
     }
 
     busy[side] = true;
+    var started = generation;
     ask(side, ids, 0)
       .then(function (text) {
         failures[side] = 0;
-        if (!notice(side)) {
+        if (started !== generation || !notice(side)) {
           return;
         }
 
@@ -143,7 +148,7 @@ export function startMessagePager(page) {
       })
       .catch(function (error) {
         var one = notice(side);
-        if (!one) {
+        if (started !== generation || !one) {
           return;
         }
 
@@ -163,6 +168,9 @@ export function startMessagePager(page) {
       })
       .then(function () {
         busy[side] = false;
+        if (started !== generation) {
+          watch(side);
+        }
       });
   }
 
@@ -215,6 +223,7 @@ export function startMessagePager(page) {
 
   // The list was made a new page: its link above is a new one, and what the old one did is forgotten.
   document.addEventListener(WINDOW_EVENT, function () {
+    generation += 1;
     asleep.before = false;
     failures.before = 0;
     watch("before");
