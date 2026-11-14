@@ -2,7 +2,7 @@ Feature: Previews of attachments and the lightbox
   A message's image is shown in the room, and a video gets a player, as `Message::Attachment` of Rails Campfire shows
   them. The size of an image comes from its header when it is posted (no pixel is decoded) and is stored in the blob's
   metadata, as Active Storage's analyzer stores it; the page sizes the image to fit 1200 by 800 and shows it at half
-  that. An image over 250 million pixels, or one whose header cannot be read, is a link to download, as is any other
+  that. An image over 25 million pixels (Rails allows 250 million, as it shows a thumbnail), or one whose header cannot be read, is a link to download, as is any other
   file. A click on a preview opens the lightbox of the page, which has the link that downloads the file
   (`?disposition=attachment`). There is no server-side thumbnail and no video poster: the browser sizes the image. Ana,
   the first admin, is user 1, and "All Talk" is room 1.
@@ -39,6 +39,8 @@ Feature: Previews of attachments and the lightbox
       | name      | bytes                                                        | stored                 |
       | huge.webp | 5249464600000000574542505650385800000000000000001f4e00973a00 | image/webp 20000x15000 |
       | cut.png   | 89504e470d0a1a0a0000000d49484452                             | image/png no size      |
+      | big.png   | 89504e470d0a1a0a0000000d4948445200001770000013880806000000   | image/png 6000x5000    |
+      | bomb.png  | 89504e470d0a1a0a0000000d49484452c0000000c00000000806000000   | image/png no size      |
 
   Scenario: A video gets a player, and is still sent as a download with nosniff
     When I upload to "/rooms/1/messages" the file "clip.mp4" of the type "application/octet-stream" with the bytes "000000186674797069736f6d0000020069736f6d69736f32"
@@ -77,6 +79,15 @@ Feature: Previews of attachments and the lightbox
     When I get "/rooms/1"
     Then the status is 200
     And the body contains "<a href=\"/rooms/1/messages/1/attachment\" download>pixel.png</a>"
+
+  Scenario: Sizes that Rails stored, or that were changed by hand, past any cap still show the room
+    Given I upload to "/rooms/1/messages" a PNG image named "pixel.png" of the type "image/png"
+    And I run the sql "update active_storage_blobs set metadata = '{\"width\":3221225472,\"height\":3221225472}'"
+    When I get "/rooms/1"
+    Then the status is 200
+    And the body contains "<a href=\"/rooms/1/messages/1/attachment\" download>pixel.png</a>"
+    When I get "/searches?q=pixel"
+    Then the status is 200
 
   Scenario: The composer has a file picker, and posts a multipart form
     When I get "/rooms/1"

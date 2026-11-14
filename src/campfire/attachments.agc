@@ -16,10 +16,11 @@ import {int_of, text_of} from "repo/rows"
 ## How many bytes of the start of a file `identify` and `inline?` read.
 HEAD_BYTES = 64
 ## The largest preview of Rails (`THUMBNAIL_MAX_WIDTH`, `THUMBNAIL_MAX_HEIGHT`), and the most pixels of an image that
-## is shown as one (`THUMBNAIL_MAX_PIXELS`): past it, a browser would decode a picture that costs more than its file.
+## is shown as one. Rails allows 250 million (`THUMBNAIL_MAX_PIXELS`) because it shows a thumbnail; here the browser
+## decodes the file itself, so the cap is a tenth of that until there are thumbnails (#172).
 PREVIEW_MAX_WIDTH = 1200
 PREVIEW_MAX_HEIGHT = 800
-PREVIEW_MAX_PIXELS = 250_000_000
+PREVIEW_MAX_PIXELS = 25_000_000
 
 ## The column of a message query (one that has `messages` in its `from`) that holds its attachment as a JSON object for
 ## `parse`, "" for a message with none. A record of Rails could have more than one row (a replaced file waits for its
@@ -81,7 +82,8 @@ def preview(file: Attachment) -> Preview
 
   return Preview.Link if not INLINE_TYPES.include?(file.content_type) or file.width < 1 or file.height < 1
 
-  return Preview.Link if file.width * file.height > PREVIEW_MAX_PIXELS
+  # Divided, not multiplied: a row of Rails or one changed by hand may hold any two sizes.
+  return Preview.Link if file.width > PREVIEW_MAX_PIXELS / file.height
 
   scale = [1.0, PREVIEW_MAX_WIDTH.to_f / file.width.to_f, PREVIEW_MAX_HEIGHT.to_f / file.height.to_f].min.unwrap!
   Preview.Image(

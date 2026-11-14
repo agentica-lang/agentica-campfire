@@ -1,9 +1,12 @@
 ## The width and the height of a PNG, GIF, JPEG or WebP image, read from its header as `ActiveStorage::Analyzer::
 ## ImageAnalyzer` finds them, without decoding a pixel. A JPEG whose EXIF orientation turns it a quarter (5 to 8) has
-## them swapped, as a browser shows it. `none` when the bytes have no header that this reads.
+## them swapped, as a browser shows it. `none` when the bytes have no header that this reads, or a side is over
+## `MAX_SIDE`.
 
 import Binary from "std/binary"
 
+## The longest side that is a size: past it, no format that a browser shows would decode it.
+MAX_SIDE = 65535
 ## How many bytes of the start of a file `measure` reads: a JPEG's EXIF block (at most 64 KiB) comes before its size.
 HEAD_BYTES = 131072
 
@@ -17,7 +20,7 @@ def measure(head: Bytes) -> Optional[Size]
   return none if not read.ok?
 
   size = read.unwrap!
-  return none if size.width < 1 or size.height < 1
+  return none if size.width < 1 or size.height < 1 or size.width > MAX_SIDE or size.height > MAX_SIDE
 
   some(size)
 end

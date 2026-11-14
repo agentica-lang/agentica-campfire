@@ -226,7 +226,8 @@ is `multipart/form-data`, and the script sends a picked file the same way (text 
 A message shows its file after its body, as `Messages::AttachmentPresentation` of Rails does. The size of a PNG, GIF,
 JPEG (turned by its EXIF orientation) or WebP image is read from its header when it is posted and stored in the blob's
 `metadata` (`width`, `height`, `analyzed`), as Active Storage's analyzer stores it, so a database that Rails made shows
-its images too. An image with a size and at most 250 million pixels is shown, fitted to 1200 by 800 and at half that
+its images too. An image with a size and at most 25 million pixels (Rails allows 250 million, as it shows a thumbnail;
+here the browser decodes the file itself until #172) is shown, fitted to 1200 by 800 and at half that
 (`width` and `height` of the `<img>`, smaller in a narrow bubble), as a link to itself that the lightbox of the page
 opens, with a Download link. An MP4, QuickTime or WebM video (by its bytes) gets a `<video>` player. Anything else, an
 image over the cap or one whose header cannot be read, is the link that downloads it. There is no thumbnail and no

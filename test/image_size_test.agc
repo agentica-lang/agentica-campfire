@@ -18,9 +18,11 @@ def main() -> Void
         "100x200",
       )
     end,
-    Test.test("a cut header, a zero side or another file has no size") do
+    Test.test("a cut header, a zero side, a side over 65535 or another file has no size") do
       try Test.eq(size("89504e470d0a1a0a0000000d49484452000002"), "none")
       try Test.eq(size("4749463839610000c800"), "none")
+      try Test.eq(size("89504e470d0a1a0a0000000d49484452c0000000c00000000806000000"), "none")
+      try Test.eq(size("89504e470d0a1a0a0000000d4948445200010000000000010806000000"), "none")
       try Test.eq(size("ffd8ffe000044a46ffda"), "none")
       Test.eq(size("255044462d312e34"), "none")
     end,
