@@ -6,7 +6,7 @@ blank_line_after_end = true
 
 [dependencies]
 bond = { git = "https://github.com/agentica-lang/bond", tag = "0.12.0" }
-db = { git = "https://github.com/agentica-lang/agentica-db", tag = "0.10.0", subdir = "src/db" }
+db = { git = "https://github.com/agentica-lang/agentica-db", tag = "0.10.1", subdir = "src/db" }
 channels = { git = "https://github.com/agentica-lang/packages", tag = "bond-channels-0.5.0", subdir = "bond-channels" }
 
 # The system SQLite, for the version reader (`extern "sqlite3"` in src/campfire/repo/version_reader.agc).
