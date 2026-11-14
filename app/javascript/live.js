@@ -22,6 +22,8 @@ export function startLive() {
   // The server pings every 3 s: a socket that heard nothing for this long is dead, whatever the browser says.
   var STALE_MS = 12000;
   var SIDEBAR = "/users/me/sidebar";
+  // The messages of the room page; a fetched page with fewer is the whole room.
+  var PAGE = 40;
 
   var main = document.querySelector("main.room");
   var list = main ? main.querySelector('[id^="messages_rooms_"]') : null;
@@ -440,27 +442,28 @@ export function startLive() {
     Array.prototype.forEach.call(theirs.children, function (item) {
       wanted[item.id] = true;
       var here = document.getElementById(item.id);
-      if (!boundary && here && here.parentNode === list) {
+      // Only a message that the list had before the catch-up tells where the fetch begins, not one that came live.
+      if (!boundary && here && here.parentNode === list && mine.seen[item.id]) {
         boundary = here;
       }
     });
 
     // What the fetch covers is told by position, not by id: the page is in the server's order (time, then id), and in a
-    // database that Rails seeded an id does not follow time. With no fetched message every message of the first list is
-    // gone; otherwise only the ones from the oldest fetched one that the list has on (the ones before it are on pages that
-    // the fetch did not cover, the older messages that the pager loaded).
-    var empty = theirs.children.length === 0;
-    // A fetched page that has no message of the list in common (40 or more were made while the socket was away) leaves a
-    // gap that no position can fill: the list is made the fetched page, with a link to the messages before it.
+    // database that Rails seeded an id does not follow time. A fetch of fewer than 40 is the whole room, so every message
+    // of the first list that it lacks is gone; otherwise only the ones from the oldest fetched one that the list has on
+    // (the ones before it are on pages that the fetch did not cover, the older messages that the pager loaded).
+    var whole = theirs.children.length < PAGE;
+    // A full fetched page that has no message of the list in common (40 or more were made while the socket was away)
+    // leaves a gap that no position can fill: the list is made the fetched page, with a link to the messages before it.
     var gap =
       !boundary &&
-      !empty &&
+      !whole &&
       Array.prototype.some.call(list.children, function (item) {
         return item.id && mine.seen[item.id];
       });
     Array.prototype.slice.call(list.children).forEach(function (item) {
-      var covered = gap || empty || (boundary && (item === boundary || boundary.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING));
-      if (item.id && mine.seen[item.id] && !wanted[item.id] && !mine.touched[item.id] && covered) {
+      var covered = gap || whole || (boundary && (item === boundary || boundary.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING));
+      if (item.id && mine.seen[item.id] && !wanted[item.id] && (gap || !mine.touched[item.id]) && covered) {
         item.remove();
       }
     });
@@ -497,6 +500,8 @@ export function startLive() {
 
     if (gap) {
       linkOlder();
+      // What the reader was looking at is gone, so the view goes to the newest message.
+      main.querySelector(".scroller").scrollTop = 0;
     }
     syncEmpty();
   }
