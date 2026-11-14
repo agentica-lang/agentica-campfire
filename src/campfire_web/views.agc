@@ -7,12 +7,20 @@ import Accounts from "../campfire/accounts"
 import Autolink from "../campfire/autolink"
 import Boosts from "../campfire/boosts"
 import Bots from "../campfire/bots"
+import Mentions from "../campfire/mentions"
 import Profiles from "../campfire/profiles"
 import QrCode from "../campfire/qr_code"
 import Rails from "../campfire/repo/rails"
 import Rooms from "../campfire/rooms"
 import Searches from "../campfire/searches"
 import Routes from "routes"
+
+## A person of the autocomplete, with the link of their picture ("" for none).
+struct PromptItem
+  id: Int
+  name: String
+  avatar: String
+end
 
 ## A bot of the list with the rooms it is in, but the direct ones: the rooms that its curl lines post to.
 struct BotRooms
@@ -763,6 +771,20 @@ def search(
     </main>
   EAG
   live_layout("Search", body)
+end
+
+## The prompt items of the mentions of the editor (Lexxy's `<lexxy-prompt-item>`, as `autocompletable/users/index` of
+## Rails writes them, without a layout): what the menu shows and the mention that choosing one puts in the message.
+def prompt_items(items: List[PromptItem]) -> String
+  <<~EAG
+    <%@ escape &Bond.escape %>
+    <% for item in items %>
+    <lexxy-prompt-item search="<%= item.name %>" gid="<%= Mentions.gid(item.id) %>">
+      <template type="menu"><span class="autocomplete__item"><% if not item.avatar.empty? %><img class="avatar" src="<%= item.avatar %>" alt="" width="24" height="24"> <% end %><span class="autocompletable__name"><%= item.name %></span></span></template>
+      <template type="editor"><%== Mentions.markup(item.id, item.name) %></template>
+    </lexxy-prompt-item>
+    <% end %>
+  EAG
 end
 
 ## The avatar of a person with no picture: their `initials` in white on a circle of `color` (one of the fixed colours of

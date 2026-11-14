@@ -71,6 +71,19 @@ def encode(answer: Answer) -> String
   end
 end
 
+## The path of the picture of the user, "" when the app has no key to sign it with. It ends in `?v=` and the digits of
+## `updated_at` (Rails' `fresh_user_avatar`, but with the fraction of a second, which Rails drops), so a change of the
+## picture, which touches `updated_at`, is a new link and the browser does not keep the old picture for the 30 minutes
+## that the answer may be kept.
+def link(key: Optional[Bytes], user_id: Int, updated_at: String) -> String
+  return "" if key.none?
+
+  token = SignedId.generate(key.unwrap!, user_id, SignedId.AVATAR_PURPOSE)
+  return "" if not token.ok?
+
+  "/users/#{token.unwrap!}/avatar?v=#{Avatars.version(updated_at)}"
+end
+
 private
 
 # `expires_in 30.minutes, stale_while_revalidate: 1.week` of the controller of Rails, but `private`: Rails

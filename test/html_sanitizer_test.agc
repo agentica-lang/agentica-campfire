@@ -44,7 +44,9 @@ OUTPUT_TAGS = Set.new([
   "tr",
   "th",
   "td",
+  "action-text-attachment",
 ])
+MENTION = "<action-text-attachment content-type=\"application/vnd.campfire.mention\" gid=\"gid://campfire/User/"
 ATTACHMENT = (
   "<action-text-attachment sgid=\"abc\"><figure><img src=\"/x.png\">" +
   "<figcaption>cap</figcaption></figure></action-text-attachment>"
@@ -241,6 +243,50 @@ def xss_cases() -> List[Case]
   ]
 end
 
+# A mention keeps its type and its person, written the one way, and nothing else; any other attachment is its text.
+def mention_cases() -> List[Case]
+  [
+    Case(
+      input: (
+        "<action-text-attachment gid=gid://campfire/User/7 onclick=\"alert(1)\" CONTENT-TYPE='application/vnd.campfire.mention'>@Bea</action-text-attachment>"
+      ),
+      want: "#{MENTION}7\">@Bea</action-text-attachment>",
+    ),
+    Case(
+      input: "#{MENTION}7\"><script>alert(1)</script><b>@B</b></action-text-attachment>",
+      want: "#{MENTION}7\"><b>@B</b></action-text-attachment>",
+    ),
+    Case(
+      input: "#{MENTION}7\">a#{MENTION}8\">b</action-text-attachment>c",
+      want: "#{MENTION}7\">ab</action-text-attachment>c",
+    ),
+    Case(
+      input: "<b>#{MENTION}7\">a</b>c</action-text-attachment>",
+      want: "<b>#{MENTION}7\">a</action-text-attachment></b>c",
+    ),
+    Case(
+      input: "#{MENTION}7\" title=\"\"><script>alert(1)</script>\">x</action-text-attachment>",
+      want: "#{MENTION}7\">\"&gt;x</action-text-attachment>",
+    ),
+    Case(input: "#{MENTION}x\">a</action-text-attachment>#{MENTION}07 \">b</action-text-attachment>", want: "ab"),
+    Case(input: "#{MENTION}1234567890123456789\">a</action-text-attachment>", want: "a"),
+    Case(
+      input: (
+        "<action-text-attachment content-type=\"text/html\" gid=\"gid://campfire/User/7\">a</action-text-attachment>"
+      ),
+      want: "a",
+    ),
+    Case(
+      input: (
+        "<action-text-attachment content-type=\"application/vnd.campfire.mention\" gid=\"gid://other/User/7\">a</action-text-attachment>"
+      ),
+      want: "a",
+    ),
+    Case(input: "<action-text-attachment>a</action-text-attachment>", want: "a"),
+    Case(input: "#{MENTION}7\">a", want: "#{MENTION}7\">a</action-text-attachment>"),
+  ]
+end
+
 # Each new tag of the editor, with attributes and an event handler, comes out with neither.
 def editor_tag_cases() -> List[Case]
   cases = EDITOR_TAGS.map do |t|
@@ -333,10 +379,17 @@ def only_allowed_markup?(html: String) -> Bool
     name = tag.split(" ")[0].split("/").join("")
     return false if not OUTPUT_TAGS.include?(name)
 
-    return false if tag.include?(" ") and not link_tag?(tag) and not code_tag?(tag)
+    return false if tag.include?(" ") and not link_tag?(tag) and not code_tag?(tag) and not mention_tag?(tag)
   end
 
   true
+end
+
+def mention_tag?(tag: String) -> Bool
+  return false if not (MENTION.start_with?("<#{tag.split("gid=")[0]}") and tag.end_with?("\""))
+
+  digits = tag.slice(MENTION.length - 1, tag.length - MENTION.length)
+  not digits.empty? and digits.split("").all? do |c| "0123456789".include?(c) end
 end
 
 def code_tag?(tag: String) -> Bool
@@ -424,12 +477,15 @@ def main() -> Void
       run_cases(xss_cases())
     end,
     Test.test("the tags of the editor keep no attribute") do run_cases(editor_tag_cases()) end,
+    Test.test("a mention keeps its type and its person and nothing else, and is never inside another") do
+      run_cases(mention_cases())
+    end,
     Test.test("a link keeps http, https, mailto and a relative address, in whatever way the scheme is written") do
       run_cases(scheme_cases())
     end,
     Test.test("every output is made of allowed tags only and is a fixed point") do
       cases = action_text_cases().concat(well_formed_cases()).concat(dropped_cases()).concat(xss_cases())
-      cases = cases.concat(editor_tag_cases()).concat(between_tags_cases())
+      cases = cases.concat(editor_tag_cases()).concat(between_tags_cases()).concat(mention_cases())
       try run_invariants(cases.concat(scheme_cases()))
       run_invariants([
         Case(input: "<a href=\"x\" <a href=\"y\">", want: ""),

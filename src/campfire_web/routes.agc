@@ -47,6 +47,9 @@ SCRIPT = AssetNames.SCRIPT
 ## the avatar of a user, whose `:id` is not an id but `user.signed_id(purpose: :avatar)` (the router wants one name for
 ## the segment under `/users/`).
 SIDEBAR = "/users/me/sidebar"
+## The people that a mention may name (`AutocompletableWeb`): the prompt items of the editor, and the same list as JSON.
+AUTOCOMPLETE_USERS = "/autocompletable/users"
+AUTOCOMPLETE_USERS_JSON = "/autocompletable/users.json"
 SEARCHES = "/searches"
 ## Forgets the recent searches of the person who is signed in (`clear` of Rails' `SearchesController`): a `DELETE`, or a
 ## `POST` with `_method` set to `METHOD_DELETE`, which is Rails' button. Any other `POST` is a 405 that lists

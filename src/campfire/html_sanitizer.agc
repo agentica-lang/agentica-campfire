@@ -1,7 +1,7 @@
 ## An allowlist sanitizer for the HTML of a stored message body (Action Text, as the Rails Campfire wrote it), so the
 ## body can be shown with `<%== %>`. `sanitize` reads the text once and writes a new text that is made only of what
 ## this file writes: the tags of `ALLOWED_TAGS` with no attribute (a link has `href` and `rel`, a `pre` may have
-## `data-language`, the language of a code block, nothing else), text
+## `data-language`, the language of a code block, and a mention its type and its person: `mention_open`), text
 ## with `<`, `>` and `&` escaped, and every tag closed. Nothing of the input is copied into the output except text and
 ## the value of a link, which is checked and escaped. What it does not know it drops: a tag that is not allowed goes
 ## and its text stays, a script and its kind go with their content (an end tag that never comes takes the rest of
@@ -25,6 +25,17 @@
 ##   block tag.
 
 import HTML from "std/html"
+
+## A mention of a person (`Mentions`): the element of Action Text, with the content type of Rails' mentions and the
+## GlobalID of the user, written by `mention_open` and nothing else; its content is cleaned as any other.
+MENTION_TAG = "action-text-attachment"
+MENTION_TYPE = "application/vnd.campfire.mention"
+MENTION_GID = "gid://campfire/User/"
+MENTION_PREFIX = "<#{MENTION_TAG} content-type=\"#{MENTION_TYPE}\" gid=\"#{MENTION_GID}"
+MENTION_CLOSE = "</#{MENTION_TAG}>"
+
+## The start tag of a mention of the user `id`.
+def mention_open(id: Int) -> String = "#{MENTION_PREFIX}#{id}\">"
 
 ## The safe HTML of `html`. A text with no markup comes back escaped; a text with markup comes back with only the
 ## allowed tags, closed, and without any attribute but the `href` of a link that is http, https, mailto or relative.
@@ -122,9 +133,10 @@ def from_text(text: String) -> String = HTML.escape(text).replace("\r\n", "\n").
 ## `<br>`) gives that text back exactly, blank lines included, so saving the form again changes nothing. Any other markup
 ## (a body that Rails wrote) gives `plain_text_of_clean`, which keeps no blank line and no formatting.
 def text_of_clean(clean: String) -> String
-  return plain_text_of_clean(clean) if clean.replace("<br>", "").include?("<")
+  text = without_mention_tags(clean)
+  return plain_text_of_clean(text) if text.replace("<br>", "").include?("<")
 
-  HTML.unescape(clean.replace("<br>", "\n"))
+  HTML.unescape(text.replace("<br>", "\n"))
 end
 
 ## The text of the HTML `html` without its markup, as the search index keeps it (Action Text's `to_plain_text` does the
@@ -167,7 +179,7 @@ end
 
 private
 
-# The tags that are kept, with the attributes dropped. `br` and `hr` are void, `a` is handled apart.
+# The tags that are kept, with the attributes dropped. `br` and `hr` are void, `a` and a mention are handled apart.
 ALLOWED_TAG_NAMES = [
   "p",
   "br",
@@ -205,10 +217,13 @@ ALLOWED_TAG_NAMES = [
   "tr",
   "th",
   "td",
+  MENTION_TAG,
 ]
 ALLOWED_TAGS = Set.new(ALLOWED_TAG_NAMES)
-# The allowed tags that `sanitize` writes with no more than the name; `a` has the address.
-PLAIN_TAGS = Set.new(ALLOWED_TAG_NAMES.select do |name| name != "a" end)
+# The allowed tags that `sanitize` writes with no more than the name; `a` has the address, a mention its person.
+PLAIN_TAGS = Set.new(ALLOWED_TAG_NAMES.select do |name| name != "a" and name != MENTION_TAG end)
+# The longest id of a person in a mention.
+MAX_ID_DIGITS = 18
 # The characters of the language of a code block, and its longest name.
 LANGUAGE_CHARS = Set.new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+#.-".split(""))
 MAX_LANGUAGE = 32
@@ -327,6 +342,8 @@ struct Tag
   closing: Bool
   href: Optional[String]
   language: Optional[String]
+  content_type: Optional[String]
+  gid: Optional[String]
   next: Int
 end
 
@@ -431,6 +448,8 @@ def open_piece(text: Text, tag: Tag, open: List[String]) -> Piece
     return link_piece(tag, open)
   end
 
+  return mention_piece(tag, open) if name == MENTION_TAG
+
   start_piece(name, open, tag.next, language_of(name, tag))
 end
 
@@ -502,6 +521,43 @@ def end_open(closed: Closed, targets: Set[String], walls: Set[String]) -> Closed
   Closed(html: "#{closed.html}#{closing_tags(open, k)}", open: open.take(k))
 end
 
+# A clean body without the tags of its mentions, their text kept.
+def without_mention_tags(clean: String) -> String
+  return clean if not clean.include?(MENTION_PREFIX)
+
+  pieces = clean.replace(MENTION_CLOSE, "").split(MENTION_PREFIX)
+  rest = pieces.drop(1).map do |piece|
+    start = piece.index_of(">").unwrap_or(-1) + 1
+    piece.slice(start, piece.length - start)
+  end
+
+  [pieces[0]].concat(rest).join("")
+end
+
+# A mention opens only with its type and a person, never inside another, and under the cap.
+def mention_piece(tag: Tag, open: List[String]) -> Piece
+  id = mentioned_id(tag)
+  if id.none? or open.size >= MAX_DEPTH or position_of(open, MENTION_TAG) >= 0
+    return Piece(html: "", open: open, next: tag.next)
+  end
+
+  Piece(html: mention_open(id.unwrap!), open: open.push(MENTION_TAG), next: tag.next)
+end
+
+def mentioned_id(tag: Tag) -> Optional[Int]
+  return none if tag.content_type.unwrap_or("") != MENTION_TYPE
+
+  gid = tag.gid.unwrap_or("")
+  return none if not gid.start_with?(MENTION_GID)
+
+  digits = gid.slice(MENTION_GID.length, gid.length - MENTION_GID.length)
+  if digits.empty? or digits.length > MAX_ID_DIGITS or not digits.split("").all? do |c| DIGITS.include?(c) end
+    return none
+  end
+
+  some(digits.to_i.unwrap_or(0))
+end
+
 # A link opens only with a good address. One link inside another closes the first, as in a browser.
 def link_piece(tag: Tag, open: List[String]) -> Piece
   url = safe_href(tag.href.unwrap_or(""))
@@ -567,10 +623,22 @@ def read_tag(text: Text, start: Int) -> Result[Tag]
   i = name.next
   href: Optional[String] = none
   language: Optional[String] = none
+  content_type: Optional[String] = none
+  gid: Optional[String] = none
   i = skip(cs, n, i, BETWEEN_ATTRIBUTES)
   while i < n
     if cs[i] == ">"
-      return ok(Tag(name: name.text.downcase, closing: closing, href: href, language: language, next: i + 1))
+      return ok(
+        Tag(
+          name: name.text.downcase,
+          closing: closing,
+          href: href,
+          language: language,
+          content_type: content_type,
+          gid: gid,
+          next: i + 1,
+        ),
+      )
     end
 
     # The first character is always part of the name, even an `=`.
@@ -589,6 +657,10 @@ def read_tag(text: Text, start: Int) -> Result[Tag]
       href = some(value)
     elsif language.none? and attribute_name == "data-language"
       language = some(value)
+    elsif content_type.none? and attribute_name == "content-type"
+      content_type = some(value)
+    elsif gid.none? and attribute_name == "gid"
+      gid = some(value)
     end
 
     i = skip(cs, n, i, BETWEEN_ATTRIBUTES)
