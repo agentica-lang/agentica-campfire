@@ -49,6 +49,8 @@ const toEnd = (page) => page.evaluate(() => { document.querySelector(".scroller"
 // Where a message sits in the view, from the top edge of the scroller.
 const place = (page, id) => page.evaluate((n) => document.getElementById("message_" + n).getBoundingClientRect().top - document.querySelector(".scroller").getBoundingClientRect().top, id);
 const settle = (page) => page.waitForTimeout(600);
+// The reconnect pause doubles up to 30 s, with jitter: a page whose socket was down for a while may wait that long.
+const RECONNECT_MS = 35000;
 
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || "/usr/bin/chromium", args: ["--no-sandbox"] });
@@ -215,7 +217,7 @@ const settle = (page) => page.waitForTimeout(600);
   await page.waitForTimeout(400);
   check("the message is missed while the socket is down", (await count(page)) === kept.length);
   await page.evaluate(() => { window.__down = false; });
-  await page.waitForFunction((k) => document.querySelectorAll("[data-message-id]").length === k + 1, kept.length, { timeout: 15000 }).then(
+  await page.waitForFunction((k) => document.querySelectorAll("[data-message-id]").length === k + 1, kept.length, { timeout: RECONNECT_MS }).then(
     async () => {
       const now = await ids(page);
       check("a reconnect keeps what the page has and brings the missed message", kept.every((v, i) => now[i] === v) && now.length === kept.length + 1);
@@ -354,21 +356,19 @@ const settle = (page) => page.waitForTimeout(600);
   const walked = await ids(page);
   check("a deleted cursor does not end the walk down: the message after it comes, in order", cursorRemoved === 200 && walked.includes(after) && walked.every((v, i) => i === 0 || v > walked[i - 1]), `removed ${cursorRemoved} after ${after} cursor ${cursor}: ${JSON.stringify(walked)}`);
 
+  // The first two messages are deleted while the socket is away, so the list still has them as the cursors of the walk up.
   await page.goto(base + "/rooms/1");
   const [top, next] = await ids(page);
-  let dropped = 0;
-  let removed = [];
-  await page.route(OLDER, async (route) => {
-    if (++dropped === 1) removed = [await remove(top), await remove(next)];
-    await route.continue();
-  });
+  await page.evaluate(() => { window.__down = true; window.__sockets.forEach((one) => one.close()); });
+  await page.waitForFunction(() => window.__sockets.every((one) => one.readyState === 3));
+  const removed = [await remove(top), await remove(next)];
   await toTop(page);
   await page.waitForFunction(() => document.querySelectorAll("[data-message-id]").length > 60, null, { timeout: 10000 }).then(
-    async () => check("two deleted first messages do not end the walk up, and the link stays", (await page.locator(".thread > .more").count()) === 1),
-    async () => check("two deleted first messages do not end the walk up, and the link stays", false, await count(page)),
+    async () => check("two first messages deleted while the socket is away do not end the walk up, and the link stays", (await page.locator(".thread > .more").count()) === 1),
+    async () => check("two first messages deleted while the socket is away do not end the walk up, and the link stays", false, await count(page)),
   );
-  check("the deletes of the first messages were done", removed.every((status) => status === 200), JSON.stringify(removed));
-  await page.unroute(OLDER);
+  check("the deletes of the first messages were done", removed.every((status) => status === 200) && (await page.locator(`#message_${top}`).count()) === 1, JSON.stringify(removed));
+  await page.evaluate(() => { window.__down = false; });
 
   // 45 messages are made while the socket is down for good: the catch-up fetches the newest 40, which have nothing in
   // common with the list. The list becomes that page, in order, with a link to what is before it, and paging up reaches
@@ -403,7 +403,7 @@ const settle = (page) => page.waitForTimeout(600);
   await page.waitForFunction(() => window.__sockets.every((one) => one.readyState === 3));
   for (let n = 0; n < 45; n++) await post(other, `missed number ${n}`);
   await page.evaluate(() => { window.__down = false; });
-  for (let n = 0; n < 150 && !roomAsked; n++) await page.waitForTimeout(100);
+  for (let n = 0; n < RECONNECT_MS / 100 && !roomAsked; n++) await page.waitForTimeout(100);
   await post(other, "live during the catch-up");
   await page.waitForSelector("text=live during the catch-up", { timeout: 10000 });
   const edited = await edit(oldFirst, "edited during the catch-up");
@@ -456,10 +456,24 @@ const settle = (page) => page.waitForTimeout(600);
   await postTo(few, "few after");
   await postTo(few, "few after again");
   await page.evaluate(() => { window.__down = false; });
-  await page.waitForSelector("text=few after again", { timeout: 15000 });
+  await page.waitForSelector("text=few after again", { timeout: RECONNECT_MS });
   await page.waitForTimeout(1500);
   const fewNow = await ids(page);
   check("a catch-up of a short room whose messages were all deleted adds no link to older ones", firstFew.length === 3 && fewRemoved.every((status) => status === 200) && fewNow.length === 2 && fewNow.every((id) => !firstFew.includes(id)) && fewAsked === 0 && (await page.locator(".thread > .more").count()) === 0, `${fewAsked} ${JSON.stringify(fewRemoved)} ${JSON.stringify(fewNow)}`);
+
+  // The short room has no link to older messages. 45 are made while the socket is down: the catch-up makes the link, and
+  // the pager watches it and loads what is before the new page.
+  await page.evaluate(() => { window.__down = true; window.__sockets.forEach((one) => one.close()); });
+  await page.waitForFunction(() => window.__sockets.every((one) => one.readyState === 3));
+  for (let n = 0; n < 45; n++) await postTo(few, `few missed ${n}`);
+  await page.evaluate(() => { window.__down = false; });
+  await page.waitForSelector(".thread > .more a", { timeout: RECONNECT_MS }).then(
+    () => check("a gap makes the link to older messages where there was none", true),
+    () => check("a gap makes the link to older messages where there was none", false),
+  );
+  await settle(page);
+  await toTop(page);
+  check("the pager loads from that new link", await loaded(47));
 
   // A room whose ids are not in the order of time (the id of a database that Rails seeded does not follow it): 60 messages
   // whose ids go down as time goes up. The page loads the 20 older ones, the socket is dropped, and the catch-up has to
