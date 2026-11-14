@@ -28,6 +28,7 @@ import RoomDeletion from "room_deletion"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Views from "views"
+import Webhooks from "webhooks"
 
 ## Adds the routes of the rooms to `app`. They are not in `AuthWeb.PUBLIC_PATHS`, so they need a sign-in. `cable` is
 ## where a new message and a room that is made or renamed are broadcast, and whose stream of a room the room page
@@ -43,6 +44,7 @@ def add(
   pages: Optional[PageCache.Pages],
   secure: Bool,
   max_length: Int,
+  hooks: Webhooks.Hooks,
 ) -> Bond.App
   on_get_room_new = Blocks.handler do |conn| show_new_room(conn, pool) end
   on_post_rooms = Blocks.handler do |conn| create_room(conn, pool, cable) end
@@ -50,7 +52,7 @@ def add(
   on_get_room_messages = Blocks.handler do |conn| older_messages(conn, pool, cache, pages) end
   on_get_room_refresh = Blocks.handler do |conn| show_refresh(conn, pool, cache) end
   on_get_room_at = Blocks.handler do |conn| show_at(conn, pool, cable, cache, secure) end
-  on_post_room_messages = Blocks.handler do |conn| create_message(conn, pool, cable, cache, max_length) end
+  on_post_room_messages = Blocks.handler do |conn| create_message(conn, pool, cable, cache, max_length, hooks) end
   on_get_closed_room_new = Blocks.handler do |conn| show_new_closed_room(conn, pool) end
   on_post_closed_rooms = Blocks.handler do |conn| create_closed_room(conn, pool, cable) end
   on_get_direct_room_new = Blocks.handler do |conn| show_new_direct_room(conn, pool) end
@@ -1124,6 +1126,7 @@ def create_message(
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
   max_length: Int,
+  hooks: Webhooks.Hooks,
 ) -> Result[Bond.Conn]
   # The person is looked up in the connection of the write (`AuthWeb.person_in`), so the post takes one connection. The
   # filter answered a visitor before the form was read, so the form is read as results here and only a person who is
@@ -1138,6 +1141,11 @@ def create_message(
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db|
     message_answer(conn, db, cable, cache, id, form, stream, max_length)
+  end
+
+  case answer
+    Answer.Posted(room, message, _) -> Webhooks.deliver_later(hooks, room, message)
+    _ -> nil
   end
 
   ok(announced(conn, cable, answer))

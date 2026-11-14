@@ -11,6 +11,7 @@ import CableSteps from "cable_steps"
 import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
 import SmtpSteps from "smtp_steps"
+import WebhookSteps from "webhook_steps"
 import DataDir from "../src/campfire/data_dir"
 import Accounts from "../src/campfire/accounts"
 import Auth from "../src/campfire/auth"
@@ -83,6 +84,7 @@ def main() -> Void
     BDD.step("this system is Linux", &system_is_linux),
     BDD.step("the app starts with {int} database connections that wait {int} milliseconds", &start_with_pool),
     BDD.step("the app starts with messages of at most {int} characters", &start_with_message_length),
+    BDD.step("the app starts with webhooks to private addresses that wait {int} seconds", &start_with_webhooks),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the app restarts with the message cache off", &restart_app_without_cache),
     BDD.step("the app restarts with the page cache off", &restart_app_without_page_cache),
@@ -131,6 +133,7 @@ def main() -> Void
     BDD.step("the session is opened", &session_is_opened),
     BDD.step("the change is refused", &change_is_refused),
     BDD.step("I run the sql {string}", &run_sql),
+    BDD.step("the bot {int} has the webhook at {string}", &bot_has_webhook),
     BDD.step("the messages of the user {int} are taken away as the removal task takes them", &run_removal),
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
@@ -141,7 +144,13 @@ def main() -> Void
     BDD.step("{string} takes the room {int} away and deletes {int} of its messages", &ask_delete_some),
   ]
 
-  BDD.run(own.concat(HttpSteps.steps()).concat(SmtpSteps.steps()).concat(MailSteps.steps()).concat(CableSteps.steps()))
+  BDD.run(
+    own.concat(HttpSteps.steps())
+      .concat(SmtpSteps.steps())
+      .concat(MailSteps.steps())
+      .concat(CableSteps.steps())
+      .concat(WebhookSteps.steps()),
+  )
 end
 
 def start_on_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
@@ -163,6 +172,12 @@ def start_with_message_length(ctx: BDD.Context, args: List[String]) -> BDD.Conte
   start_app(ctx, text_of(ctx, DB_URL), "false", {"CAMPFIRE_MAX_MESSAGE_LENGTH": args[0]})
 end
 
+# The webhook peer listens on 127.0.0.1, which the app refuses by default.
+def start_with_webhooks(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  hooks = {"CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES": "true", "CAMPFIRE_WEBHOOK_TIMEOUT": args[0]}
+  start_app(ctx, text_of(ctx, DB_URL), "false", hooks)
+end
+
 # The program reads its address and its database from the environment, as `campfire.agc` does, and answers with the
 # `database:` line, then `listening on http://127.0.0.1:PORT`. Every variable it reads is set here, so the specs do not
 # depend on the environment of whoever runs them. Each start draws its own session secret.
@@ -182,6 +197,8 @@ def configured_program(ctx: BDD.Context, url: String, secure_cookies: String, po
     "CAMPFIRE_DB_POOL_SIZE": pool.get("CAMPFIRE_DB_POOL_SIZE", ""),
     "CAMPFIRE_DB_CHECKOUT_MS": pool.get("CAMPFIRE_DB_CHECKOUT_MS", ""),
     "CAMPFIRE_MAX_MESSAGE_LENGTH": pool.get("CAMPFIRE_MAX_MESSAGE_LENGTH", ""),
+    "CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES": pool.get("CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES", "false"),
+    "CAMPFIRE_WEBHOOK_TIMEOUT": pool.get("CAMPFIRE_WEBHOOK_TIMEOUT", ""),
     "CAMPFIRE_BCRYPT_LIBRARY": bcrypt_library(ctx),
     "SECRET_KEY_BASE": SECRET_KEY_BASE,
     "CAMPFIRE_STORAGE_DIR": storage_dir(ctx),
@@ -699,7 +716,7 @@ def bots_as(conn: Db.Connection, email: String, action: String, bot_id: Int) -> 
     return ok("Refused")
   end
 
-  return ok(change_name(try Bots.rename(conn, actor_id, bot_id, "Late"))) if action == "rename"
+  return ok(change_name(try Bots.update(conn, actor_id, bot_id, "Late", ""))) if action == "rename"
 
   return ok(change_name(try Bots.reset_key(conn, actor_id, bot_id))) if action == "reset_key"
 
@@ -824,6 +841,19 @@ end
 def run_sql(ctx: BDD.Context, args: List[String]) -> BDD.Context
   outcome = with_database(ctx) do |conn| Db.execute(conn, args[0], []) end
   BDD.assert(ctx, outcome.ok?, "#{args[0]} failed: #{outcome.message}")
+end
+
+def bot_has_webhook(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  url = WebhookSteps.url(ctx, args[1])
+  outcome = with_database(ctx) do |conn|
+    Db.execute(
+      conn,
+      "insert into webhooks (url, user_id, created_at, updated_at) values (?, ?, #{Rails.NOW}, #{Rails.NOW})",
+      [Db.Value.Text(url), Db.Value.Int(args[0].to_i!)],
+    )
+  end
+
+  BDD.assert(ctx, outcome.ok?, "the webhook was not stored: #{outcome.message}")
 end
 
 def try_sql(ctx: BDD.Context, args: List[String]) -> BDD.Context

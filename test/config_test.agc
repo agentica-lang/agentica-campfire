@@ -217,6 +217,10 @@ def message_length_of(text: String) -> Result[Config.Config]
   )
 end
 
+def webhooks_of(timeout: String, private_addresses: String) -> Result[Config.Config]
+  Config.parse(session_secret: SECRET, webhook_timeout: timeout, webhook_private: private_addresses)
+end
+
 def connections_of(text: String) -> Result[Config.Config]
   Config.parse(
     Config.DEFAULT_HOST,
@@ -572,6 +576,17 @@ def main() -> Void
       try Test.error?(message_length_of("0"))
       try Test.error?(message_length_of("#{Config.MAX_MAX_MESSAGE_LENGTH + 1}"))
       Test.error?(message_length_of("long"))
+    end,
+    Test.test("the webhooks wait 7 seconds by default and reach only the open internet unless told") do
+      default = webhooks_of("", "false").unwrap!
+      try Test.eq(default.webhook_timeout_ms, 7_000)
+      try Test.eq(default.webhook_private_addresses, false)
+      chosen = webhooks_of(" 2 ", "true").unwrap!
+      try Test.eq(chosen.webhook_timeout_ms, 2_000)
+      try Test.eq(chosen.webhook_private_addresses, true)
+      try Test.error?(webhooks_of("0", "false"))
+      try Test.error?(webhooks_of("#{Config.MAX_WEBHOOK_TIMEOUT + 1}", "false"))
+      Test.error?(webhooks_of("", "yes"))
     end,
     Test.test("the connections have a default, and the environment may name from the fewest to the most") do
       try Test.eq(connections_of("").unwrap!.max_connections, Config.DEFAULT_MAX_CONNECTIONS)

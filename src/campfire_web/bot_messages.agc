@@ -15,8 +15,8 @@
 ##
 ## Where this differs from Rails: a wrong key is 404, not a redirect to the sign-in page, and a blank body is also
 ## refused on an edit. Left out until they exist here: the `attachment` upload (a `multipart/form-data` post is 415, so
-## the form is never posted as text), the avatar of `creator` and of `booster` and the webhooks that a post sends to
-## the bots it mentions.
+## the form is never posted as text), the avatar of `creator` and of `booster`, and the webhooks: a post of a bot goes
+## to none, so that two bots cannot answer each other forever.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"

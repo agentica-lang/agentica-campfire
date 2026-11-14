@@ -24,6 +24,8 @@ help:
 	@echo "           CAMPFIRE_SESSION_CACHE_MB: the store of the people of the sessions, 4 by default (1 to 1024);"
 	@echo "           CAMPFIRE_MAX_MESSAGE_LENGTH: the most characters of a message, 10000 by default (1 to 80000);"
 	@echo "           CAMPFIRE_MAX_CONNECTIONS: the connections the server holds, the /cable WebSockets among them, 4096 by default;"
+	@echo "           CAMPFIRE_WEBHOOK_TIMEOUT: the seconds a bot's webhook may take, 7 by default (1 to 60);"
+	@echo "           CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES: true lets webhooks reach private and loopback addresses (false);"
 	@echo "           CAMPFIRE_BCRYPT_LIBRARY: a libxcrypt (path or name) for bcrypt digests; libcrypt.so.1 on Linux by default;"
 	@echo "           SECRET_KEY_BASE: the secret of a Rails Campfire, which checks avatar links (unset: they are 404);"
 	@echo "           CAMPFIRE_STORAGE_DIR: the Active Storage files, DATA_DIR/files by default;"

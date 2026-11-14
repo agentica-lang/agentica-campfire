@@ -24,6 +24,7 @@ import SidebarsWeb from "sidebars"
 import TransfersWeb from "transfers"
 import SignedId from "../campfire/signed_id"
 import Slots from "../campfire/slots"
+import Webhooks from "webhooks"
 import {Config} from "../campfire/config"
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
@@ -46,6 +47,7 @@ def build(
 ) -> Bond.App
   slots = Slots.new()
   bans = BanFlag.new()
+  hooks = Webhooks.new(config, pool, cable)
   on_get_home = Blocks.handler do |conn| RoomsWeb.home(conn, pool) end
   on_get_health = Blocks.handler do |conn| health(conn, schema_version) end
   on_get_up = Blocks.handler do |conn| up(conn) end
@@ -56,7 +58,7 @@ def build(
     Bond.app()
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
-    |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies, config.max_message_length)
+    |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies, config.max_message_length, hooks)
     |> BoostsWeb.add(pool, cable)
     |> BotMessagesWeb.add(pool, cable, config)
     |> AccountsWeb.add(config, pool, cable, bans)

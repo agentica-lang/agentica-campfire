@@ -60,6 +60,18 @@ The links in the answers of the API (`url`, `Location`, `Link`) and the curl lin
 `CAMPFIRE_SECURE_COOKIES=true`) and the `Host` of the request, which a proxy may change, and a `Host` that is not a host
 name or address with a port is left out, so the links are paths.
 
+## Webhooks
+
+An administrator may give a bot a webhook URL, which the app posts messages to from the server (see
+[people.md](people.md#webhooks)). Rails does not check where it points. Here every address that the host resolves to
+must be on the open internet (the rule of the bans: no loopback, private, shared, link-local, documentation or reserved
+address, and for IPv6 only `2000::/3`), or nothing is sent and the log says why; `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES=true`
+turns the check off. The check resolves the host before the post, which resolves it again, so a name whose DNS answer
+changes in between can still reach a private address: give a bot a URL on a host you trust (`std/http` cannot connect
+to an address that was checked yet: agentica-lang/agentica#1556). Redirects are not followed. A post waits at most
+`CAMPFIRE_WEBHOOK_TIMEOUT` seconds and reads at most 1 MiB of the answer; at most 32 run at once and 256 wait, and a
+post past that is dropped and logged. A message of a bot (the API) goes to no webhook, so bots cannot loop.
+
 ## Passwords
 
 Passwords are stored as scrypt digests (cost 2^16, block size 8, two lanes, a random salt each, in

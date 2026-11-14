@@ -43,7 +43,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 CSRF, the sign-in filter, the routes of first run, the join link, sign in, sign out and
                 password reset), accounts.agc (the people page and those posts), bots.agc (the chat bots pages and
                 posts), boosts.agc (the boosts of a message: list, new, add, remove), bot_messages.agc (the messages API of the
-                bots, by key, boosts included), profiles.agc (the user page and the profile),
+                bots, by key, boosts included), webhooks.agc (the posts of new messages to the webhooks of the bots, and their
+                replies), profiles.agc (the user page and the profile),
                 rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
@@ -63,7 +64,8 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through
                 fixtures/ws_client/cable_client.agc, a program of websocket-client with a manifest of its own, so the
                 app does not depend on it: a step cannot leave a reader task running), smtp_steps.agc (an SMTP client
-                against a peer), mail_steps.agc (the peer as the
+                against a peer), webhook_steps.agc (fixtures/webhook_peer.py, a Python webhook
+                of a bot that writes down each post), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
                 the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
                 down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh),
@@ -308,8 +310,14 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   form is read, then 404 for a bot that is not an active one, then 400/422). `Bots.*` check the actor again inside their
   transaction. A key is `ID-TOKEN` with a 12-character `[A-Za-z0-9]` token (`Bots.new_token`, bytes from 248 on skipped
   so each character is as likely), and only an active bot has a key that names it; a new token or a deactivation ends
-  the old key. The pages hold keys, so they are `no-store`. The webhook URL and the avatar of Rails' form wait for #78
-  and #73.
+  the old key. The pages hold keys, so they are `no-store`. The avatar of Rails' form waits for #73.
+- Webhooks (`src/campfire_web/webhooks.agc`, `docs/people.md`): the route that posts a message of a person calls
+  `Webhooks.deliver_later` after its connection is back in the pool; it never waits. A message of the bots API goes to
+  no webhook (no bot loops). The bots are picked in a task by `Bots.webhooks_for` (a direct room: every bot with a
+  webhook; another room: the bots that `@NAME` mentions; never the author), and each post runs in a task of its own
+  under a slot, so a slow webhook holds up no other. A reply is posted with `Rooms.post` and broadcast, and never delivered again. Before a post every address of
+  the host must pass `Bans.public_address?` unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true; keep that check on
+  every path that sends to a URL an administrator typed.
 - Bot messages API (`/rooms/ID/KEY/messages`, `docs/people.md`): the key in the path is the whole login. `Bots.authenticate`
   finds the bot by id with the rule of the admin pages (active, role bot) and compares the whole key with
   `OpenSSL.HMAC.secure_compare`; a session is never read on these paths. `AuthWeb.bot_api?` (the non-empty segments, as the router

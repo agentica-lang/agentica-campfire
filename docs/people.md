@@ -72,9 +72,34 @@ for a user that does not exist, is a person or is not active), then the form (`4
 blank or over 100 characters is `422` with the form again (Rails saves anything). The list shows, for each room the bot
 is in but the direct ones, the line `curl -d 'Hello!' URL` that posts to it (the URL starts with `CAMPFIRE_BASE_URL`, or
 the scheme of the app and the `Host` of the request when that is not set; a `Host` that is not a host name or address with
-an optional port is left out, and the URL is then a path). Left out for now: the webhook URL and the
-avatar of Rails' form, which need the webhooks (#78) and the profile pictures (#73), and the second line of the list,
-for an attachment.
+an optional port is left out, and the URL is then a path). The form also takes a webhook URL (`user[webhook_url]`, an
+`http://` or `https://` URL of at most 2000 characters, or empty for none; anything else is `422`). Left out for now:
+the avatar of Rails' form, which needs the profile pictures (#73), and the second line of the list, for an attachment.
+
+### Webhooks
+
+As in Rails (`Webhook`, `Bot::WebhookJob`), a bot with a webhook URL gets a `POST` with `Content-Type:
+application/json` for each new message meant for it: every message of a direct room it is in, and in any other room a
+message of a person that mentions it. Until mentions exist (#57), a mention is the text `@NAME` not followed by a
+letter, a digit or `_`. A message that a bot posts through the API goes to no webhook (Rails sends it to the other
+bots), so two bots cannot answer each other forever. Only an active bot is sent anything, and at most 16 bots get one
+message. The body is Rails' payload:
+
+```json
+{"user": {"id": 1, "name": "Ana"},
+ "room": {"id": 1, "name": "All Talk", "path": "/rooms/1/KEY/messages"},
+ "message": {"id": 5, "body": {"html": "...", "plain": "the text without @NAME"}, "path": "/rooms/1/@5"}}
+```
+
+`room.name` is `null` for a direct room, and `room.path` is where the bot posts back (the messages API). An answer `200`
+with `Content-Type` `text/html` or `text/plain` is posted to the room as a message of the bot (HTML, cleaned as every
+body is); any other answer is dropped. An answer that takes longer than `CAMPFIRE_WEBHOOK_TIMEOUT` (7 seconds) is
+answered with the message "Failed to respond within 7 seconds" of the bot. A reply is not sent to the webhooks again.
+The delivery runs after the post is answered, each bot in a task of its own, so a slow webhook holds up no other; at
+most 32 posts run at once and 256 more wait, and a post past that is logged and dropped. A connection that fails is
+tried three times in all, and any other failure is logged and dropped (Rails' job does not retry either). A webhook reaches
+only addresses of the open internet unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true (see
+[security.md](security.md#webhooks)). Not here: Rails' reply with an attachment, which waits for the uploads (#60).
 
 ### The messages API
 
@@ -103,7 +128,7 @@ Where this differs from Rails: a wrong key is `404`, not a redirect to the sign-
 when a session cookie comes with it (Rails tries the session first, so the key in the path could be anything for a
 signed-in browser); an edit with a blank body is `422` (Rails saves it); a body over `CAMPFIRE_MAX_MESSAGE_LENGTH` characters is `422`;
 `creator` and `booster` have no `avatar_url`. Not here yet, because the features they belong to are not: the `attachment`
-upload (#60) and the webhook that a post sends to the bots it mentions (#78).
+upload (#60).
 
 ## The user page and the profile
 
