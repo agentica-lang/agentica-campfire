@@ -4,6 +4,7 @@ import Db from "pkg/db/db"
 import DbPool from "pkg/db/db_pool"
 import Migrate from "pkg/db/migrate"
 import Migrations from "migrations"
+import Sqlite from "pkg/db/sqlite"
 import VersionReader from "version_reader"
 import {int_of, text_of} from "rows"
 
@@ -29,7 +30,7 @@ end
 ## table of the password resets, which Rails has not (`Migrations.extensions`). An `error` says what failed, and stops
 ## the start.
 def migrate(url: String) -> Result[Schema]
-  conn = try Db.open(url)
+  conn = try Db.open(url, [Sqlite.driver()])
   migrated = migrate_open(conn)
   Db.close(conn)
   migrated
@@ -41,7 +42,7 @@ end
 ## The migrations ran before (`migrate`), and the url is a file: a `sqlite::memory:` database would be one empty
 ## database per connection. An `error` says what failed (a url that does not open), and stops the start.
 def open_pool(url: String, size: Int, checkout_ms: Int) -> Result[Pool]
-  DbPool.start(DbPool.Options(url: url, size: size, checkout_ms: checkout_ms))
+  DbPool.start(DbPool.Options(url: url, drivers: [Sqlite.driver()], size: size, checkout_ms: checkout_ms))
 end
 
 ## Closes the pool: the requests that run finish first (for up to a second), and the rest is turned away.

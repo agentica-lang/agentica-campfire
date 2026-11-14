@@ -1,6 +1,7 @@
 import Bond from "pkg/bond/bond"
 import Testing from "pkg/bond/testing"
 import Db from "pkg/db/db"
+import Sqlite from "pkg/db/sqlite"
 import HTTP from "std/http"
 import Config from "../src/campfire/config"
 import Database from "../src/campfire/repo/database"
@@ -116,7 +117,7 @@ def main() -> Void
         form = "name=Ana&email=ana%40example.com&password=correct+horse+battery"
         made = Testing.request_from(app, FIRST_CLIENT, "POST", "/first_run", FORM, form)
         try Test.eq(made.status, 302)
-        conn = try Db.open("sqlite:#{site.dir}/campfire.db")
+        conn = try Db.open("sqlite:#{site.dir}/campfire.db", [Sqlite.driver()])
         queried = Db.query(conn, "select ip_address from sessions", [])
         Db.close(conn)
         rows = try queried
