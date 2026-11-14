@@ -10,7 +10,7 @@ A port of ONCE Campfire (group chat) in Agentica, on Bond.
 campfire.agc    the program (`make run`): config from the environment, the data folder, then the app
 src/campfire/   the domain: it knows nothing about HTTP or Bond
                 config.agc (host, port, data folder, database url, session secret, `SECRET_KEY_BASE`, the storage and assets
-                folders), data_dir.agc (the private data folder), slots.agc (a limit on concurrent hashes), rate_limit.agc (attempts per
+                folders), data_dir.agc (the private data folder), slots.agc (a limit on concurrent hashes), work_queue.agc (the bounded queue of the webhook posts, with a limit per bot), rate_limit.agc (attempts per
                 key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
