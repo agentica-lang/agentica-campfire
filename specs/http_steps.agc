@@ -40,6 +40,10 @@ def steps() -> List[BDD.Step]
     BDD.step("I get the join link that I remembered", &get_remembered_join_link),
     BDD.step("I post to the join link that I remembered the form:", &post_to_remembered_join_link),
     BDD.step("the join link of the page is not the one that I remembered", &join_link_changed),
+    BDD.step("I remember the sign-in link of the page", &remember_transfer_link),
+    BDD.step("I get the sign-in link that I remembered", &get_remembered_transfer_link),
+    BDD.step("I send a PUT to the sign-in link that I remembered", &put_to_remembered_transfer_link),
+    BDD.step("I post to the sign-in link that I remembered the form:", &post_to_remembered_transfer_link),
     BDD.step("I sign in as {string}", &sign_in_as),
     BDD.step("I remember the answer", &remember_answer),
     BDD.step("the answer is the one that I remembered", &answer_is_remembered),
@@ -149,6 +153,7 @@ THREAD = "remembered_thread"
 THREAD_START = "<div class=\"thread\">"
 THREAD_END = "<form method=\"post\" action=\"/rooms/"
 JOIN_LINK = "join_link"
+TRANSFER_LINK = "transfer_link"
 STATUSES = "statuses"
 ALL_AT_ONCE_MS = 60_000
 RAW_MS = 5_000
@@ -286,6 +291,31 @@ end
 def post_to_remembered_join_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
   pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
   send(ctx, "POST", remembered_join_link(ctx), URI.encode_www_form(pairs))
+end
+
+# The path of the sign-in link in the box of the page that made it.
+def remember_transfer_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  link = text_after(last_reply(ctx).body, "id=\"session_transfer_url\" type=\"text\" value=\"", "\"")
+  start = link.unwrap_or("").index_of("/session/transfers/")
+  return BDD.assert(ctx, false, "the page has no sign-in link: #{last_reply(ctx).body}") if start.none?
+
+  path = link.unwrap!.slice(start.unwrap!, link.unwrap!.length - start.unwrap!)
+  BDD.set(ctx, TRANSFER_LINK, JSON.from(path))
+end
+
+def remembered_transfer_link(ctx: BDD.Context) -> String = JSON.string(BDD.get(ctx, TRANSFER_LINK).unwrap!).unwrap!
+
+def get_remembered_transfer_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  send(ctx, "GET", remembered_transfer_link(ctx), "")
+end
+
+def put_to_remembered_transfer_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  send(ctx, "PUT", remembered_transfer_link(ctx), "")
+end
+
+def post_to_remembered_transfer_link(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
+  send(ctx, "POST", remembered_transfer_link(ctx), URI.encode_www_form(pairs))
 end
 
 def join_link_changed(ctx: BDD.Context, args: List[String]) -> BDD.Context

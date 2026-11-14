@@ -110,14 +110,14 @@ upload (#60) and the webhook that a post sends to the bots it mentions (#78).
 `GET /users/ID` (`UsersController#show`) is open to anybody who is signed in, for a user in any status: the name, the
 bio, the email address for an administrator only, and a button that opens a direct message with an active user. A bot
 has only the button, and a deactivated person only their name and "is no longer on this account". A user that does not
-exist (or an id that is not a number, or `me`) is `404`. The sign-in transfer link of Rails is not here yet. An
+exist (or an id that is not a number, or `me`) is `404`. The sign-in link that Rails shows an administrator on the page of another person is not here yet (a person makes their own on the profile). An
 administrator also sees a button to ban the person (or, for a banned one, to lift the ban), see below.
 
 `/users/me/profile` (`Users::ProfilesController`) is the person's own form for the name, the email address, the
 password and the bio (`user[name]`, `user[email_address]`, `user[password]`, `user[bio]`), saved with a `PATCH` (a real
 one, a `PUT`, or a `POST` with `_method` `patch` or `put`; any other method is `405` with the `Allow` list) and a
 redirect back. The page also lists the rooms the person is in, with the link to the sidebar setting of each shared
-one. The picture is shown. A person who has one stored (it came with a database that a Rails Campfire made, since the
+one, and a button that makes a sign-in link for another device with its QR code (one use, 15 minutes; see [security.md](security.md#sessions)). The picture is shown. A person who has one stored (it came with a database that a Rails Campfire made, since the
 upload waits for the attachments, #60) also gets a button that deletes it: `DELETE /users/me/avatar`
 (`Users::AvatarsController#destroy`; a `POST` with `_method` `delete` from the form; any other method on the path is
 `405` with the `Allow` list) takes the attachment, its blob and the variants with their blobs away in one

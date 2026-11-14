@@ -21,6 +21,7 @@ import Routes from "routes"
 import RoomsWeb from "rooms"
 import SearchesWeb from "searches"
 import SidebarsWeb from "sidebars"
+import TransfersWeb from "transfers"
 import SignedId from "../campfire/signed_id"
 import Slots from "../campfire/slots"
 import {Config} from "../campfire/config"
@@ -65,6 +66,7 @@ def build(
     |> AvatarsWeb.add(pool, pages, avatar_key(config), config.storage_dir)
     |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
     |> PwaWeb.add(pool, config.assets_dir)
+    |> TransfersWeb.add(config, pool)
     |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)
     |> Bond.get(Routes.HOME, on_get_home)
     |> Bond.get(Routes.HEALTH, on_get_health)

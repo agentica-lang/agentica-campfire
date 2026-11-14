@@ -182,6 +182,13 @@ def private_page(conn: Bond.Conn) -> Bond.Conn
   Bond.header(Bond.header(conn, "cache-control", "no-store"), "referrer-policy", "same-origin")
 end
 
+## Starts the session `token` in this browser and goes home. The session starts empty, so nothing of an earlier one (a
+## fixed cookie that the visitor had) is kept.
+def signed_in(conn: Bond.Conn, token: String) -> Bond.Conn
+  fresh = Bond.set_session(Bond.clear_session(conn), TOKEN_KEY, token)
+  Bond.redirect(fresh, Routes.HOME)
+end
+
 private
 
 # The cookie of the session, and the name that browsers only take from the host itself (`__Host-`, which also needs
@@ -212,6 +219,8 @@ ASSETS_PREFIX = "#{Routes.ASSETS}/"
 # fixed path of `PUBLIC_PATHS`. A path with more segments, or none, is not public, and a wrong code answers 404 inside
 # the handler without telling anything else.
 JOIN_SEGMENTS = 3
+# `/session/transfers/TOKEN`: the token is the secret that signs a browser in, checked by the handler.
+TRANSFER_SEGMENTS = 4
 # The segments of `/rooms/ID/KEY/messages`, of `/rooms/ID/KEY/messages/ID`, and of the boosts under a message,
 # `/rooms/ID/KEY/messages/ID/boosts` and `/rooms/ID/KEY/messages/ID/boosts/ID`.
 BOT_LIST_SEGMENTS = 4
@@ -335,9 +344,13 @@ def public?(path: String) -> Bool
   # signed in. A path that is not a file there is a 404 (`Bond.static` refuses a way out of the folder), whoever asks.
   return true if path.start_with?(ASSETS_PREFIX)
 
-  # "/join/CODE" splits into "", "join" and the code.
+  # "/join/CODE" splits into "", "join" and the code, and "/session/transfers/TOKEN" into four.
   parts = path.split("/")
-  parts.size == JOIN_SEGMENTS and parts[0].empty? and parts[1] == "join" and not parts[2].empty?
+  return false if parts.empty? or not parts[0].empty? or parts.last.empty?
+
+  return true if parts.size == JOIN_SEGMENTS and parts[1] == "join"
+
+  parts.size == TRANSFER_SEGMENTS and parts[1] == "session" and parts[2] == "transfers"
 end
 
 def entry_path(pool: Database.Pool) -> Result[String]
@@ -604,12 +617,6 @@ def reset_token_valid?(pool: Database.Pool, token: String) -> Result[Bool]
 end
 
 def link_gone(conn: Bond.Conn) -> Bond.Conn = private_page(Bond.html(conn, 410, Views.reset_link_gone()))
-
-# The session starts empty, so nothing of an earlier one (a fixed cookie that the visitor had) is kept.
-def signed_in(conn: Bond.Conn, token: String) -> Bond.Conn
-  fresh = Bond.set_session(Bond.clear_session(conn), TOKEN_KEY, token)
-  Bond.redirect(fresh, Routes.HOME)
-end
 
 # 503 for a burst of requests that hash, and when to ask again. Nothing of the form is shown again.
 def busy(conn: Bond.Conn) -> Bond.Conn = retry_later(Bond.html(conn, 503, Views.busy(Failure.BUSY)))

@@ -196,18 +196,39 @@ end
 ## reads `status` itself, in the one statement, so a deactivation that commits first leaves no row, and one that
 ## commits after it deletes the row: no session survives for a later reactivation to revive.
 def open_session(conn: Db.Connection, user_id: Int, user_agent: String, ip_address: String) -> Result[Optional[String]]
-  try purge_sessions(conn)
-  token = OpenSSL.Random.hex(TOKEN_BYTES)
-  inserted = try Db.execute(
+  insert_active_session(conn, user_id, user_agent, ip_address, "", [])
+end
+
+## The id of the session `token` of the person `user_id`, or `none`.
+def session_id(conn: Db.Connection, token: String, user_id: Int) -> Result[Optional[Int]]
+  rows = try Db.query(
     conn,
-    "insert into sessions (user_id, token, user_agent, ip_address, last_active_at, created_at, updated_at) " +
-    "select id, ?, ?, ?, #{NOW}, #{NOW}, #{NOW} from users where id = ? and status = #{Rails.ACTIVE}",
-    [Db.Value.Text(token), text_or_null(user_agent), text_or_null(ip_address), Db.Value.Int(user_id)],
+    "select id from sessions where token = ? and user_id = ?",
+    [Db.Value.Text(token), Db.Value.Int(user_id)],
   )
 
-  return ok(none) if inserted == 0
+  return ok(none) if rows.empty?
 
-  ok(some(token))
+  ok(some(int_of(rows[0], "id")))
+end
+
+## `open_session` for a sign-in link that the session `issuer_id` made: `none` also when that session is gone (signed
+## out, or deleted by a password reset, a deactivation or a ban) or older than the cookie life, checked in the insert.
+def open_transferred_session(
+  conn: Db.Connection,
+  issuer_id: Int,
+  user_id: Int,
+  user_agent: String,
+  ip_address: String,
+) -> Result[Optional[String]]
+  insert_active_session(
+    conn,
+    user_id,
+    user_agent,
+    ip_address,
+    " and exists (select 1 from sessions where id = ? and user_id = users.id and created_at >= #{SESSION_EXPIRY})",
+    [Db.Value.Int(issuer_id)],
+  )
 end
 
 ## The session with this token and its user, or `none` when there is no such session, it is older than the cookie life
@@ -586,6 +607,30 @@ def purge_sessions(conn: Db.Connection) -> Result[Int]
     "user_id in (select id from users where status <> #{Rails.ACTIVE})",
     [],
   )
+end
+
+# The insert reads `status` itself, so a deactivation that commits first leaves no row. `also` adds conditions on
+# `users`, with their `args`.
+def insert_active_session(
+  conn: Db.Connection,
+  user_id: Int,
+  user_agent: String,
+  ip_address: String,
+  also: String,
+  args: List[Db.Value],
+) -> Result[Optional[String]]
+  try purge_sessions(conn)
+  token = OpenSSL.Random.hex(TOKEN_BYTES)
+  inserted = try Db.execute(
+    conn,
+    "insert into sessions (user_id, token, user_agent, ip_address, last_active_at, created_at, updated_at) " +
+    "select id, ?, ?, ?, #{NOW}, #{NOW}, #{NOW} from users where id = ? and status = #{Rails.ACTIVE}#{also}",
+    [Db.Value.Text(token), text_or_null(user_agent), text_or_null(ip_address), Db.Value.Int(user_id)].concat(args),
+  )
+
+  return ok(none) if inserted == 0
+
+  ok(some(token))
 end
 
 def text_or_null(text: String) -> Db.Value

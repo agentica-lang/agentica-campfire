@@ -14,6 +14,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
+                transfers.agc (the one-use sign-in links for another device, in memory), qr_code.agc (a QR encoder;
+                pure),
                 accounts.agc (the join code and the people: deactivate and reactivate, over SQL), profiles.agc (the user
                 page and the profile save, over SQL), bots.agc (the chat bots: make, rename, new key, deactivate, over
                 SQL), bans.agc (ban and unban, the check of an address, over SQL), boosts.agc (the reactions under a message,
@@ -48,7 +50,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
                 searches.agc and avatars.agc (the sidebar page, the search and the
                 avatar link, whose answer is kept in the page store by `PageCache.shared_spot`), pwa.agc (the manifest, the
-                service worker and the icon of the installable app, public), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
+                service worker and the icon of the installable app, public), transfers.agc (the sign-in links for another device
+                and `/qr_code/ID`), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
                 broadcasts of the routes, on bond-channels)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
 app/            the sources of the assets: `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,

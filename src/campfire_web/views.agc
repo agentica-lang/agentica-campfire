@@ -8,6 +8,7 @@ import Autolink from "../campfire/autolink"
 import Boosts from "../campfire/boosts"
 import Bots from "../campfire/bots"
 import Profiles from "../campfire/profiles"
+import QrCode from "../campfire/qr_code"
 import Rails from "../campfire/repo/rails"
 import Rooms from "../campfire/rooms"
 import Searches from "../campfire/searches"
@@ -958,6 +959,66 @@ def reset_password(token: String, message: String) -> String
   layout("Choose a new password", body)
 end
 
+## The page with a sign-in link, `url`, and its QR code, `qr_svg` (markup that `qr_code` made, "" for none).
+def transfer_link(url: String, qr_svg: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <main id="main">
+      <h1>Sign in on another device</h1>
+      <p>Open this link, or scan the code, on the other device. It works once, for 15 minutes. Do not share it: it signs
+        in as you.</p>
+      <p><label>Your sign-in link
+        <input id="session_transfer_url" type="text" value="<%= url %>" readonly></label></p>
+    <% if not qr_svg.empty? %>
+      <figure class="qr-code"><%== qr_svg %></figure>
+    <% end %>
+      <p><a href="<%= Routes.profile_path() %>">Back to your profile</a></p>
+    </main>
+  EAG
+  layout("Sign in on another device", body)
+end
+
+## The page of a sign-in link: one button that uses it (`path`), so that opening the link alone does not.
+def transfer_form(path: String) -> String
+  body = <<~EAG
+    <%@ escape &Bond.escape %>
+    <main id="main">
+      <h1>Sign in</h1>
+      <form method="post" action="<%= path %>">
+        <input name="_method" type="hidden" value="<%= Routes.METHOD_PUT %>">
+        <p><button type="submit" autofocus>Sign in on this device</button></p>
+      </form>
+    </main>
+  EAG
+  layout("Sign in", body)
+end
+
+## The SVG of a QR code, black on white with a margin of four modules; each run of dark modules in a row is one
+## rectangle of the path.
+def qr_code(code: QrCode.Code) -> String
+  side = code.size + QR_MARGIN * 2
+  runs: List[String] = []
+  for y in 0...code.size
+    x = 0
+    while x < code.size
+      if code.dark[y * code.size + x]
+        start = x
+        while x < code.size and code.dark[y * code.size + x]
+          x = x + 1
+        end
+
+        length = x - start
+        runs = runs.push("M#{start + QR_MARGIN} #{y + QR_MARGIN}h#{length}v1h-#{length}z")
+      else
+        x = x + 1
+      end
+    end
+  end
+
+  open = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 #{side} #{side}\" shape-rendering=\"crispEdges\">"
+  open + "<rect width=\"#{side}\" height=\"#{side}\" fill=\"#fff\"/><path fill=\"#000\" d=\"#{runs.join("")}\"/></svg>"
+end
+
 ## The page of a link that does not work: it was used, it expired, or it was never one.
 def reset_link_gone() -> String
   body = <<~EAG
@@ -1131,6 +1192,11 @@ def profile_page(
         </p>
         <p><button type="submit">Save changes</button></p>
       </form>
+      <h2>Sign in on another device</h2>
+      <form method="post" action="<%= Routes.SESSION_TRANSFERS %>">
+        <p><button type="submit" class="quiet">Make a sign-in link</button>
+          <span class="hint">It works once, for 15 minutes.</span></p>
+      </form>
       <h2>Your rooms</h2>
       <ul class="memberships">
     <% for room in shared %>
@@ -1213,6 +1279,8 @@ private
 
 # The name of the app, in the title and the heading.
 NAME = "Campfire"
+# The light border around a QR code, in modules, that a reader needs.
+QR_MARGIN = 4
 # The ids of the lists of the sidebar that a live change appends to (`shared_rooms` is the one that the page has always
 # had).
 SHARED_ROOMS_ID = "shared_rooms"

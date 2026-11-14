@@ -49,6 +49,20 @@ Feature: Password reset
     Then the status is 302
     And the header "location" is "/session/new"
 
+  Scenario: A reset ends the sign-in link that a session of the person made
+    When the browser restores its saved cookies
+    And I post nothing to "/session/transfers"
+    And I remember the sign-in link of the page
+    And the browser has no cookies
+    And I post to "/password_reset" the form:
+      | email | ana@example.com |
+    And the mail server received a message to "ana@example.com" with the subject "Reset your Campfire password"
+    And I open the link of the email
+    And I set the password "a brand new password" with the token of the link
+    And the browser has no cookies
+    And I send a PUT to the sign-in link that I remembered
+    Then the status is 400
+
   Scenario: The new password works at sign-in and the old one does not
     When I post to "/password_reset" the form:
       | email | ana@example.com |
