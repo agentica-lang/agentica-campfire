@@ -1,44 +1,65 @@
 ## The file of a message (`has_one_attached :attachment` of Rails' `Message::Attachment`): a blob of Active Storage
 ## attached to the message under the name `attachment`. The type that is stored is found from the first bytes of the
 ## file and its name (`identify`), never taken from what the client said, and the download sends a file inline only
-## when it is an image whose bytes say so (`inline?`); everything else is a download. `Rooms` reads the attachment of
+## when it is an image whose bytes say so (`inline?`); everything else is a download. A page shows an image whose size
+## its header gave (`ImageSize`) and a video as previews (`preview`), as `Message::Attachment` of Rails does. `Rooms` reads the attachment of
 ## a message in the same query as the message (`COLUMN`), so this module imports nothing of `Rooms`.
 
 import MIME from "std/mime"
 import Regex from "std/regex"
 import Db from "pkg/db/db"
 import Blobs from "blobs"
+import ImageSize from "image_size"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
 ## How many bytes of the start of a file `identify` and `inline?` read.
-HEAD_BYTES = 16
+HEAD_BYTES = 64
+## The largest preview of Rails (`THUMBNAIL_MAX_WIDTH`, `THUMBNAIL_MAX_HEIGHT`), and the most pixels of an image that
+## is shown as one (`THUMBNAIL_MAX_PIXELS`): past it, a browser would decode a picture that costs more than its file.
+PREVIEW_MAX_WIDTH = 1200
+PREVIEW_MAX_HEIGHT = 800
+PREVIEW_MAX_PIXELS = 250_000_000
 
 ## The column of a message query (one that has `messages` in its `from`) that holds its attachment as a JSON object for
 ## `parse`, "" for a message with none. A record of Rails could have more than one row (a replaced file waits for its
 ## purge); the newest is the one shown.
 COLUMN = (
   "coalesce((select json_object('filename', blobs.filename, 'content_type', coalesce(blobs.content_type, ''), " +
-  "'byte_size', blobs.byte_size) from active_storage_attachments files " +
+  "'byte_size', blobs.byte_size, " +
+  "'width', coalesce(case when json_valid(blobs.metadata) then json_extract(blobs.metadata, '$.width') end, 0), " +
+  "'height', coalesce(case when json_valid(blobs.metadata) then json_extract(blobs.metadata, '$.height') end, 0)) " +
+  "from active_storage_attachments files " +
   "join active_storage_blobs blobs on blobs.id = files.blob_id " +
   "where files.record_type = '#{Rails.MESSAGE_RECORD}' and files.record_id = messages.id " +
   "and files.name = '#{Rails.ATTACHMENT_NAME}' order by files.id desc limit 1), '') as attachment"
 )
 
-## The file of a message as a page shows it: its name, its type and its size in bytes.
+## The file of a message as a page shows it: its name, its type, its size in bytes, and the width and the height of an
+## image whose header was read (0 for none).
 struct Attachment
   filename: String
   content_type: String
   byte_size: Int
+  width: Int = 0
+  height: Int = 0
+end
+
+## How a page shows a file: an image at a size that fits the preview box, a video player, or a link.
+enum Preview
+  Image(ImageSize.Size)
+  Video
+  Link
 end
 
 ## A file that is stored and is to be attached to a new message: its key under the storage folder (`Blobs.store`),
-## its name, its type (`identify`) and its size.
+## its name, its type (`identify`), its size, and the size of an image whose header was read.
 struct Blob
   key: String
   filename: String
   content_type: String
   byte_size: Int
+  size: Optional[ImageSize.Size] = none
 end
 
 ## The attachment that the column `COLUMN` holds, `none` for none.
@@ -52,8 +73,35 @@ def parse(text: String) -> Optional[Attachment]
   some(found.unwrap!)
 end
 
+## The preview of a file: an image of a type shown inline with a known size of at most `PREVIEW_MAX_PIXELS`, scaled to
+## fit `PREVIEW_MAX_WIDTH` by `PREVIEW_MAX_HEIGHT` and shown at half that, as Rails' `preview_dimensions` and its box
+## do; a video of a type that browsers play; anything else is a link.
+def preview(file: Attachment) -> Preview
+  return Preview.Video if VIDEO_TYPES.include?(file.content_type)
+
+  return Preview.Link if not INLINE_TYPES.include?(file.content_type) or file.width < 1 or file.height < 1
+
+  return Preview.Link if file.width * file.height > PREVIEW_MAX_PIXELS
+
+  scale = [1.0, PREVIEW_MAX_WIDTH.to_f / file.width.to_f, PREVIEW_MAX_HEIGHT.to_f / file.height.to_f].min.unwrap!
+  Preview.Image(
+    ImageSize.Size(
+      width: [1, ((file.width.to_f * scale) / 2.0).round].max.unwrap!,
+      height: [1, ((file.height.to_f * scale) / 2.0).round].max.unwrap!,
+    ),
+  )
+end
+
+## The size of an image of the type `content_type` from the first bytes of its file (`ImageSize.HEAD_BYTES`), `none`
+## for another type or a header that does not say.
+def measure(content_type: String, head: Bytes) -> Optional[ImageSize.Size]
+  return none if not INLINE_TYPES.include?(content_type)
+
+  ImageSize.measure(head)
+end
+
 ## The type of a file from its first bytes (`HEAD_BYTES`) and its name: the type of a known signature (PNG, JPEG, GIF,
-## WebP, PDF) when the bytes have one, else the type of the extension. An extension that names one of those types on
+## WebP, PDF, MP4, QuickTime, WebM) when the bytes have one, else the type of the extension. An extension that names one of those types on
 ## bytes that are not of it is `application/octet-stream`, so a page in a file called `x.png` is never called an image.
 def identify(head: Bytes, filename: String) -> String
   sniffed = signature(head)
@@ -118,11 +166,12 @@ def attach_in(tx: Db.Connection, message_id: Int, blob: Blob) -> Result[Void]
   rows = try Db.query(
     tx,
     "insert into active_storage_blobs (key, filename, content_type, metadata, service_name, byte_size, created_at) " +
-    "values (?, ?, ?, '#{METADATA}', '#{SERVICE_NAME}', ?, #{Rails.NOW}) returning id",
+    "values (?, ?, ?, ?, '#{SERVICE_NAME}', ?, #{Rails.NOW}) returning id",
     [
       Db.Value.Text(blob.key),
       Db.Value.Text(blob.filename),
       Db.Value.Text(blob.content_type),
+      Db.Value.Text(metadata(blob.size)),
       Db.Value.Int(blob.byte_size),
     ],
   )
@@ -146,8 +195,6 @@ end
 private
 
 OCTET_STREAM = "application/octet-stream"
-# What `ActiveStorage::Blob#analyze` would find first; the app does not analyze (#61 does the previews).
-METADATA = "{\"identified\":true}"
 # The service of `config/storage.yml` of Rails Campfire in production (`local`, the Disk service).
 SERVICE_NAME = "local"
 PNG = "image/png"
@@ -155,9 +202,15 @@ JPEG = "image/jpeg"
 GIF = "image/gif"
 WEBP = Rails.WEBP
 PDF = "application/pdf"
-# The types that `signature` knows, and of those the images that may be shown inline.
-SIGNED_TYPES = [PNG, JPEG, GIF, WEBP, PDF]
+MP4 = "video/mp4"
+QUICKTIME = "video/quicktime"
+WEBM = "video/webm"
+# The types that `signature` knows, of those the images that may be shown inline, and the videos that get a player.
+SIGNED_TYPES = [PNG, JPEG, GIF, WEBP, PDF, MP4, QUICKTIME, WEBM]
 INLINE_TYPES = [PNG, JPEG, GIF, WEBP]
+VIDEO_TYPES = [MP4, QUICKTIME, WEBM]
+# The brands of an ISO media file (`ftyp`) that are no video: still images and sound.
+NOT_VIDEO_BRANDS = ["heic", "heix", "hevc", "hevx", "mif1", "msf1", "avif", "avis", "M4A ", "M4B ", "M4P "]
 # `ActiveStorage.content_types_to_serve_as_binary`, and the scripts that `std/mime` names otherwise.
 BINARY_TYPES = [
   "text/html", "text/javascript", "application/javascript", "image/svg+xml", "application/postscript",
@@ -180,5 +233,24 @@ def signature(head: Bytes) -> String
 
   return PDF if hex.start_with?("255044462d")
 
+  # `ftyp` after the size of the box, then the brand.
+  if head.size >= 12 and hex.slice(8, 8) == "66747970"
+    brand = head.slice(8, 4).decode("latin-1").unwrap_or("")
+    return QUICKTIME if brand == "qt  "
+
+    return MP4 if not NOT_VIDEO_BRANDS.include?(brand)
+  end
+
+  # An EBML header whose document type is `webm` (a Matroska file is not one).
+  return WEBM if hex.start_with?("1a45dfa3") and hex.include?("4282847765626d")
+
   ""
+end
+
+# What `ActiveStorage::Blob#analyze` writes: the size of an image whose header was read.
+def metadata(size: Optional[ImageSize.Size]) -> String
+  case size
+    none -> "{\"identified\":true}"
+    some(found) -> "{\"identified\":true,\"width\":#{found.width},\"height\":#{found.height},\"analyzed\":true}"
+  end
 end

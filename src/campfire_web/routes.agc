@@ -199,6 +199,11 @@ def room_message_attachment_path(room_id: Int, message_id: Int) -> String
   "/rooms/#{room_id}/messages/#{message_id}/attachment"
 end
 
+## The same file as a download, even an image that is shown inline (`disposition: "attachment"` of Rails' blob path).
+def room_message_download_path(room_id: Int, message_id: Int) -> String
+  "#{room_message_attachment_path(room_id, message_id)}?disposition=attachment"
+end
+
 ## The path of the boosts of a message, which is where a boost is added.
 def message_boosts_path(message_id: Int) -> String = "/messages/#{message_id}/boosts"
 

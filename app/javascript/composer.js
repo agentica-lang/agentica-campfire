@@ -27,6 +27,7 @@ export function startComposer() {
   }
 
   var field = form.elements["message[body]"];
+  var picker = form.elements["message[attachment]"];
   var ident = form.elements["message[client_message_id]"];
   var button = form.querySelector("button");
   var scroller = document.querySelector(".scroller");
@@ -63,8 +64,8 @@ export function startComposer() {
     var chord = event.ctrlKey || event.metaKey;
     if (chord || (!event.shiftKey && !touching())) {
       event.preventDefault();
-      // A blank box sends nothing, and the browser's own "fill out this field" bubble would only get in the way.
-      if (field.value.trim()) {
+      // A blank box with no file sends nothing.
+      if (field.value.trim() || chosen()) {
         submitForm(form);
       }
     }
@@ -83,7 +84,7 @@ export function startComposer() {
     }
 
     event.preventDefault();
-    if (field.value.trim()) {
+    if (field.value.trim() || chosen()) {
       send();
     } else {
       field.value = "";
@@ -99,18 +100,27 @@ export function startComposer() {
     }
   }
 
+  function chosen() {
+    return !!(picker && picker.files && picker.files.length);
+  }
+
+  // A file goes as the multipart form that the page posts without the script; text alone as a plain form.
   function send() {
     var text = field.value;
+    var file = chosen();
+    var data = new FormData(form);
+    var headers = { Accept: STREAM };
+    if (!file) {
+      data.delete("message[attachment]");
+      headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
+    }
     busy = true;
     button.disabled = true;
     fetch(form.action, {
       method: "POST",
       credentials: "same-origin",
-      headers: {
-        Accept: STREAM,
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      },
-      body: new URLSearchParams(new FormData(form)),
+      headers: headers,
+      body: file ? data : new URLSearchParams(data),
     })
       .then(
         function (response) {
@@ -120,7 +130,7 @@ export function startComposer() {
           }
           return response.text().then(function (answer) {
             if (append(answer)) {
-              sent(text);
+              sent(text, file);
             } else {
               form.submit();
             }
@@ -174,8 +184,8 @@ export function startComposer() {
     return true;
   }
 
-  // `text` is what was sent: what the person typed since stays in the box.
-  function sent(text) {
+  // `text` is what was sent: what the person typed since stays in the box. `file` says the picked file went with it.
+  function sent(text, file) {
     var empty = document.querySelector(".thread .empty");
     if (empty) {
       empty.remove();
@@ -183,6 +193,9 @@ export function startComposer() {
     note("");
     if (field.value === text) {
       field.value = "";
+    }
+    if (file) {
+      picker.value = "";
     }
     ident.value = freshId();
     // The list is a column-reverse box: 0 is its end, where the new message is.

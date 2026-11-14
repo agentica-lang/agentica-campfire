@@ -64,11 +64,14 @@ def key(stored: Rooms.Stored, controls: Bool) -> String
   "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{OpenSSL.Digest.sha256_hexdigest(text.bytes)}"
 end
 
-# The file as text that tells it apart: none, or its size, the size of its name in bytes and its name.
+# The file as text that tells it apart: none, or its size, its type, the size of its image, the size of its name in
+# bytes and its name.
 def attachment_text(attachment: Optional[Attachments.Attachment]) -> String
   case attachment
     none -> "-"
-    some(file) -> "#{file.byte_size}:#{file.filename.bytes.size}:#{file.filename}"
+    some(file) ->
+      type = "#{file.content_type.bytes.size}:#{file.content_type}"
+      "#{file.byte_size}:#{type}:#{file.width}x#{file.height}:#{file.filename.bytes.size}:#{file.filename}"
   end
 end
 

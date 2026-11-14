@@ -936,7 +936,13 @@ def post_in(
     some(blob) ->
       try Attachments.attach_in(tx, int_of(rows[0], "id"), blob)
       shown = some(
-        Attachments.Attachment(filename: blob.filename, content_type: blob.content_type, byte_size: blob.byte_size),
+        Attachments.Attachment(
+          filename: blob.filename,
+          content_type: blob.content_type,
+          byte_size: blob.byte_size,
+          width: blob.size.map { |size| size.width }.unwrap_or(0),
+          height: blob.size.map { |size| size.height }.unwrap_or(0),
+        ),
       )
 
     none -> nil

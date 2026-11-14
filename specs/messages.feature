@@ -32,7 +32,7 @@ Feature: Messages
 
   Scenario: The room page has the form to post, which carries an id for the message
     When I get "/rooms/1"
-    Then the body contains "<form method=\"post\" action=\"/rooms/1/messages\">"
+    Then the body contains "<form method=\"post\" action=\"/rooms/1/messages\" enctype=\"multipart/form-data\">"
     And the body contains "name=\"message[body]\""
     And the body contains "name=\"message[client_message_id]\" type=\"hidden\""
 

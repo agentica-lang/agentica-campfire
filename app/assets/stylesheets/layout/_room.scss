@@ -66,10 +66,10 @@ main.room > p[aria-live]:empty {
   margin: 0;
 }
 
-// The composer: the text box takes the row, Send keeps its width, and both sit on the bottom line.
+// The composer: the text box takes the row, the file picker and Send keep their width, and all sit on the bottom line.
 main.room > form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;
   gap: var(--s-2);
   padding: var(--s-3) var(--s-5);
@@ -93,6 +93,11 @@ main.room > form {
     resize: none;
     field-sizing: content;
   }
+
+  .attach input {
+    max-width: 12rem;
+    font-size: var(--fs-sm);
+  }
 }
 
 @include mixins.phone {
@@ -100,6 +105,16 @@ main.room > form {
   .thread,
   main.room > form {
     padding-inline: var(--s-4);
+  }
+
+  // The file picker takes a row of its own under the text box.
+  main.room > form {
+    grid-template-columns: minmax(0, 1fr) auto;
+
+    .attach {
+      grid-row: 2;
+      grid-column: 1 / -1;
+    }
   }
 
   main.room > [role="alert"],

@@ -23,6 +23,19 @@
     margin-bottom: 0;
   }
 
+  // A preview: the image or the video at the size of its markup, smaller when the bubble is narrower.
+  .attachment {
+    display: block;
+    margin-top: var(--s-2);
+  }
+
+  .attachment img,
+  video.attachment {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--r-md);
+  }
+
   blockquote {
     margin: var(--s-2) 0;
     padding-inline-start: var(--s-3);

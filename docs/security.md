@@ -162,6 +162,10 @@ SVG, XML and scripts are sent as `application/octet-stream`. Every answer has `X
 Only a `POST` of a message may send `multipart/form-data`: any other is `415` before its body is read, and the start
 empties the folder of the uploads. There is no upload quota or rate limit per person, as in Rails.
 The name that the client sent is untrusted: it is kept only after Bond's `safe_filename` and escaped wherever it is shown.
+A preview decodes nothing on the server: the size of an image is read from its header, and the page shows the image
+itself (a link to the same route) only up to 250 million pixels (Rails' `THUMBNAIL_MAX_PIXELS`), so a small file that
+is a huge picture is a download link and no browser is asked to decode it. A video is played from the same download
+answer, which a `<video>` takes as it is.
 
 ## The first administrator
 

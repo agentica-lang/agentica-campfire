@@ -24,6 +24,7 @@ import Blobs from "../campfire/blobs"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
+import ImageSize from "../campfire/image_size"
 import MessageCache from "message_cache"
 import PageCache from "page_cache"
 import RoomDeletion from "room_deletion"
@@ -1195,13 +1196,14 @@ end
 
 # The file of the form (`message[attachment]`, the field of Rails' uploader; the first one when there are more), moved
 # from the folder of the request to its place under a new key. Its type comes from its bytes and its name
-# (`Attachments.identify`), not from the type that the client said.
+# (`Attachments.identify`), not from the type that the client said; an image's size from its header.
 def stored_upload(conn: Bond.Conn, storage_dir: String) -> Result[Optional[Attachments.Blob]]
   files = Bond.file_all(conn, MESSAGE_ATTACHMENT)
   return ok(none) if files.empty?
 
   upload = files[0]
-  head = try File.open(upload.path) do |handle| File.read_bytes(handle, Attachments.HEAD_BYTES) end
+  head = try File.open(upload.path) do |handle| File.read_bytes(handle, ImageSize.HEAD_BYTES) end
+  content_type = Attachments.identify(head, upload.filename)
   key = Blobs.new_key()
   try Blobs.store(storage_dir, upload.path, key)
   ok(
@@ -1209,8 +1211,9 @@ def stored_upload(conn: Bond.Conn, storage_dir: String) -> Result[Optional[Attac
       Attachments.Blob(
         key: key,
         filename: upload.filename,
-        content_type: Attachments.identify(head, upload.filename),
+        content_type: content_type,
         byte_size: upload.size,
+        size: Attachments.measure(content_type, head),
       ),
     ),
   )
