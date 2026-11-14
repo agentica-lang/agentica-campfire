@@ -25,6 +25,7 @@ import Mentions from "../campfire/mentions"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Slots from "../campfire/slots"
+import WorkQueue from "../campfire/work_queue"
 import {Config} from "../campfire/config"
 
 ## What the deliveries need, shared by the request tasks.
@@ -35,8 +36,7 @@ struct Hooks
   private_addresses: Bool
   max_message_length: Int
   running: ATS[String, Int]
-  per_bot: ATS[String, Int]
-  waiting: Channel[Post]
+  queue: WorkQueue.Queue[Post]
 end
 
 ## One message for one bot.
@@ -49,8 +49,6 @@ end
 
 ## The deliveries of the app.
 def new(config: Config, pool: Database.Pool, cable: CableWeb.Cable) -> Hooks
-  waiting: Channel[Post] = Channel.new(MAX_WAITING)
-  per_bot: ATS[String, Int] = ATS.new()
   Hooks(
     pool: pool,
     cable: cable,
@@ -58,8 +56,7 @@ def new(config: Config, pool: Database.Pool, cable: CableWeb.Cable) -> Hooks
     private_addresses: config.webhook_private_addresses,
     max_message_length: config.max_message_length,
     running: Slots.new(),
-    per_bot: per_bot,
-    waiting: waiting,
+    queue: WorkQueue.new(MAX_WAITING, MAX_PER_BOT),
   )
 end
 
@@ -152,7 +149,7 @@ end
 # The post waits in the queue, and a worker starts when a slot is free; else a worker that is running takes it, since
 # a worker looks at the queue again after it gives its slot back.
 def submit(hooks: Hooks, post: Post) -> Void
-  if not Channel.send(hooks.waiting, post, 0).ok?
+  if not WorkQueue.offer(hooks.queue, post.hook.bot_id.to_s, post)
     IO.warn(
       "campfire: webhooks: the bot #{post.hook.bot_id} did not get the message #{post.message.id}, " +
       "since #{MAX_WAITING} posts are waiting",
@@ -166,15 +163,14 @@ def submit(hooks: Hooks, post: Post) -> Void
   end
 end
 
-# Holds one slot and delivers waiting posts until none can run. Each post runs in a task of its own, so a crash of
-# it is
-# an `error` here and the slots are always given back.
+# Holds one slot and delivers waiting posts until none can run. Each post runs in a task of its own, so a crash of it
+# is an `error` here and the slots are always given back.
 def work(hooks: Hooks) -> Void
   post = next_post(hooks)
   while post.some?
     chosen = post.unwrap!
     done = Task.await(Task.spawn(&deliver, Work(hooks: hooks, post: chosen)))
-    ATS.add(hooks.per_bot, chosen.hook.bot_id.to_s, -1)
+    WorkQueue.finish(hooks.queue, chosen.hook.bot_id.to_s)
     if not done.ok?
       IO.warn(
         "campfire: webhooks: the bot #{chosen.hook.bot_id} did not get the message #{chosen.message.id}: " +
@@ -188,42 +184,29 @@ end
 
 # A waiting post that may run, with a place of its bot taken and the slot kept, or `none` with the slot given back.
 def next_post(hooks: Hooks) -> Optional[Post]
-  found = pick(hooks)
-  return found if found.some?
+  found = WorkQueue.take(hooks.queue)
+  if found.some?
+    WorkQueue.started(hooks.queue)
+    return some(found.unwrap!.item)
+  end
 
   Slots.release(hooks.running)
-  late = pick(hooks)
+  late = WorkQueue.take(hooks.queue)
   return none if late.none?
 
-  return late if Slots.take?(hooks.running, MAX_RUNNING)
+  entry = late.unwrap!
+  if Slots.take?(hooks.running, MAX_RUNNING)
+    WorkQueue.started(hooks.queue)
+    return some(entry.item)
+  end
 
   # Every slot is taken again, by workers that look at the queue before they stop.
-  post = late.unwrap!
-  ATS.add(hooks.per_bot, post.hook.bot_id.to_s, -1)
-  requeue(hooks, post)
-  none
-end
-
-# The first waiting post whose bot has fewer than `MAX_PER_BOT` posts running; the others go back to the queue.
-def pick(hooks: Hooks) -> Optional[Post]
-  for _ in 0...MAX_WAITING
-    queued = Channel.recv(hooks.waiting, 0)
-    return none if not queued.ok?
-
-    post = queued.unwrap!
-    return some(post) if ATS.add(hooks.per_bot, post.hook.bot_id.to_s, 1) <= MAX_PER_BOT
-
-    ATS.add(hooks.per_bot, post.hook.bot_id.to_s, -1)
-    requeue(hooks, post)
+  WorkQueue.finish(hooks.queue, entry.key)
+  if not WorkQueue.put_back(hooks.queue, entry)
+    IO.warn("campfire: webhooks: the bot #{entry.key} did not get the message #{entry.item.message.id}")
   end
 
   none
-end
-
-def requeue(hooks: Hooks, post: Post) -> Void
-  if not Channel.send(hooks.waiting, post, 0).ok?
-    IO.warn("campfire: webhooks: the bot #{post.hook.bot_id} did not get the message #{post.message.id}")
-  end
 end
 
 def deliver(given: Work) -> Result[Void]
