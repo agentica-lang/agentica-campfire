@@ -88,7 +88,8 @@ are busy is answered `503` with `Retry-After`.
 ## Which pages need a sign-in
 
 Every page does, except the sign-in, first-run and password-reset pages, `/health`, `/up`,
-`/join/CODE` and what is under `/assets/` (the stylesheet). The list is deny-by-default: a new route is private until
+`/join/CODE`, what is under `/assets/` (the stylesheet), and the manifest, the service worker and the icon of the
+installable app (`/webmanifest.json`, `/service-worker.js`, `/account/logo`). The list is deny-by-default: a new route is private until
 `src/campfire_web/auth.agc` names it.
 
 A person only sees a room they are a member of. A closed or direct room of other people and a room

@@ -65,6 +65,7 @@ def steps() -> List[BDD.Step]
     BDD.step("the body contains {string} {int} times", &body_contains_times),
     BDD.step("the body starts with {string}", &body_starts_with),
     BDD.step("the body is a WebP image", &body_is_webp),
+    BDD.step("the body is a PNG image", &body_is_png),
     BDD.step("I get the stylesheet that the page links", &get_stylesheet),
     BDD.step("I get the script that the page links", &get_script),
     BDD.step("the body has the SHA-256 that starts with the digest in the name of the file", &body_has_digest),
@@ -158,6 +159,7 @@ FORM_TYPE = "application/x-www-form-urlencoded"
 HEAD_BYTES = 12
 WEBP_MAGIC_START = "52494646"
 WEBP_MAGIC_END = "57454250"
+PNG_MAGIC = "89504e470d0a1a0a"
 
 # `body` is the text of the body ("" for one that is not UTF-8), so `size`, `sha256` (hex) and `head` (the first
 # bytes in hex) say what a binary body is. `path` is what was asked for.
@@ -655,6 +657,11 @@ def body_is_webp(ctx: BDD.Context, args: List[String]) -> BDD.Context
   head = last_reply(ctx).head
   is_webp = head.length == HEAD_BYTES * 2 and head.start_with?(WEBP_MAGIC_START) and head.end_with?(WEBP_MAGIC_END)
   BDD.assert(ctx, is_webp, "the body starts with the bytes #{head}, not those of a WebP")
+end
+
+def body_is_png(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  head = last_reply(ctx).head
+  BDD.assert(ctx, head.start_with?(PNG_MAGIC), "the body starts with the bytes #{head}, not those of a PNG")
 end
 
 # The link that the page of the last answer has to its stylesheet, as the benchmark reads it: `href="/assets/....css"`.

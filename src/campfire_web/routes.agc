@@ -18,6 +18,11 @@ CABLE = "/cable"
 CABLE_STATS = "/cable/stats"
 ## The page that Rails answers at `/up` (the check of its load balancers and of the benchmark harness): green.
 UP = "/up"
+## The installable web app (`PwaWeb`): the manifest, the service worker and the icon of the account. None needs a
+## sign-in.
+WEBMANIFEST = "/webmanifest.json"
+SERVICE_WORKER = "/service-worker.js"
+ACCOUNT_LOGO = "/account/logo"
 ## What every 404 of the app says: a path with no route, and a room, a person or a join code that a visitor may not know
 ## of, so no 404 tells which of them it is.
 MISSING = "Not Found"
@@ -204,6 +209,13 @@ def room_refresh_path(room_id: Int, millis: Int) -> String = "/rooms/#{room_id}/
 
 ## The path of the messages API of the bot with this key in a room.
 def bot_messages_path(room_id: Int, key: String) -> String = "/rooms/#{room_id}/#{key}/messages"
+
+## The icon of the account: the 192 pixel one when `small`, else the 512 pixel one.
+def account_logo_path(small: Bool) -> String
+  return "#{ACCOUNT_LOGO}?size=small" if small
+
+  ACCOUNT_LOGO
+end
 
 ## The path of the join page of this code, which is also where its form posts.
 def join_path(code: String) -> String = "/join/#{code}"

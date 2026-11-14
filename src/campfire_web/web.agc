@@ -16,6 +16,7 @@ import Failure from "failure"
 import Mailer from "../campfire/mail/mailer"
 import PageCache from "page_cache"
 import ProfilesWeb from "profiles"
+import PwaWeb from "pwa"
 import Routes from "routes"
 import RoomsWeb from "rooms"
 import SearchesWeb from "searches"
@@ -63,6 +64,7 @@ def build(
     |> SearchesWeb.add(pool, pages)
     |> AvatarsWeb.add(pool, pages, avatar_key(config), config.storage_dir)
     |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
+    |> PwaWeb.add(pool, config.assets_dir)
     |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)
     |> Bond.get(Routes.HOME, on_get_home)
     |> Bond.get(Routes.HEALTH, on_get_health)
