@@ -5,8 +5,9 @@
 ## cannot answer each other forever. An answer `200` with `text/html` or `text/plain` is posted back to the room as a
 ## message of the bot, and an answer that takes longer than `CAMPFIRE_WEBHOOK_TIMEOUT` is answered with Rails' "Failed
 ## to respond within N seconds". A reply never goes to the webhooks again. A connection that fails before anything is
-## sent is tried again, twice; anything else is logged and dropped. At most `MAX_RUNNING` posts run at once; the next
-## ones wait in a queue of `MAX_WAITING`, and a post past that is logged and dropped.
+## sent is tried again, twice; anything else is logged and dropped. At most `MAX_RUNNING` posts run at once, and at most
+## `MAX_PER_BOT` for one bot, so a slow bot cannot take every slot; the next ones wait in a queue of `MAX_WAITING`, and
+## a post past that is logged and dropped.
 ##
 ## A webhook reaches only an address of the open internet (`Bans.public_address?`): every address that its host
 ## resolves to must be one, unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true. Rails does not check this (an
@@ -33,6 +34,7 @@ struct Hooks
   private_addresses: Bool
   max_message_length: Int
   running: ATS[String, Int]
+  per_bot: ATS[String, Int]
   waiting: Channel[Post]
 end
 
@@ -47,6 +49,7 @@ end
 ## The deliveries of the app.
 def new(config: Config, pool: Database.Pool, cable: CableWeb.Cable) -> Hooks
   waiting: Channel[Post] = Channel.new(MAX_WAITING)
+  per_bot: ATS[String, Int] = ATS.new()
   Hooks(
     pool: pool,
     cable: cable,
@@ -54,6 +57,7 @@ def new(config: Config, pool: Database.Pool, cable: CableWeb.Cable) -> Hooks
     private_addresses: config.webhook_private_addresses,
     max_message_length: config.max_message_length,
     running: Slots.new(),
+    per_bot: per_bot,
     waiting: waiting,
   )
 end
@@ -73,6 +77,7 @@ private
 MAX_RUNNING = 32
 MAX_WAITING = 256
 MAX_HOOKS = 16
+MAX_PER_BOT = 4
 # A connection that fails is tried this many times in all, with this pause times the number of the try in between.
 ATTEMPTS = 3
 PAUSE_MS = 500
@@ -141,28 +146,32 @@ def fan_out(job: Job) -> Void
   end
 end
 
+# The post waits in the queue, and a worker starts when a slot is free; else a worker that is running takes it, since
+# a worker looks at the queue again after it gives its slot back.
 def submit(hooks: Hooks, post: Post) -> Void
-  if Slots.take?(hooks.running, MAX_RUNNING)
-    _ = Task.spawn(&work, Work(hooks: hooks, post: post))
-    return
-  end
-
   if not Channel.send(hooks.waiting, post, 0).ok?
     IO.warn(
       "campfire: webhooks: the bot #{post.hook.bot_id} did not get the message #{post.message.id}, " +
       "since #{MAX_WAITING} posts are waiting",
     )
+
+    return
+  end
+
+  if Slots.take?(hooks.running, MAX_RUNNING)
+    _ = Task.spawn(&work, hooks)
   end
 end
 
-# Holds one slot: delivers its post, then the waiting ones. The post runs in a task of its own, so a crash of it is an
-# `error` here and the slot is always given back.
-def work(given: Work) -> Void
-  hooks = given.hooks
-  post = some(given.post)
+# Holds one slot and delivers waiting posts until none can run. Each post runs in a task of its own, so a crash of
+# it is
+# an `error` here and the slots are always given back.
+def work(hooks: Hooks) -> Void
+  post = next_post(hooks)
   while post.some?
     chosen = post.unwrap!
     done = Task.await(Task.spawn(&deliver, Work(hooks: hooks, post: chosen)))
+    ATS.add(hooks.per_bot, chosen.hook.bot_id.to_s, -1)
     if not done.ok?
       IO.warn(
         "campfire: webhooks: the bot #{chosen.hook.bot_id} did not get the message #{chosen.message.id}: " +
@@ -174,20 +183,44 @@ def work(given: Work) -> Void
   end
 end
 
-# The next waiting post, keeping the slot, or `none` with the slot given back. A post that is queued just as the slot
-# is given back is taken again when a slot is free.
+# A waiting post that may run, with a place of its bot taken and the slot kept, or `none` with the slot given back.
 def next_post(hooks: Hooks) -> Optional[Post]
-  queued = Channel.recv(hooks.waiting, 0)
-  return some(queued.unwrap!) if queued.ok?
+  found = pick(hooks)
+  return found if found.some?
 
   Slots.release(hooks.running)
-  late = Channel.recv(hooks.waiting, 0)
-  return none if not late.ok?
+  late = pick(hooks)
+  return none if late.none?
 
-  return some(late.unwrap!) if Slots.take?(hooks.running, MAX_RUNNING)
+  return late if Slots.take?(hooks.running, MAX_RUNNING)
 
-  submit(hooks, late.unwrap!)
+  # Every slot is taken again, by workers that look at the queue before they stop.
+  post = late.unwrap!
+  ATS.add(hooks.per_bot, post.hook.bot_id.to_s, -1)
+  requeue(hooks, post)
   none
+end
+
+# The first waiting post whose bot has fewer than `MAX_PER_BOT` posts running; the others go back to the queue.
+def pick(hooks: Hooks) -> Optional[Post]
+  for _ in 0...MAX_WAITING
+    queued = Channel.recv(hooks.waiting, 0)
+    return none if not queued.ok?
+
+    post = queued.unwrap!
+    return some(post) if ATS.add(hooks.per_bot, post.hook.bot_id.to_s, 1) <= MAX_PER_BOT
+
+    ATS.add(hooks.per_bot, post.hook.bot_id.to_s, -1)
+    requeue(hooks, post)
+  end
+
+  none
+end
+
+def requeue(hooks: Hooks, post: Post) -> Void
+  if not Channel.send(hooks.waiting, post, 0).ok?
+    IO.warn("campfire: webhooks: the bot #{post.hook.bot_id} did not get the message #{post.message.id}")
+  end
 end
 
 def deliver(given: Work) -> Result[Void]
