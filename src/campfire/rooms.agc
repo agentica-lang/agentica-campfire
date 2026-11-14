@@ -602,6 +602,35 @@ def page_after(conn: Db.Connection, room_id: Int, after: Int) -> Result[List[Sto
   after_rows(conn, room_id, after, PAGE_SIZE)
 end
 
+## The messages of the pager before `before` (the newest without it): those of `page`, or, when the room has no such
+## message (deleted since the client got it, or of another room), the page that ends at the nearest older message by
+## id, that one included, so a client whose cursors were all deleted walks on. An id places a deleted message only
+## roughly (a database that Rails seeded does not follow time); the client drops a message it already has.
+def page_before_cursor(conn: Db.Connection, room_id: Int, before: Optional[Int]) -> Result[List[Stored]]
+  shown = (try page(conn, room_id, before)).messages
+  return ok(shown) if not shown.empty? or before.none?
+
+  case try stand_in(conn, room_id, before.unwrap_or(0), false)
+    none -> ok(shown)
+    some(nearest) ->
+      earlier = (try page(conn, room_id, some(nearest.id))).messages
+      kept = earlier.size.clamp(0, PAGE_SIZE - 1)
+      ok(earlier.drop(earlier.size - kept).push(nearest))
+  end
+end
+
+## The messages of the pager after `after`: those of `page_after`, or, for a cursor that is no message of the room, the
+## page that starts at the nearest newer message by id, that one included, as `page_before_cursor` does.
+def page_after_cursor(conn: Db.Connection, room_id: Int, after: Int) -> Result[List[Stored]]
+  shown = try page_after(conn, room_id, after)
+  return ok(shown) if not shown.empty?
+
+  case try stand_in(conn, room_id, after, true)
+    none -> ok(shown)
+    some(nearest) -> ok([nearest].concat(try after_rows(conn, room_id, nearest.id, PAGE_SIZE - 1)))
+  end
+end
+
 ## The page of the room around a message (`page_around` of Rails, which `/rooms/ID/@MESSAGE` shows): the `PAGE_SIZE`
 ## messages before it, it, and the `PAGE_SIZE` after it. `none` when the room has no such message (one of another room
 ## is none too); the caller then shows the newest page, as Rails does. `older` is the cursor of the page before the
@@ -731,6 +760,27 @@ def after_rows(conn: Db.Connection, room_id: Int, after: Int, limit: Int) -> Res
   )
 
   ok(rows.map do |row| stored_of(row) end)
+end
+
+# The message nearest by id to a cursor that is no message of the room, on the side of the walk; none when the cursor
+# is one (its page was really empty) or the room has nothing on that side.
+def stand_in(conn: Db.Connection, room_id: Int, cursor: Int, newer: Bool) -> Result[Optional[Stored]]
+  return ok(none) if (try find_message(conn, room_id, cursor)).some?
+
+  side = "< ? order by messages.id desc"
+  if newer
+    side = "> ? order by messages.id"
+  end
+
+  rows = try Db.query(
+    conn,
+    "#{MESSAGE_SELECT} where messages.room_id = ? and messages.id #{side} limit 1",
+    [Db.Value.Int(room_id), Db.Value.Int(cursor)],
+  )
+
+  return ok(none) if rows.empty?
+
+  ok(some(stored_of(rows[0])))
 end
 
 def window(conn: Db.Connection, room_id: Int, anchor: Stored) -> Result[Page]

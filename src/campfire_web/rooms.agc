@@ -999,8 +999,8 @@ def older_messages_of(
   after: Optional[Int],
 ) -> Result[List[Rooms.Stored]]
   case after
-    some(anchor) if before.none? -> Rooms.page_after(db, room.id, anchor)
-    _ -> ok((try Rooms.page(db, room.id, before)).messages)
+    some(anchor) if before.none? -> Rooms.page_after_cursor(db, room.id, anchor)
+    _ -> Rooms.page_before_cursor(db, room.id, before)
   end
 end
 

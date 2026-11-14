@@ -128,8 +128,9 @@ that Rails seeded). Each
 `<time datetime>` is shown in the viewer's zone; the server's UTC clock is the text of a page without the script.
 
 `?after=ID` on the same route is the 40 messages after message ID, oldest first, `204` when there are none; with both
-cursors, `before` wins, as in Rails. A cursor that is not a number is `400`; one that names no message of the room gives
-nothing (`204`).
+cursors, `before` wins, as in Rails. A cursor that is not a number is `400`. One that names no message of the room (a
+message deleted since the client got it, or one of another room) stands for the nearest message of the room by id, on
+the side of the walk, and the page includes that message, so the pager walks on; `204` when there is none.
 `/rooms/ID/@MESSAGE` is the room page around a message (`page_around`): the 40 before it, it, and the 40 after, with
 `Older messages` and `Latest messages` links where the window does not reach the first or the last message. A message
 that the room does not have shows the newest page, as in Rails; a segment that is not `@` and a number is `404`. Bond's
