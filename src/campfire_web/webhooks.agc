@@ -21,6 +21,7 @@ import Bots from "../campfire/bots"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
+import Mentions from "../campfire/mentions"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 import Slots from "../campfire/slots"
@@ -63,13 +64,14 @@ def new(config: Config, pool: Database.Pool, cable: CableWeb.Cable) -> Hooks
 end
 
 ## Starts the delivery of a new message of a person to the bots it is meant for and does not wait. The caller has given
-## its database connection back. A message with no `@` in a room that is not direct is meant for nobody and starts
+## its database connection back. A message with no mention in a room that is not direct is meant for nobody and starts
 ## nothing.
 def deliver_later(hooks: Hooks, room: Rooms.Room, message: Rooms.Message) -> Void
-  text = HtmlSanitizer.plain_text_of_clean(message.body)
-  return if room.room_type != Rooms.DIRECT and not text.include?("@")
+  mentioned = Mentions.ids(message.body)
+  return if room.room_type != Rooms.DIRECT and mentioned.empty?
 
-  _ = Task.spawn(&fan_out, Job(hooks: hooks, room: room, message: message, text: text))
+  text = HtmlSanitizer.plain_text_of_clean(message.body)
+  _ = Task.spawn(&fan_out, Job(hooks: hooks, room: room, message: message, text: text, mentioned: mentioned))
 end
 
 private
@@ -94,6 +96,7 @@ struct Job
   room: Rooms.Room
   message: Rooms.Message
   text: String
+  mentioned: List[Int]
 end
 
 struct Work
@@ -133,7 +136,7 @@ end
 def fan_out(job: Job) -> Void
   direct = job.room.room_type == Rooms.DIRECT
   found = Database.with_connection(job.hooks.pool) do |db|
-    Bots.webhooks_for(db, job.room.id, direct, job.message.creator_id, job.text)
+    Bots.webhooks_for(db, job.room.id, direct, job.message.creator_id, job.mentioned)
   end
 
   if not found.ok?

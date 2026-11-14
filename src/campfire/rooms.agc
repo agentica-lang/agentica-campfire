@@ -8,8 +8,12 @@
 import Db from "pkg/db/db"
 import Boosts from "boosts"
 import HtmlSanitizer from "html_sanitizer"
+import Mentions from "mentions"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
+
+## How many people a page of `candidates` holds.
+CANDIDATES_PAGE = 20
 
 ## How many messages a page of a room holds.
 PAGE_SIZE = 40
@@ -40,6 +44,13 @@ end
 struct Person
   id: Int
   name: String
+end
+
+## A person that the autocomplete lists (`candidates`), with `updated_at` for the link of their picture.
+struct Candidate
+  id: Int
+  name: String
+  updated_at: String
 end
 
 ## A message with the name of its author (`creator_id` is who wrote it, `room_id` where). `body` is HTML that
@@ -299,6 +310,39 @@ def people(conn: Db.Connection, user_id: Int) -> Result[List[Person]]
   ok(rows.map do |row| Person(id: int_of(row, "id"), name: text_of(row, "name")) end)
 end
 
+## The active people whose name holds `query` (ASCII letters in any case), of the room `room_id` or of the account when
+## `none`, by name: page `page` of them, from 1 (`Autocompletable::UsersController`). The caller has checked that the
+## person who asks is in the room.
+def candidates(conn: Db.Connection, room_id: Optional[Int], query: String, page: Int) -> Result[List[Candidate]]
+  room_join = ""
+  args: List[Db.Value] = []
+  case room_id
+    some(id) ->
+      room_join = "join memberships on memberships.user_id = users.id and memberships.room_id = ? "
+      args = [Db.Value.Int(id)]
+    none -> room_join = ""
+  end
+
+  rows = try Db.query(
+    conn,
+    "select users.id, users.name, users.updated_at from users #{room_join}" +
+    "where users.status = #{Rails.ACTIVE} and (? = '' or instr(lower(users.name), lower(?)) > 0) " +
+    "order by lower(users.name), users.id limit ? offset ?",
+    args.concat([
+      Db.Value.Text(query),
+      Db.Value.Text(query),
+      Db.Value.Int(CANDIDATES_PAGE),
+      Db.Value.Int((page - 1) * CANDIDATES_PAGE),
+    ]),
+  )
+
+  ok(
+    rows.map do |row|
+      Candidate(id: int_of(row, "id"), name: text_of(row, "name"), updated_at: text_of(row, "updated_at"))
+    end,
+  )
+end
+
 ## The ids of everyone in the room, the people who are not active included.
 def member_ids(conn: Db.Connection, room_id: Int) -> Result[List[Int]]
   rows = try Db.query(conn, "select user_id from memberships where room_id = ?", [Db.Value.Int(room_id)])
@@ -479,9 +523,17 @@ end
 ## rewrites it when the body changes), and `updated_at` of the message and the room (a rich text touches its record, and
 ## a message touches its room). The right is checked inside, as `update_closed` does: the message is in the room, the
 ## editor is in the room and wrote it or is an active administrator. It gives false, and changes nothing, when it does
-## not hold. Unlike a new message, an edit sets no `unread_at`. An error is a failure of the database.
-def update_message(conn: Db.Connection, room_id: Int, message_id: Int, editor_id: Int, html: String) -> Result[Bool]
-  body = HtmlSanitizer.sanitize(html)
+## not hold. Unlike a new message, an edit sets no `unread_at`. The mentions are settled as `post` does them. An error
+## is a failure of the database.
+def update_message(
+  conn: Db.Connection,
+  room_id: Int,
+  message_id: Int,
+  editor_id: Int,
+  html: String,
+  typed: Bool = false,
+) -> Result[Bool]
+  body = try with_mentions(conn, room_id, HtmlSanitizer.sanitize(html), typed)
   text = HtmlSanitizer.plain_text_of_clean(body)
   Db.transaction(conn) do |tx| update_message_in(tx, room_id, message_id, editor_id, body, text) end
 end
@@ -691,14 +743,18 @@ end
 ## `Room#receive`), the room is touched and the people in it who are not the author, who did not set the room to
 ## invisible and are not connected get `unread_at`. `client_message_id` is what the browser made for the message; it is
 ## stored, and there is no check on it (Rails has none): a second post with the same one is a second message.
+## A mention (`Mentions`) stays only for an active person of the room, with their name; when `typed` (the HTML that
+## `HtmlSanitizer.from_text` made of a typed text), each `@NAME` of such a person becomes a mention. The people are read
+## before the transaction too, and only for a body with an `@` or a mention.
 def post(
   conn: Db.Connection,
   room_id: Int,
   user_id: Int,
   client_message_id: String,
   html: String,
+  typed: Bool = false,
 ) -> Result[Optional[Message]]
-  body = HtmlSanitizer.sanitize(html)
+  body = try with_mentions(conn, room_id, HtmlSanitizer.sanitize(html), typed)
   text = HtmlSanitizer.plain_text_of_clean(body)
   Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text) end
 end
@@ -788,6 +844,33 @@ def window(conn: Db.Connection, room_id: Int, anchor: Stored) -> Result[Page]
   later = try after_rows(conn, room_id, anchor.id, PAGE_SIZE + 1)
   shown = before.messages.push(anchor).concat(later.take(PAGE_SIZE))
   ok(Page(messages: shown, older: before.older, at_latest: later.size <= PAGE_SIZE))
+end
+
+def with_mentions(conn: Db.Connection, room_id: Int, body: String, typed: Bool) -> Result[String]
+  if typed
+    return ok(body) if not body.include?("@")
+
+    people = try mentionable(conn, room_id, HtmlSanitizer.plain_text_of_clean(body), [])
+    return ok(Mentions.link(body, people))
+  end
+
+  ids = Mentions.ids(body)
+  return ok(body) if ids.empty?
+
+  ok(Mentions.settle(body, try mentionable(conn, room_id, "", ids)))
+end
+
+# The active people of the room whose `@NAME` is in `text` or whose id is in `ids`.
+def mentionable(conn: Db.Connection, room_id: Int, text: String, ids: List[Int]) -> Result[List[Mentions.Person]]
+  rows = try Db.query(
+    conn,
+    "select users.id, users.name from memberships join users on users.id = memberships.user_id " +
+    "where memberships.room_id = ? and users.status = #{Rails.ACTIVE} and " +
+    "(instr(?, '@' || users.name) > 0 or users.id in (#{placeholders(ids.size)}))",
+    [Db.Value.Int(room_id), Db.Value.Text(text)].concat(ids.map do |id| Db.Value.Int(id) end),
+  )
+
+  ok(rows.map do |row| Mentions.Person(id: int_of(row, "id"), name: text_of(row, "name")) end)
 end
 
 # `count` question marks for an `in (...)`, or `-1` for none: `in ()` is not SQL, and no row has that id.

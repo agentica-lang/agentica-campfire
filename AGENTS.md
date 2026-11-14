@@ -27,7 +27,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 FTS5 search of messages, the recent searches), avatars.agc (the Active Storage variant of an avatar
                 and its file; initials and colour), html_sanitizer.agc (an allowlist sanitizer for stored HTML
                 bodies; pure), autolink.agc (the links of URLs and email addresses in a clean body, made when a
-                message is shown; pure)
+                message is shown; pure), mentions.agc (the mentions of a body: made of a typed `@NAME`, checked
+                against the people of the room, their ids; pure)
 src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a request, the observer),
                 version_reader.agc (the read of `PRAGMA data_version` on a connection of its own, without the pool),
                 migrations.agc (the list of the schema) and migrations/ (one file per migration, `m0001_accounts.agc`...),
@@ -44,7 +45,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 password reset), accounts.agc (the people page and those posts), bots.agc (the chat bots pages and
                 posts), boosts.agc (the boosts of a message: list, new, add, remove), bot_messages.agc (the messages API of the
                 bots, by key, boosts included), webhooks.agc (the posts of new messages to the webhooks of the bots, and their
-                replies), profiles.agc (the user page and the profile),
+                replies), autocompletable.agc (`/autocompletable/users`: the people a mention may name), profiles.agc
+                (the user page and the profile),
                 rooms.agc (the routes
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
@@ -314,8 +316,9 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
 - Webhooks (`src/campfire_web/webhooks.agc`, `docs/people.md`): the route that posts a message of a person calls
   `Webhooks.deliver_later` after its connection is back in the pool; it never waits. A message of the bots API goes to
   no webhook (no bot loops). The bots are picked in a task by `Bots.webhooks_for` (a direct room: every bot with a
-  webhook; another room: the bots that `@NAME` mentions; never the author), and each post runs in a task of its own
-  under a slot, so a slow webhook holds up no other. A reply is posted with `Rooms.post` and broadcast, and never delivered again. Before a post every address of
+  webhook; another room: the bots that the message mentions; never the author), and each post runs in a task of its own
+  under a slot, so a slow webhook holds up no other. A mention is the element that `Rooms.post` stored (`Mentions.ids`), never
+  the text. A reply is posted with `Rooms.post` and broadcast, and never delivered again. Before a post every address of
   the host must pass `Bans.public_address?` unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true; keep that check on
   every path that sends to a URL an administrator typed.
 - Bot messages API (`/rooms/ID/KEY/messages`, `docs/people.md`): the key in the path is the whole login. `Bots.authenticate`

@@ -80,10 +80,9 @@ the avatar of Rails' form, which needs the profile pictures (#73), and the secon
 
 As in Rails (`Webhook`, `Bot::WebhookJob`), a bot with a webhook URL gets a `POST` with `Content-Type:
 application/json` for each new message meant for it: every message of a direct room it is in, and in any other room a
-message of a person that mentions it. Until mentions exist (#57), a mention is the text `@NAME` not followed by a
-letter, a digit or `_`. A message that a bot posts through the API goes to no webhook (Rails sends it to the other
-bots), so two bots cannot answer each other forever. Only an active bot is sent anything, and at most 16 bots get one
-message. The body is Rails' payload:
+message of a person that mentions it (a mention that the message stores, `docs/rooms.md`). A message that a bot posts
+through the API goes to no webhook (Rails sends it to the other bots), so two bots cannot answer each other forever.
+Only an active bot is sent anything, and at most 16 bots get one message. The body is Rails' payload:
 
 ```json
 {"user": {"id": 1, "name": "Ana"},

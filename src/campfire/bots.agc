@@ -68,10 +68,15 @@ end
 
 ## The bots that a new message of `creator_id` in the room goes to, as `MessagesController#deliver_webhooks_to_bots`
 ## picks them: the active bots of the room with a webhook, but the author, and in a room that is not `direct` only the
-## ones that `text` (the plain text of the message) mentions. Until mentions exist (#57) a mention is the text `@NAME`
-## not followed by a letter, a digit or `_`, which is also the plain text of a Rails mention.
-def webhooks_for(conn: Db.Connection, room_id: Int, direct: Bool, creator_id: Int, text: String) -> Result[List[Hook]]
-  return ok([]) if not direct and not text.include?("@")
+## ones in `mentioned` (the people that the mentions of the message name, `Mentions.ids`).
+def webhooks_for(
+  conn: Db.Connection,
+  room_id: Int,
+  direct: Bool,
+  creator_id: Int,
+  mentioned: List[Int],
+) -> Result[List[Hook]]
+  return ok([]) if not direct and mentioned.empty?
 
   rows = try Db.query(
     conn,
@@ -89,7 +94,7 @@ def webhooks_for(conn: Db.Connection, room_id: Int, direct: Bool, creator_id: In
 
   return ok(hooks) if direct
 
-  ok(hooks.select do |hook| mentioned?(text, hook.name) end)
+  ok(hooks.select do |hook| mentioned.include?(hook.bot_id) end)
 end
 
 ## `text` without the mentions of `name` and the space around it, as the `plain` body of Rails' payload.
@@ -173,8 +178,6 @@ SELECT = (
   "select id, name, bot_token, (select url from webhooks where webhooks.user_id = users.id order by id limit 1) " +
   "as webhook_url from users where role = #{Rails.BOT} and status = #{Rails.ACTIVE}"
 )
-# What may follow a mention: anything but a letter, a digit or `_`.
-WORD = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 
 def bot_of(row: Db.Row) -> Bot
   id = int_of(row, "id")
@@ -240,13 +243,6 @@ def set_webhook(tx: Db.Connection, bot_id: Int, url: String) -> Result[Void]
   end
 
   ok()
-end
-
-def mentioned?(text: String, name: String) -> Bool
-  pieces = text.split("@#{name}")
-  return false if pieces.size < 2
-
-  pieces.drop(1).any? do |after| after.empty? or not WORD.include?(after.slice(0, 1)) end
 end
 
 # `set` is the assignment of one column (its `?` among `args`); the bot must be active, which a deactivated one and a

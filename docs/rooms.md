@@ -105,7 +105,29 @@ headings, lists, `blockquote`, tables, `pre` and `code`), `script` and every att
 `data-language` stays on a `pre` (the language of a code block, a short name). The URLs, the `www.` addresses and the
 email addresses in the text of a message are links when it is shown, as Rails does (`MessagesHelper#auto_link_text`,
 by `Autolink.link`): `<a target="_blank" href="..." rel="noopener noreferrer">`, none inside a link that is already
-one. The stored body and the JSON of the bots API have no autolinks, as in Rails. There is no mention handling yet.
+one. The stored body and the JSON of the bots API have no autolinks, as in Rails.
+
+## Mentions
+
+A message can mention people (`User::Mentionable` and `Message::Mentionee` of Rails, `Mentions`). A mention is stored as
+`<action-text-attachment content-type="application/vnd.campfire.mention" gid="gid://campfire/User/ID">@NAME</action-text-attachment>`:
+the element and the content type of Rails, the GlobalID of the user and Rails' plain text of a mention, which the
+search index and the webhooks read. Rails names the user with a signed GlobalID (`sgid`), made with `SECRET_KEY_BASE`,
+which this app does not need; a Rails mention (with `sgid`) is not read and shows nothing. In a typed message (the
+textarea, and its edit) each `@NAME` of an active person of the room becomes a mention: the `@` starts the text or
+follows anything but a letter, a digit or `_` (so an email address is not one), the name is not followed by one, and
+the longest name wins. In an HTML body (`message[format]=html`, a bot) the sanitizer keeps a mention element only with
+that content type and a GlobalID of a user, and `Rooms.post` keeps it only for an active person of the room, with their
+name of now; any other mention is left as its text. The people a message mentions are the bots that get it in a room
+that is not direct (`docs/people.md`). Mentions do not change `unread_at` and notify nobody: there are no notifications
+yet (#81).
+
+`GET /autocompletable/users` lists the active people a mention may name, as Rails' prompt items of the editor
+(`<lexxy-prompt-item search="NAME" gid="...">` with the menu and the mention it puts in the message), and
+`GET /autocompletable/users.json` as JSON (`name`, escaped as HTML as Rails does, `value` the id, `avatar_url`, `null`
+without `SECRET_KEY_BASE`, and `gid` for Rails' `sgid`). `room_id` keeps the people of a room the person is in (another
+room, or a `room_id` that is not a number, is `404`), `filter` or `query` keeps the names that hold it (ASCII letters in
+any case), and `page` is a page of 20, by name. Both need a sign-in and are `no-store`.
 
 Each message on a page is `<div id="message_ID" data-message-id="ID">` with the author and the time, and its
 body in `<div id="presentation_message_ID">` inside `<turbo-frame id="edit_message_ID">`, followed in the frame by its

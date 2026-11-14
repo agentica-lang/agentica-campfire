@@ -5,6 +5,7 @@ import Blocks from "blocks"
 import Cache from "std/cache"
 import AccountsWeb from "accounts"
 import AuthWeb from "auth"
+import AutocompletableWeb from "autocompletable"
 import AvatarsWeb from "avatars"
 import BanFlag from "ban_flag"
 import BoostsWeb from "boosts"
@@ -66,6 +67,7 @@ def build(
     |> SidebarsWeb.add(pool, cable, pages)
     |> SearchesWeb.add(pool, pages)
     |> AvatarsWeb.add(pool, pages, avatar_key(config), config.storage_dir)
+    |> AutocompletableWeb.add(pool, avatar_key(config))
     |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
     |> PwaWeb.add(pool, config.assets_dir)
     |> TransfersWeb.add(config, pool)

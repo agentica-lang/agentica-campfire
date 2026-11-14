@@ -14,13 +14,13 @@ import Blocks from "blocks"
 import Hangup from "hangup"
 import RateLimit from "../campfire/rate_limit"
 import AuthWeb from "auth"
+import AvatarsWeb from "avatars"
 import Database from "../campfire/repo/database"
 import Passwords from "../campfire/passwords"
 import Profiles from "../campfire/profiles"
 import Rooms from "../campfire/rooms"
 import RoomsWeb from "rooms"
 import Routes from "routes"
-import SignedId from "../campfire/signed_id"
 import Slots from "../campfire/slots"
 import Views from "views"
 import {Config} from "../campfire/config"
@@ -137,7 +137,7 @@ def user_of(conn: Bond.Conn, db: Db.Connection, person: Auth.User, key: Optional
         profile,
         person.id,
         admin,
-        avatar_of(key, profile.id, profile.updated_at),
+        AvatarsWeb.link(key, profile.id, profile.updated_at),
       )
 
       ok(Answer.Page(200, page))
@@ -344,7 +344,7 @@ def profile_form(
       try RoomsWeb.sidebar_of(db, person),
       shown,
       rooms,
-      avatar_of(key, person.id, shown.updated_at),
+      AvatarsWeb.link(key, person.id, shown.updated_at),
       removable,
       note,
     ),
@@ -355,19 +355,6 @@ end
 def own?(conn: Bond.Conn, person: Auth.User) -> Bool
   id = Bond.param(conn, "id").unwrap_or("")
   id == ME or id == "#{person.id}"
-end
-
-# The path of the picture of the user, "" when the app has no key to sign it with. It ends in `?v=` and the digits of
-# `updated_at` (Rails' `fresh_user_avatar`, but with the fraction of a second, which Rails drops), so a change of the
-# picture, which touches `updated_at`, is a new link and the browser does not keep the old picture for the 30 minutes
-# that the answer may be kept.
-def avatar_of(key: Optional[Bytes], user_id: Int, updated_at: String) -> String
-  return "" if key.none?
-
-  token = SignedId.generate(key.unwrap!, user_id, SignedId.AVATAR_PURPOSE)
-  return "" if not token.ok?
-
-  "/users/#{token.unwrap!}/avatar?v=#{Avatars.version(updated_at)}"
 end
 
 def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn

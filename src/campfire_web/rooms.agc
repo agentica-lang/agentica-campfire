@@ -748,7 +748,7 @@ def save_message(
     return ok(Answer.Page(422, page))
   end
 
-  saved = try Rooms.update_message(db, room.id, message.id, person.id, HtmlSanitizer.from_text(body))
+  saved = try Rooms.update_message(db, room.id, message.id, person.id, HtmlSanitizer.from_text(body), true)
   # A refusal now is a change that happened meanwhile (they were taken out of the room, or lost the role).
   return ok(Answer.NotFound) if not saved
 
@@ -1224,7 +1224,7 @@ def post_to(
     html = HtmlSanitizer.from_text(sent.text)
   end
 
-  stored = try Rooms.post(db, room.id, person.id, sent_id, html)
+  stored = try Rooms.post(db, room.id, person.id, sent_id, html, not sent.html)
   case stored
     none -> ok(try refused_post(db, person, room))
     some(message) -> ok(Answer.Posted(room, message, stream))

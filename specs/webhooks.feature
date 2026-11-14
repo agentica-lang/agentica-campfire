@@ -1,7 +1,7 @@
 Feature: The webhooks of the chat bots
   As Rails Campfire (`Webhook`, `Bot::WebhookJob`, `MessagesController#deliver_webhooks_to_bots`), a bot with a webhook
   URL gets the messages of people meant for it as a JSON post: every message of a direct room it is in, and in another
-  room the messages that mention it (until mentions exist, the text `@NAME`). A message that a bot posts through the API
+  room the messages that mention it (a typed `@NAME` or the mention of the editor). A message that a bot posts through the API
   goes to no webhook, so two bots cannot answer each other forever. An answer
   `200` of `text/html` or `text/plain` is posted back to the room as a message of the bot, and an answer that takes too
   long is answered "Failed to respond within N seconds". A webhook reaches only addresses of the open internet unless
@@ -90,6 +90,28 @@ Feature: The webhooks of the chat bots
     Then the webhook receives a post
     And the post contains "\"room\": {\"id\": 2, \"name\": null"
     And the post contains "\"plain\": \"Just us\""
+
+  Scenario: The mention that the editor writes reaches the bot, and neither the mention of a bot out of the room nor of a person does
+    Given a fresh database
+    And the webhook is listening
+    And the app starts with webhooks to private addresses that wait 7 seconds
+    And the first admin exists
+    And I post to "/account/bots" the form:
+      | user[name] | Robo |
+    And the bot 2 has the webhook at "/robo"
+    And a closed room "Quiet" with the members "ana@example.com"
+    When I post to "/rooms/2/messages" the form:
+      | message[format] | html                                                                                                                              |
+      | message[body]   | <p>Out <action-text-attachment content-type="application/vnd.campfire.mention" gid="gid://campfire/User/2">@Robo</action-text-attachment></p> |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Ana, see this |
+    And I post to "/rooms/1/messages" the form:
+      | message[format] | html                                                                                                                                 |
+      | message[body]   | <p>Deploy, <action-text-attachment content-type="application/vnd.campfire.mention" gid="gid://campfire/User/2">@R</action-text-attachment>?</p> |
+    Then the webhook receives a post
+    And the post contains "\"room\": {\"id\": 1,"
+    And the post contains "\"plain\": \"Deploy, ?\""
+    And the webhook receives nothing within 1000 milliseconds
 
   Scenario: A post of the bots API goes to no webhook, even one that mentions another bot
     Given a fresh database
