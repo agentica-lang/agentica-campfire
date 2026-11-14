@@ -86,6 +86,7 @@ def main() -> Void
     BDD.step("the app starts with messages of at most {int} characters", &start_with_message_length),
     BDD.step("the app starts with attachments of at most {int} MB", &start_with_attachment_size),
     BDD.step("the storage folder holds {int} files", &storage_holds),
+    BDD.step("a crash left a file in the folder of the uploads", &leave_upload),
     BDD.step("the app starts with webhooks to private addresses that wait {int} seconds", &start_with_webhooks),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the app restarts with the message cache off", &restart_app_without_cache),
@@ -185,6 +186,18 @@ def storage_holds(ctx: BDD.Context, args: List[String]) -> BDD.Context
   return BDD.assert(ctx, false, "cannot list the storage folder: #{counted.message}") if not counted.ok?
 
   BDD.assert(ctx, counted.unwrap! == args[0].to_i!, "the storage folder holds #{counted.unwrap!} files")
+end
+
+def leave_upload(ctx: BDD.Context, _args: List[String]) -> BDD.Context
+  left = left_upload(storage_dir(ctx))
+  BDD.assert(ctx, left.ok?, "cannot leave a file in the folder of the uploads: #{left.message}")
+end
+
+def left_upload(storage: String) -> Result[Void]
+  folder = try Path.join([storage, ".uploads", "upload-left"])
+  try Dir.mkdir(folder)
+  try File.write_text(try Path.join([folder, "part"]), "left")
+  ok()
 end
 
 def files_under(folder: String) -> Result[Int]

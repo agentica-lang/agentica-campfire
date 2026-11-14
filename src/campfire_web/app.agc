@@ -98,8 +98,17 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
     return error("the folder of the stylesheet is not there (CAMPFIRE_ASSETS_DIR): #{config.assets_dir}")
   end
 
-  # Bond needs the folder of the uploads to be there; it is private, as the files in it are.
-  uploads = DataDir.ensure(Web.uploads_dir(config))
+  # Bond needs the folder of the uploads to be there; it is private, as the files in it are. It starts empty, as the
+  # files that a crash left there belong to no request.
+  folder = Web.uploads_dir(config)
+  if File.lstat(folder).ok?
+    removed = Path.remove(folder)
+    if not removed.ok?
+      return error("cannot empty the folder of the uploads in CAMPFIRE_STORAGE_DIR: #{removed.message}")
+    end
+  end
+
+  uploads = DataDir.ensure(folder)
   return error("cannot make the folder of the uploads in CAMPFIRE_STORAGE_DIR: #{uploads.message}") if not uploads.ok?
 
   mailer = try Mailer.start(config.smtp, config.mail_queue)

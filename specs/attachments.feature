@@ -134,3 +134,18 @@ Feature: Attachments
     Then the status is 403
     And the query "select count(*) from messages" gives 0
     And the storage folder holds 0 files
+
+  Scenario: A multipart body to any other path is refused before it is read
+    When I upload to "/session" the file "notes.txt" of the type "text/plain" that holds "x"
+    Then the status is 415
+    Given the request header "content-type" is "multipart/form-data; boundary=x"
+    When I send "POST" to "/first_run" the text "--x"
+    Then the status is 415
+    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "--x"
+    Then the status is 415
+    And the storage folder holds 0 files
+
+  Scenario: The start empties the folder of the uploads
+    Given a crash left a file in the folder of the uploads
+    When the app restarts
+    Then the storage folder holds 0 files

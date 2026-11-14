@@ -159,6 +159,8 @@ people of the room, checked on every request (no signed link that outlives a mem
 is shown inline only when its bytes are of its stored type; anything else is `Content-Disposition: attachment`, and HTML,
 SVG, XML and scripts are sent as `application/octet-stream`. Every answer has `X-Content-Type-Options: nosniff`,
 `Content-Security-Policy: default-src 'none'; sandbox` and `Cross-Origin-Resource-Policy: same-origin`.
+Only a `POST` of a message may send `multipart/form-data`: any other is `415` before its body is read, and the start
+empties the folder of the uploads. There is no upload quota or rate limit per person, as in Rails.
 
 ## The first administrator
 
