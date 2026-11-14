@@ -30,5 +30,18 @@ def main() -> Void
       WorkQueue.finish(queue, "a")
       Test.eq(WorkQueue.take(queue).unwrap!.item, 4)
     end,
+    Test.test("a post that is taken ahead of skipped ones leaves them in their order") do
+      queue: WorkQueue.Queue[Int] = WorkQueue.new(5, 1)
+      try Test.assert(WorkQueue.offer(queue, "a", 1), "a1")
+      try Test.eq(WorkQueue.take(queue).unwrap!.item, 1)
+      try Test.assert(WorkQueue.offer(queue, "a", 2), "a2")
+      try Test.assert(WorkQueue.offer(queue, "b", 3), "b3")
+      try Test.assert(WorkQueue.offer(queue, "a", 4), "a4")
+      try Test.eq(WorkQueue.take(queue).unwrap!.item, 3)
+      WorkQueue.finish(queue, "a")
+      try Test.eq(WorkQueue.take(queue).unwrap!.item, 2)
+      WorkQueue.finish(queue, "a")
+      Test.eq(WorkQueue.take(queue).unwrap!.item, 4)
+    end,
   ])
 end

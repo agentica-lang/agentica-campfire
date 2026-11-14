@@ -202,9 +202,7 @@ def next_post(hooks: Hooks) -> Optional[Post]
 
   # Every slot is taken again, by workers that look at the queue before they stop.
   WorkQueue.finish(hooks.queue, entry.key)
-  if not WorkQueue.put_back(hooks.queue, entry)
-    IO.warn("campfire: webhooks: the bot #{entry.key} did not get the message #{entry.item.message.id}")
-  end
+  WorkQueue.put_back(hooks.queue, entry)
 
   none
 end
