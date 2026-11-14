@@ -6,6 +6,7 @@
 import BDD from "std/bdd"
 import Db from "pkg/db/db"
 import Migrate from "pkg/db/migrate"
+import Sqlite from "pkg/db/sqlite"
 import CableSteps from "cable_steps"
 import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
@@ -1045,7 +1046,7 @@ end
 
 # The columns, the indexes and the foreign keys of each table, as lines, from the database of `url`.
 def shape_of(url: String, tables: List[String]) -> Result[List[String]]
-  conn = try Db.open(url)
+  conn = try Db.open(url, [Sqlite.driver()])
   lines: List[String] = []
   for table in tables
     shaped = table_shape(conn, table)
@@ -1138,7 +1139,7 @@ def tables_of_rails_and(ctx: BDD.Context, args: List[String]) -> BDD.Context
 end
 
 def table_names(url: String) -> Result[List[String]]
-  conn = try Db.open(url)
+  conn = try Db.open(url, [Sqlite.driver()])
   rows = Db.query(
     conn,
     "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' " +
@@ -1159,7 +1160,7 @@ end
 
 # A connection belongs to the task that opened it, so each step opens its own and closes it.
 def with_database[R](ctx: BDD.Context, body: Fn[Db.Connection, Result[R]]) -> Result[R]
-  conn = try Db.open(text_of(ctx, DB_URL))
+  conn = try Db.open(text_of(ctx, DB_URL), [Sqlite.driver()])
   outcome = body.call(conn)
   Db.close(conn)
   outcome

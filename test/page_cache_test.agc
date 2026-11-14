@@ -3,6 +3,7 @@ import HTTP from "std/http"
 import Bond from "pkg/bond/bond"
 import Testing from "pkg/bond/testing"
 import Db from "pkg/db/db"
+import Sqlite from "pkg/db/sqlite"
 import Auth from "../src/campfire/auth"
 import Database from "../src/campfire/repo/database"
 import AvatarsWeb from "../src/campfire_web/avatars"
@@ -28,7 +29,7 @@ def lasting(person: Auth.User, ms: Int) -> Auth.Session = Auth.Session(user: per
 # `pages` for a database that was made and has one table, and a connection of its own to write with.
 def with_database(dir: String, body: Fn[Database.Observer, Db.Connection, String, Result[Void]]) -> Result[Void]
   url = "sqlite:#{dir}/pages.db"
-  writer = try Db.open(url)
+  writer = try Db.open(url, [Sqlite.driver()])
   try Db.execute(writer, "create table notes (id integer primary key, body text)", [])
   observer = try Database.open_observer(url)
   outcome = body.call(observer, writer, url)
