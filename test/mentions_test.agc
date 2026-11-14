@@ -20,6 +20,12 @@ def main() -> Void
       try Test.eq(typed("ana@Bea.com @Beatrix @Bea_x @@Bea"), "ana@Bea.com @Beatrix @Bea_x @#{m(2, "Bea")}")
       Test.eq(typed("hi @O'Neil & Co!"), "hi #{m(4, "O'Neil & Co")}!")
     end,
+    Test.test("a quote keeps its @NAME as text, and the line after it mentions") do
+      body = typed("> @Bea said hi\n@Bea Lopez thanks")
+      try Test.eq(body, "<blockquote>@Bea said hi</blockquote>#{m(3, "Bea Lopez")} thanks")
+      try Test.eq(HtmlSanitizer.text_of_clean(body), "> @Bea said hi\n@Bea Lopez thanks")
+      Test.eq(typed(HtmlSanitizer.text_of_clean(body)), body)
+    end,
     Test.test("the mentions round-trip: the ids, the cleaning and the settling leave them as they are") do
       body = typed("@Bea Lopez, @Bea and @Bea")
       try Test.eq(Mentions.ids(body), [3, 2])

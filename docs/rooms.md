@@ -96,7 +96,8 @@ before the time of message ID, and messages that share a time go by id.
 A message is a row of `messages`, its HTML body in `action_text_rich_texts` (`record_type` `Message`,
 `name` `body`) and its plain text in the FTS5 table `message_search_index` (`rowid` is the message id),
 all written in one transaction. The form sends plain text of at most `CAMPFIRE_MAX_MESSAGE_LENGTH` characters (10000 by default), stripped of the
-space around it, which is stored as HTML (escaped, a new line as `<br>`). An HTML body is cleaned by
+space around it, which is stored as HTML (escaped, a new line as `<br>`, and each run of lines that start with `> ` a
+`<blockquote>` of them, as the markdown of Rails' editor does). An HTML body is cleaned by
 `HtmlSanitizer.sanitize` before it is stored and when it is read: the body of a bot (the raw request body), a body that
 Rails wrote, and the body of the form when it sends `message[format]=html` (the editor of Rails, Lexxy, sends HTML in
 `message[body]` and has no such field; here the textarea of the page has no editor, so the field says which of the two
@@ -106,6 +107,15 @@ headings, lists, `blockquote`, tables, `pre` and `code`), `script` and every att
 email addresses in the text of a message are links when it is shown, as Rails does (`MessagesHelper#auto_link_text`,
 by `Autolink.link`): `<a target="_blank" href="..." rel="noopener noreferrer">`, none inside a link that is already
 one. The stored body and the JSON of the bots API have no autolinks, as in Rails.
+
+## Replies
+
+Reply, a button that the script adds to the heading of each message of a room (as `reply_controller.js` of Rails), puts
+a quote of the message into the composer, in place of what was there, and a mention of its author after it:
+`> TEXT` lines, then `@NAME `. As in Rails, the quote drops the quotes of the message and its file, and its mentions are
+text. The server stores the `> ` lines as a `<blockquote>`, whose text is escaped and makes no mention; the `@NAME`
+after it is a mention by the rules below (only an active person of the room). The edit form gives the quote back as
+`> ` lines. Without the script there is no button. `specs/replies.feature`, and `tools/keys_check.js` in a browser.
 
 ## Mentions
 
@@ -334,7 +344,7 @@ sent with `Cache-Control: public, max-age=31536000, immutable`. `make assets` bu
 esbuild) and writes the names to `src/campfire_web/asset_names.agc`, which `Routes.STYLESHEET` and `Routes.SCRIPT` read;
 `specs/assets.feature` checks that each name has the digest of its file. The script of the composer, `campfire-DIGEST.js`, which the room page, the page that edits a message and the
 pages with the sidebar link: with it a message is sent with `fetch` (the Turbo Stream answer above) and the page does not
-reload, and the keys work (Enter, Shift+Enter, Ctrl or Cmd+Enter, Esc); without it the form posts and redirects as before.
+reload, the keys work (Enter, Shift+Enter, Ctrl or Cmd+Enter, Esc) and each message has Reply; without it the form posts and redirects as before.
 
 Every HTML page and every redirect that sets no `Cache-Control` of its own (`web.agc`, `revalidate`) is sent with `Cache-Control: max-age=0, private, must-revalidate`, as Rails does, so a browser never shows an old page that links an old fingerprint after a deploy.
 

@@ -515,11 +515,16 @@ def main() -> Void
     Test.test("the HTML of a plain text is what sanitize leaves as it is") do
       html = HtmlSanitizer.from_text("<script>alert(1)</script> & \"q\"\r\nnext\nline")
       try Test.eq(html, "&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;q&quot;<br>next<br>line")
-      Test.eq(HtmlSanitizer.sanitize(html), html)
+      try Test.eq(HtmlSanitizer.sanitize(html), html)
+      quote = HtmlSanitizer.from_text("hi\n> one\n>\n> <i>two</i>\nreply")
+      try Test.eq(quote, "hi<blockquote>one<br><br>&lt;i&gt;two&lt;/i&gt;</blockquote>reply")
+      try Test.eq(HtmlSanitizer.sanitize(quote), quote)
+      Test.eq(HtmlSanitizer.from_text(">no space\n>> x"), "&gt;no space<br>&gt;&gt; x")
     end,
     Test.test("the text of an edit form is what from_text wrote, so saving it again changes nothing") do
       for text in [
         "one", "a & b <i>x</i> \"q\" 'z'", "first\nsecond", "para\n\nnext\n\n\nlast", "&amp; stays literal", "",
+        "> quoted\n> <b>two</b>\n@Bea thanks", "intro\n> a\n> \n> > b\n\n> c\nlast", "> only", "> a\nx\n> b",
       ]
         html = HtmlSanitizer.from_text(text)
         try Test.eq(HtmlSanitizer.text_of_clean(html), text)
@@ -532,7 +537,10 @@ def main() -> Void
         "Hi there\nagain",
       )
 
-      Test.eq(HtmlSanitizer.text_of_clean("a<br><br>b"), "a\n\nb")
+      try Test.eq(HtmlSanitizer.text_of_clean("a<br><br>b"), "a\n\nb")
+      # Nested or stray quotes are not from_text's: their plain text.
+      try Test.eq(HtmlSanitizer.text_of_clean("a</blockquote>b"), "a\nb")
+      Test.eq(HtmlSanitizer.text_of_clean("<blockquote>a<blockquote>b</blockquote></blockquote>"), "a\nb")
     end,
     Test.test("nesting is capped") do
       out = HtmlSanitizer.sanitize(List.repeat("<b>", 200).join("") + "x")

@@ -63,7 +63,7 @@ Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmar
 app/            the sources of the assets: `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,
                 components, utilities) and `javascript/` (ES modules, `application.js` the entry)
 tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files and `src/campfire_web/asset_names.agc`
-public/assets/  the built, fingerprinted stylesheet and script (composer, keys, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+public/assets/  the built, fingerprinted stylesheet and script (composer, keys, reply, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through
@@ -77,7 +77,7 @@ specs/          BDD: *.feature, steps.agc (the app and the database), http_steps
                 fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
                 `make.sh` makes it again in a ruby container)
 test/           unit tests (*_test.agc)
-tools/          keys_check.js and room_check.js: the by-hand browser checks of the composer keys and of the room page's scroll paging, scroll keeping and local time (playwright-core, not in CI)
+tools/          keys_check.js and room_check.js: the by-hand browser checks of the composer keys and Reply, and of the room page's scroll paging, scroll keeping and local time (playwright-core, not in CI)
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
