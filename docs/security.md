@@ -161,6 +161,7 @@ SVG, XML and scripts are sent as `application/octet-stream`. Every answer has `X
 `Content-Security-Policy: default-src 'none'; sandbox` and `Cross-Origin-Resource-Policy: same-origin`.
 Only a `POST` of a message may send `multipart/form-data`: any other is `415` before its body is read, and the start
 empties the folder of the uploads. There is no upload quota or rate limit per person, as in Rails.
+The name that the client sent is untrusted: it is kept only after Bond's `safe_filename` and escaped wherever it is shown.
 
 ## The first administrator
 

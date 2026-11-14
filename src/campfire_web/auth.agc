@@ -101,8 +101,9 @@ end
 
 ## True for the post of a message (`Routes.ROOM_MESSAGES`), whose handler looks the person up in the connection that it
 ## writes with (`person_in`), so that the post takes one connection of the pool and not two: the filter leaves the
-## lookup to it for a request that has a session cookie. A path of the bots (`bot_api?`) has more segments.
-def lookup_in_handler?(conn: Bond.Conn) -> Bool = message_post?(conn.method, conn.path)
+## lookup to it for a request that has a session cookie. A path of the bots (`bot_api?`) has more segments. A
+## multipart post (an attachment) is looked up in the filter, before Bond reads its body.
+def lookup_in_handler?(conn: Bond.Conn) -> Bool = message_post?(conn.method, conn.path) and not multipart?(conn)
 
 ## `lookup_in_handler?` for a method and a path. The path is read as the router reads it, by its non-empty segments,
 ## against the segments of `Routes.ROOM_MESSAGES`, where a segment that starts with ":" is any value.

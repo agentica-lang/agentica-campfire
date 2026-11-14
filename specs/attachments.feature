@@ -135,6 +135,20 @@ Feature: Attachments
     And the query "select count(*) from messages" gives 0
     And the storage folder holds 0 files
 
+  Scenario: The cookie of a session that was ended posts no file
+    Given the browser saves a copy of its cookies
+    And I post nothing to "/sign_out"
+    When the browser restores its saved cookies
+    And the request header "content-type" is "multipart/form-data; boundary=x"
+    And I send "POST" to "/rooms/1/messages" the text "--x"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I upload to "/rooms/1/messages" the file "notes.txt" of the type "text/plain" that holds "x"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    And the query "select count(*) from messages" gives 0
+    And the storage folder holds 0 files
+
   Scenario: A multipart body to any other path is refused before it is read
     When I upload to "/session" the file "notes.txt" of the type "text/plain" that holds "x"
     Then the status is 415
