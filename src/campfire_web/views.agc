@@ -211,8 +211,9 @@ end
 
 ## The form of a new chat bot (`bot` is `none`) or the page that edits one: the name (`name` is the box, `note` says why
 ## a save was refused), and for an existing bot its key, a button that makes a new key and one that removes the bot,
-## each after a question. The webhook URL and the avatar of Rails' form are left out until the app can use them.
-def bot_form(sidebar: String, bot: Optional[Bots.Bot], name: String, note: String) -> String
+## each after a question. `webhook_url` is the box of the URL that the messages meant for the bot are posted to. The
+## avatar of Rails' form is left out until the app can use it.
+def bot_form(sidebar: String, bot: Optional[Bots.Bot], name: String, webhook_url: String, note: String) -> String
   title = "New chat bot"
   action = Routes.BOTS
   if bot.some?
@@ -236,6 +237,11 @@ def bot_form(sidebar: String, bot: Optional[Bots.Bot], name: String, note: Strin
           <label>Name of the bot
             <input name="user[name]" type="text" value="<%= name %>" maxlength="<%= Bots.MAX_NAME_LENGTH %>" required
               autofocus></label>
+        </p>
+        <p>
+          <label>Webhook URL
+            <input name="user[webhook_url]" type="url" value="<%= webhook_url %>"
+              maxlength="<%= Bots.MAX_WEBHOOK_URL_LENGTH %>" placeholder="https://example.com/bot"></label>
         </p>
         <p><button type="submit">Save</button></p>
       </form>

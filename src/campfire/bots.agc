@@ -2,7 +2,9 @@
 ## name and a `bot_token`, and no email or password, so it cannot sign in. Its key is `ID-TOKEN`, with a token of 12
 ## letters and digits; the key is what a bot shows to the messages API (`authenticate`). Every change runs in one
 ## write transaction that checks again that the actor is an active administrator, and finds only an active bot, as
-## `User.active_bots.find` does: a deactivated bot, a person and a missing user are the same `Missing`.
+## `User.active_bots.find` does: a deactivated bot, a person and a missing user are the same `Missing`. A bot may have a
+## webhook URL (`webhooks`, one row as Rails' `has_one`), where the messages that are meant for it are posted
+## (`webhooks_for`).
 
 import Db from "pkg/db/db"
 import Accounts from "accounts"
@@ -12,12 +14,23 @@ import {int_of, text_of} from "repo/rows"
 
 ## The longest name of a bot, in characters.
 MAX_NAME_LENGTH = 100
+## The longest webhook URL, in characters.
+MAX_WEBHOOK_URL_LENGTH = 2_000
 
 ## A bot as the page lists it. `key` is the secret that names it: `ID-TOKEN`.
 struct Bot
   id: Int
   name: String
   key: String
+  webhook_url: String = ""
+end
+
+## A bot whose webhook a message goes to.
+struct Hook
+  bot_id: Int
+  name: String
+  key: String
+  url: String
 end
 
 ## What is wrong with a bot name, or "". The caller strips it first. Rails only asks the form for the field; a blank
@@ -27,6 +40,60 @@ def name_problem(name: String) -> String
 
   ""
 end
+
+## What is wrong with a webhook URL, or "" (an empty one, which means none, is fine). The caller strips it first. It is
+## an `http://` or `https://` URL with a host and no user or password in it, and no space; whether its host may be
+## reached is checked when a message is delivered.
+def webhook_problem(url: String) -> String
+  return "" if url.empty?
+
+  problem = (
+    "Give the webhook a URL that starts with http:// or https://, of at most #{MAX_WEBHOOK_URL_LENGTH} characters"
+  )
+
+  return problem if url.length > MAX_WEBHOOK_URL_LENGTH or url.include?(" ")
+
+  rest = ""
+  if url.start_with?("http://")
+    rest = url.slice(7, url.length - 7)
+  elsif url.start_with?("https://")
+    rest = url.slice(8, url.length - 8)
+  end
+
+  authority = rest.split("/")[0].split("?")[0].split("#")[0]
+  return problem if authority.empty? or authority.include?("@") or authority.start_with?(":")
+
+  ""
+end
+
+## The bots that a new message of `creator_id` in the room goes to, as `MessagesController#deliver_webhooks_to_bots`
+## picks them: the active bots of the room with a webhook, but the author, and in a room that is not `direct` only the
+## ones that `text` (the plain text of the message) mentions. Until mentions exist (#57) a mention is the text `@NAME`
+## not followed by a letter, a digit or `_`, which is also the plain text of a Rails mention.
+def webhooks_for(conn: Db.Connection, room_id: Int, direct: Bool, creator_id: Int, text: String) -> Result[List[Hook]]
+  return ok([]) if not direct and not text.include?("@")
+
+  rows = try Db.query(
+    conn,
+    "select users.id, users.name, users.bot_token, webhooks.url from memberships " +
+    "join users on users.id = memberships.user_id join webhooks on webhooks.user_id = users.id " +
+    "where memberships.room_id = ? and users.id <> ? and users.role = #{Rails.BOT} and " +
+    "users.status = #{Rails.ACTIVE} and webhooks.url is not null and webhooks.url <> '' order by users.id",
+    [Db.Value.Int(room_id), Db.Value.Int(creator_id)],
+  )
+
+  hooks = rows.map do |row|
+    id = int_of(row, "id")
+    Hook(bot_id: id, name: text_of(row, "name"), key: "#{id}-#{text_of(row, "bot_token")}", url: text_of(row, "url"))
+  end
+
+  return ok(hooks) if direct
+
+  ok(hooks.select do |hook| mentioned?(text, hook.name) end)
+end
+
+## `text` without the mentions of `name` and the space around it, as the `plain` body of Rails' payload.
+def without_mentions(text: String, name: String) -> String = text.replace("@#{name}", "").strip
 
 ## The active bots by name, as `User.active_bots.ordered` lists them.
 def active(conn: Db.Connection) -> Result[List[Bot]]
@@ -63,15 +130,22 @@ def authenticate(conn: Db.Connection, key: String) -> Result[Optional[Bot]]
   end
 end
 
-## Makes a bot named `name` for `actor_id` and puts it in every open room, as a new person is. It gives false, with
-## nothing made, when the actor is not an active administrator.
-def create(conn: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
-  Db.transaction(conn) do |tx| create_in(tx, actor_id, name) end
+## Makes a bot named `name` with the webhook `webhook_url` ("" for none) for `actor_id` and puts it in every open room,
+## as a new person is. It gives false, with nothing made, when the actor is not an active administrator.
+def create(conn: Db.Connection, actor_id: Int, name: String, webhook_url: String = "") -> Result[Bool]
+  Db.transaction(conn) do |tx| create_in(tx, actor_id, name, webhook_url) end
 end
 
-## Renames the bot. `Refused` is an actor who is not an active administrator; `Missing` is no active bot with this id.
-def rename(conn: Db.Connection, actor_id: Int, bot_id: Int, name: String) -> Result[Accounts.Change]
-  Db.transaction(conn) do |tx| change_in(tx, actor_id, bot_id, "name = ?", [Db.Value.Text(name)]) end
+## Renames the bot and sets its webhook URL, "" taking it away (`update_bot!`). `Refused` is an actor who is not an
+## active administrator; `Missing` is no active bot with this id.
+def update(
+  conn: Db.Connection,
+  actor_id: Int,
+  bot_id: Int,
+  name: String,
+  webhook_url: String,
+) -> Result[Accounts.Change]
+  Db.transaction(conn) do |tx| update_in(tx, actor_id, bot_id, name, webhook_url) end
 end
 
 ## Gives the bot a new token, so the old key stops working (`reset_bot_key`). Results as `rename`.
@@ -95,14 +169,24 @@ TOKEN_LENGTH = 12
 FAIR_BELOW = 248
 NOW = Rails.NOW
 # The active bots; a caller adds `and id = ?` or an order.
-SELECT = "select id, name, bot_token from users where role = #{Rails.BOT} and status = #{Rails.ACTIVE}"
+SELECT = (
+  "select id, name, bot_token, (select url from webhooks where webhooks.user_id = users.id order by id limit 1) " +
+  "as webhook_url from users where role = #{Rails.BOT} and status = #{Rails.ACTIVE}"
+)
+# What may follow a mention: anything but a letter, a digit or `_`.
+WORD = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 
 def bot_of(row: Db.Row) -> Bot
   id = int_of(row, "id")
-  Bot(id: id, name: text_of(row, "name"), key: "#{id}-#{text_of(row, "bot_token")}")
+  Bot(
+    id: id,
+    name: text_of(row, "name"),
+    key: "#{id}-#{text_of(row, "bot_token")}",
+    webhook_url: text_of(row, "webhook_url"),
+  )
 end
 
-def create_in(tx: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
+def create_in(tx: Db.Connection, actor_id: Int, name: String, webhook_url: String) -> Result[Bool]
   allowed = try Accounts.administrator?(tx, actor_id)
   return ok(false) if not allowed
 
@@ -113,8 +197,56 @@ def create_in(tx: Db.Connection, actor_id: Int, name: String) -> Result[Bool]
     [Db.Value.Text(name), Db.Value.Text(new_token())],
   )
 
-  try Rooms.grant_open_rooms(tx, int_of(rows[0], "id"))
+  bot_id = int_of(rows[0], "id")
+  try Rooms.grant_open_rooms(tx, bot_id)
+  try set_webhook(tx, bot_id, webhook_url)
   ok(true)
+end
+
+def update_in(
+  tx: Db.Connection,
+  actor_id: Int,
+  bot_id: Int,
+  name: String,
+  webhook_url: String,
+) -> Result[Accounts.Change]
+  change = try change_in(tx, actor_id, bot_id, "name = ?", [Db.Value.Text(name)])
+  if change == Accounts.Change.Changed
+    try set_webhook(tx, bot_id, webhook_url)
+  end
+
+  ok(change)
+end
+
+def set_webhook(tx: Db.Connection, bot_id: Int, url: String) -> Result[Void]
+  id = Db.Value.Int(bot_id)
+  if url.empty?
+    try Db.execute(tx, "delete from webhooks where user_id = ?", [id])
+    return ok()
+  end
+
+  changed = try Db.execute(
+    tx,
+    "update webhooks set url = ?, updated_at = #{NOW} where user_id = ?",
+    [Db.Value.Text(url), id],
+  )
+
+  if changed == 0
+    try Db.execute(
+      tx,
+      "insert into webhooks (url, user_id, created_at, updated_at) values (?, ?, #{NOW}, #{NOW})",
+      [Db.Value.Text(url), id],
+    )
+  end
+
+  ok()
+end
+
+def mentioned?(text: String, name: String) -> Bool
+  pieces = text.split("@#{name}")
+  return false if pieces.size < 2
+
+  pieces.drop(1).any? do |after| after.empty? or not WORD.include?(after.slice(0, 1)) end
 end
 
 # `set` is the assignment of one column (its `?` among `args`); the bot must be active, which a deactivated one and a

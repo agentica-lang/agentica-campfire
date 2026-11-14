@@ -4,7 +4,7 @@ Feature: The chat bots of the account
   and a token of 12 letters and digits, and its key is `ID-TOKEN`. The administrator makes a bot (it joins the open rooms),
   sees its key and a curl line for each room it is in, renames it, gives it a new key (the old one finds no bot) and
   deactivates it (it leaves the open and closed rooms and its key finds no bot; bot_messages.feature has the API).
-  The webhook URL and the avatar of Rails' form are not here, and nor is the line for an attachment. Everything here is
+  The webhook URL is in webhooks.feature; the avatar of Rails' form is not here, and nor is the line for an attachment. Everything here is
   for administrators: anybody else is answered
   403 before the bot is looked at. The first admin is Ana, user 1, "All Talk" is room 1 (open); Bea is user 2 and the
   bot Robo is user 3 (token `aaaaBBBB1111`) in the scenarios that need one. Room 2 is the closed room "Secret" of Ana,

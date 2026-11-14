@@ -51,8 +51,9 @@ end
 
 private
 
-# The name of the field of Rails' form (`params.require(:user)`).
+# The fields of Rails' form (`params.require(:user)`).
 USER_NAME = "user[name]"
+USER_WEBHOOK_URL = "user[webhook_url]"
 
 # What a handler makes of its request, decided while its connection is open and answered after it is closed.
 enum Answer
@@ -124,23 +125,27 @@ def list_answer(db: Db.Connection, person: Auth.User, origin: String) -> Result[
 end
 
 def new_answer(_conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
-  ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, "", "")))
+  ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, "", "", "")))
 end
 
 def edit_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   found = try find(conn, db)
   case found
     none -> ok(Answer.NotFound)
-    some(bot) -> ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), found, bot.name, "")))
+    some(bot) ->
+      ok(Answer.Page(Views.bot_form(try RoomsWeb.sidebar_of(db, person), found, bot.name, bot.webhook_url, "")))
   end
 end
 
 def create_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]
   name = (try Bond.form(conn, USER_NAME)).strip
-  problem = Bots.name_problem(name)
-  return ok(Answer.Refused(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, name, problem))) if problem != ""
+  url = try webhook_url(conn)
+  problem = form_problem(name, url)
+  if problem != ""
+    return ok(Answer.Refused(Views.bot_form(try RoomsWeb.sidebar_of(db, person), none, name, url, problem)))
+  end
 
-  done = try Bots.create(db, person.id, name)
+  done = try Bots.create(db, person.id, name, url)
   return ok(Answer.Forbidden) if not done
 
   ok(Answer.Redirect(Routes.BOTS))
@@ -156,12 +161,28 @@ end
 
 def renamed(conn: Bond.Conn, db: Db.Connection, person: Auth.User, bot: Bots.Bot) -> Result[Answer]
   name = (try Bond.form(conn, USER_NAME)).strip
-  problem = Bots.name_problem(name)
+  url = try webhook_url(conn)
+  problem = form_problem(name, url)
   if problem != ""
-    return ok(Answer.Refused(Views.bot_form(try RoomsWeb.sidebar_of(db, person), some(bot), name, problem)))
+    return ok(Answer.Refused(Views.bot_form(try RoomsWeb.sidebar_of(db, person), some(bot), name, url, problem)))
   end
 
-  answer_of(try Bots.rename(db, person.id, bot.id, name))
+  answer_of(try Bots.update(db, person.id, bot.id, name, url))
+end
+
+# The webhook URL of the form, "" when the form has no such field (a form of before the field, or a script).
+def webhook_url(conn: Bond.Conn) -> Result[String]
+  values = try Bond.form_all(conn, USER_WEBHOOK_URL)
+  return ok("") if values.empty?
+
+  ok(values[0].strip)
+end
+
+def form_problem(name: String, url: String) -> String
+  problem = Bots.name_problem(name)
+  return problem if problem != ""
+
+  Bots.webhook_problem(url)
 end
 
 def remove_answer(conn: Bond.Conn, db: Db.Connection, person: Auth.User) -> Result[Answer]

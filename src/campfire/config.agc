@@ -76,6 +76,11 @@ DEFAULT_MAX_CONNECTIONS = 4_096
 ## The fewest and the most that `CAMPFIRE_MAX_CONNECTIONS` may ask for.
 MIN_MAX_CONNECTIONS = 16
 MAX_MAX_CONNECTIONS = 65_535
+## How long a bot's webhook may take to answer when `CAMPFIRE_WEBHOOK_TIMEOUT` is not set, in seconds (Rails' 7), and
+## the most it may ask for.
+DEFAULT_WEBHOOK_TIMEOUT = 7
+MAX_WEBHOOK_TIMEOUT = 60
+DEFAULT_WEBHOOK_TIMEOUT_MS = 7_000
 ## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set.
 DEFAULT_MAIL_QUEUE = 32
 ## The most emails that may wait for the mail server (`CAMPFIRE_MAIL_QUEUE_SIZE` and `Mailer.start` both refuse more).
@@ -100,7 +105,9 @@ MAX_MAIL_QUEUE = 1024
 ## search pages one person keeps in the cache of whole pages, `cursor_pages` how many pages of each kind of older
 ## messages (`?before=` and `?after=`) it keeps, and `session_cache_mb` the size of the store of the people of the
 ## sessions in megabytes (all three are used only while `response_cache_mb` is not 0). `max_message_length` is the
-## longest body of a message, in characters, that a post or an edit may send.
+## longest body of a message, in characters, that a post or an edit may send. `webhook_timeout_ms` is how long a bot's
+## webhook may take, and `webhook_private_addresses` lets a webhook reach a loopback, private or other address that is
+## not on the open internet (refused by default).
 struct Config
   host: String
   port: Int
@@ -125,6 +132,8 @@ struct Config
   session_cache_mb: Int = DEFAULT_SESSION_CACHE_MB
   cursor_pages: Int = DEFAULT_CURSOR_PAGES
   max_message_length: Int = DEFAULT_MAX_MESSAGE_LENGTH
+  webhook_timeout_ms: Int = DEFAULT_WEBHOOK_TIMEOUT_MS
+  webhook_private_addresses: Bool = false
 end
 
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
@@ -132,7 +141,7 @@ end
 ## `CAMPFIRE_SMTP_FROM`, `CAMPFIRE_SMTP_HOSTNAME`, `CAMPFIRE_BCRYPT_LIBRARY`, `SECRET_KEY_BASE`,
 ## `CAMPFIRE_STORAGE_DIR` and `CAMPFIRE_ASSETS_DIR`, `CAMPFIRE_CACHE_MB`, `CAMPFIRE_RESPONSE_CACHE_MB`,
 ## `CAMPFIRE_MAX_CONNECTIONS`, `CAMPFIRE_SEARCH_PAGES`, `CAMPFIRE_SESSION_CACHE_MB`, `CAMPFIRE_CURSOR_PAGES` and
-## `CAMPFIRE_MAX_MESSAGE_LENGTH`, with
+## `CAMPFIRE_MAX_MESSAGE_LENGTH`, `CAMPFIRE_WEBHOOK_TIMEOUT` and `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES`, with
 ## the defaults for a variable that is not set (the secret has none, and without the smtp url there is no email). An
 ## `error` says which value is wrong.
 def load() -> Result[Config]
@@ -160,6 +169,8 @@ def load() -> Result[Config]
   session_cache_mb = System.env("CAMPFIRE_SESSION_CACHE_MB").unwrap_or("")
   cursor_pages = System.env("CAMPFIRE_CURSOR_PAGES").unwrap_or("")
   max_message_length = System.env("CAMPFIRE_MAX_MESSAGE_LENGTH").unwrap_or("")
+  webhook_timeout = System.env("CAMPFIRE_WEBHOOK_TIMEOUT").unwrap_or("")
+  webhook_private = System.env("CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES").unwrap_or("false")
   parse(
     host,
     port,
@@ -185,6 +196,8 @@ def load() -> Result[Config]
     session_cache_mb,
     cursor_pages,
     max_message_length,
+    webhook_timeout,
+    webhook_private,
   )
 end
 
@@ -217,7 +230,9 @@ end
 ## `MIN_SESSION_CACHE_MB` to `MAX_SESSION_CACHE_MB` (`DEFAULT_SESSION_CACHE_MB` when left out). `cursor_pages`
 ## (`CAMPFIRE_CURSOR_PAGES`) is `MIN_CURSOR_PAGES` to `MAX_CURSOR_PAGES` (`DEFAULT_CURSOR_PAGES` when left out).
 ## `max_message_length` (`CAMPFIRE_MAX_MESSAGE_LENGTH`) is `MIN_MAX_MESSAGE_LENGTH` to `MAX_MAX_MESSAGE_LENGTH`
-## (`DEFAULT_MAX_MESSAGE_LENGTH` when left out).
+## (`DEFAULT_MAX_MESSAGE_LENGTH` when left out). `webhook_timeout` (`CAMPFIRE_WEBHOOK_TIMEOUT`) is 1 to
+## `MAX_WEBHOOK_TIMEOUT` seconds (`DEFAULT_WEBHOOK_TIMEOUT` when left out) and `webhook_private`
+## (`CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES`) is `true` or `false`.
 def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -243,6 +258,8 @@ def parse(
   session_cache_mb: String = "",
   cursor_pages: String = "",
   max_message_length: String = "",
+  webhook_timeout: String = "",
+  webhook_private: String = "false",
 ) -> Result[Config]
   return error("CAMPFIRE_HOST is empty") if host.strip.empty?
 
@@ -345,6 +362,18 @@ def parse(
     MAX_SESSION_CACHE_MB,
   )
 
+  waits = try parse_db_number(
+    "CAMPFIRE_WEBHOOK_TIMEOUT",
+    webhook_timeout,
+    DEFAULT_WEBHOOK_TIMEOUT,
+    1,
+    MAX_WEBHOOK_TIMEOUT,
+  )
+
+  if webhook_private != "true" and webhook_private != "false"
+    return error("CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES must be true or false, not #{webhook_private.inspect}")
+  end
+
   return error("CAMPFIRE_ASSETS_DIR is empty") if assets_dir.strip.empty?
 
   folder = data_dir.strip
@@ -383,6 +412,8 @@ def parse(
       session_cache_mb: people,
       cursor_pages: slots,
       max_message_length: longest,
+      webhook_timeout_ms: waits * 1000,
+      webhook_private_addresses: webhook_private == "true",
     ),
   )
 end
