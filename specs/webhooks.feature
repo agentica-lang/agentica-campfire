@@ -139,3 +139,28 @@ Feature: The webhooks of the chat bots
     Then the status is 302
     And the webhook receives nothing within 2000 milliseconds
     And the query "select count(*) from messages where creator_id = 2" gives 0
+
+  Scenario: One bot has at most 4 posts under way, and the next waits for one of them
+    Given a fresh database
+    And the webhook answers after 3000 milliseconds
+    And the webhook is listening
+    And the app starts with webhooks to private addresses that wait 7 seconds
+    And the first admin exists
+    And I post to "/account/bots" the form:
+      | user[name] | Slow |
+    And the bot 2 has the webhook at "/slow"
+    When I post to "/rooms/1/messages" the form:
+      | message[body] | @Slow one |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Slow two |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Slow three |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Slow four |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Slow five |
+    Then the webhook receives a post
+    And the webhook receives a post
+    And the webhook receives a post
+    And the webhook receives a post
+    And the webhook receives nothing within 1500 milliseconds

@@ -69,8 +69,8 @@ address, and for IPv6 only `2000::/3`), or nothing is sent and the log says why;
 turns the check off. The check resolves the host before the post, which resolves it again, so a name whose DNS answer
 changes in between can still reach a private address: give a bot a URL on a host you trust (`std/http` cannot connect
 to an address that was checked yet: agentica-lang/agentica#1556). Redirects are not followed. A post waits at most
-`CAMPFIRE_WEBHOOK_TIMEOUT` seconds and reads at most 1 MiB of the answer; at most 32 run at once and 256 wait, and a
-post past that is dropped and logged. A message of a bot (the API) goes to no webhook, so bots cannot loop.
+`CAMPFIRE_WEBHOOK_TIMEOUT` seconds and reads at most 1 MiB of the answer; at most 32 run at once (4 for one bot) and
+256 wait, and a post past that is dropped and logged. A message of a bot (the API) goes to no webhook, so bots cannot loop.
 
 ## Passwords
 
