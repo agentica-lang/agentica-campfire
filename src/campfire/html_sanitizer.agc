@@ -34,6 +34,10 @@ MENTION_GID = "gid://campfire/User/"
 MENTION_PREFIX = "<#{MENTION_TAG} content-type=\"#{MENTION_TYPE}\" gid=\"#{MENTION_GID}"
 MENTION_CLOSE = "</#{MENTION_TAG}>"
 
+## A quote of a typed text: its lines that start with `> `, as Rails' editor makes a `blockquote` of them.
+QUOTE_OPEN = "<blockquote>"
+QUOTE_CLOSE = "</blockquote>"
+
 ## The start tag of a mention of the user `id`.
 def mention_open(id: Int) -> String = "#{MENTION_PREFIX}#{id}\">"
 
@@ -125,18 +129,55 @@ def sanitize(html: String) -> String
   out.push(closing_tags(open, 0)).join("")
 end
 
-## The HTML of a plain text, as a body that `sanitize` leaves as it is: `&`, `<`, `>` and the quotes escaped, and a new
-## line made a `<br>`, since HTML shows a new line as a space.
-def from_text(text: String) -> String = HTML.escape(text).replace("\r\n", "\n").replace("\n", "<br>")
+## The HTML of a plain text, as a body that `sanitize` leaves as it is: `&`, `<`, `>` and the quotes escaped, a new
+## line made a `<br>`, since HTML shows a new line as a space, and each run of lines that start with `> ` (or are `>`) a
+## `blockquote` of those lines without it (the new lines around a quote are its own).
+def from_text(text: String) -> String
+  out: List[String] = []
+  run: List[String] = []
+  quoting = false
+  for line in text.replace("\r\n", "\n").split("\n")
+    quote = quote_line?(line)
+    if quote != quoting and not run.empty?
+      out = out.push(run_html(run, quoting))
+      run = []
+    end
 
-## The text that an edit form shows for a clean body. A body that is plain text as `from_text` wrote it (no tag but
-## `<br>`) gives that text back exactly, blank lines included, so saving the form again changes nothing. Any other markup
-## (a body that Rails wrote) gives `plain_text_of_clean`, which keeps no blank line and no formatting.
+    quoting = quote
+    if quote
+      run = run.push(rest_of(line, 2))
+    else
+      run = run.push(line)
+    end
+  end
+
+  out.push(run_html(run, quoting)).join("")
+end
+
+## The text that an edit form shows for a clean body. A body as `from_text` writes it (no tag but `<br>` and quotes
+## that do not nest) gives that text back, blank lines included, so saving the form again changes nothing. Any other
+## markup (a body that Rails wrote) gives `plain_text_of_clean`, which keeps no blank line and no formatting.
 def text_of_clean(clean: String) -> String
   text = without_mention_tags(clean)
-  return plain_text_of_clean(text) if text.replace("<br>", "").include?("<")
+  pieces = text.split(QUOTE_OPEN)
+  return plain_text_of_clean(text) if not typed_pieces?(pieces)
 
-  HTML.unescape(text.replace("<br>", "\n"))
+  parts: List[String] = []
+  if not pieces[0].empty?
+    parts = parts.push(lines_of(pieces[0]))
+  end
+
+  # The text between two quotes is kept even when empty (one blank line); after the last, only when there is some.
+  for i in 1...pieces.size
+    halves = pieces[i].split(QUOTE_CLOSE)
+    quoted = halves[0].split("<br>").map(->(line) { "> #{HTML.unescape(line)}" })
+    parts = parts.push(quoted.join("\n"))
+    if not halves[1].empty? or i < pieces.size - 1
+      parts = parts.push(lines_of(halves[1]))
+    end
+  end
+
+  parts.join("\n")
 end
 
 ## The text of the HTML `html` without its markup, as the search index keeps it (Action Text's `to_plain_text` does the
@@ -519,6 +560,32 @@ def end_open(closed: Closed, targets: Set[String], walls: Set[String]) -> Closed
   return closed if k < 0
 
   Closed(html: "#{closed.html}#{closing_tags(open, k)}", open: open.take(k))
+end
+
+def quote_line?(line: String) -> Bool = line == ">" or line.start_with?("> ")
+
+def rest_of(text: String, at: Int) -> String
+  return "" if at >= text.length
+
+  text.slice(at, text.length - at)
+end
+
+def run_html(lines: List[String], quote: Bool) -> String
+  html = lines.map(->(line) { HTML.escape(line) }).join("<br>")
+  return "#{QUOTE_OPEN}#{html}#{QUOTE_CLOSE}" if quote
+
+  html
+end
+
+def lines_of(html: String) -> String = HTML.unescape(html.replace("<br>", "\n"))
+
+# The pieces of a body split at its quotes: from_text's markup when no tag but `<br>` is left and each quote closes
+# once, before the next one opens.
+def typed_pieces?(pieces: List[String]) -> Bool
+  return false if pieces[0].include?(QUOTE_CLOSE)
+
+  closed = pieces.drop(1).all? do |piece| piece.split(QUOTE_CLOSE).size == 2 end
+  closed and not pieces.join("").replace(QUOTE_CLOSE, "").replace("<br>", "").include?("<")
 end
 
 # A clean body without the tags of its mentions, their text kept.

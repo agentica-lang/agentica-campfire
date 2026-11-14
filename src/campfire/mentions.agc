@@ -60,8 +60,36 @@ end
 
 ## The body that `HtmlSanitizer.from_text` made of a typed text, with each `@NAME` of one of `people` made a mention:
 ## the `@` starts the text or follows anything but a letter, a digit or `_`, and the name is not followed by one; the
-## longest name wins (`@Ana Lopez` over `@Ana`).
+## longest name wins (`@Ana Lopez` over `@Ana`). The text of a quote is left as it is, as Rails' reply drops the mentions
+## of the message it quotes.
 def link(html: String, people: List[Person]) -> String
+  pieces = html.split(HtmlSanitizer.QUOTE_OPEN)
+  out = [link_text(pieces[0], people)]
+  for piece in pieces.drop(1)
+    halves = piece.split(HtmlSanitizer.QUOTE_CLOSE)
+    if halves.size < 2
+      out = out.push("#{HtmlSanitizer.QUOTE_OPEN}#{piece}")
+    else
+      after = halves.drop(1).join(HtmlSanitizer.QUOTE_CLOSE)
+      out = out.push("#{HtmlSanitizer.QUOTE_OPEN}#{halves[0]}#{HtmlSanitizer.QUOTE_CLOSE}#{link_text(after, people)}")
+    end
+  end
+
+  out.join("")
+end
+
+private
+
+# A letter, a digit or `_`: what may not touch a mention on either side.
+WORD = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+
+struct Escaped
+  id: Int
+  name: String
+  html: String
+end
+
+def link_text(html: String, people: List[Person]) -> String
   parts = html.split("@")
   return html if parts.size < 2 or people.empty?
 
@@ -85,17 +113,6 @@ def link(html: String, people: List[Person]) -> String
   end
 
   out.join("")
-end
-
-private
-
-# A letter, a digit or `_`: what may not touch a mention on either side.
-WORD = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
-
-struct Escaped
-  id: Int
-  name: String
-  html: String
 end
 
 # The text from the place `at` on, "" past its end.

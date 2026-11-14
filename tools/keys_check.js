@@ -1,5 +1,5 @@
 // The browser check of the keys of the composer and of the edit page (`public/assets/campfire-DIGEST.js`): Enter and
-// Shift+Enter, Ctrl and Cmd+Enter, and Enter on a touch screen in a room, Ctrl+Enter and Esc on the page that edits a
+// Shift+Enter, Ctrl and Cmd+Enter, Reply, and Enter on a touch screen in a room, Ctrl+Enter and Esc on the page that edits a
 // message. It is not part of `make test` or of CI, which have no browser: run it by hand after a change to the script.
 //
 //   CAMPFIRE_SESSION_SECRET=... CAMPFIRE_PORT=3591 CAMPFIRE_DATA_DIR=/tmp/keys agentica campfire.agc
@@ -98,6 +98,27 @@ function check(name, ok, extra) { console.log((ok ? "PASS " : "FAIL ") + name + 
   await page.locator('button.danger').focus();
   await Promise.all([page.waitForNavigation(), page.keyboard.press("Escape")]);
   check("Esc leaves from the Delete button", page.url() === base + "/rooms/1");
+
+  // Reply puts a quote of the message and its author into the box; sent, it is a blockquote and a mention.
+  await page.goto(base + "/rooms/1");
+  await box.fill("first line");
+  await page.keyboard.press("Shift+Enter");
+  await box.type("second <b>line</b>");
+  await page.keyboard.press("Control+Enter");
+  const replied = start + 4;
+  await page.waitForFunction((n) => document.querySelectorAll("[data-message-id]").length === n, replied);
+  await page.locator("[data-message-id]").last().locator("button[data-reply]").click();
+  check("Reply quotes the message", (await box.inputValue()) === "> first line\n> second <b>line</b>\n@Ana ", await box.inputValue());
+  check("Reply focuses the box", await box.evaluate((el) => el === document.activeElement));
+  await box.type("agreed");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((n) => document.querySelectorAll("[data-message-id]").length === n + 1, replied);
+  const reply = page.locator("[data-message-id]").last();
+  check("the reply shows a blockquote", (await reply.locator("blockquote").innerText()) === "first line\nsecond <b>line</b>");
+  check("the reply mentions the author", (await reply.locator('action-text-attachment[gid="gid://campfire/User/1"]').count()) === 1);
+  check("a reply to a reply drops the older quote", await reply.locator("button[data-reply]").click().then(() => box.inputValue()).then((v) => v === "> @Ana agreed\n@Ana "));
+  check("every message, the sent ones too, has Reply", (await page.locator("[data-message-id] > h3 button[data-reply]").count()) === (await count()));
+  await box.fill("");
 
   // A touch screen: Enter is a new line and sends nothing.
   const t = await session(true);

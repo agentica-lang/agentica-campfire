@@ -25,6 +25,7 @@ def steps() -> List[BDD.Step]
     BDD.step("I post to {string} the form:", &post_form),
     BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
     BDD.step("I post {int} messages at once to {string}", &post_messages_at_once),
+    BDD.step("I post to {string} the message:", &post_message),
     BDD.step("I post to {string} a message of {int} characters", &post_message_of_length),
     BDD.step("I post to {string} a message that starts with {string} and has {int} characters", &post_long_message),
     BDD.step("I post nothing to {string}", &post_nothing),
@@ -239,6 +240,11 @@ end
 def post_form(ctx: BDD.Context, args: List[String]) -> BDD.Context
   pairs = BDD.table(ctx).map do |row| URI.Pair(name: row[0], value: row[1]) end
   send(ctx, "POST", args[0], URI.encode_www_form(pairs))
+end
+
+# The doc string as `message[body]`, for a text of several lines.
+def post_message(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  send(ctx, "POST", args[0], URI.encode_www_form([URI.Pair(name: "message[body]", value: BDD.doc_string(ctx))]))
 end
 
 # A `body` of `args[1]` letters, for the limit on the size of a message.

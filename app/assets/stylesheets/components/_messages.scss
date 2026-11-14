@@ -77,7 +77,7 @@
   color: var(--bubble-fg, var(--bubble-other-fg));
   background: var(--bubble-bg, var(--bubble-other-bg));
 
-  // The name (not of one's own messages), the time and the Edit link, in one small line.
+  // The name (not of one's own messages), the time, the Edit link and Reply, in one small line.
   h3 {
     display: grid;
     grid-auto-flow: column;
@@ -96,10 +96,25 @@
       color: var(--bubble-meta, var(--muted));
     }
 
-    a {
+    a,
+    button[data-reply] {
       color: var(--bubble-link, var(--link));
       font-size: var(--fs-xs);
       font-weight: 400;
+    }
+
+    // The Reply button of reply.js, which looks like the Edit link next to it.
+    button[data-reply] {
+      display: inline;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      line-height: inherit;
+      background: none;
+      font-family: inherit;
+      text-decoration: underline;
+      cursor: pointer;
     }
   }
 
