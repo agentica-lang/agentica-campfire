@@ -148,6 +148,21 @@ text up to a space, a `<` or a `"`, inside a double-quoted `href`, so it cannot 
 no `<` or `>`, and an entity that it keeps, such as `&quot;`, is harmless inside an attribute); only `http://`,
 `https://` and `www.` start one, and it carries `rel="noopener noreferrer"`.
 
+## Attachments
+
+A file of a message (`docs/rooms.md`) is at most `CAMPFIRE_MAX_ATTACHMENT_MB` (`413` while it arrives, before the
+handler runs). Bond receives it in a private folder under a name of its own; the stored name is the last part of what
+the client sent, with control characters taken out, and the file goes to `xx/yy/KEY`, so no client text is ever a
+path. The type that is stored comes from the first bytes (PNG, JPEG, GIF, WebP, PDF) and else from the extension, never
+from the client; an extension of one of those types on other bytes is `application/octet-stream`. A download is for the
+people of the room, checked on every request (no signed link that outlives a membership; `private, no-cache`). An image
+is shown inline only when its bytes are of its stored type; anything else is `Content-Disposition: attachment`, and HTML,
+SVG, XML and scripts are sent as `application/octet-stream`. Every answer has `X-Content-Type-Options: nosniff`,
+`Content-Security-Policy: default-src 'none'; sandbox` and `Cross-Origin-Resource-Policy: same-origin`.
+Only a `POST` of a message may send `multipart/form-data`: any other is `415` before its body is read, and the start
+empties the folder of the uploads. There is no upload quota or rate limit per person, as in Rails.
+The name that the client sent is untrusted: it is kept only after Bond's `safe_filename` and escaped wherever it is shown.
+
 ## The first administrator
 
 Whoever reaches `/first_run` first becomes the administrator, so make the account before the app

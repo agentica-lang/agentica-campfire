@@ -113,7 +113,8 @@ A message can mention people (`User::Mentionable` and `Message::Mentionee` of Ra
 `<action-text-attachment content-type="application/vnd.campfire.mention" gid="gid://campfire/User/ID">@NAME</action-text-attachment>`:
 the element and the content type of Rails, the GlobalID of the user and Rails' plain text of a mention, which the
 search index and the webhooks read. Rails names the user with a signed GlobalID (`sgid`), made with `SECRET_KEY_BASE`,
-which this app does not need; a Rails mention (with `sgid`) is not read and shows nothing. In a typed message (the
+which this app does not need; a Rails mention (with `sgid`) is not resolved: on a database that Rails made, its element is
+dropped to its text. In a typed message (the
 textarea, and its edit) each `@NAME` of an active person of the room becomes a mention: the `@` starts the text or
 follows anything but a letter, a digit or `_` (so an email address is not one), the name is not followed by one, and
 the longest name wins. In an HTML body (`message[format]=html`, a bot) the sanitizer keeps a mention element only with
@@ -209,6 +210,18 @@ The form carries a random `client_message_id`, which is stored and used for noth
 there is no unique index on it, so posting it twice (a double click) stores two messages. This is a known
 gap: a double click or a retry after a lost answer posts twice, until the client checks `client_message_id`
 (the app does not).
+
+## Attachments
+
+A message can carry a file (`Message::Attachment` of Rails). `POST /rooms/ID/messages` takes a `multipart/form-data`
+form with the file in `message[attachment]`, as Rails' uploader sends it, and `message[body]` is then optional. The
+file is stored as Active Storage's Disk service stores it: a row of `active_storage_blobs` (a new 28-character key,
+service `local`, no checksum), an attachment named `attachment` of the `Message` and the file at `xx/yy/KEY` of
+`CAMPFIRE_STORAGE_DIR`, written with the message in one transaction; a file with no text is found in the search by its
+name. A message with a file shows a link to it after its body. `GET /rooms/ID/messages/MID/attachment` downloads it,
+for the people of the room (anybody else is the `404` of a missing page). Deleting the message, its room or the
+messages of a banned person deletes the rows of its blob and then the file. There is no composer button and no preview
+yet (#61).
 
 ## Editing and deleting a message
 

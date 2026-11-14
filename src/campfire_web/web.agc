@@ -4,6 +4,7 @@ import Bond from "pkg/bond/bond"
 import Blocks from "blocks"
 import Cache from "std/cache"
 import AccountsWeb from "accounts"
+import AttachmentsWeb from "attachments"
 import AuthWeb from "auth"
 import AutocompletableWeb from "autocompletable"
 import AvatarsWeb from "avatars"
@@ -57,9 +58,20 @@ def build(
 
   (
     Bond.app()
+    |> Bond.uploads(upload_options(config))
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
-    |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies, config.max_message_length, hooks)
+    |> RoomsWeb.add(
+      pool,
+      cable,
+      messages,
+      pages,
+      config.secure_cookies,
+      config.max_message_length,
+      hooks,
+      config.storage_dir,
+    )
+    |> AttachmentsWeb.add(pool, config.storage_dir)
     |> BoostsWeb.add(pool, cable)
     |> BotMessagesWeb.add(pool, cable, config)
     |> AccountsWeb.add(config, pool, cable, bans)
@@ -80,6 +92,10 @@ def build(
     |> Bond.on_error() do |conn, message| ok(Failure.answer(conn, message)) end
   )
 end
+
+## Where the files of a form are received (a folder of the storage folder, so a file moves into its place with a
+## rename), which `App.start` makes.
+def uploads_dir(config: Config) -> String = "#{config.storage_dir}/#{UPLOADS_FOLDER}"
 
 ## An HTML page or a redirect that has no `Cache-Control` of its own gets the Rails default, so a browser never shows
 ## an old page (which links an old fingerprinted stylesheet) after a deploy. A handler's own header stays, in any
@@ -115,6 +131,11 @@ REDIRECTS = [301, 302, 303, 307, 308]
 NOT_MODIFIED = 304
 CACHE_CONTROL_NAME_LENGTH = 13
 CONTENT_TYPE_NAME_LENGTH = 12
+# Not two characters, so no key of Active Storage (`xx/yy/KEY`) can be under it.
+UPLOADS_FOLDER = ".uploads"
+# Room for the text fields of a form besides its file.
+FORM_FIELDS_BYTES = 2_097_152
+MB = 1_048_576
 
 struct Health
   status: String
@@ -138,4 +159,14 @@ def avatar_key(config: Config) -> Optional[Bytes]
   return none if not key.ok?
 
   some(key.unwrap!)
+end
+
+# A file of a message is at most `CAMPFIRE_MAX_ATTACHMENT_MB`; a form's text fields are kept to Bond's defaults.
+def upload_options(config: Config) -> Bond.UploadOptions
+  file_bytes = config.max_attachment_mb * MB
+  Bond.UploadOptions(
+    max_file_bytes: file_bytes,
+    max_total_bytes: file_bytes + FORM_FIELDS_BYTES,
+    dir: uploads_dir(config),
+  )
 end

@@ -84,6 +84,9 @@ def main() -> Void
     BDD.step("this system is Linux", &system_is_linux),
     BDD.step("the app starts with {int} database connections that wait {int} milliseconds", &start_with_pool),
     BDD.step("the app starts with messages of at most {int} characters", &start_with_message_length),
+    BDD.step("the app starts with attachments of at most {int} MB", &start_with_attachment_size),
+    BDD.step("the storage folder holds {int} files", &storage_holds),
+    BDD.step("a crash left a file in the folder of the uploads", &leave_upload),
     BDD.step("the app starts with webhooks to private addresses that wait {int} seconds", &start_with_webhooks),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the app restarts with the message cache off", &restart_app_without_cache),
@@ -172,6 +175,46 @@ def start_with_message_length(ctx: BDD.Context, args: List[String]) -> BDD.Conte
   start_app(ctx, text_of(ctx, DB_URL), "false", {"CAMPFIRE_MAX_MESSAGE_LENGTH": args[0]})
 end
 
+def start_with_attachment_size(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  start_app(ctx, text_of(ctx, DB_URL), "false", {"CAMPFIRE_MAX_ATTACHMENT_MB": args[0]})
+end
+
+# The files under the storage folder, those that wait in the folder of the uploads included: a file that a refused or
+# deleted message left would be counted.
+def storage_holds(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  counted = files_under(storage_dir(ctx))
+  return BDD.assert(ctx, false, "cannot list the storage folder: #{counted.message}") if not counted.ok?
+
+  BDD.assert(ctx, counted.unwrap! == args[0].to_i!, "the storage folder holds #{counted.unwrap!} files")
+end
+
+def leave_upload(ctx: BDD.Context, _args: List[String]) -> BDD.Context
+  left = left_upload(storage_dir(ctx))
+  BDD.assert(ctx, left.ok?, "cannot leave a file in the folder of the uploads: #{left.message}")
+end
+
+def left_upload(storage: String) -> Result[Void]
+  folder = try Path.join([storage, ".uploads", "upload-left"])
+  try Dir.mkdir(folder)
+  try File.write_text(try Path.join([folder, "part"]), "left")
+  ok()
+end
+
+def files_under(folder: String) -> Result[Int]
+  total = 0
+  for name in try Dir.list(folder)
+    path = try Path.join([folder, name])
+    info = try File.lstat(path)
+    if info.kind == "directory"
+      total += try files_under(path)
+    else
+      total += 1
+    end
+  end
+
+  ok(total)
+end
+
 # The webhook peer listens on 127.0.0.1, which the app refuses by default.
 def start_with_webhooks(ctx: BDD.Context, args: List[String]) -> BDD.Context
   hooks = {"CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES": "true", "CAMPFIRE_WEBHOOK_TIMEOUT": args[0]}
@@ -197,6 +240,7 @@ def configured_program(ctx: BDD.Context, url: String, secure_cookies: String, po
     "CAMPFIRE_DB_POOL_SIZE": pool.get("CAMPFIRE_DB_POOL_SIZE", ""),
     "CAMPFIRE_DB_CHECKOUT_MS": pool.get("CAMPFIRE_DB_CHECKOUT_MS", ""),
     "CAMPFIRE_MAX_MESSAGE_LENGTH": pool.get("CAMPFIRE_MAX_MESSAGE_LENGTH", ""),
+    "CAMPFIRE_MAX_ATTACHMENT_MB": pool.get("CAMPFIRE_MAX_ATTACHMENT_MB", ""),
     "CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES": pool.get("CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES", "false"),
     "CAMPFIRE_WEBHOOK_TIMEOUT": pool.get("CAMPFIRE_WEBHOOK_TIMEOUT", ""),
     "CAMPFIRE_BCRYPT_LIBRARY": bcrypt_library(ctx),
@@ -913,7 +957,7 @@ def delete_between(conn: Db.Connection, email: String, room_id: Int) -> Result[B
   return ok(false) if not try Rooms.destroy_later(conn, room_id, user_id)
 
   try Rooms.post(conn, room_id, user_id, "late", "posted in between")
-  while try Rooms.delete_next_message(conn, room_id)
+  while (try Rooms.delete_next_message(conn, room_id)).some?
     Task.sleep(0)
   end
 

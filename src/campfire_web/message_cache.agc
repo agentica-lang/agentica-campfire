@@ -6,7 +6,7 @@
 ## The markup of a message is the same for every viewer but one thing: the link to the edit page of the person who may
 ## change it (`Views.message`), so there are two entries at most, with the link and without. The key is the message id,
 ## whether it has the link, its `updated_at` and a SHA-256 of the room, the author's name, the time, the boosts and the
-## body as the database holds them. Rails digests the same things (the attributes of the message, its
+## body and the file as the database holds them. Rails digests the same things (the attributes of the message, its
 ## creator and its room, and the body) because a rename, a body or a boost can change the markup without touching the
 ## `updated_at` of the message, and another program may write to the database. So an edit, a rename of the author or a
 ## body that another program changed gives a new key, and the old entry is never read again (the cache drops it when it
@@ -16,6 +16,7 @@
 ## the request whose write starts a rotation waits while the oldest generation is dropped (about 5 µs an entry).
 
 import Cache from "std/cache"
+import Attachments from "../campfire/attachments"
 import Boosts from "../campfire/boosts"
 import Rooms from "../campfire/rooms"
 import Views from "views"
@@ -57,10 +58,18 @@ def render(stored: Rooms.Stored, controls: Bool) -> String = Views.message(Rooms
 def key(stored: Rooms.Stored, controls: Bool) -> String
   text = (
     "#{stored.room_id}\n#{stored.creator_id}\n#{stored.created_at}\n#{boosts_text(stored.boosts)}\n" +
-    "#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
+    "#{attachment_text(stored.attachment)}\n#{stored.author.bytes.size}:#{stored.author}#{stored.body}"
   )
 
   "message:#{stored.id}:#{controls}:#{stored.updated_at}:#{OpenSSL.Digest.sha256_hexdigest(text.bytes)}"
+end
+
+# The file as text that tells it apart: none, or its size, the size of its name in bytes and its name.
+def attachment_text(attachment: Optional[Attachments.Attachment]) -> String
+  case attachment
+    none -> "-"
+    some(file) -> "#{file.byte_size}:#{file.filename.bytes.size}:#{file.filename}"
+  end
 end
 
 # The boosts as text that tells them apart: how many, and for each its id, its booster and its words, with the size of

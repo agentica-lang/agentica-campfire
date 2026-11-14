@@ -18,6 +18,9 @@ MEMBER_PASSWORD = "another long password"
 def steps() -> List[BDD.Step]
   [
     BDD.step("I get {string}", &get),
+    BDD.step("I upload to {string} the file {string} of the type {string} that holds {string}", &upload_text),
+    BDD.step("I upload to {string} a PNG image named {string} of the type {string}", &upload_png),
+    BDD.step("I upload to {string} a file of {int} bytes", &upload_size),
     BDD.step("I post to {string} the form:", &post_form),
     BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
     BDD.step("I post {int} messages at once to {string}", &post_messages_at_once),
@@ -165,6 +168,13 @@ HEAD_BYTES = 12
 WEBP_MAGIC_START = "52494646"
 WEBP_MAGIC_END = "57454250"
 PNG_MAGIC = "89504e470d0a1a0a"
+# A PNG of one pixel, whole.
+PIXEL_PNG = (
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da636460f85f0f0002870180eb47" +
+  "ba920000000049454e44ae426082"
+)
+UPLOAD_BOUNDARY = "campfire-spec-boundary"
+CLIENT_MAX_BODY = 4_194_304
 
 # `body` is the text of the body ("" for one that is not UTF-8), so `size`, `sha256` (hex) and `head` (the first
 # bytes in hex) say what a binary body is. `path` is what was asked for.
@@ -454,9 +464,13 @@ def head_to(ctx: BDD.Context, args: List[String]) -> BDD.Context = send(ctx, "HE
 def delete_to(ctx: BDD.Context, args: List[String]) -> BDD.Context = send(ctx, "DELETE", args[0], "")
 
 def send(ctx: BDD.Context, method: String, path: String, body: String) -> BDD.Context
+  send_bytes(ctx, method, path, body.bytes, FORM_TYPE)
+end
+
+def send_bytes(ctx: BDD.Context, method: String, path: String, body: Bytes, content_type: String) -> BDD.Context
   state = browser(ctx)
   started = Time.monotonic_ms()
-  response = perform(port_of(ctx), state, method, path, body)
+  response = perform_bytes(port_of(ctx), state, method, path, body, content_type)
   elapsed = Time.monotonic_ms() - started
   return BDD.assert(ctx, false, "#{method} #{path} failed: #{response.message}") if not response.ok?
 
@@ -480,6 +494,17 @@ def post_answer(port: Int, state: Browser, path: String, body: String) -> Result
 end
 
 def perform(port: Int, state: Browser, method: String, path: String, body: String) -> Result[HTTP.Response]
+  perform_bytes(port, state, method, path, body.bytes, FORM_TYPE)
+end
+
+def perform_bytes(
+  port: Int,
+  state: Browser,
+  method: String,
+  path: String,
+  body: Bytes,
+  content_type: String,
+) -> Result[HTTP.Response]
   headers = state.headers.keys.map do |name| HTTP.Header(name: name, value: state.headers.get(name, "")) end
   if not state.cookies.empty?
     pairs = state.cookies.keys.map do |name| "#{name}=#{state.cookies.get(name, "")}" end
@@ -487,11 +512,12 @@ def perform(port: Int, state: Browser, method: String, path: String, body: Strin
   end
 
   if (method == "POST" or method == "PATCH" or method == "PUT") and not state.headers.key?("content-type")
-    headers = headers.push(HTTP.Header(name: "content-type", value: FORM_TYPE))
+    headers = headers.push(HTTP.Header(name: "content-type", value: content_type))
   end
 
-  client = try HTTP.client()
-  response = HTTP.request(client, method, "http://127.0.0.1:#{port}#{path}", body.bytes, headers)
+  # The bodies of the uploads are larger than the client's default of 1 MiB.
+  client = try HTTP.client(HTTP.ClientOptions(max_body_bytes: CLIENT_MAX_BODY))
+  response = HTTP.request(client, method, "http://127.0.0.1:#{port}#{path}", body, headers)
   HTTP.close_client(client)
   response
 end
@@ -775,4 +801,31 @@ def each_503_says_retry_after(ctx: BDD.Context, args: List[String]) -> BDD.Conte
   wrong = refused.select do |answer| answer.retry_after != args[0] end
   seen = wrong.map do |answer| answer.retry_after end
   BDD.assert(ctx, wrong.empty?, "a 503 has the retry-after #{seen}, not #{args[0].inspect}")
+end
+
+# A file posted as Rails' uploader posts it: a `multipart/form-data` form with the file in `message[attachment]`, its
+# name and the type that the client says.
+def upload_text(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  upload(ctx, args[0], args[1], args[2], args[3].bytes)
+end
+
+def upload_png(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  upload(ctx, args[0], args[1], args[2], OpenSSL.Digest.hexdecode(PIXEL_PNG).unwrap!)
+end
+
+def upload_size(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  size = args[1].to_i!
+  kilobyte = List.repeat("x", 1024).join("").bytes
+  pieces = List.repeat(kilobyte, size / 1024).push(List.repeat("x", size % 1024).join("").bytes)
+  upload(ctx, args[0], "big.bin", "application/octet-stream", Bytes.concat(pieces))
+end
+
+def upload(ctx: BDD.Context, path: String, filename: String, content_type: String, content: Bytes) -> BDD.Context
+  head = (
+    "--#{UPLOAD_BOUNDARY}\r\nContent-Disposition: form-data; name=\"message[attachment]\"; filename=\"#{filename}\"\r\n" +
+    "Content-Type: #{content_type}\r\n\r\n"
+  )
+
+  body = Bytes.concat([head.bytes, content, "\r\n--#{UPLOAD_BOUNDARY}--\r\n".bytes])
+  send_bytes(ctx, "POST", path, body, "multipart/form-data; boundary=#{UPLOAD_BOUNDARY}")
 end

@@ -30,6 +30,8 @@ EVERYTHING = "everything"
 ## The `record_type` and `name` of the row of `action_text_rich_texts` that holds the body of a message.
 MESSAGE_RECORD = "Message"
 BODY_NAME = "body"
+## The `name` of the attachment of the file of a message (`has_one_attached :attachment`).
+ATTACHMENT_NAME = "attachment"
 ## What Active Storage writes for the avatar of a user (`has_one_attached :avatar`): an attachment named `avatar` of the
 ## `User`, and, once Rails has made the variant `:square` (a WebP of at most 512 pixels), a row of
 ## `active_storage_variant_records` for the blob of the original, whose own image is another attachment, named `image`,

@@ -10,10 +10,12 @@ import Rooms from "rooms"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
-## A message that `delete_next_message` took away: where it was, so that the caller can tell the people in the room.
+## A message that `delete_next_message` took away: where it was, so that the caller can tell the people in the room,
+## and the keys of the files of its attachment, for the caller to delete.
 struct Gone
   room_id: Int
   message_id: Int
+  keys: List[String] = []
 end
 
 ## True when a ban holds the address (`Ban.banned?`).
@@ -153,8 +155,8 @@ def delete_first_message(tx: Db.Connection, user_id: Int) -> Result[Optional[Gon
   return ok(none) if rows.empty?
 
   message_id = int_of(rows[0], "id")
-  try Rooms.delete_message_rows_of(tx, message_id)
-  ok(some(Gone(room_id: int_of(rows[0], "room_id"), message_id: message_id)))
+  keys = try Rooms.delete_message_rows_of(tx, message_id)
+  ok(some(Gone(room_id: int_of(rows[0], "room_id"), message_id: message_id, keys: keys)))
 end
 
 # The rest of `::ffff:`: dotted, or two hex groups of 16 bits.

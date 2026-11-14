@@ -54,6 +54,7 @@ def add(
   # one address.
   attempts = RateLimit.new()
   on_before_unmarked = Blocks.handler do |conn| ok(unmarked(conn)) end
+  on_before_stray_upload = Blocks.handler do |conn| ok(refuse_stray_upload(conn)) end
   on_before_reject_banned = Blocks.handler do |conn| reject_banned(conn, pool, bans) end
   on_before_require_sign_in = Blocks.handler do |conn| require_sign_in(conn, pool, pages) end
   on_get_first_run = Blocks.handler do |conn| show_first_run(conn, pool) end
@@ -71,6 +72,7 @@ def add(
     app
     |> Bond.before(on_before_unmarked)
     |> Bond.csrf()
+    |> Bond.before(on_before_stray_upload)
     |> Bond.before(on_before_reject_banned)
     |> Bond.sessions(session_options(config))
     |> Bond.before(on_before_require_sign_in)
@@ -99,8 +101,9 @@ end
 
 ## True for the post of a message (`Routes.ROOM_MESSAGES`), whose handler looks the person up in the connection that it
 ## writes with (`person_in`), so that the post takes one connection of the pool and not two: the filter leaves the
-## lookup to it for a request that has a session cookie. A path of the bots (`bot_api?`) has more segments.
-def lookup_in_handler?(conn: Bond.Conn) -> Bool = message_post?(conn.method, conn.path)
+## lookup to it for a request that has a session cookie. A path of the bots (`bot_api?`) has more segments. A
+## multipart post (an attachment) is looked up in the filter, before Bond reads its body.
+def lookup_in_handler?(conn: Bond.Conn) -> Bool = message_post?(conn.method, conn.path) and not multipart?(conn)
 
 ## `lookup_in_handler?` for a method and a path. The path is read as the router reads it, by its non-empty segments,
 ## against the segments of `Routes.ROOM_MESSAGES`, where a segment that starts with ":" is any value.
@@ -229,6 +232,7 @@ BOT_BOOSTS_SEGMENTS = 6
 BOT_BOOST_SEGMENTS = 7
 # The request headers that `Bond.csrf` reads.
 CROSS_SITE_HEADERS = Set.new(["origin", "sec-fetch-site"])
+MULTIPART_TYPE = "multipart/form-data"
 BAD_LOGIN = "Wrong email or password"
 TOO_MANY = "Too many sign-in attempts, try again later"
 # At most this many attempts to sign in (every post to `Routes.SESSION`, right or wrong) from one address in this time,
@@ -246,6 +250,19 @@ def unmarked(conn: Bond.Conn) -> Bond.Conn
   return conn if not bot_api?(conn.path)
 
   conn.with(headers: conn.headers.select do |field| not CROSS_SITE_HEADERS.include?(field.name.downcase) end)
+end
+
+# `Bond.uploads` reads a multipart body after the filters, so a halt here keeps it from ever reaching the disk.
+def refuse_stray_upload(conn: Bond.Conn) -> Bond.Conn
+  return conn if not multipart?(conn) or message_post?(conn.method, conn.path)
+
+  Bond.halt(conn, 415, "Unsupported Media Type")
+end
+
+def multipart?(conn: Bond.Conn) -> Bool
+  conn.headers.any? do |field|
+    field.name.downcase == "content-type" and field.value.split(";")[0].strip.downcase == MULTIPART_TYPE
+  end
 end
 
 def session_options(config: Config) -> Bond.SessionOptions

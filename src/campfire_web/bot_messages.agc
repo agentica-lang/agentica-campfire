@@ -22,6 +22,7 @@ import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
 import Blocks from "blocks"
 import Boosts from "../campfire/boosts"
+import Blobs from "../campfire/blobs"
 import Bots from "../campfire/bots"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
@@ -51,7 +52,7 @@ def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Confi
   end
 
   on_delete_bot_message = Blocks.handler do |conn|
-    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
+    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room, config.storage_dir) end
   end
 
   on_post_bot_message_boosts = Blocks.handler do |conn|
@@ -370,20 +371,36 @@ def saved(
   ok(Answer.Edited(room, edited, JSON.from(message_json(origin(conn, config), edited, BOT_ROLE))))
 end
 
-def remove_answer(conn: Bond.Conn, db: Db.Connection, bot: Bots.Bot, room: Rooms.Room) -> Result[Answer]
+def remove_answer(
+  conn: Bond.Conn,
+  db: Db.Connection,
+  bot: Bots.Bot,
+  room: Rooms.Room,
+  storage_dir: String,
+) -> Result[Answer]
   located = try own_message(conn, db, bot, room)
   case located
     Located.Missing -> ok(Answer.NotFound)
     Located.Refused -> ok(Answer.Forbidden)
-    Located.Found(message) -> removed(db, bot, room, message)
+    Located.Found(message) -> removed(db, bot, room, message, storage_dir)
   end
 end
 
-def removed(db: Db.Connection, bot: Bots.Bot, room: Rooms.Room, message: Rooms.Stored) -> Result[Answer]
+# The files of the message are deleted once its transaction has committed.
+def removed(
+  db: Db.Connection,
+  bot: Bots.Bot,
+  room: Rooms.Room,
+  message: Rooms.Stored,
+  storage_dir: String,
+) -> Result[Answer]
   gone = try Rooms.delete_message(db, room.id, message.id, bot.id)
-  return ok(Answer.NotFound) if not gone
-
-  ok(Answer.Removed(room, message.id))
+  case gone
+    none -> ok(Answer.NotFound)
+    some(keys) ->
+      Blobs.remove_files(storage_dir, keys)
+      ok(Answer.Removed(room, message.id))
+  end
 end
 
 # The message that the path names, when it is in the room and the bot wrote it. A bot is never an administrator, so the

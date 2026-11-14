@@ -559,7 +559,8 @@ def messages_id(room: Rooms.Room) -> String = "messages_rooms_#{room.room_type.s
 ## boosts, the markup is the benchmark's byte for byte but for `data-creator-id`, which names the author so that the
 ## page can put the messages of the person who looks on the other side (`viewer_style`): the markup is the same for
 ## every viewer, since the live stream renders it once for all. The time is the clock of the ISO instant (UTC); the
-## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone.
+## whole instant is in `datetime` and in `title`, so a pointer shows the date and the zone. A message with a file has the
+## link that downloads it after its body.
 def message(message: Rooms.Message, controls: Bool) -> String
   message_head(message) + edit_link(message, controls) + message_tail(message)
 end
@@ -1430,10 +1431,23 @@ def message_head(message: Rooms.Message) -> String
   EAG
 end
 
+# The link that downloads the file of a message, after its body; "" for a message with none, whose markup is then the
+# benchmark's.
+def attachment_link(message: Rooms.Message) -> String
+  case message.attachment
+    none -> ""
+    some(file) ->
+      <<~EAG.strip
+        <%@ escape &Bond.escape %>
+        <a href="<%= Routes.room_message_attachment_path(message.room_id, message.id) %>" download><%= file.filename %></a>
+      EAG
+  end
+end
+
 def message_tail(message: Rooms.Message) -> String
   <<~EAG.strip
     <%@ escape &Bond.escape %>
     </h3>
-      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== Autolink.link(message.body) %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>
+      <turbo-frame id="edit_message_<%= message.id %>"><div id="presentation_message_<%= message.id %>"><%== Autolink.link(message.body) %><%== attachment_link(message) %></div><%== boosts_area(message.id, message.boosts) %></turbo-frame></div>
   EAG
 end

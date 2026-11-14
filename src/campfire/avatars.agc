@@ -5,8 +5,9 @@
 
 import Regex from "std/regex"
 import Db from "pkg/db/db"
+import Blobs from "blobs"
 import Rails from "repo/rails"
-import {int_of, text_of} from "repo/rows"
+import {text_of} from "repo/rows"
 
 ## A user as the avatar link needs them: the name for the initials, and the file to send, `none` for a person with no
 ## avatar. `file_key` is the key of the blob to send and `content_type` its type: the WebP that Rails made for the
@@ -68,14 +69,7 @@ end
 
 ## The file of a blob under `storage_dir`, where the Disk service of Rails puts it: `xx/yy/KEY`, the first two and the
 ## next two characters of the key as folders. `none` for a key that is not one of Active Storage's.
-def path(storage_dir: String, key: String) -> Optional[String]
-  return none if not Regex.match?(key, KEY)
-
-  joined = Path.join([storage_dir, key.slice(0, 2), key.slice(2, 2), key])
-  return none if not joined.ok?
-
-  some(joined.unwrap!)
-end
+def path(storage_dir: String, key: String) -> Optional[String] = Blobs.path(storage_dir, key)
 
 ## The letters in the circle: the first letter of each word of the name (`Bea Smith` is `BS`).
 def initials(name: String) -> String
@@ -130,83 +124,18 @@ COLORS = [
 INITIALS = /\b\w/
 # The runs of digits of a timestamp, for `version`.
 DIGITS = /\d+/
-# Active Storage keys are 28 characters of base 36 (`OpenSSL.Random.base36`). Only those can be a name in the folder of
-# the files: whatever else a row holds (it came from a database, not from a visitor) is never turned into a path.
-KEY = /\A[0-9a-z]{4,64}\z/
 # The shape of the type of an original that is sent as it is: `image/...` from a database, with nothing that
 # could carry a line break into a header (`sendable?` also leaves out SVG).
 SENDABLE_TYPE = /\Aimage\/(?:[a-z0-9.+-]+)\z/
 
 def remove_in(tx: Db.Connection, user_id: Int) -> Result[List[String]]
-  attached = try Db.query(
-    tx,
-    "select id, blob_id from active_storage_attachments where record_type = '#{Rails.USER_RECORD}' " +
-    "and record_id = ? and name = '#{Rails.AVATAR_NAME}'",
-    [Db.Value.Int(user_id)],
-  )
-
-  keys: List[String] = []
-  for row in attached
-    try Db.execute(tx, "delete from active_storage_attachments where id = ?", [Db.Value.Int(int_of(row, "id"))])
-    keys = keys.concat(try drop_blob(tx, int_of(row, "blob_id")))
-  end
-
-  if not attached.empty?
+  had = try attached?(tx, user_id)
+  keys = try Blobs.detach(tx, Rails.USER_RECORD, user_id, Rails.AVATAR_NAME)
+  if had
     try Db.execute(tx, "update users set updated_at = #{Rails.NOW} where id = ?", [Db.Value.Int(user_id)])
   end
 
   ok(keys)
-end
-
-# The blob and its variants, when nothing is attached to it any more: the variants go first, since their rows and
-# the attachments of their images hold keys to it. The keys are those of every blob deleted.
-def drop_blob(tx: Db.Connection, blob_id: Int) -> Result[List[String]]
-  return ok([]) if not try unused?(tx, blob_id)
-
-  keys: List[String] = []
-  variants = try Db.query(
-    tx,
-    "select id from active_storage_variant_records where blob_id = ?",
-    [Db.Value.Int(blob_id)],
-  )
-
-  for variant in variants
-    keys = keys.concat(try drop_variant(tx, int_of(variant, "id")))
-  end
-
-  found = try Db.query(tx, "select key from active_storage_blobs where id = ?", [Db.Value.Int(blob_id)])
-  try Db.execute(tx, "delete from active_storage_blobs where id = ?", [Db.Value.Int(blob_id)])
-  ok(keys.concat(found.map do |row| text_of(row, "key") end))
-end
-
-# A variant record, its image (an attachment of a blob) and that blob.
-def drop_variant(tx: Db.Connection, variant_id: Int) -> Result[List[String]]
-  id = Db.Value.Int(variant_id)
-  images = try Db.query(
-    tx,
-    "select id, blob_id from active_storage_attachments where record_type = '#{Rails.VARIANT_RECORD}' " +
-    "and record_id = ? and name = '#{Rails.VARIANT_IMAGE_NAME}'",
-    [id],
-  )
-
-  keys: List[String] = []
-  for image in images
-    try Db.execute(tx, "delete from active_storage_attachments where id = ?", [Db.Value.Int(int_of(image, "id"))])
-    keys = keys.concat(try drop_blob(tx, int_of(image, "blob_id")))
-  end
-
-  try Db.execute(tx, "delete from active_storage_variant_records where id = ?", [id])
-  ok(keys)
-end
-
-def unused?(tx: Db.Connection, blob_id: Int) -> Result[Bool]
-  rows = try Db.query(
-    tx,
-    "select 1 from active_storage_attachments where blob_id = ? limit 1",
-    [Db.Value.Int(blob_id)],
-  )
-
-  ok(rows.empty?)
 end
 
 # A plain image type, and not SVG: RE2 has no lookahead, so the SVG types are left out here.

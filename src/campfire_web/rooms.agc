@@ -18,7 +18,9 @@ import Cache from "std/cache"
 import Cookie from "std/cookie"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
+import Attachments from "../campfire/attachments"
 import AuthWeb from "auth"
+import Blobs from "../campfire/blobs"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
@@ -35,7 +37,9 @@ import Webhooks from "webhooks"
 ## names. `cache` keeps the markup of the messages that a room page and the older messages write (`MessageCache`),
 ## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache. `secure` makes the
 ## cookie of the last room `Secure`, as `CAMPFIRE_SECURE_COOKIES` does the session cookie. `max_length` is the most
-## characters that a message may have (`CAMPFIRE_MAX_MESSAGE_LENGTH`), for a new one and for an edit.
+## characters that a message may have (`CAMPFIRE_MAX_MESSAGE_LENGTH`), for a new one and for an edit. `storage_dir` is
+## the folder of the files of Active Storage: the file of a new message goes there, and the files of a deleted message
+## or room are deleted from it.
 def add(
   app: Bond.App,
   pool: Database.Pool,
@@ -45,6 +49,7 @@ def add(
   secure: Bool,
   max_length: Int,
   hooks: Webhooks.Hooks,
+  storage_dir: String,
 ) -> Bond.App
   on_get_room_new = Blocks.handler do |conn| show_new_room(conn, pool) end
   on_post_rooms = Blocks.handler do |conn| create_room(conn, pool, cable) end
@@ -52,7 +57,10 @@ def add(
   on_get_room_messages = Blocks.handler do |conn| older_messages(conn, pool, cache, pages) end
   on_get_room_refresh = Blocks.handler do |conn| show_refresh(conn, pool, cache) end
   on_get_room_at = Blocks.handler do |conn| show_at(conn, pool, cable, cache, secure) end
-  on_post_room_messages = Blocks.handler do |conn| create_message(conn, pool, cable, cache, max_length, hooks) end
+  on_post_room_messages = Blocks.handler do |conn|
+    create_message(conn, pool, cable, cache, max_length, hooks, storage_dir)
+  end
+
   on_get_closed_room_new = Blocks.handler do |conn| show_new_closed_room(conn, pool) end
   on_post_closed_rooms = Blocks.handler do |conn| create_closed_room(conn, pool, cable) end
   on_get_direct_room_new = Blocks.handler do |conn| show_new_direct_room(conn, pool) end
@@ -62,10 +70,10 @@ def add(
   on_get_room_involvement = Blocks.handler do |conn| show_involvement(conn, pool) end
   on_post_room_involvement = Blocks.handler do |conn| post_involvement(conn, pool) end
   on_put_room_involvement = Blocks.handler do |conn| save_involvement(conn, pool) end
-  on_post_room = Blocks.handler do |conn| post_room(conn, pool, cable) end
-  on_delete_room = Blocks.handler do |conn| delete_room(conn, pool, cable) end
+  on_post_room = Blocks.handler do |conn| post_room(conn, pool, cable, storage_dir) end
+  on_delete_room = Blocks.handler do |conn| delete_room(conn, pool, cable, storage_dir) end
   on_get_room_message_edit = Blocks.handler do |conn| edit_message(conn, pool) end
-  on_post_room_message = Blocks.handler do |conn| post_message(conn, pool, cable, max_length) end
+  on_post_room_message = Blocks.handler do |conn| post_message(conn, pool, cable, max_length, storage_dir) end
   on_patch_room_message = Blocks.handler do |conn| update_message(conn, pool, cable, max_length) end
 
   (
@@ -91,7 +99,7 @@ def add(
     |> Bond.get(Routes.ROOM_MESSAGE_EDIT, on_get_room_message_edit)
     |> Bond.post(Routes.ROOM_MESSAGE, on_post_room_message)
     |> Bond.patch(Routes.ROOM_MESSAGE, on_patch_room_message)
-    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable) end
+    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable, storage_dir) end
   )
 end
 
@@ -144,6 +152,7 @@ private
 # The field names of the form of a message, as Rails nests them (`params.require(:message)`).
 MESSAGE_BODY = "message[body]"
 MESSAGE_CLIENT_ID = "message[client_message_id]"
+MESSAGE_ATTACHMENT = "message[attachment]"
 # `message[format]` says what `message[body]` is: `html` for the HTML of an editor (cleaned, not escaped), anything
 # else, or nothing, for the plain text of the textarea. Rails has no such field because its only form has the editor.
 MESSAGE_FORMAT = "message[format]"
@@ -170,7 +179,7 @@ enum Answer
   Made(Int, Int, Bool, List[Int])
   Posted(Rooms.Room, Rooms.Message, Bool)
   Edited(Rooms.Room, Rooms.Message)
-  Removed(Rooms.Room, Int, Bool)
+  Removed(Rooms.Room, Int, Bool, List[String])
   TurboStream(String)
   NoContent
   Redirect(String)
@@ -181,10 +190,12 @@ enum Answer
   SignedOut
 end
 
-# What a person sent as the body of a message: the text as it came (stripped), and whether it is HTML.
+# What a person sent as the body of a message: the text as it came (stripped), whether it is HTML, and the file that
+# came with it (stored already, for `Rooms.post` to attach).
 struct Sent
   text: String
   html: Bool
+  attachment: Optional[Attachments.Blob] = none
 end
 
 # The fields of the form of a new message as they were read, each of which may be a 400 that only a signed-in person is
@@ -193,6 +204,7 @@ struct Form
   body: Result[String]
   formats: Result[List[String]]
   sent_id: Result[String]
+  attachment: Optional[Attachments.Blob] = none
 end
 
 # Where a request for a message of a room ends up, once the room and the message are looked up for the person.
@@ -593,20 +605,20 @@ end
 # The form of Rails posts to the room with `_method=delete` (in any case, as Rails reads it); any other post is what a
 # `POST` to the path was before the form existed (the router's own answer), a 405 that says which methods the path
 # takes, whatever the room.
-def post_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+def post_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, storage_dir: String) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW))) if method != Routes.METHOD_DELETE
 
-  delete_room(conn, pool, cable)
+  delete_room(conn, pool, cable, storage_dir)
 end
 
 # The task that deletes the messages starts after the connection is given back, from the task of the request, and so
 # does the news of the deletion to the people who were in the room.
-def delete_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+def delete_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, storage_dir: String) -> Result[Bond.Conn]
   id = room_id(conn)
   answer = try Database.with_connection(pool) do |db| delete_answer(conn, db, id) end
   case answer
-    Answer.Deleted(deleted, _) -> RoomDeletion.start(pool, deleted.id)
+    Answer.Deleted(deleted, _) -> RoomDeletion.start(pool, deleted.id, storage_dir)
     _ -> return ok(respond(conn, answer))
   end
 
@@ -685,11 +697,17 @@ end
 
 # The form of Rails posts to the message with `_method` `patch` to save it and `delete` to delete it (in any case, as
 # Rails reads it); any other post is a 405 that says which methods the path takes, whatever the message.
-def post_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, max_length: Int) -> Result[Bond.Conn]
+def post_message(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  max_length: Int,
+  storage_dir: String,
+) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   return update_message(conn, pool, cable, max_length) if method == Routes.METHOD_PATCH
 
-  return delete_message(conn, pool, cable) if method == Routes.METHOD_DELETE
+  return delete_message(conn, pool, cable, storage_dir) if method == Routes.METHOD_DELETE
 
   ok(respond(conn, Answer.NotAllowed(Routes.ROOM_MESSAGE_ALLOW)))
 end
@@ -759,11 +777,22 @@ def save_message(
   ok(Answer.Edited(room, Rooms.clean(stored.unwrap!)))
 end
 
-def delete_message(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+# The files of the message are deleted once the transaction that deleted their rows has committed.
+def delete_message(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  storage_dir: String,
+) -> Result[Bond.Conn]
   id = room_id(conn)
   message_id = message_id(conn)
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db| delete_message_answer(conn, db, id, message_id, stream) end
+  case answer
+    Answer.Removed(_, _, _, keys) -> Blobs.remove_files(storage_dir, keys)
+    _ -> nil
+  end
+
   ok(announced(conn, cable, answer))
 end
 
@@ -807,9 +836,10 @@ def gone_message(
   stream: Bool,
 ) -> Result[Answer]
   gone = try Rooms.delete_message(db, room.id, message.id, person.id)
-  return ok(Answer.NotFound) if not gone
-
-  ok(Answer.Removed(room, message.id, stream))
+  case gone
+    none -> ok(Answer.NotFound)
+    some(keys) -> ok(Answer.Removed(room, message.id, stream, keys))
+  end
 end
 
 # The message that the path names, for a person who is in the room: `Missing` for a room that is not theirs and for a
@@ -1127,28 +1157,63 @@ def create_message(
   cache: Optional[Cache.Store],
   max_length: Int,
   hooks: Webhooks.Hooks,
+  storage_dir: String,
 ) -> Result[Bond.Conn]
   # The person is looked up in the connection of the write (`AuthWeb.person_in`), so the post takes one connection. The
   # filter answered a visitor before the form was read, so the form is read as results here and only a person who is
-  # signed in gets its 400.
+  # signed in gets its 400. A file is moved into the storage folder before the connection is taken, and deleted again
+  # unless the message that holds it is posted.
+  attachment = try stored_upload(conn, storage_dir)
   form = Form(
     body: Bond.form(conn, MESSAGE_BODY),
     formats: Bond.form_all(conn, MESSAGE_FORMAT),
     sent_id: client_id(conn),
+    attachment: attachment,
   )
 
   id = room_id(conn)
   stream = wants_stream?(conn)
-  answer = try Database.with_connection(pool) do |db|
+  answered = Database.with_connection(pool) do |db|
     message_answer(conn, db, cable, cache, id, form, stream, max_length)
   end
 
-  case answer
-    Answer.Posted(room, message, _) -> Webhooks.deliver_later(hooks, room, message)
+  posted = false
+  case answered
+    ok(Answer.Posted(room, message, _)) ->
+      posted = true
+      Webhooks.deliver_later(hooks, room, message)
+
     _ -> nil
   end
 
-  ok(announced(conn, cable, answer))
+  if not posted and attachment.some?
+    Blobs.remove_files(storage_dir, [attachment.unwrap!.key])
+  end
+
+  ok(announced(conn, cable, try answered))
+end
+
+# The file of the form (`message[attachment]`, the field of Rails' uploader; the first one when there are more), moved
+# from the folder of the request to its place under a new key. Its type comes from its bytes and its name
+# (`Attachments.identify`), not from the type that the client said.
+def stored_upload(conn: Bond.Conn, storage_dir: String) -> Result[Optional[Attachments.Blob]]
+  files = Bond.file_all(conn, MESSAGE_ATTACHMENT)
+  return ok(none) if files.empty?
+
+  upload = files[0]
+  head = try File.open(upload.path) do |handle| File.read_bytes(handle, Attachments.HEAD_BYTES) end
+  key = Blobs.new_key()
+  try Blobs.store(storage_dir, upload.path, key)
+  ok(
+    some(
+      Attachments.Blob(
+        key: key,
+        filename: upload.filename,
+        content_type: Attachments.identify(head, upload.filename),
+        byte_size: upload.size,
+      ),
+    ),
+  )
 end
 
 # A browser that runs the scripts of the page asks for a Turbo Stream, and gets the message to append; a form that
@@ -1174,9 +1239,15 @@ def message_answer(
     AuthWeb.Found.Person(person) ->
       # What a form of this app always has, so a missing or odd value is a request that no page of ours made (a 400),
       # whatever the room: nothing here depends on the room.
-      body = (try form.body).strip
+      # A file needs no text: Rails' uploader sends none.
+      body = ""
+      if form.body.ok? or form.attachment.none?
+        body = (try form.body).strip
+      end
+
       formats = try form.formats
-      sent = Sent(text: body, html: formats.any? do |format| format == HTML_FORMAT end)
+      html = formats.any? do |format| format == HTML_FORMAT end
+      sent = Sent(text: body, html: html, attachment: form.attachment)
       posted(db, cable, cache, person, id, sent, try form.sent_id, stream, max_length)
   end
 end
@@ -1212,6 +1283,10 @@ def post_to(
   max_length: Int,
 ) -> Result[Answer]
   problem = Rooms.body_problem(sent.text, max_length)
+  if sent.attachment.some? and sent.text.empty?
+    problem = ""
+  end
+
   if problem != ""
     page = try room_page(db, cable, cache, person, room, none, composer(problem, sent.text))
     return ok(Answer.Page(422, page))
@@ -1224,7 +1299,7 @@ def post_to(
     html = HtmlSanitizer.from_text(sent.text)
   end
 
-  stored = try Rooms.post(db, room.id, person.id, sent_id, html, not sent.html)
+  stored = try Rooms.post(db, room.id, person.id, sent_id, html, not sent.html, sent.attachment)
   case stored
     none -> ok(try refused_post(db, person, room))
     some(message) -> ok(Answer.Posted(room, message, stream))
@@ -1404,7 +1479,7 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
     Answer.Posted(room, message, stream) -> return posted_response(conn, cable, room, message, stream)
     Answer.Deleted(room, members) -> CableWeb.room_deleted(cable, room, members)
     Answer.Edited(room, message) -> CableWeb.message_edited(cable, room, message)
-    Answer.Removed(room, message_id, _) -> CableWeb.message_removed(cable, room.id, message_id)
+    Answer.Removed(room, message_id, _, _) -> CableWeb.message_removed(cable, room.id, message_id)
     _ -> return respond(conn, answer)
   end
 
@@ -1446,13 +1521,13 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
       )
     Answer.Posted(room, _, _) -> Bond.redirect(conn, Routes.room_path(room.id))
     Answer.Edited(room, _) -> Bond.redirect(conn, Routes.room_path(room.id))
-    Answer.Removed(_, message_id, stream) if stream ->
+    Answer.Removed(_, message_id, stream, _) if stream ->
       Bond.header(
         Bond.html(conn, 200, Views.message_removed(message_id)),
         "content-type",
         TURBO_STREAM_TYPE + "; charset=utf-8",
       )
-    Answer.Removed(room, _, _) -> Bond.redirect(conn, Routes.room_path(room.id))
+    Answer.Removed(room, _, _, _) -> Bond.redirect(conn, Routes.room_path(room.id))
     Answer.TurboStream(html) ->
       Bond.header(Bond.html(conn, 200, html), "content-type", TURBO_STREAM_TYPE + "; charset=utf-8")
     Answer.NoContent -> Bond.status(conn, 204)

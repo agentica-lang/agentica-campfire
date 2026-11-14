@@ -5,13 +5,15 @@
 
 import Database from "../campfire/repo/database"
 import Bans from "../campfire/bans"
+import Blobs from "../campfire/blobs"
 import CableWeb from "cable"
 import RoomDeletion from "room_deletion"
 
 ## Starts the task for the person and gives it. It does not wait; the task logs a failure and ends. The handle is for a
-## caller that wants to wait for the end (a spec); a request does not.
-def start(pool: Database.Pool, cable: CableWeb.Cable, user_id: Int) -> Task[Result[Void]]
-  Task.spawn(&run, Job(pool: pool, cable: cable, user_id: user_id))
+## caller that wants to wait for the end (a spec); a request does not. The files of the attachments are deleted from
+## `storage_dir` after each message.
+def start(pool: Database.Pool, cable: CableWeb.Cable, user_id: Int, storage_dir: String) -> Task[Result[Void]]
+  Task.spawn(&run, Job(pool: pool, cable: cable, user_id: user_id, storage_dir: storage_dir))
 end
 
 private
@@ -23,6 +25,7 @@ struct Job
   pool: Database.Pool
   cable: CableWeb.Cable
   user_id: Int
+  storage_dir: String
 end
 
 def run(job: Job) -> Result[Void]
@@ -40,6 +43,7 @@ def remove_all(job: Job) -> Result[Void]
     gone = try RoomDeletion.retry(ATTEMPTS, PAUSE_MS) do next_message(job) end
     more = gone.some?
     if more
+      Blobs.remove_files(job.storage_dir, gone.unwrap!.keys)
       CableWeb.message_removed(job.cable, gone.unwrap!.room_id, gone.unwrap!.message_id)
     end
   end

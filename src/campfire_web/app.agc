@@ -2,6 +2,7 @@
 
 import Bond from "pkg/bond/bond"
 import CableWeb from "cable"
+import DataDir from "../campfire/data_dir"
 import Database from "../campfire/repo/database"
 import HTTP from "std/http"
 import Mailer from "../campfire/mail/mailer"
@@ -25,8 +26,8 @@ end
 ## `database: schema version N, migrations applied: M`, then `listening on http://HOST:PORT` (with the real port
 ## when the config asks for 0, and `[HOST]` for an IPv6 host). An `error` is a database that
 ## cannot be opened or migrated (it names `CAMPFIRE_DATABASE_URL`), an assets folder that is not there
-## (`CAMPFIRE_ASSETS_DIR`), or a failure to listen (it names `CAMPFIRE_HOST`
-## and `CAMPFIRE_PORT`). The server, the mailer and the pool belong to the task that calls this, which must live as long
+## (`CAMPFIRE_ASSETS_DIR`), a folder of uploads that cannot be made (`CAMPFIRE_STORAGE_DIR`), or a failure to listen
+## (it names `CAMPFIRE_HOST` and `CAMPFIRE_PORT`). The server, the mailer and the pool belong to the task that calls this, which must live as long
 ## as the app does (the pool opens its connections in it).
 def start(config: Config) -> Result[Running]
   puts(cookie_line(config.secure_cookies))
@@ -96,6 +97,19 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   if not assets.ok? or assets.unwrap!.kind != "directory"
     return error("the folder of the stylesheet is not there (CAMPFIRE_ASSETS_DIR): #{config.assets_dir}")
   end
+
+  # Bond needs the folder of the uploads to be there; it is private, as the files in it are. It starts empty, as the
+  # files that a crash left there belong to no request.
+  folder = Web.uploads_dir(config)
+  if File.lstat(folder).ok?
+    removed = Path.remove(folder)
+    if not removed.ok?
+      return error("cannot empty the folder of the uploads in CAMPFIRE_STORAGE_DIR: #{removed.message}")
+    end
+  end
+
+  uploads = DataDir.ensure(folder)
+  return error("cannot make the folder of the uploads in CAMPFIRE_STORAGE_DIR: #{uploads.message}") if not uploads.ok?
 
   mailer = try Mailer.start(config.smtp, config.mail_queue)
   messages = MessageCache.start(config.cache_mb)
