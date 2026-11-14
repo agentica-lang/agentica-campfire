@@ -45,7 +45,9 @@ def layout(title: String, content: String) -> String
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
       <meta name="color-scheme" content="light dark">
-      <link rel="icon" href="data:,">
+      <link rel="manifest" href="<%= Routes.WEBMANIFEST %>">
+      <link rel="icon" href="<%= Routes.account_logo_path(true) %>" type="image/png">
+      <link rel="apple-touch-icon" href="<%= Routes.account_logo_path(true) %>">
       <title><%= title %></title>
       <link rel="stylesheet" href="<%= Routes.STYLESHEET %>">
     </head>
