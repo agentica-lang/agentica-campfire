@@ -374,26 +374,7 @@ def room_id_of(params: JSON.Value) -> Int
   text.unwrap!.to_i.unwrap_or(NO_ROOM)
 end
 
-def connecting(cable: Cable) -> Fn[Bond.Conn, Result[Channels.Identity]] = opening do |conn| identify(cable, conn) end
-
-# A block cannot be assigned to a name: these give it a typed parameter first.
-def opening(f: Fn[Bond.Conn, Result[Channels.Identity]]) -> Fn[Bond.Conn, Result[Channels.Identity]] = f
-
-def subscribing(
-  f: Fn[Channels.Session, JSON.Value, Result[Channels.Subscription]],
-) -> Fn[Channels.Session, JSON.Value, Result[Channels.Subscription]]
-  f
-end
-
-def leaving(f: Fn[Channels.Session, JSON.Value, Result[Void]]) -> Fn[Channels.Session, JSON.Value, Result[Void]] = f
-
-def acting(
-  f: Fn[Channels.Session, JSON.Value, String, JSON.Value, Result[List[JSON.Value]]],
-) -> Fn[Channels.Session, JSON.Value, String, JSON.Value, Result[List[JSON.Value]]]
-  f
-end
-
-def allowing(f: Fn[Channels.Session, String, Bool]) -> Fn[Channels.Session, String, Bool] = f
+def connecting(cable: Cable) -> Fn[Bond.Conn, Result[Channels.Identity]] = ->(conn) { identify(cable, conn) }
 
 # The person of the session cookie, or an `error` that `/cable` answers with a `disconnect` that says not to retry.
 def identify(cable: Cable, conn: Bond.Conn) -> Result[Channels.Identity]
@@ -427,18 +408,22 @@ def session_person(cable: Cable, token: String) -> Result[Optional[Auth.User]]
 end
 
 def handlers(cable: Cable) -> Map[String, Channels.Handler]
-  in_room = allowing do |session, name| message_stream_allowed?(cable, session, name) end
-  present = subscribing do |session, params| present_in_room(cable, session, params) end
-  absent = leaving do |session, params| absent_from_room(cable, session, params) end
-  refreshed = acting do |session, params, action, _data| presence_action(cable, session, params, action) end
-  unreads = subscribing do |session, _params| unread_subscribed(session) end
-  checked = acting do |session, _params, _action, _data| check_session(cable, session) end
+  presence = Channels.handler(->(session, params) { present_in_room(cable, session, params) }).with(
+    unsubscribed: ->(session, params) { absent_from_room(cable, session, params) },
+    perform: ->(session, params, action, _data) { presence_action(cable, session, params, action) },
+  )
+
   {
-    ROOM_MESSAGES_CHANNEL: Channels.turbo_streams(cable.key, in_room),
+    ROOM_MESSAGES_CHANNEL: Channels.turbo_streams(
+      cable.key,
+      ->(session, name) { message_stream_allowed?(cable, session, name) },
+    ),
     TURBO_CHANNEL: Channels.turbo_streams(cable.key, &not_a_message_stream?),
-    "UnreadRoomsChannel": Channels.handler(unreads),
-    "PresenceChannel": Channels.handler(present).with(unsubscribed: absent, perform: refreshed),
-    "HeartbeatChannel": Channels.handler(&heartbeat_subscribed).with(perform: checked),
+    "UnreadRoomsChannel": Channels.handler(->(session, _params) { unread_subscribed(session) }),
+    "PresenceChannel": presence,
+    "HeartbeatChannel": Channels.handler(&heartbeat_subscribed).with(
+      perform: ->(session, _params, _action, _data) { check_session(cable, session) },
+    ),
   }
 end
 
