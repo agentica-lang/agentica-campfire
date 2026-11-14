@@ -57,8 +57,9 @@ def issue(table: Links, user_id: Int, session_id: Int, now_ms: Int) -> String
   "#{user_id}-#{secret}"
 end
 
-## The person of the link `token` and the session that made it, when the link is the person's last one, is alive and is
-## not used yet; the link is used up by this call. Of two calls with the same token at once, one gets the grant.
+## The person of the link `token` and the session that made it, when the link is alive, not used yet and still the
+## person's last one (also when a new link is made during this call); the link is used up by this call. Of two calls
+## with the same token at once, at most one gets the grant.
 def redeem(table: Links, token: String, now_ms: Int) -> Optional[Grant]
   dash = token.index_of("-")
   return none if dash.none?
@@ -73,16 +74,12 @@ def redeem(table: Links, token: String, now_ms: Int) -> Optional[Grant]
   link = found.unwrap!
   return none if not OpenSSL.HMAC.secure_compare(link.digest.bytes, digest(secret).bytes) or link.expires_ms <= now_ms
 
-  # The claim is the one atomic step. `issue` deletes the claim of the link it replaces; a claim made after that would
-  # stay for good, so it is taken back here when the link has been replaced meanwhile.
-  claim = claim_key(user_id.unwrap!, link.serial)
-  claimed = ATS.add(table.claims, claim, 1) == 1
+  # The claim is the one atomic step. A link replaced meanwhile gives nothing, and its claim stays: `issue` has already
+  # deleted the claims of that serial, so a claim taken back here would let a second call claim it again. Such a claim
+  # is left only by this race, at most one for each new link.
+  claimed = ATS.add(table.claims, claim_key(user_id.unwrap!, link.serial), 1) == 1
   current = ATS.get(table.links, person_key(user_id.unwrap!))
-  if not current.ok? or current.unwrap!.serial != link.serial
-    ATS.delete(table.claims, claim)
-  end
-
-  return none if not claimed
+  return none if not claimed or not current.ok? or current.unwrap!.serial != link.serial
 
   some(Grant(user_id: user_id.unwrap!, session_id: link.session_id))
 end
