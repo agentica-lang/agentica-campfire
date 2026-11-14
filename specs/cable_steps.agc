@@ -79,11 +79,9 @@ def ask(process: Process, request: JSON.Value) -> Result[JSON.Value]
   JSON.parse(line)
 end
 
-def serving(f: Fn[JSON.Value, Result[JSON.Value]]) -> Fn[JSON.Value, Result[JSON.Value]] = f
-
 def peer_starts(ctx: BDD.Context, _args: List[String]) -> BDD.Context
   process = Process.spawn_captured("agentica", [PEER_PROGRAM, "#{HttpSteps.port_of(ctx)}"]).unwrap!
-  service = serving do |request| ask(process, request) end
+  service: Fn[JSON.Value, Result[JSON.Value]] = ->(request) { ask(process, request) }
   BDD.keep(ctx, PEER, service)
 end
 
