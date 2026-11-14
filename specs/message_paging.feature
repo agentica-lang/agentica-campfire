@@ -1,12 +1,14 @@
 Feature: Messages after a message, around a message, and since a time
   Three more ways to read the messages of a room, as in Rails Campfire. `GET /rooms/ID/messages?after=ID` is the 40
   that come after a message (`MessagesController#find_paged_messages`), as `?before=` is the 40 before it; `before`
-  wins when both are given. `GET /rooms/ID/@MESSAGE` is the room page around a message (`page_around`: 40 before it, it,
-  and 40 after), and falls back to the newest page when the room has no such message. `GET /rooms/ID/refresh?since=MS`
-  (`Rooms::RefreshesController`) is what the live client asks for after it lost its connection: Turbo Streams that
-  append the messages created after that time (the first 40, oldest first) and replace each other one that was edited
-  after it. All are reads of the room for a member: no session redirects to sign-in, and a room that the person is not
-  in is 404, as for any room. The room is room 1, "All Talk", and the person is the first admin, user 1.
+  wins when both are given; a cursor that the room does not have (deleted, or of another room) stands for the nearest
+  message by id, which the page includes. `GET /rooms/ID/@MESSAGE` is the room page around a message (`page_around`:
+  40 before it, it, and 40 after), and falls back to the newest page when the room has no such message. `GET
+  /rooms/ID/refresh?since=MS` (`Rooms::RefreshesController`) is what the live client asks for after it lost its
+  connection: Turbo Streams that append the messages created after that time (the first 40, oldest first) and replace
+  each other one that was edited after it. All are reads of the room for a member: no session redirects to sign-in,
+  and a room that the person is not in is 404, as for any room. The room is room 1, "All Talk", and the person is the
+  first admin, user 1.
 
   Background:
     Given a fresh database
@@ -60,7 +62,7 @@ Feature: Messages after a message, around a message, and since a time
     Then the answer is not the one that I remembered
     And the body contains "A new one"
 
-  Scenario Outline: A cursor that is not a number is a 400 and one that names no message gives nothing
+  Scenario Outline: A cursor that is not a number is a 400 and one past the last message gives nothing
     Given the room 1 has 3 messages
     When I get "/rooms/1/messages?<cursor>"
     Then the status is <status>
@@ -129,7 +131,7 @@ Feature: Messages after a message, around a message, and since a time
       | /rooms/99/refresh   |
       | /rooms/abc/refresh  |
 
-  Scenario: The messages after a message are not for a person who is not in the room, nor after a message of another room
+  Scenario: The messages after a message are not for a person who is not in the room, and show nothing of another room
     Given a member "Bea" with the email "bea@example.com" exists
     And a closed room "Secret" with the members "bea@example.com"
     And the room 2 has 3 messages
@@ -138,6 +140,27 @@ Feature: Messages after a message, around a message, and since a time
     Then the status is 404
     And the body is "Not Found"
     When I get "/rooms/1/messages?after=1"
+    Then the status is 200
+    And the body contains "data-message-id=\"" 3 times
+    And the body does not contain "data-message-id=\"1\""
+
+  Scenario: A cursor whose message was deleted pages from the nearest message by id, so the client's walk goes on
+    Given the room 1 has 100 messages
+    And I run the sql "delete from messages where id in (20, 21, 60)"
+    When I get "/rooms/1/messages?before=21"
+    Then the status is 200
+    And the body contains "data-message-id=\"" 19 times
+    And the body shows "message 001" before "message 019"
+    When I get "/rooms/1/messages?after=60"
+    Then the status is 200
+    And the body contains "data-message-id=\"" 40 times
+    And the body shows "message 061" before "message 100"
+    And the body does not contain "message 059"
+    When I get "/rooms/1/messages?after=55"
+    Then the body shows "message 056" before "message 096"
+    And the body does not contain "message 097"
+    When I run the sql "delete from messages where id < 20"
+    And I get "/rooms/1/messages?before=21"
     Then the status is 204
 
   Scenario: A post to a path under a room that has no post is a 405, not a 404

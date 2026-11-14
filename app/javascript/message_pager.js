@@ -113,9 +113,9 @@ export function startMessagePager(page) {
     return error;
   }
 
-  // Asks for the page at the first cursor. A 204 is not the end when the message that was the cursor may be gone (deleted
-  // since the list got it): the room answers 204 for a message it does not have. So the next one inwards is asked; at the
-  // real end it answers with the edge message that the list has already, which is no news and ends the walk.
+  // Asks for the page at the first cursor. The room answers a cursor that it does not have (deleted since the list got
+  // it) with the page at the nearest message by id; a 204 for one cursor still asks the next one inwards, and at the
+  // real end that answers with the edge message that the list has already, which is no news and ends the walk.
   function ask(side, ids, n) {
     return fetch(base + "?" + side + "=" + ids[n], { credentials: "same-origin", headers: { Accept: "text/html" } })
       .then(read)
