@@ -329,6 +329,7 @@ const settle = (page) => page.waitForTimeout(600);
   // A message that is the cursor of the pager is deleted: the room answers 204 for a message it does not have, which is not
   // the end. Both walks ask again from the neighbour.
   const remove = (id) => other.evaluate((n) => fetch("/rooms/1/messages/" + n, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: new URLSearchParams({ _method: "delete" }) }).then((r) => r.status), id);
+  const edit = (id, text) => other.evaluate(([n, t]) => fetch("/rooms/1/messages/" + n, { method: "POST", credentials: "same-origin", headers: { Accept: "text/vnd.turbo-stream.html", "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: new URLSearchParams({ _method: "patch", "message[body]": t }) }).then((r) => r.status), [id, text]);
   const roomIds = () => page.evaluate(() => fetch("/rooms/1").then((r) => r.text()).then((t) => [...t.matchAll(/data-message-id="(\d+)"/g)].map((m) => parseInt(m[1], 10))));
   // The page `?before=AFTER` ends at the message CURSOR, more than 40 messages below the newest, so nothing but the pager
   // brings the messages after it (the catch-up of the end of a walk could only show the newest 40). CURSOR is deleted
@@ -375,6 +376,19 @@ const settle = (page) => page.waitForTimeout(600);
   // later loads are held until the checks are done.
   await page.goto(base + "/rooms/1");
   const known = (await ids(page)).at(-1);
+  const oldFirst = (await ids(page))[0];
+  // The fetch of the catch-up is held while a message comes live and an old one is edited; both reach the page by the
+  // stream, and the message is in the fetched page too.
+  let holdRoom;
+  const roomHeld = new Promise((done) => { holdRoom = done; });
+  let roomAsked = false;
+  await page.route("**/rooms/1", async (route) => {
+    if (route.request().resourceType() === "fetch" && !roomAsked) {
+      roomAsked = true;
+      await roomHeld;
+    }
+    await route.continue();
+  });
   let release;
   const released = new Promise((done) => { release = done; });
   let olderLoads = 0;
@@ -389,10 +403,19 @@ const settle = (page) => page.waitForTimeout(600);
   await page.waitForFunction(() => window.__sockets.every((one) => one.readyState === 3));
   for (let n = 0; n < 45; n++) await post(other, `missed number ${n}`);
   await page.evaluate(() => { window.__down = false; });
+  for (let n = 0; n < 150 && !roomAsked; n++) await page.waitForTimeout(100);
+  await post(other, "live during the catch-up");
+  await page.waitForSelector("text=live during the catch-up", { timeout: 10000 });
+  const edited = await edit(oldFirst, "edited during the catch-up");
+  await page.waitForSelector("text=edited during the catch-up", { timeout: 10000 });
+  holdRoom();
   await page.waitForFunction((k) => [...document.querySelectorAll("[data-message-id]")].some((i) => parseInt(i.dataset.messageId, 10) > k + 40), known, { timeout: 15000 });
   await settle(page);
+  await page.unroute("**/rooms/1");
   const jumped = await ids(page);
-  check("a catch-up with nothing in common makes the list the newest page, in order", jumped.length === 40 && jumped.every((v, i) => i === 0 || v > jumped[i - 1]) && jumped.at(-1) === (await roomIds()).at(-1), JSON.stringify(jumped));
+  check("a catch-up with nothing in common makes the list the newest page, in order, though a live message is in it", roomAsked && jumped.length === 40 && jumped.every((v, i) => i === 0 || v > jumped[i - 1]) && jumped.at(-1) === (await roomIds()).at(-1), JSON.stringify(jumped));
+  check("an old message edited during that catch-up is not kept below the new page", edited === 200 && (await page.locator("text=edited during the catch-up").count()) === 0, edited);
+  check("the view goes to the newest message", (await page.evaluate(() => -document.querySelector(".scroller").scrollTop)) < 2);
   const older = await page.locator(".thread > .more a").getAttribute("href");
   check("it has a link to what is before it", older === `/rooms/1?before=${jumped[0]}`, older);
   const loadsBefore = olderLoads;
@@ -416,6 +439,27 @@ const settle = (page) => page.waitForTimeout(600);
   // A short newest message: the page that the walk loads is within 100px of the end, and the reader is taken to it.
   await walk(async () => null);
   check("a reader near the end is taken to it when the page becomes the latest", (await page.evaluate(() => -document.querySelector(".scroller").scrollTop)) < 2);
+
+  // Every message of a short room is deleted while the socket is down and two are made: the fetched page is the whole
+  // room, so there is nothing older to link to.
+  const few = await page.evaluate(() => fetch("/rooms", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: new URLSearchParams({ name: "Few" }) }).then((r) => new URL(r.url).pathname.split("/").pop()));
+  const postTo = (room, text) => other.evaluate(([r, t]) => fetch(`/rooms/${r}/messages`, { method: "POST", credentials: "same-origin", headers: { Accept: "text/vnd.turbo-stream.html", "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: new URLSearchParams({ "message[body]": t }) }).then((r) => r.status), [room, text]);
+  for (let n = 0; n < 3; n++) await postTo(few, `few ${n}`);
+  await page.goto(base + `/rooms/${few}`);
+  const firstFew = await ids(page);
+  await page.evaluate(() => { window.__down = true; window.__sockets.forEach((one) => one.close()); });
+  await page.waitForFunction(() => window.__sockets.every((one) => one.readyState === 3));
+  const fewRemoved = [];
+  for (const id of firstFew) fewRemoved.push(await other.evaluate(([r, n]) => fetch(`/rooms/${r}/messages/${n}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: new URLSearchParams({ _method: "delete" }) }).then((x) => x.status), [few, id]));
+  let fewAsked = 0;
+  page.on("request", (request) => { if (request.url().includes(`/rooms/${few}/messages?before=`)) fewAsked++; });
+  await postTo(few, "few after");
+  await postTo(few, "few after again");
+  await page.evaluate(() => { window.__down = false; });
+  await page.waitForSelector("text=few after again", { timeout: 15000 });
+  await page.waitForTimeout(1500);
+  const fewNow = await ids(page);
+  check("a catch-up of a short room whose messages were all deleted adds no link to older ones", firstFew.length === 3 && fewRemoved.every((status) => status === 200) && fewNow.length === 2 && fewNow.every((id) => !firstFew.includes(id)) && fewAsked === 0 && (await page.locator(".thread > .more").count()) === 0, `${fewAsked} ${JSON.stringify(fewRemoved)} ${JSON.stringify(fewNow)}`);
 
   // A room whose ids are not in the order of time (the id of a database that Rails seeded does not follow it): 60 messages
   // whose ids go down as time goes up. The page loads the 20 older ones, the socket is dropped, and the catch-up has to

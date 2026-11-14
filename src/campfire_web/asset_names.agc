@@ -2,4 +2,4 @@
 ## again. The name has the first 16 hex digits of the SHA-256 of the file, which `specs/assets.feature` checks.
 
 STYLESHEET = "/assets/campfire-1b9800f058f48052.css"
-SCRIPT = "/assets/campfire-a5fa94423c56b3c9.js"
+SCRIPT = "/assets/campfire-958af7933f11c062.js"
