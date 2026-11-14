@@ -59,7 +59,7 @@ def build(
     |> CableWeb.add(cable, config)
     |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies, config.max_message_length, hooks)
     |> BoostsWeb.add(pool, cable)
-    |> BotMessagesWeb.add(pool, cable, config, hooks)
+    |> BotMessagesWeb.add(pool, cable, config)
     |> AccountsWeb.add(config, pool, cable, bans)
     |> BotsWeb.add(pool, config)
     |> SidebarsWeb.add(pool, cable, pages)

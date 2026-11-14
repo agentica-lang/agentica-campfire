@@ -9,6 +9,7 @@ def steps() -> List[BDD.Step]
   [
     BDD.step("the webhook answers {string} as {string}", &peer_answers),
     BDD.step("the webhook answers after {int} milliseconds", &peer_waits),
+    BDD.step("the webhook answers after {int} milliseconds only on {string}", &peer_waits_on),
     BDD.step("the webhook is listening", &peer_listens),
     BDD.step("the webhook receives a post", &peer_received),
     BDD.step("the post contains {string}", &post_contains),
@@ -29,6 +30,7 @@ PORT = "webhook_port"
 REPLY = "webhook_reply"
 KIND = "webhook_type"
 DELAY = "webhook_delay"
+SLOW_PATH = "webhook_slow_path"
 POST = "webhook_post"
 LISTENING = "listening "
 STARTUP_MS = 10_000
@@ -48,11 +50,16 @@ end
 
 def peer_waits(ctx: BDD.Context, args: List[String]) -> BDD.Context = BDD.set(ctx, DELAY, JSON.from(args[0]))
 
+def peer_waits_on(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  BDD.set(BDD.set(ctx, DELAY, JSON.from(args[0])), SLOW_PATH, JSON.from(args[1]))
+end
+
 def peer_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
   env = {
     "WEBHOOK_PEER_REPLY": text_of(ctx, REPLY),
     "WEBHOOK_PEER_TYPE": text_of(ctx, KIND),
     "WEBHOOK_PEER_DELAY_MS": text_of(ctx, DELAY),
+    "WEBHOOK_PEER_SLOW_PATH": text_of(ctx, SLOW_PATH),
   }
 
   started = Process.spawn_captured("python3", [PEER], Process.Options(env: env.select { |_, v| not v.empty? }))

@@ -80,9 +80,10 @@ the avatar of Rails' form, which needs the profile pictures (#73), and the secon
 
 As in Rails (`Webhook`, `Bot::WebhookJob`), a bot with a webhook URL gets a `POST` with `Content-Type:
 application/json` for each new message meant for it: every message of a direct room it is in, and in any other room a
-message that mentions it, from a person or from another bot through the API. Until mentions exist (#57), a mention is
-the text `@NAME` not followed by a letter, a digit or `_`. A bot never gets its own message, and only an active bot is
-sent anything. The body is Rails' payload:
+message of a person that mentions it. Until mentions exist (#57), a mention is the text `@NAME` not followed by a
+letter, a digit or `_`. A message that a bot posts through the API goes to no webhook (Rails sends it to the other
+bots), so two bots cannot answer each other forever. Only an active bot is sent anything, and at most 16 bots get one
+message. The body is Rails' payload:
 
 ```json
 {"user": {"id": 1, "name": "Ana"},
@@ -94,8 +95,9 @@ sent anything. The body is Rails' payload:
 with `Content-Type` `text/html` or `text/plain` is posted to the room as a message of the bot (HTML, cleaned as every
 body is); any other answer is dropped. An answer that takes longer than `CAMPFIRE_WEBHOOK_TIMEOUT` (7 seconds) is
 answered with the message "Failed to respond within 7 seconds" of the bot. A reply is not sent to the webhooks again.
-The delivery runs in a task after the post is answered, one bot after the other; a connection that fails is tried
-three times in all, and any other failure is logged and dropped (Rails' job does not retry either). A webhook reaches
+The delivery runs after the post is answered, each bot in a task of its own, so a slow webhook holds up no other; at
+most 32 posts run at once and 256 more wait, and a post past that is logged and dropped. A connection that fails is
+tried three times in all, and any other failure is logged and dropped (Rails' job does not retry either). A webhook reaches
 only addresses of the open internet unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true (see
 [security.md](security.md#webhooks)). Not here: Rails' reply with an attachment, which waits for the uploads (#60).
 

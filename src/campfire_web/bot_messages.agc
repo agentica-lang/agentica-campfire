@@ -15,8 +15,8 @@
 ##
 ## Where this differs from Rails: a wrong key is 404, not a redirect to the sign-in page, and a blank body is also
 ## refused on an edit. Left out until they exist here: the `attachment` upload (a `multipart/form-data` post is 415, so
-## the form is never posted as text) and the avatar of `creator` and of `booster`. A post goes to the webhooks of the
-## bots it is meant for, as a post of a person does (`Webhooks`).
+## the form is never posted as text), the avatar of `creator` and of `booster`, and the webhooks: a post of a bot goes
+## to none, so that two bots cannot answer each other forever.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
@@ -26,7 +26,6 @@ import Bots from "../campfire/bots"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
-import Webhooks from "webhooks"
 import Rooms from "../campfire/rooms"
 import RoomsWeb from "rooms"
 import Routes from "routes"
@@ -34,29 +33,29 @@ import {Config} from "../campfire/config"
 
 ## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at
 ## the room, and `config` says where the links of the answers start (`origin`).
-def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config, hooks: Webhooks.Hooks) -> Bond.App
+def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config) -> Bond.App
   on_get_bot_messages = Blocks.handler do |conn|
-    serve(conn, pool, cable, none) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
+    serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
   end
 
   on_post_bot_messages = Blocks.handler do |conn|
-    serve(conn, pool, cable, some(hooks)) do |db, bot, room| create_answer(conn, db, bot, room, config) end
+    serve(conn, pool, cable) do |db, bot, room| create_answer(conn, db, bot, room, config) end
   end
 
   on_patch_bot_message = Blocks.handler do |conn|
-    serve(conn, pool, cable, none) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
+    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
   end
 
   on_put_bot_message = Blocks.handler do |conn|
-    serve(conn, pool, cable, none) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
+    serve(conn, pool, cable) do |db, bot, room| edit_answer(conn, db, bot, room, config) end
   end
 
   on_delete_bot_message = Blocks.handler do |conn|
-    serve(conn, pool, cable, none) do |db, bot, room| remove_answer(conn, db, bot, room) end
+    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room) end
   end
 
   on_post_bot_message_boosts = Blocks.handler do |conn|
-    serve(conn, pool, cable, none) do |db, bot, room| boost_answer(conn, db, bot, room, origin(conn, config)) end
+    serve(conn, pool, cable) do |db, bot, room| boost_answer(conn, db, bot, room, origin(conn, config)) end
   end
 
   (
@@ -68,7 +67,7 @@ def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Confi
     |> Bond.delete(Routes.BOT_MESSAGE, on_delete_bot_message)
     |> Bond.post(Routes.BOT_MESSAGE_BOOSTS, on_post_bot_message_boosts)
     |> Bond.delete(Routes.BOT_MESSAGE_BOOST) do |conn|
-      serve(conn, pool, cable, none) do |db, bot, room| unboost_answer(conn, db, bot, room) end
+      serve(conn, pool, cable) do |db, bot, room| unboost_answer(conn, db, bot, room) end
     end
   )
 end
@@ -213,15 +212,9 @@ def serve(
   conn: Bond.Conn,
   pool: Database.Pool,
   cable: CableWeb.Cable,
-  hooks: Optional[Webhooks.Hooks],
   handle: Fn[Db.Connection, Bots.Bot, Rooms.Room, Result[Answer]],
 ) -> Result[Bond.Conn]
   answer = try Database.with_connection(pool) do |db| keyed(conn, db, handle) end
-  case answer
-    Answer.Created(room, message, _) if hooks.some? -> Webhooks.deliver_later(hooks.unwrap!, room, message)
-    _ -> nil
-  end
-
   ok(announced(conn, cable, answer))
 end
 

@@ -1,7 +1,8 @@
 Feature: The webhooks of the chat bots
   As Rails Campfire (`Webhook`, `Bot::WebhookJob`, `MessagesController#deliver_webhooks_to_bots`), a bot with a webhook
-  URL gets the messages meant for it as a JSON post: every message of a direct room it is in, and in another room the
-  messages that mention it (until mentions exist, the text `@NAME`). The author is never sent its own message. An answer
+  URL gets the messages of people meant for it as a JSON post: every message of a direct room it is in, and in another
+  room the messages that mention it (until mentions exist, the text `@NAME`). A message that a bot posts through the API
+  goes to no webhook, so two bots cannot answer each other forever. An answer
   `200` of `text/html` or `text/plain` is posted back to the room as a message of the bot, and an answer that takes too
   long is answered "Failed to respond within N seconds". A webhook reaches only addresses of the open internet unless
   `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true. The webhook here is a Python server on 127.0.0.1. The first admin is
@@ -90,7 +91,7 @@ Feature: The webhooks of the chat bots
     And the post contains "\"room\": {\"id\": 2, \"name\": null"
     And the post contains "\"plain\": \"Just us\""
 
-  Scenario: A post of the bots API that mentions another bot reaches it, and the author never gets its own message
+  Scenario: A post of the bots API goes to no webhook, even one that mentions another bot
     Given a fresh database
     And the webhook is listening
     And the app starts with webhooks to private addresses that wait 7 seconds
@@ -104,9 +105,26 @@ Feature: The webhooks of the chat bots
     And the bot 3 has the webhook at "/echo"
     When I send "POST" to "/rooms/1/2-aaaaBBBB1111/messages" the text "@Robo and @Echo, hello"
     Then the status is 201
-    When the webhook receives a post
-    Then the post contains "\"path\": \"/echo\""
-    And the webhook receives nothing within 1000 milliseconds
+    And the webhook receives nothing within 1500 milliseconds
+
+  Scenario: A slow webhook does not hold up the webhook of another bot
+    Given a fresh database
+    And the webhook answers "Here" as "text/plain"
+    And the webhook answers after 5000 milliseconds only on "/slow"
+    And the webhook is listening
+    And the app starts with webhooks to private addresses that wait 7 seconds
+    And the first admin exists
+    And I post to "/account/bots" the form:
+      | user[name] | Slow |
+    And I post to "/account/bots" the form:
+      | user[name] | Fast |
+    And the bot 2 has the webhook at "/slow"
+    And the bot 3 has the webhook at "/fast"
+    When I post to "/rooms/1/messages" the form:
+      | message[body] | @Slow and @Fast, who is there? |
+    Then the query "select count(*) from messages where creator_id = 3" gives 1 within 2500 milliseconds
+    And the query "select count(*) from messages where creator_id = 2" gives 0
+    And the query "select count(*) from messages where creator_id = 2" gives 1 within 6000 milliseconds
 
   Scenario: Without the setting, a webhook on a loopback address gets nothing
     Given a fresh database
