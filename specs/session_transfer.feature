@@ -3,7 +3,8 @@ Feature: Signing in on another device
   that signs another browser in as them, shown with its QR code. Unlike Rails, a link works once and for 15 minutes, and
   the server keeps only a hash of it, in memory. Opening the link shows a button; the button (`PUT`) signs in and goes
   home, and a link that does not work, whatever the reason, is a 400. `/qr_code/ID` draws the Base64url text ID as an
-  SVG. Both need no sign-in; making a link does. The expiry is in `test/transfers_test.agc`.
+  SVG. The link needs no sign-in; making a link and the QR route do. A person has one link at a time, and a link works
+  only while the session that made it lasts. The expiry is in `test/transfers_test.agc`.
 
   Background:
     Given a fresh database
@@ -24,6 +25,7 @@ Feature: Signing in on another device
     Then the status is 200
     And the header "cache-control" is "no-store"
     And the body contains "<input name=\"_method\" type=\"hidden\" value=\"put\">"
+    And the header "content-security-policy" is "frame-ancestors 'none'"
     When I get "/users/me/profile"
     Then the status is 302
     When I post to the sign-in link that I remembered the form:
@@ -50,6 +52,21 @@ Feature: Signing in on another device
     And I send a PUT to the sign-in link that I remembered
     Then the status is 400
     And the header "set-cookie" does not contain "session_token="
+
+  Scenario: A new link ends the last one, and signing out ends the link of the session
+    When I post nothing to "/session/transfers"
+    And I remember the sign-in link of the page
+    And I post nothing to "/session/transfers"
+    And the browser has no cookies
+    And I send a PUT to the sign-in link that I remembered
+    Then the status is 400
+    When I sign in as "ana@example.com"
+    And I post nothing to "/session/transfers"
+    And I remember the sign-in link of the page
+    And I post nothing to "/sign_out"
+    And the browser has no cookies
+    And I send a PUT to the sign-in link that I remembered
+    Then the status is 400
 
   Scenario: Making a link needs a sign-in
     When the browser has no cookies
@@ -79,9 +96,8 @@ Feature: Signing in on another device
     Then the status is 405
     And the header "allow" is "GET, HEAD, POST, PUT"
 
-  Scenario: The QR code of a Base64url text is an SVG kept by any cache, and a bad text is a 400
-    When the browser has no cookies
-    And I get "/qr_code/aHR0cHM6Ly9jYW1wZmlyZS5leGFtcGxlLmNvbS8"
+  Scenario: The QR code of a Base64url text is an SVG kept by any cache, a bad text is a 400, and it needs a sign-in
+    When I get "/qr_code/aHR0cHM6Ly9jYW1wZmlyZS5leGFtcGxlLmNvbS8"
     Then the status is 200
     And the header "content-type" contains "image/svg+xml"
     And the header "cache-control" is "max-age=31536000, public"
@@ -90,3 +106,7 @@ Feature: Signing in on another device
     Then the status is 400
     When I get "/qr_code/eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA"
     Then the status is 400
+    When the browser has no cookies
+    And I get "/qr_code/aHR0cHM6Ly9jYW1wZmlyZS5leGFtcGxlLmNvbS8"
+    Then the status is 302
+    And the header "location" is "/session/new"

@@ -344,11 +344,11 @@ def public?(path: String) -> Bool
   # signed in. A path that is not a file there is a 404 (`Bond.static` refuses a way out of the folder), whoever asks.
   return true if path.start_with?(ASSETS_PREFIX)
 
-  # "/join/CODE" splits into "", "join" and the code, "/qr_code/ID" alike, and "/session/transfers/TOKEN" into four.
+  # "/join/CODE" splits into "", "join" and the code, and "/session/transfers/TOKEN" into four.
   parts = path.split("/")
   return false if parts.empty? or not parts[0].empty? or parts.last.empty?
 
-  return true if parts.size == JOIN_SEGMENTS and (parts[1] == "join" or parts[1] == "qr_code")
+  return true if parts.size == JOIN_SEGMENTS and parts[1] == "join"
 
   parts.size == TRANSFER_SEGMENTS and parts[1] == "session" and parts[2] == "transfers"
 end
