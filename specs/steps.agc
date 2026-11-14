@@ -60,6 +60,9 @@ LISTENING = "listening on "
 # listens costs the full time. The steps that expect a failing start to exit use the same bound.
 START_MS = 30_000
 FOLDER_PREFIX = "campfire-spec-"
+STALE_FOLDER_SECONDS = 3600
+OLD_FOLDER = "old_folder"
+TOUCH_MS = 5000
 # Where the migrated database that "a fresh database" copies is kept: `_build/spec-template/` of the project (`_build/`
 # is its build folder, which git ignores). The file name is a digest (see `schema_template`). A template or a scratch
 # file is removed only when it is older than this many seconds.
@@ -87,6 +90,8 @@ def main() -> Void
     BDD.step("the app starts with attachments of at most {int} MB", &start_with_attachment_size),
     BDD.step("the storage folder holds {int} files", &storage_holds),
     BDD.step("a crash left a file in the folder of the uploads", &leave_upload),
+    BDD.step("a spec folder from a crashed scenario is {int} hours old", &leave_old_spec_folder),
+    BDD.step("that spec folder is gone", &old_spec_folder_is_gone),
     BDD.step("a crash left the stored file {string}", &leave_stored_file),
     BDD.step("the app starts with webhooks to private addresses that wait {int} seconds", &start_with_webhooks),
     BDD.step("the app restarts", &restart_app),
@@ -355,7 +360,8 @@ def fresh_database(ctx: BDD.Context, args: List[String]) -> BDD.Context = new_da
 def empty_database(ctx: BDD.Context, args: List[String]) -> BDD.Context = new_database(ctx, false)
 
 def new_database(ctx: BDD.Context, migrated: Bool) -> BDD.Context
-  root = System.env("TMPDIR").unwrap_or("/tmp")
+  root = temp_root()
+  remove_stale_folders(root)
   dir = Path.join([root, "#{FOLDER_PREFIX}#{OpenSSL.Random.hex(8)}"]).unwrap!
   made = Dir.mkdir_private(dir)
   return BDD.assert(ctx, false, "cannot make #{dir}: #{made.message}") if not made.ok?
@@ -368,6 +374,37 @@ def new_database(ctx: BDD.Context, migrated: Bool) -> BDD.Context
 
   copied = copy_template("#{dir}/campfire.db")
   BDD.assert(hooked, copied.ok?, "cannot copy the migrated database: #{copied.message}")
+end
+
+def temp_root() -> String = System.env("TMPDIR").unwrap_or("/tmp")
+
+# `BDD.after` does not run when the scenario process ends (a crash, the time limit), so those folders are swept here.
+def remove_stale_folders(root: String) -> Void
+  nothing: List[String] = []
+  now = Time.now_ms() / 1000
+  for name in Dir.list(root).unwrap_or(nothing)
+    stale = Path.join([root, name]).unwrap!
+    info = File.lstat(stale)
+    if name.start_with?(FOLDER_PREFIX) and info.ok? and now - info.unwrap!.modified_seconds > STALE_FOLDER_SECONDS
+      _ = Path.remove(stale)
+    end
+  end
+end
+
+def leave_old_spec_folder(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  dir = Path.join([temp_root(), "#{FOLDER_PREFIX}old#{OpenSSL.Random.hex(8)}"]).unwrap!
+  made = Dir.mkdir_private(dir)
+  return BDD.assert(ctx, made.ok?, "cannot make #{dir}: #{made.message}") if not made.ok?
+
+  touched = Process.spawn("touch", ["-d", "#{args[0]} hours ago", dir])
+  return BDD.assert(ctx, touched.ok?, "cannot run touch: #{touched.message}") if not touched.ok?
+
+  waited = Process.wait(touched.unwrap!, TOUCH_MS)
+  BDD.assert(BDD.set(ctx, OLD_FOLDER, JSON.from(dir)), waited.ok? and waited.unwrap! == 0, "touch failed")
+end
+
+def old_spec_folder_is_gone(ctx: BDD.Context, _args: List[String]) -> BDD.Context
+  BDD.assert(ctx, not File.lstat(text_of(ctx, OLD_FOLDER)).ok?, "the old spec folder is still there")
 end
 
 def copy_template(to: String) -> Result[Void]

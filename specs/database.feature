@@ -3,6 +3,11 @@ Feature: The database and its migrations
   the migrations that the database has not seen and only then listens. A start that cannot open or migrate the
   database stops with a message that names the variable.
 
+  Scenario: A spec folder that a crashed scenario left is removed by the next fresh database
+    Given a spec folder from a crashed scenario is 2 hours old
+    And a fresh database
+    Then that spec folder is gone
+
   Scenario: The first start on a new database runs every migration
     Given an empty database
     When the app starts

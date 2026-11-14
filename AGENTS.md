@@ -107,7 +107,8 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
 - BDD first: a behavior is a Gherkin scenario in `specs/` before the code. A test over HTTP uses 127.0.0.1 and port 0.
   Unit tests (`test/`) only for pure helpers. A scenario gives the app its settings with `the environment variable`
   steps (`CAMPFIRE_*`), never through stdin, and a step that makes something on disk registers its removal with
-  `BDD.after`, so a failed scenario leaves nothing behind.
+  `BDD.after`, so a failed scenario leaves nothing behind (it does not run when the scenario process itself crashes or
+  times out, so `new_database` sweeps the `campfire-spec-*` folders older than an hour).
 - Views are EAG templates with `<%@ escape &Bond.escape %>` as the first line, so every `<%= %>` is escaped. The one
   exception is a plain-text email (`Views.reset_mail`): nothing in it is HTML, so it has no escape directive.
   `<%== %>` only for markup that the program wrote, never for a value of a client.
