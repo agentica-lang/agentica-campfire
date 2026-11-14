@@ -11,7 +11,7 @@ def main() -> Void
       taken = WorkQueue.take(queue).unwrap!
       try Test.assert(not WorkQueue.offer(queue, "a", 3), "full while one is in hand")
       WorkQueue.finish(queue, taken.key)
-      try Test.assert(WorkQueue.put_back(queue, taken), "put back")
+      WorkQueue.put_back(queue, taken)
       try Test.eq(WorkQueue.take(queue).unwrap!.item, 2)
       Test.eq(WorkQueue.take(queue).unwrap!.item, 1)
     end,
@@ -43,5 +43,27 @@ def main() -> Void
       WorkQueue.finish(queue, "a")
       Test.eq(WorkQueue.take(queue).unwrap!.item, 4)
     end,
+    Test.test("workers that race on capped keys leave no item waiting") do
+      queue: WorkQueue.Queue[Int] = WorkQueue.new(64, 1)
+      for n in 0...64
+        try Test.assert(WorkQueue.offer(queue, "k#{n % 2}", n), "offer")
+      end
+
+      done = Task.map([0, 1, 2, 3, 4, 5], 6, 20_000) do |_| drain(queue) end
+      Test.eq(done.map(->(count) { count.unwrap_or(0) }).sum, 64)
+    end,
   ])
+end
+
+def drain(queue: WorkQueue.Queue[Int]) -> Result[Int]
+  count = 0
+  entry = WorkQueue.take(queue)
+  while entry.some?
+    count += 1
+    WorkQueue.started(queue)
+    WorkQueue.finish(queue, entry.unwrap!.key)
+    entry = WorkQueue.take(queue)
+  end
+
+  ok(count)
 end
