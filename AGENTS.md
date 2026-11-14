@@ -25,7 +25,8 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
                 in memory), searches.agc (the words of a query, the
                 FTS5 search of messages, the recent searches), blobs.agc (the blobs of Active Storage: keys, files, deletion),
-                attachments.agc (the file of a message: its rows, its type from its bytes, what is shown inline),
+                attachments.agc (the file of a message: its rows, its type from its bytes, what is shown inline, its
+                preview), image_size.agc (the size of an image from its header),
                 avatars.agc (the Active Storage variant of an avatar
                 and its file; initials and colour), html_sanitizer.agc (an allowlist sanitizer for stored HTML
                 bodies; pure), autolink.agc (the links of URLs and email addresses in a clean body, made when a
@@ -368,7 +369,9 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
 - Attachments (`docs/rooms.md`, `docs/security.md`): the file of a message is received by `Bond.uploads`
   (`CAMPFIRE_MAX_ATTACHMENT_MB`) and moved to `xx/yy/KEY` before the connection is taken, then attached in the
   transaction of `Rooms.post`; a post that does not store the message deletes the file. The stored type comes from
-  `Attachments.identify`, never from the client. `GET /rooms/ID/messages/MID/attachment` checks the membership on every
+  `Attachments.identify`, never from the client, and an image's size from its header (`ImageSize`, stored in the
+  blob's metadata as Rails' analyzer does); `Attachments.preview` picks the image, the video player or the link, and
+  the image is sized by the browser (no thumbnail, no poster: #172). `GET /rooms/ID/messages/MID/attachment` checks the membership on every
   request; only `Attachments.inline?` lets a file be shown inline, everything else is a download, with `nosniff` and a
   sandbox policy. Whatever deletes a message gets the keys of its blobs (`Attachments.detach_in`) and deletes the files
   with `Blobs.remove_files` after the commit.

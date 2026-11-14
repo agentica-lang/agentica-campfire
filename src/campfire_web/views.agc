@@ -4,6 +4,7 @@
 import EAG from "std/eag"
 import Bond from "pkg/bond/bond"
 import Accounts from "../campfire/accounts"
+import Attachments from "../campfire/attachments"
 import Autolink from "../campfire/autolink"
 import Boosts from "../campfire/boosts"
 import Bots from "../campfire/bots"
@@ -855,14 +856,21 @@ def room(
       <p role="alert"><%= composer.note %></p>
     <% end %>
       <p aria-live="polite"></p>
-      <form method="post" action="<%= Routes.room_messages_path(room.id) %>">
+      <form method="post" action="<%= Routes.room_messages_path(room.id) %>" enctype="multipart/form-data">
         <input name="message[client_message_id]" type="hidden" value="<%= composer.message_id %>">
         <p>
           <label><span class="sr-only">Message</span>
-            <textarea name="message[body]" rows="1" placeholder="Message" required><%= composer.draft %></textarea></label>
+            <textarea name="message[body]" rows="1" placeholder="Message"><%= composer.draft %></textarea></label>
         </p>
+        <p class="attach"><label><span class="sr-only">Attach a file</span>
+          <input name="message[attachment]" type="file"></label></p>
         <p><button type="submit">Send</button></p>
       </form>
+      <dialog class="lightbox" aria-label="Image viewer (press Escape to close)">
+        <img alt="">
+        <form method="dialog"><button type="submit">Close</button></form>
+        <a href="" download>Download</a>
+      </dialog>
       <%== viewer_style(me) %>
       <script src="<%= Routes.SCRIPT %>" defer></script>
     </main>
@@ -1431,15 +1439,35 @@ def message_head(message: Rooms.Message) -> String
   EAG
 end
 
-# The link that downloads the file of a message, after its body; "" for a message with none, whose markup is then the
-# benchmark's.
+# The file of a message, after its body; "" for a message with none, whose markup is then the benchmark's. An image
+# with a preview links to itself, which the lightbox opens (`data-lightbox`, with the link that downloads it); a
+# video gets a player; anything else is the link that downloads it.
 def attachment_link(message: Rooms.Message) -> String
   case message.attachment
     none -> ""
-    some(file) ->
+    some(file) -> attachment_markup(message, file)
+  end
+end
+
+def attachment_markup(message: Rooms.Message, file: Attachments.Attachment) -> String
+  path = Routes.room_message_attachment_path(message.room_id, message.id)
+  case Attachments.preview(file)
+    Attachments.Preview.Image(size) ->
       <<~EAG.strip
         <%@ escape &Bond.escape %>
-        <a href="<%= Routes.room_message_attachment_path(message.room_id, message.id) %>" download><%= file.filename %></a>
+        <a href="<%= path %>" class="attachment" data-lightbox data-download="<%= Routes.room_message_download_path(message.room_id, message.id) %>"><img src="<%= path %>" width="<%= size.width %>" height="<%= size.height %>" alt="<%= file.filename %>" loading="lazy"></a>
+      EAG
+
+    Attachments.Preview.Video ->
+      <<~EAG.strip
+        <%@ escape &Bond.escape %>
+        <video src="<%= path %>" class="attachment" controls preload="metadata" title="<%= file.filename %>"></video>
+      EAG
+
+    Attachments.Preview.Link ->
+      <<~EAG.strip
+        <%@ escape &Bond.escape %>
+        <a href="<%= path %>" download><%= file.filename %></a>
       EAG
   end
 end

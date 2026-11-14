@@ -2,7 +2,8 @@
 ## who has it can open; here the link is the room's own, so the person must be in the room, as for every page of it:
 ## a room that is not theirs, a message that is not in it, a message with no file and a file that is gone are the same
 ## 404. The file is sent as Active Storage would serve it: an image whose bytes are of its type is shown (`inline`),
-## anything else is a download (`Content-Disposition: attachment` with its name), a type that a browser could run is
+## anything else is a download (`Content-Disposition: attachment` with its name, also an image asked for with
+## `?disposition=attachment`), a type that a browser could run is
 ## sent as `application/octet-stream`, and every answer has `nosniff` and a policy that runs nothing. Ranges and
 ## validators are `Bond.send_file`'s. Nothing is kept by a shared cache, and the browser asks again each time, so a
 ## person taken out of the room stops getting the file.
@@ -60,7 +61,8 @@ def sent(conn: Bond.Conn, storage_dir: String, blob: Attachments.Blob) -> Result
   head = first_bytes(path.unwrap!)
   return ok(missing(conn)) if not head.ok?
 
-  inline = Attachments.inline?(blob.content_type, head.unwrap!)
+  download = Bond.query(conn, "disposition").unwrap_or("") == "attachment"
+  inline = not download and Attachments.inline?(blob.content_type, head.unwrap!)
   disposition: Optional[String] = some(blob.filename)
   content_type = Attachments.served_type(blob.content_type)
   if inline

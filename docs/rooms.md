@@ -218,10 +218,20 @@ form with the file in `message[attachment]`, as Rails' uploader sends it, and `m
 file is stored as Active Storage's Disk service stores it: a row of `active_storage_blobs` (a new 28-character key,
 service `local`, no checksum), an attachment named `attachment` of the `Message` and the file at `xx/yy/KEY` of
 `CAMPFIRE_STORAGE_DIR`, written with the message in one transaction; a file with no text is found in the search by its
-name. A message with a file shows a link to it after its body. `GET /rooms/ID/messages/MID/attachment` downloads it,
-for the people of the room (anybody else is the `404` of a missing page). Deleting the message, its room or the
-messages of a banned person deletes the rows of its blob and then the file. There is no composer button and no preview
-yet (#61).
+name. `GET /rooms/ID/messages/MID/attachment` downloads it, for the people of the room (anybody else is the `404` of a
+missing page), and `?disposition=attachment` makes even an image a download. Deleting the message, its room or the
+messages of a banned person deletes the rows of its blob and then the file. The composer has a file picker: the form
+is `multipart/form-data`, and the script sends a picked file the same way (text alone stays a plain form).
+
+A message shows its file after its body, as `Messages::AttachmentPresentation` of Rails does. The size of a PNG, GIF,
+JPEG (turned by its EXIF orientation) or WebP image is read from its header when it is posted and stored in the blob's
+`metadata` (`width`, `height`, `analyzed`), as Active Storage's analyzer stores it, so a database that Rails made shows
+its images too. An image with a size and at most 25 million pixels (Rails allows 250 million, as it shows a thumbnail;
+here the browser decodes the file itself until #172) is shown, fitted to 1200 by 800 and at half that
+(`width` and `height` of the `<img>`, smaller in a narrow bubble), as a link to itself that the lightbox of the page
+opens, with a Download link. An MP4, QuickTime or WebM video (by its bytes) gets a `<video>` player. Anything else, an
+image over the cap or one whose header cannot be read, is the link that downloads it. There is no thumbnail and no
+video poster: the browser loads the image itself and sizes it (#172).
 
 ## Editing and deleting a message
 

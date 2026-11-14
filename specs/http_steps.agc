@@ -21,6 +21,7 @@ def steps() -> List[BDD.Step]
     BDD.step("I upload to {string} the file {string} of the type {string} that holds {string}", &upload_text),
     BDD.step("I upload to {string} a PNG image named {string} of the type {string}", &upload_png),
     BDD.step("I upload to {string} a file of {int} bytes", &upload_size),
+    BDD.step("I upload to {string} the file {string} of the type {string} with the bytes {string}", &upload_hex),
     BDD.step("I post to {string} the form:", &post_form),
     BDD.step("I post to {string} {int} times at once the form:", &post_form_at_once),
     BDD.step("I post {int} messages at once to {string}", &post_messages_at_once),
@@ -811,6 +812,11 @@ end
 
 def upload_png(ctx: BDD.Context, args: List[String]) -> BDD.Context
   upload(ctx, args[0], args[1], args[2], OpenSSL.Digest.hexdecode(PIXEL_PNG).unwrap!)
+end
+
+# The bytes are written in hex, so a scenario can give the header of an image or a video.
+def upload_hex(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  upload(ctx, args[0], args[1], args[2], OpenSSL.Digest.hexdecode(args[3]).unwrap!)
 end
 
 def upload_size(ctx: BDD.Context, args: List[String]) -> BDD.Context

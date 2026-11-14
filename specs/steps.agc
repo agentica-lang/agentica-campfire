@@ -141,6 +141,7 @@ def main() -> Void
     BDD.step("I try the sql {string}", &try_sql),
     BDD.step("the sql fails with {string}", &sql_fails_with),
     BDD.step("the query {string} gives {int}", &query_gives),
+    BDD.step("the query {string} gives the text {string}", &query_gives_text),
     BDD.step("the query {string} gives at most {int}", &query_gives_at_most),
     BDD.step("the query {string} gives {int} within {int} milliseconds", &query_gives_within),
     BDD.step("{string} asks Rooms to delete the room {int} while a message is posted in between", &ask_delete_between),
@@ -919,6 +920,11 @@ def query_gives(ctx: BDD.Context, args: List[String]) -> BDD.Context
   rows = rows_of(ctx, args[0])
   count = value_int(rows[0].values[0])
   BDD.assert(ctx, count == args[1].to_i!, "the query gave #{count}")
+end
+
+def query_gives_text(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  text = value_text(rows_of(ctx, args[0])[0].values[0])
+  BDD.assert(ctx, text == args[1], "the query gave #{text.inspect}")
 end
 
 def query_gives_at_most(ctx: BDD.Context, args: List[String]) -> BDD.Context
