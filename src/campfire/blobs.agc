@@ -59,6 +59,30 @@ def remove_files(storage_dir: String, keys: List[String]) -> Void
   end
 end
 
+## Deletes the files under `storage_dir` that no blob row names: what a crash between `store` and the commit of the
+## message left. Only the start calls it, when no request is storing a file yet.
+def sweep(db: Db.Connection, storage_dir: String) -> Result[Void]
+  for first in try Dir.list(storage_dir)
+    next if not Regex.match?(first, FOLDER)
+
+    for second in try Dir.list(try Path.join([storage_dir, first]))
+      next if not Regex.match?(second, FOLDER)
+
+      folder = try Path.join([storage_dir, first, second])
+      for key in try Dir.list(folder)
+        next if try named?(db, key)
+
+        gone = Path.remove(try Path.join([folder, key]))
+        if not gone.ok?
+          IO.warn("campfire: cannot delete the orphan file #{key}: #{gone.message}")
+        end
+      end
+    end
+  end
+
+  ok()
+end
+
 ## The blob and its variants, when nothing is attached to it any more: the variants go first, since their rows and
 ## the attachments of their images hold keys to it. It gives the keys of every blob deleted, in the transaction `tx`.
 def drop(tx: Db.Connection, blob_id: Int) -> Result[List[String]]
@@ -103,6 +127,7 @@ private
 # Active Storage keys are 28 characters of base 36 (`OpenSSL.Random.base36`). Only those can be a name in the folder of
 # the files: whatever else a row holds is never turned into a path.
 KEY = /\A[0-9a-z]{4,64}\z/
+FOLDER = /\A[0-9a-z]{2}\z/
 KEY_LENGTH = 28
 ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
 FAIR_BELOW = 252
@@ -122,4 +147,9 @@ def unused?(tx: Db.Connection, blob_id: Int) -> Result[Bool]
   )
 
   ok(rows.empty?)
+end
+
+def named?(db: Db.Connection, key: String) -> Result[Bool]
+  rows = try Db.query(db, "select 1 from active_storage_blobs where key = ? limit 1", [Db.Value.Text(key)])
+  ok(not rows.empty?)
 end

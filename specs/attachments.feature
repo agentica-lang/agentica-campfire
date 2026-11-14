@@ -163,3 +163,11 @@ Feature: Attachments
     Given a crash left a file in the folder of the uploads
     When the app restarts
     Then the storage folder holds 0 files
+
+  Scenario: The start deletes a stored file that no blob names, and keeps the others
+    Given I upload to "/rooms/1/messages" the file "notes.txt" of the type "text/plain" that holds "hello"
+    And a crash left the stored file "ab/cd/abcdefghijklmnopqrstuvwxyz12"
+    And the storage folder holds 2 files
+    When the app restarts
+    Then the storage folder holds 1 files
+    And the query "select count(*) from active_storage_blobs" gives 1

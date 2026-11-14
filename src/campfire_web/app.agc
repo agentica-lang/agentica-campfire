@@ -1,5 +1,6 @@
 ## The app as a program runs it: the database first, then the server.
 
+import Blobs from "../campfire/blobs"
 import Bond from "pkg/bond/bond"
 import CableWeb from "cable"
 import DataDir from "../campfire/data_dir"
@@ -110,6 +111,9 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
 
   uploads = DataDir.ensure(folder)
   return error("cannot make the folder of the uploads in CAMPFIRE_STORAGE_DIR: #{uploads.message}") if not uploads.ok?
+
+  swept = Database.with_connection(pool) do |db| Blobs.sweep(db, config.storage_dir) end
+  return error("cannot sweep the stored files of CAMPFIRE_STORAGE_DIR: #{swept.message}") if not swept.ok?
 
   mailer = try Mailer.start(config.smtp, config.mail_queue)
   messages = MessageCache.start(config.cache_mb)

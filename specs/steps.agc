@@ -92,6 +92,7 @@ def main() -> Void
     BDD.step("a crash left a file in the folder of the uploads", &leave_upload),
     BDD.step("a spec folder from a crashed scenario is {int} hours old", &leave_old_spec_folder),
     BDD.step("that spec folder is gone", &old_spec_folder_is_gone),
+    BDD.step("a crash left the stored file {string}", &leave_stored_file),
     BDD.step("the app starts with webhooks to private addresses that wait {int} seconds", &start_with_webhooks),
     BDD.step("the app restarts", &restart_app),
     BDD.step("the app restarts with the message cache off", &restart_app_without_cache),
@@ -197,6 +198,17 @@ end
 def leave_upload(ctx: BDD.Context, _args: List[String]) -> BDD.Context
   left = left_upload(storage_dir(ctx))
   BDD.assert(ctx, left.ok?, "cannot leave a file in the folder of the uploads: #{left.message}")
+end
+
+def leave_stored_file(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  left = left_stored_file(storage_dir(ctx), args[0])
+  BDD.assert(ctx, left.ok?, "cannot leave the stored file #{args[0]}: #{left.message}")
+end
+
+def left_stored_file(storage: String, name: String) -> Result[Void]
+  file = try Path.join([storage, name])
+  try DataDir.ensure(try Path.join([storage, name.slice(0, 2), name.slice(3, 2)]))
+  File.write_text(file, "left")
 end
 
 def left_upload(storage: String) -> Result[Void]
