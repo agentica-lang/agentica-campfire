@@ -30,8 +30,8 @@ def add(app: Bond.App, config: Config, pool: Database.Pool, cable: CableWeb.Cabl
   on_get_users = Blocks.handler do |conn| show_users(conn, config, pool) end
   on_post_user_deactivate = Blocks.handler do |conn| change_user(conn, pool, hub, true) end
   on_post_user_reactivate = Blocks.handler do |conn| change_user(conn, pool, hub, false) end
-  on_post_user_ban = Blocks.handler do |conn| post_ban(conn, pool, cable, bans) end
-  on_delete_user_ban = Blocks.handler do |conn| change_ban(conn, pool, cable, bans, false) end
+  on_post_user_ban = Blocks.handler do |conn| post_ban(conn, pool, cable, bans, config.storage_dir) end
+  on_delete_user_ban = Blocks.handler do |conn| change_ban(conn, pool, cable, bans, false, config.storage_dir) end
   on_post_join_code = Blocks.handler do |conn| regenerate_code(conn, pool) end
   on_get_account_edit = Blocks.handler do |conn| show_account(conn, pool) end
   on_post_account = Blocks.handler do |conn| post_account(conn, pool) end
@@ -85,11 +85,17 @@ end
 # A `POST` with no `_method` is the ban button of Rails and one with `_method` set to `delete` is the button that
 # lifts it;
 # any other is a 405 that lists the methods of the path.
-def post_ban(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, bans: ATS[String, Int]) -> Result[Bond.Conn]
+def post_ban(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  bans: ATS[String, Int],
+  storage_dir: String,
+) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  return change_ban(conn, pool, cable, bans, true) if method == ""
+  return change_ban(conn, pool, cable, bans, true, storage_dir) if method == ""
 
-  return change_ban(conn, pool, cable, bans, false) if method == Routes.METHOD_DELETE
+  return change_ban(conn, pool, cable, bans, false, storage_dir) if method == Routes.METHOD_DELETE
 
   ok(respond(conn, Answer.NotAllowed(Routes.USER_BAN_ALLOW)))
 end
@@ -103,13 +109,14 @@ def change_ban(
   cable: CableWeb.Cable,
   bans: ATS[String, Int],
   banning: Bool,
+  storage_dir: String,
 ) -> Result[Bond.Conn]
   id = user_id(conn)
   answer = try Database.with_connection(pool) do |db| ban_answer(conn, db, id, bans, banning) end
   case answer
     Answer.Banned(banned_id) ->
       Hangup.user(cable.hub, banned_id, false)
-      _ = ContentRemoval.start(pool, cable, banned_id)
+      _ = ContentRemoval.start(pool, cable, banned_id, storage_dir)
     _ -> nil
   end
 

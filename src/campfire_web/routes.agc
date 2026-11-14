@@ -84,6 +84,8 @@ ROOM_ALLOW = "GET, HEAD, POST, DELETE"
 ## `ROOM_MESSAGE_ALLOW`.
 ROOM_MESSAGE = "/rooms/:id/messages/:message_id"
 ROOM_MESSAGE_EDIT = "/rooms/:id/messages/:message_id/edit"
+## The file of a message, for the people of its room (`rails_blob_path` of Rails, which is a signed link instead).
+ROOM_MESSAGE_ATTACHMENT = "/rooms/:id/messages/:message_id/attachment"
 ROOM_MESSAGE_ALLOW = "POST, PATCH, DELETE"
 METHOD_PATCH = "patch"
 METHOD_DELETE = "delete"
@@ -191,6 +193,11 @@ def room_message_path(room_id: Int, message_id: Int) -> String = "/rooms/#{room_
 
 ## The path of the page that edits a message.
 def room_message_edit_path(room_id: Int, message_id: Int) -> String = "/rooms/#{room_id}/messages/#{message_id}/edit"
+
+## The path of the file of a message.
+def room_message_attachment_path(room_id: Int, message_id: Int) -> String
+  "/rooms/#{room_id}/messages/#{message_id}/attachment"
+end
 
 ## The path of the boosts of a message, which is where a boost is added.
 def message_boosts_path(message_id: Int) -> String = "/messages/#{message_id}/boosts"

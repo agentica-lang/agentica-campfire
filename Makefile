@@ -29,6 +29,7 @@ help:
 	@echo "           CAMPFIRE_BCRYPT_LIBRARY: a libxcrypt (path or name) for bcrypt digests; libcrypt.so.1 on Linux by default;"
 	@echo "           SECRET_KEY_BASE: the secret of a Rails Campfire, which checks avatar links (unset: they are 404);"
 	@echo "           CAMPFIRE_STORAGE_DIR: the Active Storage files, DATA_DIR/files by default;"
+	@echo "           CAMPFIRE_MAX_ATTACHMENT_MB: the largest file of a message, 100 by default (1 to 255);"
 	@echo "           CAMPFIRE_ASSETS_DIR: the folder served under /assets/, public/assets by default;"
 	@echo "           CAMPFIRE_SMTP_URL: smtp://user:password@host:587, smtps:// or smtp+plain:// (localhost only),"
 	@echo "           which needs CAMPFIRE_BASE_URL=https://campfire.example.com; CAMPFIRE_SMTP_FROM,"

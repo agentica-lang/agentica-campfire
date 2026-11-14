@@ -80,9 +80,9 @@ Feature: The messages API of the chat bots
     When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" a text of 10001 characters
     Then the status is 422
     And the body contains "A message is at most 10000 characters"
-    Given the request header "content-type" is "multipart/form-data; boundary=x"
-    When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "--x"
+    When I upload to "/rooms/1/3-aaaaBBBB1111/messages" the file "notes.txt" of the type "text/plain" that holds "x"
     Then the status is 415
+    And the storage folder holds 0 files
     And the query "select count(*) from messages" gives 0
     Given the request header "content-type" is "text/plain"
     When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" a text of 10000 characters

@@ -18,6 +18,8 @@ the sign-in ones that needs no session.
 
 `People` in the sidebar (`/users`) lists the active people for everybody.
 
+`GET /autocompletable/users` without `room_id` lists every active person of the account, as Rails does (`User.all`).
+
 An administrator also sees their emails and roles, and the join link with a button that makes a new
 one (the old link stops working at once). The link starts with `CAMPFIRE_BASE_URL` when that is set
 and is only the path otherwise. An administrator can deactivate each person but themselves, and

@@ -24,7 +24,9 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
                 in memory), searches.agc (the words of a query, the
-                FTS5 search of messages, the recent searches), avatars.agc (the Active Storage variant of an avatar
+                FTS5 search of messages, the recent searches), blobs.agc (the blobs of Active Storage: keys, files, deletion),
+                attachments.agc (the file of a message: its rows, its type from its bytes, what is shown inline),
+                avatars.agc (the Active Storage variant of an avatar
                 and its file; initials and colour), html_sanitizer.agc (an allowlist sanitizer for stored HTML
                 bodies; pure), autolink.agc (the links of URLs and email addresses in a clean body, made when a
                 message is shown; pure), mentions.agc (the mentions of a body: made of a typed `@NAME`, checked
@@ -51,7 +53,7 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
-                searches.agc and avatars.agc (the sidebar page, the search and the
+                attachments.agc (the download of the file of a message), searches.agc and avatars.agc (the sidebar page, the search and the
                 avatar link, whose answer is kept in the page store by `PageCache.shared_spot`), pwa.agc (the manifest, the
                 service worker and the icon of the installable app, public), transfers.agc (the sign-in links for another device
                 and `/qr_code/ID`), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
@@ -363,6 +365,13 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   `DELETE /users/me/avatar` (`Avatars.remove`, own only, 404 for another's) deletes the rows in one transaction and the
   files after it commits. The Active Storage rows and files of the specs are made by Rails
   (`specs/fixtures/rails/make_avatar.sh`).
+- Attachments (`docs/rooms.md`, `docs/security.md`): the file of a message is received by `Bond.uploads`
+  (`CAMPFIRE_MAX_ATTACHMENT_MB`) and moved to `xx/yy/KEY` before the connection is taken, then attached in the
+  transaction of `Rooms.post`; a post that does not store the message deletes the file. The stored type comes from
+  `Attachments.identify`, never from the client. `GET /rooms/ID/messages/MID/attachment` checks the membership on every
+  request; only `Attachments.inline?` lets a file be shown inline, everything else is a download, with `nosniff` and a
+  sandbox policy. Whatever deletes a message gets the keys of its blobs (`Attachments.detach_in`) and deletes the files
+  with `Blobs.remove_files` after the commit.
 - Assets: never edit `public/assets/` or `src/campfire_web/asset_names.agc`. Change `app/assets/stylesheets/` or
   `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
   and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`

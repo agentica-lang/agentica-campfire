@@ -8,13 +8,15 @@
 ## of the busy ones, is logged and ends the task. So does a restart of the app. What is left of the room is then closed,
 ## with nobody in it and the rest of its messages in the database; nothing sweeps it yet.
 
+import Blobs from "../campfire/blobs"
 import Database from "../campfire/repo/database"
 import Rooms from "../campfire/rooms"
 
 ## Starts the task for the room and gives it. It does not wait; the task logs a failure and ends. The handle is for a
-## caller that wants to wait for the end (a spec); a request does not.
-def start(pool: Database.Pool, room_id: Int) -> Task[Result[Void]]
-  Task.spawn(&run, Job(pool: pool, room_id: room_id))
+## caller that wants to wait for the end (a spec); a request does not. The files of the attachments are deleted from
+## `storage_dir` after each message.
+def start(pool: Database.Pool, room_id: Int, storage_dir: String) -> Task[Result[Void]]
+  Task.spawn(&run, Job(pool: pool, room_id: room_id, storage_dir: storage_dir))
 end
 
 ## Runs `step`, and again after a pause of `pause_ms` times the number of the try while it fails because the database is
@@ -44,6 +46,7 @@ PAUSE_MS = 100
 struct Job
   pool: Database.Pool
   room_id: Int
+  storage_dir: String
 end
 
 def transient?(message: String) -> Bool = Database.busy?(message) and not message.include?("pool error: closed")
@@ -67,9 +70,13 @@ def delete_all(job: Job) -> Result[Void]
 end
 
 def next_message(job: Job) -> Result[Bool]
-  Database.with_connection(job.pool) do |db| Rooms.delete_next_message(db, job.room_id) end
+  gone = try Database.with_connection(job.pool) do |db| Rooms.delete_next_message(db, job.room_id) end
+  Blobs.remove_files(job.storage_dir, gone.unwrap_or([]))
+  ok(gone.some?)
 end
 
 def last_step(job: Job) -> Result[Void]
-  Database.with_connection(job.pool) do |db| Rooms.delete_room(db, job.room_id) end
+  keys = try Database.with_connection(job.pool) do |db| Rooms.delete_room(db, job.room_id) end
+  Blobs.remove_files(job.storage_dir, keys)
+  ok()
 end

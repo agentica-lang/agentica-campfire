@@ -6,6 +6,7 @@
 ## else is `none` exactly as a room that does not exist is, and a caller cannot tell them apart.
 
 import Db from "pkg/db/db"
+import Attachments from "attachments"
 import Boosts from "boosts"
 import HtmlSanitizer from "html_sanitizer"
 import Mentions from "mentions"
@@ -56,7 +57,8 @@ end
 ## A message with the name of its author (`creator_id` is who wrote it, `room_id` where). `body` is HTML that
 ## `HtmlSanitizer.sanitize` has cleaned, so a view writes it with `<%== %>`. `created_at` is an ISO 8601 UTC instant
 ## with milliseconds (`2026-03-01T09:00:00.123Z`), made from the Rails form of the column, so that `<time datetime>`
-## and the scripts that read it take it as UTC. `boosts` are the reactions under it, oldest first.
+## and the scripts that read it take it as UTC. `boosts` are the reactions under it, oldest first, and `attachment` its
+## file, if it has one.
 struct Message
   id: Int
   room_id: Int
@@ -65,6 +67,7 @@ struct Message
   body: String
   created_at: String
   boosts: List[Boosts.Boost]
+  attachment: Optional[Attachments.Attachment] = none
 end
 
 ## A message as the database holds it: the body is not cleaned yet, so `clean` must run before a view writes it. A page
@@ -79,6 +82,7 @@ struct Stored
   created_at: String
   updated_at: String
   boosts: List[Boosts.Boost]
+  attachment: Optional[Attachments.Attachment] = none
 end
 
 ## A page of a room, oldest message first. `older` is the cursor of the page before it (`before=` of `page`), `none`
@@ -140,6 +144,7 @@ def stored_of(row: Db.Row) -> Stored
     created_at: text_of(row, "created_at"),
     updated_at: text_of(row, "updated_at"),
     boosts: Boosts.parse(text_of(row, "boosts")),
+    attachment: Attachments.parse(text_of(row, "attachment")),
   )
 end
 
@@ -155,6 +160,7 @@ def clean(stored: Stored) -> Message
     body: HtmlSanitizer.sanitize(stored.body),
     created_at: stored.created_at,
     boosts: stored.boosts,
+    attachment: stored.attachment,
   )
 end
 
@@ -453,14 +459,16 @@ end
 
 ## Deletes one message of the room with its body, its search row and its boosts, in a transaction of its own, so that the
 ## other writers get through between two messages (a room of many messages deleted in one transaction held the write
-## lock until the last one). It gives false when the room has no message left.
-def delete_next_message(conn: Db.Connection, room_id: Int) -> Result[Bool]
+## lock until the last one). It gives the keys of the files that went with it (`Attachments.detach_in`), for the caller
+## to delete once it has committed, and `none` when the room has no message left.
+def delete_next_message(conn: Db.Connection, room_id: Int) -> Result[Optional[List[String]]]
   Db.transaction(conn) do |tx| delete_first_message(tx, room_id) end
 end
 
 ## Deletes the room, in one transaction, with whatever messages and memberships it still has: a message that was posted
-## after `destroy_later` goes with the room, as `dependent: :destroy` does in Rails.
-def delete_room(conn: Db.Connection, room_id: Int) -> Result[Void]
+## after `destroy_later` goes with the room, as `dependent: :destroy` does in Rails. It gives the keys of the files that
+## went.
+def delete_room(conn: Db.Connection, room_id: Int) -> Result[List[String]]
   Db.transaction(conn) do |tx| delete_room_in(tx, room_id) end
 end
 
@@ -539,16 +547,17 @@ def update_message(
 end
 
 ## Deletes a message with its body, its search row and its boosts, in one transaction, when it is in the room and the
-## person is in the room and wrote it or is an active administrator (the same check as `update_message`). It gives false,
-## and changes nothing, when it does not hold. The room is not touched, as `destroy` of Rails does not touch it.
-def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
+## person is in the room and wrote it or is an active administrator (the same check as `update_message`). It gives
+## `none`, and changes nothing, when it does not hold, else the keys of the files that went with it (its attachment),
+## for the caller to delete once it has committed. The room is not touched, as `destroy` of Rails does not touch it.
+def delete_message(conn: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Optional[List[String]]]
   Db.transaction(conn) do |tx| delete_message_in(tx, room_id, message_id, actor_id) end
 end
 
 ## Deletes the rows of a message (its body, search row and boosts, then the message) in the transaction `tx` that the
-## caller holds; `Bans` takes the messages of a banned person away this way.
-def delete_message_rows_of(tx: Db.Connection, message_id: Int) -> Result[Void]
-  delete_message_rows(tx, Db.Value.Int(message_id))
+## caller holds; `Bans` takes the messages of a banned person away this way. It gives the keys of the files that went.
+def delete_message_rows_of(tx: Db.Connection, message_id: Int) -> Result[List[String]]
+  delete_message_rows(tx, message_id)
 end
 
 ## The choices of the sidebar page for the room: `mentions` (shown, the default level of Rails) and `invisible` (hidden:
@@ -753,10 +762,16 @@ def post(
   client_message_id: String,
   html: String,
   typed: Bool = false,
+  attachment: Optional[Attachments.Blob] = none,
 ) -> Result[Optional[Message]]
   body = try with_mentions(conn, room_id, HtmlSanitizer.sanitize(html), typed)
   text = HtmlSanitizer.plain_text_of_clean(body)
-  Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text) end
+  # `Message#plain_text_body` of Rails: a file with no text is found by its name.
+  if text.strip.empty? and attachment.some?
+    text = attachment.unwrap!.filename
+  end
+
+  Db.transaction(conn) do |tx| post_in(tx, room_id, user_id, client_message_id, body, text, attachment) end
 end
 
 private
@@ -783,7 +798,7 @@ ISO = "%Y-%m-%dT%H:%M:%fZ"
 MESSAGE_COLUMNS = (
   "messages.id, messages.room_id, messages.creator_id, coalesce(users.name, '#{UNKNOWN_AUTHOR}') as author, " +
   "coalesce(rich_texts.body, '') as body, strftime('#{ISO}', messages.created_at) as created_at, " +
-  "messages.updated_at as updated_at, #{Boosts.COLUMN}"
+  "messages.updated_at as updated_at, #{Boosts.COLUMN}, #{Attachments.COLUMN}"
 )
 MESSAGE_JOINS = (
   "left join users on users.id = messages.creator_id " +
@@ -887,6 +902,7 @@ def post_in(
   client_message_id: String,
   body: String,
   text: String,
+  attachment: Optional[Attachments.Blob],
 ) -> Result[Optional[Message]]
   rows = try Db.query(
     tx,
@@ -915,6 +931,17 @@ def post_in(
   )
 
   try Db.execute(tx, "insert into message_search_index (rowid, body) values (?, ?)", [message_id, Db.Value.Text(text)])
+  shown: Optional[Attachments.Attachment] = none
+  case attachment
+    some(blob) ->
+      try Attachments.attach_in(tx, int_of(rows[0], "id"), blob)
+      shown = some(
+        Attachments.Attachment(filename: blob.filename, content_type: blob.content_type, byte_size: blob.byte_size),
+      )
+
+    none -> nil
+  end
+
   try receive(tx, room_id, user_id, message_id)
   ok(
     some(
@@ -926,6 +953,7 @@ def post_in(
         body: body,
         created_at: text_of(rows[0], "created_at"),
         boosts: [],
+        attachment: shown,
       ),
     ),
   )
@@ -982,19 +1010,21 @@ def destroy_later_in(tx: Db.Connection, room_id: Int, actor_id: Int) -> Result[B
   ok(true)
 end
 
-# The first message of the room, by id, and the rows that hang from it: the three rows of `post` and the boosts that
-# Rails writes. Active Storage attachments of a message are left alone (nothing here writes one yet).
-def delete_first_message(tx: Db.Connection, room_id: Int) -> Result[Bool]
+# The first message of the room, by id, and the rows that hang from it: the three rows of `post`, the boosts that
+# Rails writes and the attachment. It gives the keys of the files, `none` when the room has no message.
+def delete_first_message(tx: Db.Connection, room_id: Int) -> Result[Optional[List[String]]]
   rows = try Db.query(tx, "select id from messages where room_id = ? order by id limit 1", [Db.Value.Int(room_id)])
 
-  return ok(false) if rows.empty?
+  return ok(none) if rows.empty?
 
-  try delete_message_rows(tx, Db.Value.Int(int_of(rows[0], "id")))
-  ok(true)
+  ok(some(try delete_message_rows(tx, int_of(rows[0], "id"))))
 end
 
-# The rows of a message, the message last (a boost has a key to it).
-def delete_message_rows(tx: Db.Connection, message_id: Db.Value) -> Result[Void]
+# The rows of a message, the message last (a boost has a key to it), and the keys of the files of its attachment.
+def delete_message_rows(tx: Db.Connection, id: Int) -> Result[List[String]]
+  keys = try Attachments.detach_in(tx, id)
+  message_id = Db.Value.Int(id)
+
   try Db.execute(tx, "delete from boosts where message_id = ?", [message_id])
   try Db.execute(
     tx,
@@ -1004,7 +1034,7 @@ def delete_message_rows(tx: Db.Connection, message_id: Db.Value) -> Result[Void]
 
   try Db.execute(tx, "delete from message_search_index where rowid = ?", [message_id])
   try Db.execute(tx, "delete from messages where id = ?", [message_id])
-  ok()
+  ok(keys)
 end
 
 # Whether the message is in the room and the person may change it, as one query inside the transaction that changes it.
@@ -1055,22 +1085,29 @@ def update_message_in(
   ok(true)
 end
 
-def delete_message_in(tx: Db.Connection, room_id: Int, message_id: Int, actor_id: Int) -> Result[Bool]
-  return ok(false) if not try may_change?(tx, room_id, message_id, actor_id)
+def delete_message_in(
+  tx: Db.Connection,
+  room_id: Int,
+  message_id: Int,
+  actor_id: Int,
+) -> Result[Optional[List[String]]]
+  return ok(none) if not try may_change?(tx, room_id, message_id, actor_id)
 
-  try delete_message_rows(tx, Db.Value.Int(message_id))
-  ok(true)
+  ok(some(try delete_message_rows(tx, message_id)))
 end
 
-def delete_room_in(tx: Db.Connection, room_id: Int) -> Result[Void]
+def delete_room_in(tx: Db.Connection, room_id: Int) -> Result[List[String]]
+  keys: List[String] = []
   more = true
   while more
-    more = try delete_first_message(tx, room_id)
+    gone = try delete_first_message(tx, room_id)
+    more = gone.some?
+    keys = keys.concat(gone.unwrap_or([]))
   end
 
   try Db.execute(tx, "delete from memberships where room_id = ?", [Db.Value.Int(room_id)])
   try Db.execute(tx, "delete from rooms where id = ?", [Db.Value.Int(room_id)])
-  ok()
+  ok(keys)
 end
 
 def create_closed_in(tx: Db.Connection, creator_id: Int, name: String, members: List[Int]) -> Result[Int]
