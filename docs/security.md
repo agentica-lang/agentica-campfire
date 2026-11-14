@@ -16,6 +16,15 @@ Signing out deletes the row, so a copy of the cookie stops working. So do deacti
 and resetting their password, which delete every session of that person (a deactivation deletes their reset
 links too).
 
+A person who is signed in can make a link that signs another device in as them (the profile page, `POST
+/session/transfers`), shown with its QR code on a `no-store` page. Rails signs the user id and lets the link work for 4
+hours, as often as it is opened; here the token is 32 random bytes, works once and for 15 minutes, and only its SHA-256
+is kept, in memory (a restart ends every link; at most 10,000 are alive at once). Opening the link only shows a button,
+so a link preview or a scanner does not use it up; the button (`PUT`, checked against other sites like any form) signs
+in, and a used, expired or unknown link, or one of a person who is no longer active, is `400`. The link starts with
+`CAMPFIRE_BASE_URL` when it is set (see the bots API below for the fallback). `GET /qr_code/ID` draws any Base64url text
+of up to 213 bytes, as Rails does; the app does not link it, since a URL with a token in it would reach logs and caches.
+
 A session row keeps the address of the client that made it and `last_active_at`, which is written at
 most every five minutes (a read of a page that the cache keeps does not write it, so on a quiet
 database it can be older). A row older than the cookie life (30 days) is refused whatever the cookie says,
@@ -89,7 +98,8 @@ are busy is answered `503` with `Retry-After`.
 
 Every page does, except the sign-in, first-run and password-reset pages, `/health`, `/up`,
 `/join/CODE`, what is under `/assets/` (the stylesheet), and the manifest, the service worker and the icon of the
-installable app (`/webmanifest.json`, `/service-worker.js`, `/account/logo`). The list is deny-by-default: a new route is private until
+installable app (`/webmanifest.json`, `/service-worker.js`, `/account/logo`), a sign-in link
+(`/session/transfers/TOKEN`) and the QR code route (`/qr_code/ID`). The list is deny-by-default: a new route is private until
 `src/campfire_web/auth.agc` names it.
 
 A person only sees a room they are a member of. A closed or direct room of other people and a room

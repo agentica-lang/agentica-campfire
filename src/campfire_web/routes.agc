@@ -8,6 +8,13 @@ HOME = "/"
 FIRST_RUN = "/first_run"
 SIGN_IN = "/session/new"
 SESSION = "/session"
+## Signing in on another device (`TransfersWeb`): the post that makes a link, the link (its page, and the `PUT` that uses
+## it, or a `POST` with `_method` set to `put`; any other `POST` is a 405 that lists `SESSION_TRANSFER_ALLOW`), and the QR
+## code of a Base64url text.
+SESSION_TRANSFERS = "/session/transfers"
+SESSION_TRANSFER = "/session/transfers/:id"
+SESSION_TRANSFER_ALLOW = "GET, HEAD, POST, PUT"
+QR_CODE = "/qr_code/:id"
 SIGN_OUT = "/sign_out"
 HEALTH = "/health"
 ## The Action Cable WebSocket (the path that the Rails client and the benchmark connect to). It is public for the
@@ -216,6 +223,9 @@ def account_logo_path(small: Bool) -> String
 
   ACCOUNT_LOGO
 end
+
+## The link that signs a browser in with the transfer token `token`.
+def session_transfer_path(token: String) -> String = "#{SESSION_TRANSFERS}/#{token}"
 
 ## The path of the join page of this code, which is also where its form posts.
 def join_path(code: String) -> String = "/join/#{code}"
