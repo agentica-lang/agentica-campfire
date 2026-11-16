@@ -66,4 +66,5 @@ Feature: The stylesheet and the script
     Then the status is 404
     And the body is "Not Found"
     When I get "/assets/"
-    Then the status is 404
+    Then the status is 302
+    And the header "location" is "/session/new"
