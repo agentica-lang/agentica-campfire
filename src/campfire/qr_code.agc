@@ -203,7 +203,7 @@ def draw(version: Int, words: List[Int]) -> Code
     end
   end
 
-  grid = format(grid)
+  grid = with_format_bits(grid)
   grid = version_bits(grid, version)
   grid = placed(grid, words)
   Code(size: size, dark: masked(grid))
@@ -258,7 +258,7 @@ end
 
 def bit?(value: Int, i: Int) -> Bool = value.shift_right(i).bit_and(1) != 0
 
-def format(grid: Grid) -> Grid
+def with_format_bits(grid: Grid) -> Grid
   bits = format_bits()
   size = grid.size
   result = grid
