@@ -21,12 +21,47 @@ import UTC from "std/utc"
 ## The purpose of the avatar link of a user in Campfire.
 AVATAR_PURPOSE = "user/avatar"
 
+## The most tokens that a `Memo` keeps; when it is full it is emptied.
+MEMO_MAX = 4_096
+
+## The tokens that verified with `key` for `purpose`, by the whole token, with the id in each. Only a token with no
+## expiry is kept, so a kept token never expires. The memo says only what the token names: whether that user exists, is
+## active or is signed in is read elsewhere on each request. A new key is a new memo.
+struct Memo
+  key: Bytes
+  purpose: String
+  ids: ATS[String, Int]
+end
+
 ## The signing key for `secret_key_base`. Make it once, at start-up: 1000 rounds of PBKDF2 are cheap, but there is no
 ## reason to repeat them.
 def key(secret_key_base: String) -> Result[Bytes]
   return error("signed id: SECRET_KEY_BASE is empty") if secret_key_base.empty?
 
   OpenSSL.KDF.pbkdf2_hmac_sha256(secret_key_base.bytes, SALT.bytes, ITERATIONS, KEY_BYTES)
+end
+
+## An empty memo for `key` and `purpose`.
+def memo(key: Bytes, purpose: String) -> Memo
+  ids: ATS[String, Int] = ATS.new()
+  Memo(key: key, purpose: purpose, ids: ids)
+end
+
+## `verify` with the key and purpose of `memo`, which answers a token that verified before with no HMAC, base64 or JSON.
+def verify_kept(memo: Memo, token: String, now_ms: Int) -> Optional[Int]
+  case memo.ids.get(token)
+    ok(id) -> return some(id)
+    error(_) -> nil
+  end
+
+  signed = checked(memo.key, token, memo.purpose, now_ms)
+  return none if signed.none?
+
+  if not signed.unwrap!.expires
+    keep(memo.ids, token, signed.unwrap!.id)
+  end
+
+  some(signed.unwrap!.id)
 end
 
 ## The token for `id` and `purpose` (`AVATAR_PURPOSE`), without an expiry, in the form of Rails 7.2 and later. A purpose
@@ -46,17 +81,7 @@ end
 ## `Time.now_ms()`); `none` for anything else. The reason is not told, as in Rails (`find_signed` is nil). The
 ## signature is checked before the text is decoded, in constant time.
 def verify(key: Bytes, token: String, purpose: String, now_ms: Int) -> Optional[Int]
-  cut = token.length - DIGEST_LENGTH - SEPARATOR.length
-  return none if cut <= 0 or token.slice(cut, SEPARATOR.length) != SEPARATOR
-
-  encoded = token.slice(0, cut)
-  digest = token.slice(cut + SEPARATOR.length, DIGEST_LENGTH)
-  return none if not OpenSSL.HMAC.secure_compare(OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
-
-  envelope = envelope_of(encoded)
-  return none if envelope.none? or envelope.unwrap!.pur != some(purpose) or expired?(envelope.unwrap!.exp, now_ms)
-
-  id_of(envelope.unwrap!)
+  checked(key, token, purpose, now_ms).map do |signed| signed.id end
 end
 
 private
@@ -70,6 +95,12 @@ DIGEST_LENGTH = 64
 # `exp` as Rails writes it (`iso8601(3)` of a UTC time): 2100-01-01T00:00:00.000Z.
 EXPIRY_LENGTH = 24
 PLAIN_PURPOSE = Set.new("abcdefghijklmnopqrstuvwxyz0123456789_/-".split(""))
+
+# What a token that verified names: the id, and whether it has an expiry.
+struct Signed
+  id: Int
+  expires: Bool
+end
 
 # The part of the envelope that is read: `data` in the form of Rails 7.1 and later, `message` in the older one.
 struct Envelope
@@ -122,4 +153,32 @@ def expired?(exp: Optional[String], now_ms: Int) -> Bool
   return true if text.length != EXPIRY_LENGTH or not text.end_with?("Z")
 
   text.compare(UTC.iso8601(now_ms, 3)) <= 0
+end
+
+# The id and the expiry of `token` when it was signed with `key` for `purpose` and has not expired at `now_ms`. The
+# signature is checked before the text is decoded, in constant time.
+def checked(key: Bytes, token: String, purpose: String, now_ms: Int) -> Optional[Signed]
+  cut = token.length - DIGEST_LENGTH - SEPARATOR.length
+  return none if cut <= 0 or token.slice(cut, SEPARATOR.length) != SEPARATOR
+
+  encoded = token.slice(0, cut)
+  digest = token.slice(cut + SEPARATOR.length, DIGEST_LENGTH)
+  return none if not OpenSSL.HMAC.secure_compare(OpenSSL.HMAC.sha256_hexdigest(key, encoded.bytes).bytes, digest.bytes)
+
+  envelope = envelope_of(encoded)
+  return none if envelope.none? or envelope.unwrap!.pur != some(purpose) or expired?(envelope.unwrap!.exp, now_ms)
+
+  id_of(envelope.unwrap!).map do |id| Signed(id: id, expires: envelope.unwrap!.exp.some?) end
+end
+
+# Puts the token in the memo, which is emptied first when it is full (`ATS.clear` is newer than the oldest Agentica
+# that the app supports).
+def keep(ids: ATS[String, Int], token: String, id: Int) -> Void
+  if ids.size >= MEMO_MAX
+    for old in ids.keys
+      ids.delete(old)
+    end
+  end
+
+  ids.put(token, id)
 end

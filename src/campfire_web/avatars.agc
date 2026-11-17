@@ -10,8 +10,8 @@
 ## What the database says (the initials, or the file to send and its type, or none) is kept in the cache of whole pages
 ## for the version of the database (`PageCache.shared_spot`), the same for everybody: a new picture, a removed one, a
 ## rename or any other commit is another version, so it is never older than the database. The sign-in filter reads the
-## version for these paths too (`PageCache.cached?`), so a repeat costs the read of the observer, the check of the token
-## and the file, and takes no connection of the pool. The file is read each time, so a file that is gone is still a 404.
+## version for these paths too (`PageCache.cached?`), so a repeat costs the read of the observer, the lookup of the
+## token in the memo (`SignedId.Memo`) and the file, and takes no connection of the pool. The file is read each time, so a file that is gone is still a 404.
 
 import Bond from "pkg/bond/bond"
 import Db from "pkg/db/db"
@@ -31,7 +31,8 @@ enum Answer
 end
 
 ## Adds the route of the avatars to `app`. `key` is `SignedId.key` of the `SECRET_KEY_BASE`, `none` without one (every
-## link is then a 404), and `storage_dir` the folder of the files of Active Storage.
+## link is then a 404), and `storage_dir` the folder of the files of Active Storage. The tokens that verified are kept
+## for the app (`SignedId.Memo`), so a repeat is not checked again.
 def add(
   app: Bond.App,
   pool: Database.Pool,
@@ -39,7 +40,8 @@ def add(
   key: Optional[Bytes],
   storage_dir: String,
 ) -> Bond.App
-  app |> Bond.get(Routes.AVATAR) do |conn| show(conn, pool, pages, key, storage_dir) end
+  memo = key.map do |secret| SignedId.memo(secret, SignedId.AVATAR_PURPOSE) end
+  app |> Bond.get(Routes.AVATAR) do |conn| show(conn, pool, pages, memo, storage_dir) end
 end
 
 ## The answer in the kept form `text`, `none` for a text that `encode` did not write.
@@ -100,10 +102,10 @@ def show(
   conn: Bond.Conn,
   pool: Database.Pool,
   pages: Optional[PageCache.Pages],
-  key: Optional[Bytes],
+  memo: Optional[SignedId.Memo],
   storage_dir: String,
 ) -> Result[Bond.Conn]
-  user_id = verified(conn, key)
+  user_id = verified(conn, memo)
   case user_id
     none -> ok(missing(conn))
     some(id) ->
@@ -128,12 +130,10 @@ def recalled(spot: Optional[PageCache.Spot]) -> Optional[Answer]
 end
 
 # The user in the token, when it was signed with the key for the purpose of an avatar and has not expired.
-def verified(conn: Bond.Conn, key: Optional[Bytes]) -> Optional[Int]
-  case key
+def verified(conn: Bond.Conn, memo: Optional[SignedId.Memo]) -> Optional[Int]
+  case memo
     none -> none
-    some(secret) ->
-      token = Bond.param(conn, "id").unwrap_or("")
-      SignedId.verify(secret, token, SignedId.AVATAR_PURPOSE, Time.now_ms())
+    some(kept) -> SignedId.verify_kept(kept, Bond.param(conn, "id").unwrap_or(""), Time.now_ms())
   end
 end
 

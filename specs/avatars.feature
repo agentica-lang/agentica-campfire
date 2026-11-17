@@ -117,3 +117,30 @@ Feature: Avatars
     When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
     Then the status is 302
     And the header "location" is "/session/new"
+
+  Scenario: A link that was checked before still needs a session, and follows the people of the database
+    Given a member "Bea" with the email "bea@example.com" exists
+    And I sign in as "bea@example.com"
+    When I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 200
+    When I post nothing to "/sign_out"
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I sign in as "bea@example.com"
+    And the browser saves a copy of its cookies
+    And I sign in as "ana@example.com"
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MiwicHVyIjoidXNlci9hdmF0YXIifX0--18863dfaf901803d75fcf3f3f41f582044b65e101528cdc73721fb8d5c039000/avatar"
+    Then the status is 200
+    And the body contains ">B</text>"
+    When I post to "/users/2/deactivate" the form:
+      | x | y |
+    And the browser restores its saved cookies
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MSwicHVyIjoidXNlci9hdmF0YXIifX0--5841e05747f2d37ddbe2647ead7fe82ebed32d2062d87a8d28975c2501972b85/avatar"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    When I sign in as "ana@example.com"
+    And I run the sql "delete from users where id = 2"
+    And I get "/users/eyJfcmFpbHMiOnsiZGF0YSI6MiwicHVyIjoidXNlci9hdmF0YXIifX0--18863dfaf901803d75fcf3f3f41f582044b65e101528cdc73721fb8d5c039000/avatar"
+    Then the status is 404
+    And the body is "Not Found"
