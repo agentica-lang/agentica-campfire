@@ -8,7 +8,7 @@ This project is licensed under MIT (see [LICENSE](LICENSE)). It is independent. 
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.32.0 or later on `PATH` to run the app and its tests, and a C compiler (agentica-db builds its native SQLite driver on the first run).
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.34.0 or later on `PATH` to run the app and its tests, and a C compiler (agentica-db builds its native SQLite driver on the first run).
 
 ```sh
 make install   # fetch Bond and agentica-db (pinned by tag in agentica.toml) into deps/
@@ -67,7 +67,7 @@ room_show went from 4282.9 to 9500.9, messages_page from 6576.8 to 9536.0, sideb
 6898.3 to 8953.4; the app changed too between e8ae07b and 8a7616e, so the gain is not Agentica 0.27.0 alone. Earlier
 steps are in the history of this file.
 
-To reproduce it, build the image (`docker build -t once-campfire-agentica:app .`), then run `bench/run.sh --setup` and `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
+To reproduce it, run `bench/run.sh --setup`, build the image in the clone it makes, labelled with its revision ([bench/README.md](bench/README.md)), then run `bench/run.sh --apps go,agentica` (add `rails` for a new Rails run; Go needs a checkout of once-campfire-go next to the harness). Method and details: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Documentation
 

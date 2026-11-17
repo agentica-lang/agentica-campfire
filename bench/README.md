@@ -30,4 +30,12 @@ temporary folder at the same paths as the host, since the harness gives host pat
 Settings: `BENCH_DIR`, `BENCH_CACHE` (cargo registry; `~/.cache/campfire-bench`), `BENCH_TMPDIR` (the harness
 lock file and temporary files; keep it off a small `/tmp`), `CARGO_BUILD_JOBS`.
 
-The app image is not built here, and the harness only runs an existing one: build it in the app checkout with `docker build -t once-campfire-agentica:app .` (`AGENTICA_IMAGE` names another tag).
+The app image is not built here, and the harness only runs an existing one. Build it in the clone that the harness reads, at the revision to measure, with that revision as its label; `run.sh` refuses an image whose label is another revision:
+
+```sh
+cd ~/apps/bench/once-campfire-agentica
+git fetch origin && git checkout --detach REV
+docker build --build-arg CAMPFIRE_REVISION="$(git rev-parse HEAD)" -t once-campfire-agentica:app .
+```
+
+`AGENTICA_IMAGE` names another tag. The run's `summary.json` has the image id, its labels (the revision and `com.agentica-lang.agentica.version`) and the revision of the clone.

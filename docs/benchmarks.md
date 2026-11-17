@@ -20,7 +20,7 @@ steps to set it up and run it, and what `bench/run.sh` does, are in [bench/READM
 ## Reproduce
 
 ```sh
-docker build -t once-campfire-agentica:app .
 bench/run.sh --setup
+# build the image in ~/apps/bench/once-campfire-agentica, labelled with its revision (bench/README.md)
 bench/run.sh --apps rails,agentica
 ```

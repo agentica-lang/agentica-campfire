@@ -93,9 +93,23 @@ fi
 
 if $setup_only; then exit 0; fi
 
-# What a run measured: the harness revision is recorded by bin/benchmark, the patch and the app are not.
+# What a run measured: bin/benchmark records the harness revision, the image id and labels, and the revision of $app;
+# the patch it does not. The image must come from that revision, or the run would name a revision it did not measure.
 echo "harness.patch sha256 $(sha256sum "$here/harness.patch" | cut -d' ' -f1)"
-echo "app $(git -C "$app" rev-parse HEAD)"
+app_rev=$(git -C "$app" rev-parse HEAD)
+echo "app $app_rev"
+case " ${args[*]:-} " in
+  *agentica*)
+    app_image=${AGENTICA_IMAGE:-once-campfire-agentica:app}
+    label() { docker image inspect -f "{{index .Config.Labels \"$1\"}}" "$app_image"; }
+    image_rev=$(label org.opencontainers.image.revision)
+    if [ "$image_rev" != "$app_rev" ]; then
+      echo "$app_image is labelled with revision '$image_rev', not $app_rev of $app: build it there (bench/README.md)" >&2
+      exit 1
+    fi
+    echo "image $(docker image inspect -f '{{.Id}}' "$app_image") agentica $(label com.agentica-lang.agentica.version)"
+    ;;
+esac
 
 # This box has 8 cores: the harness defaults (8-11 and 12-15) are for 16.
 defaults=()

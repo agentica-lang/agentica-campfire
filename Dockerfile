@@ -1,16 +1,18 @@
 # The image of the Campfire benchmark (basecamp/once-campfire-verification): plain HTTP, the Rails-style
 # environment and the /rails/storage volumes mapped by docker/entrypoint.sh. Build: docker build -t
-# once-campfire-agentica:app .
+# once-campfire-agentica:app . (bench/README.md adds the revision label that a benchmark run checks).
+
+# Change the version and the sha256 together, and the same pair in .github/workflows/ci.yml. The image is x86_64
+# only (the release archive of linux-x86_64).
+ARG AGENTICA_VERSION=0.34.0
+# From the SHA256SUMS of the release.
+ARG AGENTICA_SHA256=d3623164ef097f1cada71749f50440de836f7a943a44336e57ef19b108ae8aa5
 
 # Stage 1 holds the tools that must not reach the image: curl and git (`agentica install` fetches with git) and the C
 # compiler that builds the native SQLite driver of agentica-db.
 FROM debian:13-slim AS build
-
-# Change the version and the sha256 together, and the same pair in .github/workflows/ci.yml. The image is x86_64
-# only (the release archive of linux-x86_64).
-ARG AGENTICA_VERSION=0.32.0
-# From the SHA256SUMS of the release.
-ARG AGENTICA_SHA256=ec2a71e7c655e9c4a2f9e0c72ec6d3e661878ca561da4ce18ec84ae2c8d6ea95
+ARG AGENTICA_VERSION
+ARG AGENTICA_SHA256
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git gcc libc6-dev \
@@ -79,6 +81,11 @@ COPY docker/entrypoint.sh /usr/local/bin/campfire-entrypoint
 WORKDIR /app
 ENV HOME=/home/campfire
 EXPOSE 3000
+
+# What a benchmark records of the image (docker image inspect): the Agentica release and the git revision of the app.
+ARG AGENTICA_VERSION
+ARG CAMPFIRE_REVISION=unknown
+LABEL org.opencontainers.image.revision=$CAMPFIRE_REVISION com.agentica-lang.agentica.version=$AGENTICA_VERSION
 
 # The entrypoint starts as root only to hand /rails/storage/db to the user (a bind mount keeps the owner of the
 # host), then runs the app as `campfire`. With `--user` it runs as that user as it is. The app is PID 1: run with
