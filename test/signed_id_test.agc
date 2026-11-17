@@ -124,5 +124,38 @@ def main() -> Void
       Test.assert(not SignedId.generate(key(), 42, "user/\"x").ok?, "a purpose that needs escaping")
     end,
     Test.test("an empty secret has no key") do Test.assert(not SignedId.key("").ok?, "empty") end,
+    Test.test("a memo answers a token that verified before, and keeps only those with no expiry") do
+      memo = SignedId.memo(key(), SignedId.AVATAR_PURPOSE)
+      try Test.eq(SignedId.verify_kept(memo, RAILS_8_ID_42, NOW_MS), some(42))
+      try Test.eq(SignedId.verify_kept(memo, RAILS_8_ID_42, NOW_MS), some(42))
+      try Test.eq(SignedId.verify_kept(memo, RAILS_7_0_ID_42, NOW_MS), some(42))
+      try Test.eq(memo.ids.keys, [RAILS_8_ID_42, RAILS_7_0_ID_42])
+      for refused in [RAILS_8_ID_42 + "0", PLAIN_ID_42, OTHER_SECRET, EXPIRED_2000]
+        try Test.eq(SignedId.verify_kept(memo, refused, NOW_MS), none)
+      end
+
+      # A token with an expiry is checked each time, so it stops at its expiry.
+      try Test.eq(SignedId.verify_kept(memo, EXPIRES_2100, NOW_MS), some(42))
+      try Test.eq(SignedId.verify_kept(memo, EXPIRES_2100, EXPIRY_2100_MS), none)
+      Test.eq(memo.ids.size, 2)
+    end,
+    Test.test("a memo of another key or purpose does not answer the tokens that one memo kept") do
+      kept = SignedId.memo(key(), SignedId.AVATAR_PURPOSE)
+      try Test.eq(SignedId.verify_kept(kept, RAILS_8_ID_42, NOW_MS), some(42))
+      rotated = SignedId.memo(SignedId.key("another secret key base").unwrap!, SignedId.AVATAR_PURPOSE)
+      try Test.eq(SignedId.verify_kept(rotated, RAILS_8_ID_42, NOW_MS), none)
+      other = SignedId.memo(key(), "user/other")
+      Test.eq(SignedId.verify_kept(other, RAILS_8_ID_42, NOW_MS), none)
+    end,
+    Test.test("a memo holds at most MEMO_MAX tokens") do
+      signing = key()
+      memo = SignedId.memo(signing, SignedId.AVATAR_PURPOSE)
+      for id in 1..(SignedId.MEMO_MAX + 1)
+        token = SignedId.generate(signing, id, SignedId.AVATAR_PURPOSE).unwrap!
+        try Test.eq(SignedId.verify_kept(memo, token, NOW_MS), some(id))
+      end
+
+      Test.assert(memo.ids.size <= SignedId.MEMO_MAX, "#{memo.ids.size} tokens kept")
+    end,
   ])
 end

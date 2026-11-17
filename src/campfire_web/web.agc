@@ -83,7 +83,7 @@ def build(
     |> ProfilesWeb.add(config, pool, slots, avatar_key(config), cable.hub)
     |> PwaWeb.add(pool, config.assets_dir)
     |> TransfersWeb.add(config, pool)
-    |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true)
+    |> Bond.static(Routes.ASSETS, config.assets_dir, STYLESHEET_MAX_BYTES, 0, true, early: true)
     |> Bond.get(Routes.HOME, on_get_home)
     |> Bond.get(Routes.HEALTH, on_get_health)
     |> Bond.get(Routes.UP, on_get_up)
