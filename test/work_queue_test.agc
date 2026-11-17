@@ -2,6 +2,8 @@ import WorkQueue from "../src/campfire/work_queue"
 
 private
 
+RACES = 10
+
 def main() -> Void
   Test.run([
     Test.test("a put-back fits when the queue was full, and a new offer is refused meanwhile") do
@@ -44,13 +46,19 @@ def main() -> Void
       Test.eq(WorkQueue.take(queue).unwrap!.item, 4)
     end,
     Test.test("workers that race on capped keys leave no item waiting") do
-      queue: WorkQueue.Queue[Int] = WorkQueue.new(64, 1)
-      for n in 0...64
-        try Test.assert(WorkQueue.offer(queue, "k#{n % 2}", n), "offer")
+      # A worker that ends an item while another one's scan holds the rest used to leave with them unread, in a few
+      # races out of a hundred, so the race runs several times.
+      for _ in 0...RACES
+        queue: WorkQueue.Queue[Int] = WorkQueue.new(64, 1)
+        for n in 0...64
+          try Test.assert(WorkQueue.offer(queue, "k#{n % 2}", n), "offer")
+        end
+
+        done = Task.map([0, 1, 2, 3, 4, 5], 6, 20_000) do |_| drain(queue) end
+        try Test.eq(done.map(->(count) { count.unwrap_or(0) }).sum, 64)
       end
 
-      done = Task.map([0, 1, 2, 3, 4, 5], 6, 20_000) do |_| drain(queue) end
-      Test.eq(done.map(->(count) { count.unwrap_or(0) }).sum, 64)
+      return ok()
     end,
   ])
 end

@@ -200,11 +200,13 @@ def next_post(hooks: Hooks) -> Optional[Post]
     return some(entry.item)
   end
 
-  # Every slot is taken again, by workers that look at the queue before they stop.
+  # Every slot is taken again, by workers that look at the queue before they stop. One that looked while the post was
+  # out of it may have stopped and given its slot back: a free slot now means this worker looks again with it.
   WorkQueue.finish(hooks.queue, entry.key)
   WorkQueue.put_back(hooks.queue, entry)
+  return none if not Slots.take?(hooks.running, MAX_RUNNING)
 
-  none
+  next_post(hooks)
 end
 
 def deliver(given: Work) -> Result[Void]

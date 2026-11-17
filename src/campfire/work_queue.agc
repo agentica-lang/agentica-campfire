@@ -2,11 +2,13 @@
 
 import Slots from "slots"
 
-## The waiting items, and the running ones of each key.
+## The waiting items, the running ones of each key, and a count of the changes (`finish`, `put_back`) that can let a
+## skipped item run.
 struct Queue[T]
   waiting: Channel[Entry[T]]
   counted: ATS[String, Int]
   running: ATS[String, Int]
+  changes: ATS[String, Int]
   capacity: Int
   per_key: Int
 end
@@ -20,7 +22,15 @@ end
 ## A new queue that holds `capacity` items, and lets `per_key` of one key run.
 def new[T](capacity: Int, per_key: Int) -> Queue[T]
   waiting: Channel[Entry[T]] = Channel.new(capacity)
-  Queue(waiting: waiting, counted: Slots.new(), running: Slots.new(), capacity: capacity, per_key: per_key)
+  changes: ATS[String, Int] = ATS.new()
+  Queue(
+    waiting: waiting,
+    counted: Slots.new(),
+    running: Slots.new(),
+    changes: changes,
+    capacity: capacity,
+    per_key: per_key,
+  )
 end
 
 ## Adds an item at the back; false when the queue is full.
@@ -36,12 +46,20 @@ end
 ## The first item whose key has a place free, taken as running. When it skips items, the rest of the queue is read
 ## too, so all go back in their order. The item still counts as waiting until `started`.
 def take[T](queue: Queue[T]) -> Optional[Entry[T]]
-  scan = scan_once(queue)
-  return scan.found if scan.found.some? or not scan.skipped
+  # A scan holds the items it reads out of the channel, so a worker that ends an item meanwhile can find the channel
+  # empty and leave while this scan skips them for the place that worker held. So the scan runs again after any
+  # change, and none is the answer only when nothing changed while it ran.
+  seen = changes_of(queue)
+  found = scan_once(queue)
+  while found.none?
+    now = changes_of(queue)
+    return none if now == seen
 
-  # Another taker's probe of a key may count as a running item and hide an item that fits, and a worker that sees the
-  # channel empty while the skipped items are out of it leaves. Checking again after they are back wakes no one late.
-  scan_once(queue).found
+    seen = now
+    found = scan_once(queue)
+  end
+
+  found
 end
 
 ## The item that `take` gave is running now and no longer waits.
@@ -52,22 +70,34 @@ end
 ## An item that ran ends: its place of the key is free.
 def finish[T](queue: Queue[T], key: String) -> Void
   ATS.add(queue.running, key, -1)
+  changed(queue)
 end
 
 ## Gives back an item that `take` gave and did not start. Its place in the queue was kept, so it always fits.
 def put_back[T](queue: Queue[T], entry: Entry[T]) -> Void
-  # A full queue here would lose an accepted post: that is a bug, so it halts.
-  Channel.send(queue.waiting, entry, 0).unwrap!
+  requeue(queue, entry)
+  changed(queue)
 end
 
 private
 
-struct Scan[T]
-  found: Optional[Entry[T]]
-  skipped: Bool
+# The key of the one counter of `Queue.changes`.
+CHANGES = "changes"
+
+def changes_of[T](queue: Queue[T]) -> Int = ATS.add(queue.changes, CHANGES, 0)
+
+def changed[T](queue: Queue[T]) -> Void
+  ATS.add(queue.changes, CHANGES, 1)
 end
 
-def scan_once[T](queue: Queue[T]) -> Scan[T]
+def requeue[T](queue: Queue[T], entry: Entry[T]) -> Void
+  # A full queue here would lose an accepted post: that is a bug, so it halts.
+  Channel.send(queue.waiting, entry, 0).unwrap!
+end
+
+# The first item whose key has a place free, taken as running; the items it skips go back in their order. Putting them
+# back is not a change: two scans that skip would otherwise keep each other looking.
+def scan_once[T](queue: Queue[T]) -> Optional[Entry[T]]
   others: List[Entry[T]] = []
   found: Optional[Entry[T]] = none
   for _ in 0...queue.capacity
@@ -87,8 +117,8 @@ def scan_once[T](queue: Queue[T]) -> Scan[T]
   end
 
   for entry in others
-    put_back(queue, entry)
+    requeue(queue, entry)
   end
 
-  Scan(found: found, skipped: not others.empty?)
+  found
 end
