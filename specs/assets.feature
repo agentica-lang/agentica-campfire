@@ -4,6 +4,8 @@ Feature: The stylesheet and the script
   kept for a year by any cache, and it is public: the sign-in page has to look right before anyone is signed in. The
   room page and every page with the sidebar also link the one script of the app, `/assets/campfire-DIGEST.js`, which sends
   the composer without a reload and keeps the page live; the pages of a visitor who is not signed in do not link it.
+  A file of the folder is answered before the filters (`Bond.static(..., early: true)`); any other path under `/assets`
+  goes through them, such as the one that refuses a multipart body with a 415.
 
   Background:
     Given a fresh database
@@ -68,3 +70,13 @@ Feature: The stylesheet and the script
     When I get "/assets/"
     Then the status is 302
     And the header "location" is "/session/new"
+
+  Scenario: A file under /assets is answered before the filters, and any other path under it is not
+    When I get "/rooms/1"
+    And the request header "content-type" is "multipart/form-data; boundary=x"
+    And I get the stylesheet that the page links
+    Then the status is 200
+    When I get "/assets/missing.css"
+    Then the status is 415
+    When I get "/rooms/1"
+    Then the status is 415

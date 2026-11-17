@@ -112,8 +112,10 @@ are busy is answered `503` with `Retry-After`.
 ## Which pages need a sign-in
 
 Every page does, except the sign-in, first-run and password-reset pages, `/health`, `/up`,
-`/join/CODE`, what is under `/assets/` (the stylesheet; a file there is answered before any filter,
-`Bond.static(..., early: true)`, and any other path under it goes through them), and the manifest, the service worker and the icon of the
+`/join/CODE`,
+what is under `/assets/` (the stylesheet; a file there is answered before any
+filter, `Bond.static(..., early: true)`, and any other path under it goes
+through them), and the manifest, the service worker and the icon of the
 installable app (`/webmanifest.json`, `/service-worker.js`, `/account/logo`) and a sign-in link
 (`/session/transfers/TOKEN`). The list is deny-by-default: a new route is private until
 `src/campfire_web/auth.agc` names it.
@@ -133,10 +135,12 @@ in constant time before it decodes anything, then the purpose and the expiry, an
 nothing, never why. The token is readable by anyone (it is signed, not encrypted), so it is only a
 way to name a user, never a proof of who is asking. `GET /users/TOKEN/avatar` uses it, with the key of
 `SECRET_KEY_BASE`: a token that does not verify, for another purpose, expired or for no user is the
-same `404` as a missing page. A token that verified and has no expiry is kept for the app, by the
-whole token, with its id (`SignedId.Memo`, at most 4096, emptied when full), so a repeat is not
-checked again; it only names the user, so the sign-in and the database are still read each time, and
-a new `SECRET_KEY_BASE` starts with an empty memo. The picture is sent `Cache-Control: private` (Rails says `public`), since
+same `404` as a missing page.
+A token that verified and has no expiry is kept for the app, by the whole token,
+with its id (`SignedId.Memo`, at most 4096, emptied when full), so a repeat is
+not checked again; it only names the user, so the sign-in and the database are
+still read each time, and a new `SECRET_KEY_BASE` starts with an empty memo.
+The picture is sent `Cache-Control: private` (Rails says `public`), since
 the route needs a sign-in and a shared cache must not hand it to anyone else.
 
 ## Message bodies
