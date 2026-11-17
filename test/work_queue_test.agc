@@ -2,8 +2,6 @@ import WorkQueue from "../src/campfire/work_queue"
 
 private
 
-RACES = 10
-
 def main() -> Void
   Test.run([
     Test.test("a put-back fits when the queue was full, and a new offer is refused meanwhile") do
@@ -46,19 +44,38 @@ def main() -> Void
       Test.eq(WorkQueue.take(queue).unwrap!.item, 4)
     end,
     Test.test("workers that race on capped keys leave no item waiting") do
-      # A worker that ends an item while another one's scan holds the rest used to leave with them unread, in a few
+      # A worker that ended an item while another one's scan held the rest used to leave with them unread, in a few
       # races out of a hundred, so the race runs several times.
-      for _ in 0...RACES
-        queue: WorkQueue.Queue[Int] = WorkQueue.new(64, 1)
-        for n in 0...64
-          try Test.assert(WorkQueue.offer(queue, "k#{n % 2}", n), "offer")
-        end
-
-        done = Task.map([0, 1, 2, 3, 4, 5], 6, 20_000) do |_| drain(queue) end
-        try Test.eq(done.map(->(count) { count.unwrap_or(0) }).sum, 64)
+      race(64, 2, 6, -1, 10)
+    end,
+    Test.test("workers whose scans probe one capped key at once leave no item waiting") do
+      # A pause between the probe of a key and its undo makes two scans see each other's probe and skip.
+      race(4, 1, 3, 0, 200)
+    end,
+    Test.test("a worker that ends an item while a scan holds the rest takes one after that scan") do
+      queue: WorkQueue.Queue[Int] = WorkQueue.new(4, 1)
+      try Test.assert(WorkQueue.offer(queue, "a", 1), "a1")
+      try Test.assert(WorkQueue.offer(queue, "a", 2), "a2")
+      running = WorkQueue.take(queue).unwrap!
+      WorkQueue.started(queue)
+      # A scan in progress, as `take` makes it: the lock held and the item out of the channel.
+      try Channel.send(queue.scanning, true, 0)
+      held = try Channel.recv(queue.waiting, 0)
+      worker = Task.spawn do
+        WorkQueue.finish(queue, running.key)
+        WorkQueue.take(queue)
       end
 
-      return ok()
+      waited = true
+      case Task.await(worker, 50)
+        Await.Done(_) -> waited = false
+        Await.TimedOut -> nil
+      end
+
+      try Test.assert(waited, "the take of the worker did not wait for the scan")
+      try Channel.send(queue.waiting, held, 0)
+      _ = Channel.recv(queue.scanning, 0)
+      Test.eq(Task.await(worker).map do |entry| entry.item end, some(2))
     end,
   ])
 end
@@ -74,4 +91,21 @@ def drain(queue: WorkQueue.Queue[Int]) -> Result[Int]
   end
 
   ok(count)
+end
+
+# `rounds` races of `workers` that drain a queue of `items` over `keys` keys, one running per key, with the
+# `probe_pause_ms` of the queue. Each must take every item.
+def race(items: Int, keys: Int, workers: Int, probe_pause_ms: Int, rounds: Int) -> Result[Void]
+  for round in 0...rounds
+    queue: WorkQueue.Queue[Int] = WorkQueue.new(items, 1, probe_pause_ms)
+    for n in 0...items
+      try Test.assert(WorkQueue.offer(queue, "k#{n % keys}", n), "offer")
+    end
+
+    done = Task.map((0...workers).to_a, workers, 20_000) do |_| drain(queue) end
+    taken = done.map(->(count) { count.unwrap_or(0) }).sum
+    try Test.assert(taken == items, "round #{round}: #{taken} of #{items} items taken")
+  end
+
+  ok()
 end

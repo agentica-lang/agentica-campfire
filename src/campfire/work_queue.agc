@@ -2,15 +2,16 @@
 
 import Slots from "slots"
 
-## The waiting items, the running ones of each key, and a count of the changes (`finish`, `put_back`) that can let a
-## skipped item run.
+## The waiting items, the running ones of each key, and the lock that lets one `take` scan at a time. `probe_pause_ms`
+## is for tests: when it is 0 or more, a scan waits that long between the probe of a key and its undo.
 struct Queue[T]
   waiting: Channel[Entry[T]]
   counted: ATS[String, Int]
   running: ATS[String, Int]
-  changes: ATS[String, Int]
+  scanning: Channel[Bool]
   capacity: Int
   per_key: Int
+  probe_pause_ms: Int = -1
 end
 
 ## An item with its key.
@@ -20,16 +21,17 @@ struct Entry[T]
 end
 
 ## A new queue that holds `capacity` items, and lets `per_key` of one key run.
-def new[T](capacity: Int, per_key: Int) -> Queue[T]
+def new[T](capacity: Int, per_key: Int, probe_pause_ms: Int = -1) -> Queue[T]
   waiting: Channel[Entry[T]] = Channel.new(capacity)
-  changes: ATS[String, Int] = ATS.new()
+  scanning: Channel[Bool] = Channel.new(1)
   Queue(
     waiting: waiting,
     counted: Slots.new(),
     running: Slots.new(),
-    changes: changes,
+    scanning: scanning,
     capacity: capacity,
     per_key: per_key,
+    probe_pause_ms: probe_pause_ms,
   )
 end
 
@@ -46,20 +48,22 @@ end
 ## The first item whose key has a place free, taken as running. When it skips items, the rest of the queue is read
 ## too, so all go back in their order. The item still counts as waiting until `started`.
 def take[T](queue: Queue[T]) -> Optional[Entry[T]]
-  # A scan holds the items it reads out of the channel, so a worker that ends an item meanwhile can find the channel
-  # empty and leave while this scan skips them for the place that worker held. So the scan runs again after any
-  # change, and none is the answer only when nothing changed while it ran.
-  seen = changes_of(queue)
-  found = scan_once(queue)
-  while found.none?
-    now = changes_of(queue)
-    return none if now == seen
-
-    seen = now
-    found = scan_once(queue)
+  # A scan holds the items it reads out of the channel and counts its probe of a key as running. Two scans at once
+  # could each skip an item for the other's probe, or for a place that a worker gives back while the items are out of
+  # the channel, and that worker would find it empty: all could leave with an item waiting. So one scan runs at a
+  # time, and a worker that ends an item scans after any scan that was running then.
+  while not Channel.send(queue.scanning, true, LOCK_WAIT_MS).ok?
   end
 
-  found
+  scan = scan_once(queue)
+  _ = Channel.recv(queue.scanning, 0)
+  # A full queue on the way back would lose an accepted item: that is a bug, so it halts, once the lock is free.
+  case scan.lost
+    some(entry) -> Channel.send(queue.waiting, entry, 0).unwrap!
+    none -> nil
+  end
+
+  scan.found
 end
 
 ## The item that `take` gave is running now and no longer waits.
@@ -70,34 +74,26 @@ end
 ## An item that ran ends: its place of the key is free.
 def finish[T](queue: Queue[T], key: String) -> Void
   ATS.add(queue.running, key, -1)
-  changed(queue)
 end
 
 ## Gives back an item that `take` gave and did not start. Its place in the queue was kept, so it always fits.
 def put_back[T](queue: Queue[T], entry: Entry[T]) -> Void
-  requeue(queue, entry)
-  changed(queue)
-end
-
-private
-
-# The key of the one counter of `Queue.changes`.
-CHANGES = "changes"
-
-def changes_of[T](queue: Queue[T]) -> Int = ATS.add(queue.changes, CHANGES, 0)
-
-def changed[T](queue: Queue[T]) -> Void
-  ATS.add(queue.changes, CHANGES, 1)
-end
-
-def requeue[T](queue: Queue[T], entry: Entry[T]) -> Void
   # A full queue here would lose an accepted post: that is a bug, so it halts.
   Channel.send(queue.waiting, entry, 0).unwrap!
 end
 
-# The first item whose key has a place free, taken as running; the items it skips go back in their order. Putting them
-# back is not a change: two scans that skip would otherwise keep each other looking.
-def scan_once[T](queue: Queue[T]) -> Optional[Entry[T]]
+private
+
+# How long a `take` waits for the lock before it asks again (a scan takes far less).
+LOCK_WAIT_MS = 1_000
+
+# What one scan found, and the first item that did not fit back (never, unless the queue is broken).
+struct Scan[T]
+  found: Optional[Entry[T]]
+  lost: Optional[Entry[T]]
+end
+
+def scan_once[T](queue: Queue[T]) -> Scan[T]
   others: List[Entry[T]] = []
   found: Optional[Entry[T]] = none
   for _ in 0...queue.capacity
@@ -109,6 +105,10 @@ def scan_once[T](queue: Queue[T]) -> Optional[Entry[T]]
       found = some(entry)
       break if others.empty?
     elsif found.none?
+      if queue.probe_pause_ms >= 0
+        Task.sleep(queue.probe_pause_ms)
+      end
+
       ATS.add(queue.running, entry.key, -1)
       others = others.push(entry)
     else
@@ -117,8 +117,8 @@ def scan_once[T](queue: Queue[T]) -> Optional[Entry[T]]
   end
 
   for entry in others
-    requeue(queue, entry)
+    return Scan(found: found, lost: some(entry)) if not Channel.send(queue.waiting, entry, 0).ok?
   end
 
-  found
+  Scan(found: found, lost: none)
 end
