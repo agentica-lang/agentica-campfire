@@ -146,12 +146,12 @@ def backend(hooks: Hooks, queue: String) -> Jobs.Backend
   hooks.delivery.posts
 end
 
-## How long the lease of a job lasts. It covers one attempt, since each attempt gets a lease of its own: a connection
-## of the pool for the reads (up to `db_checkout_ms`), the lookup of the host and the post (each up to the webhook
-## timeout), a connection for the reply (`db_checkout_ms` again) and its write, which waits up to SQLite's busy timeout,
-## and a margin. A lease that ended while the post was under way would send the post again.
+## How long the lease of a job lasts. It covers one attempt, since each attempt gets a lease of its own: two blocks of
+## the pool, the reads and the reply's write (each a checkout of up to `db_checkout_ms` and a block of up to
+## `Database.BLOCK_MS`, whatever busy timeout the database URL sets), the lookup of the host and the post (each up to
+## the webhook timeout), and a margin. A lease that ended while the post was under way would send the post again.
 def lease_ms(config: Config) -> Int
-  2 * config.db_checkout_ms + 2 * config.webhook_timeout_ms + SQLITE_BUSY_MS + LEASE_MARGIN_MS
+  2 * (config.db_checkout_ms + Database.BLOCK_MS) + 2 * config.webhook_timeout_ms + LEASE_MARGIN_MS
 end
 
 ## What runs the jobs of a queue.
@@ -176,8 +176,6 @@ ATTEMPTS = 3
 PAUSE_MS = 500
 # A fetch waits this long for a job before it asks again.
 WAIT_MS = 5_000
-# The `busy_timeout` of agentica-db's SQLite connections (its default; the database URL does not set one).
-SQLITE_BUSY_MS = 5_000
 LEASE_MARGIN_MS = 10_000
 CLOSE_MS = 1_000
 STOP_MS = 2_000

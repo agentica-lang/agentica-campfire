@@ -167,31 +167,30 @@ def crash_is_dead_without_retry() -> Result[Void]
   Test.eq([dead.message, fields.get("reason", ""), fields.get("cause", "")], ["job dead", "crashed", "task.crashed"])
 end
 
-# A fetch that waits for a full group is woken when the lease of that group ends, long before its `wait_ms`.
+# A consumer whose fetch waits for a full group is woken when the lease of that group ends, long before its
+# `wait_ms`. The test holds the lease, so the consumer cannot take the second job without the wake-up.
 def full_group_wakes_its_waiting_fetch() -> Result[Void]
   given = try started()
   for text in ["first", "second"]
     _ = try Jobs.enqueue(given.backend, Jobs.NewJob(queue: QUEUE, payload: text.bytes, group: some("g")))
   end
 
-  ran: Channel[String] = Channel.new(4)
-  release: Channel[Bool] = Channel.new(1)
-  waiting = options(given.clock, 2, 1)
+  waiting = options(given.clock, 1, 1)
   slow = waiting.with(fetch: waiting.fetch.with(wait_ms: 60_000))
+  held = try Jobs.fetch(given.backend, slow.fetch.with(wait_ms: 0))
+  try Test.eq(held.map do |lease| text_of(lease.job) end, ["first"])
+  ran: Channel[String] = Channel.new(4)
   consumers = Consumers.start(given.backend, slow) do |job|
     _ = ran.send(text_of(job), WAIT_MS)
-    if text_of(job) == "first"
-      _ = try release.recv(WAIT_MS)
-    end
-
     ok()
   end
 
-  first = ran.recv(WAIT_MS)
-  _ = release.send(true, WAIT_MS)
+  early = ran.recv(200)
+  acked = Jobs.ack(given.backend, held[0])
   second = ran.recv(WAIT_MS)
   end_all(given, consumers)
-  try Test.eq(try first, "first")
+  try acked
+  try Test.assert(not early.ok?, "the consumer took a job of a full group")
   Test.eq(try second, "second")
 end
 
@@ -207,7 +206,7 @@ def main() -> Void
       every_job_once_within_the_limit()
     end,
     Test.test("a crash of a handler that must not run twice makes its job dead") do crash_is_dead_without_retry() end,
-    Test.test("a fetch that waits for a full group is woken when the group's lease ends") do
+    Test.test("a fetch that waits for a full group is woken when a lease it does not hold ends") do
       full_group_wakes_its_waiting_fetch()
     end,
   ])

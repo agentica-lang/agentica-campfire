@@ -76,14 +76,16 @@ def peer_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
   BDD.set(kept, PORT, JSON.from(port))
 end
 
-# The next line of the peer within the milliseconds of the request, or "" when none comes. `poll_line`, since the
-# timeout of `read_line` closes the peer, and a step may wait for a post after one that got nothing.
+# The next line of the peer within the milliseconds of the request, or "" when none comes in time; a peer that ended
+# or failed is an error, so a step that expects nothing cannot pass on a dead peer. `poll_line`, since the timeout of
+# `read_line` closes the peer, and a step may wait for a post after one that got nothing.
 def next_post(peer: Process, request: JSON.Value) -> Result[JSON.Value]
   wait_ms = try JSON.int(request)
-  line = Process.poll_line(peer, wait_ms)
-  return ok(JSON.from("")) if not line.ok?
-
-  ok(JSON.from(line.unwrap!))
+  case Process.poll_line(peer, wait_ms)
+    ok(line) -> ok(JSON.from(line))
+    error(e) if e.is_a?("process.timeout") -> ok(JSON.from(""))
+    error(e) -> error("the webhook peer stopped: #{e.message}")
+  end
 end
 
 def peer_received(ctx: BDD.Context, args: List[String]) -> BDD.Context

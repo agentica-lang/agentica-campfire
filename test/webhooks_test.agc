@@ -188,9 +188,9 @@ def gone_bot_is_dropped(site: Site) -> Result[Void]
   end
 end
 
-# One attempt at most waits for two connections of the pool, the lookup of the host and the post (each up to the
-# webhook timeout) and the busy timeout of SQLite for the reply; the lease covers that and a margin of 10 s, and is not
-# counted per attempt, since each attempt gets a lease of its own.
+# One attempt at most holds two blocks of the pool (the reads and the reply, each a checkout and a block), the lookup
+# of the host and the post (each up to the webhook timeout); the lease covers that and a margin, and is not counted per
+# attempt, since each attempt gets a lease of its own.
 def lease_covers_one_attempt() -> Result[Void]
   parsed = try Config.parse(
     Config.DEFAULT_HOST,
@@ -201,7 +201,10 @@ def lease_covers_one_attempt() -> Result[Void]
   )
 
   config = parsed.with(db_checkout_ms: 10_000, webhook_timeout_ms: 7_000)
-  Test.eq(Webhooks.lease_ms(config), 2 * 10_000 + 2 * 7_000 + 5_000 + 10_000)
+  attempt = 2 * (10_000 + Database.BLOCK_MS) + 2 * 7_000
+  lease = Webhooks.lease_ms(config)
+  try Test.assert(lease > attempt, "the lease #{lease} is shorter than one attempt, #{attempt}")
+  Test.assert(lease < 2 * attempt, "the lease #{lease} counts more than one attempt")
 end
 
 def main() -> Void
