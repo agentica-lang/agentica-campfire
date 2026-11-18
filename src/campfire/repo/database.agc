@@ -8,6 +8,9 @@ import Sqlite from "pkg/db/sqlite"
 import VersionReader from "version_reader"
 import {int_of, text_of} from "rows"
 
+## The longest that a block of `with_connection` may run, its waits on SQLite's lock included.
+BLOCK_MS = 30_000
+
 ## The connections of the app, opened once at the start (see `open_pool`).
 type Pool = DbPool.Pool
 
@@ -40,9 +43,18 @@ end
 ## pool. A caller that finds all of them busy waits up to `checkout_ms`, then gets a `pool error: checkout timed out`
 ## that `timeout?` tells. The connections belong to the task that calls this, so it must live as long as the app does.
 ## The migrations ran before (`migrate`), and the url is a file: a `sqlite::memory:` database would be one empty
-## database per connection. An `error` says what failed (a url that does not open), and stops the start.
+## database per connection. A block runs at most `BLOCK_MS`. An `error` says what failed (a url that does not open),
+## and stops the start.
 def open_pool(url: String, size: Int, checkout_ms: Int) -> Result[Pool]
-  DbPool.start(DbPool.Options(url: url, drivers: [Sqlite.driver()], size: size, checkout_ms: checkout_ms))
+  options = DbPool.Options(
+    url: url,
+    drivers: [Sqlite.driver()],
+    size: size,
+    checkout_ms: checkout_ms,
+    lease_ms: BLOCK_MS,
+  )
+
+  DbPool.start(options)
 end
 
 ## Closes the pool: the requests that run finish first (for up to a second), and the rest is turned away.

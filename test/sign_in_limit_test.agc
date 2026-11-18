@@ -9,6 +9,7 @@ import Mailer from "../src/campfire/mail/mailer"
 import RateLimit from "../src/campfire/rate_limit"
 import CableWeb from "../src/campfire_web/cable"
 import Web from "../src/campfire_web/web"
+import Webhooks from "../src/campfire_web/webhooks"
 
 private
 
@@ -54,9 +55,17 @@ def serve(dir: String, body: Fn[Site, Result[Void]]) -> Result[Void]
     return error(cable.message)
   end
 
-  built = Web.build(config, pool, schema.version, mailer.unwrap!, cable.unwrap!)
+  hooks = Webhooks.start(config, pool, cable.unwrap!, Webhooks.Options(consumers: false))
+  if not hooks.ok?
+    CableWeb.stop(cable.unwrap!)
+    Database.close_pool(pool)
+    return error(hooks.message)
+  end
+
+  built = Web.build(config, pool, schema.version, mailer.unwrap!, cable.unwrap!, hooks.unwrap!)
   outcome = body.call(Site(dir: dir, app: built))
   CableWeb.stop(cable.unwrap!)
+  Webhooks.stop(hooks.unwrap!)
   Database.close_pool(pool)
   outcome
 end

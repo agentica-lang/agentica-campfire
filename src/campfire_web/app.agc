@@ -10,26 +10,28 @@ import Mailer from "../campfire/mail/mailer"
 import MessageCache from "message_cache"
 import PageCache from "page_cache"
 import Web from "web"
+import Webhooks from "webhooks"
 import {Config, plain_link?} from "../campfire/config"
 
-## The server, the mailer and the pool of database connections that a start made, for `stop` and `wait`.
+## The server, the mailer, the webhooks and the pool of database connections that a start made, for `stop` and `wait`.
 struct Running
   server: HTTP.Server
   mailer: Mailer.Mailer
   pool: Database.Pool
   pages: Optional[PageCache.Pages]
   cable: CableWeb.Cable
+  hooks: Webhooks.Hooks
 end
 
 ## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
-## mailer, then serves the app on the address of `config`. It says what it did on four lines of output: whether the
+## mailer and the queues of the webhooks (`Webhooks.start`), then serves the app on the address of `config`. It says what it did on four lines of output: whether the
 ## session cookie is `Secure`, whether email is off or where it goes (`mail: ...`),
 ## `database: schema version N, migrations applied: M`, then `listening on http://HOST:PORT` (with the real port
 ## when the config asks for 0, and `[HOST]` for an IPv6 host). An `error` is a database that
 ## cannot be opened or migrated (it names `CAMPFIRE_DATABASE_URL`), an assets folder that is not there
 ## (`CAMPFIRE_ASSETS_DIR`), a folder of uploads that cannot be made (`CAMPFIRE_STORAGE_DIR`), or a failure to listen
-## (it names `CAMPFIRE_HOST` and `CAMPFIRE_PORT`). The server, the mailer and the pool belong to the task that calls this, which must live as long
-## as the app does (the pool opens its connections in it).
+## (it names `CAMPFIRE_HOST` and `CAMPFIRE_PORT`). The server, the mailer, the webhooks and the pool belong to the task
+## that calls this, which must live as long as the app does (the pool opens its connections in it).
 def start(config: Config) -> Result[Running]
   puts(cookie_line(config.secure_cookies))
   puts(Mailer.status(config.smtp))
@@ -67,10 +69,13 @@ def start(config: Config) -> Result[Running]
   running
 end
 
-## Stops the hub (its connections are told to reconnect and are closed), then the server, then the mailer, which sends
-## what is queued first, then closes the pool. The hub goes first because a WebSocket holds a connection of the server
-## for as long as its tab is open, and a server that waits for the open ones waits for the tabs.
+## Stops the webhooks (the posts that wait are dropped), then the hub (its connections are told to reconnect and are
+## closed), then the server, then the mailer, which sends what is queued first, then closes the pool. The webhooks go
+## before the hub, which their replies are broadcast through. The hub goes before the server because a WebSocket holds a
+## connection of the server for as long as its tab is open, and a server that waits for the open ones waits for the
+## tabs.
 def stop(running: Running) -> Void
+  Webhooks.stop(running.hooks)
   CableWeb.stop(running.cable)
   Bond.stop(running.server)
   Mailer.stop(running.mailer)
@@ -78,10 +83,12 @@ def stop(running: Running) -> Void
   Database.close_pool(running.pool)
 end
 
-## Starts the app and waits until the server stops, then lets the mailer finish what is queued and closes the pool.
+## Starts the app and waits until the server stops, then stops the webhooks and the hub, lets the mailer finish what is
+## queued and closes the pool.
 def run(config: Config) -> Result[Void]
   running = try start(config)
   waited = Bond.wait(running.server)
+  Webhooks.stop(running.hooks)
   CableWeb.stop(running.cable)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
@@ -142,16 +149,26 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   end
 
   cable = made.unwrap!
+  started_hooks = Webhooks.start(config, pool, cable)
+  if not started_hooks.ok?
+    CableWeb.stop(cable)
+    PageCache.stop(pages)
+    Mailer.stop(mailer)
+    return error("cannot start the webhooks: #{started_hooks.message}")
+  end
+
+  hooks = started_hooks.unwrap!
   # A WebSocket holds a connection of the server for as long as its tab is open, so the limit is a setting.
   limits = HTTP.ServerOptions(max_connections: config.max_connections)
   started = Bond.start_with(
-    Web.build(config, pool, schema_version, mailer, cable, messages, pages),
+    Web.build(config, pool, schema_version, mailer, cable, hooks, messages, pages),
     config.host,
     config.port,
     limits,
   )
 
   if not started.ok?
+    Webhooks.stop(hooks)
     CableWeb.stop(cable)
     Mailer.stop(mailer)
     PageCache.stop(pages)
@@ -162,7 +179,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable))
+  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable, hooks: hooks))
 end
 
 # A cookie without `Secure` travels over plain HTTP, so the line tells a person who forgot the setting behind HTTPS.

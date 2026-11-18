@@ -44,12 +44,12 @@ def build(
   schema_version: Int,
   mailer: Mailer.Mailer,
   cable: CableWeb.Cable,
+  hooks: Webhooks.Hooks,
   messages: Optional[Cache.Store] = none,
   pages: Optional[PageCache.Pages] = none,
 ) -> Bond.App
   slots = Slots.new()
   bans = BanFlag.new()
-  hooks = Webhooks.new(config, pool, cable)
   on_get_home = Blocks.handler do |conn| RoomsWeb.home(conn, pool) end
   on_get_health = Blocks.handler do |conn| health(conn, schema_version) end
   on_get_up = Blocks.handler do |conn| up(conn) end
