@@ -59,8 +59,8 @@ def settles_by_the_rules() -> Result[Void]
   end_all(given, consumers)
   _ = Logger.detach("test")
   try Test.eq(
-    [first.message, first.fields.get("what", ""), first.fields.get("reason", "")],
-    ["job dead", "discard", "discarded"],
+    [first.message, first.fields.get("what", ""), first.fields.get("reason", ""), first.fields.get("cause", "")],
+    ["job dead", "discard", "discarded", "jobs.discard"],
   )
 
   try Test.eq(
@@ -128,7 +128,6 @@ def every_job_once_within_the_limit() -> Result[Void]
       _ = running.add("over", 1)
     end
 
-    Task.sleep(1)
     _ = running.add(group, -1)
     _ = seen.add(text_of(job), 1)
     done.send(true, WAIT_MS)
@@ -146,6 +145,56 @@ def every_job_once_within_the_limit() -> Result[Void]
   Test.eq(running.get("over").unwrap_or(0), 0)
 end
 
+# A job that must not run twice is dead when its handler crashes, not run again.
+def crash_is_dead_without_retry() -> Result[Void]
+  given = try started()
+  _ = try Jobs.enqueue(given.backend, Jobs.NewJob(queue: QUEUE, payload: "a".bytes))
+  logged: Channel[Logger.Event] = Channel.new(4)
+  _ = Logger.detach("console")
+  try Logger.attach("crash", Logger.Level.Warning) do |event| _ = logged.send(event, WAIT_MS) end
+  once = options(given.clock, 1, 0).with(retry_crashes: false)
+  consumers = Consumers.start(given.backend, once) do |job|
+    # A job with no group: the unwrap crashes the handler.
+    _ = job.group.unwrap!
+    ok()
+  end
+
+  event = logged.recv(WAIT_MS)
+  end_all(given, consumers)
+  _ = Logger.detach("crash")
+  dead = try event
+  fields = dead.fields
+  Test.eq([dead.message, fields.get("reason", ""), fields.get("cause", "")], ["job dead", "crashed", "task.crashed"])
+end
+
+# A fetch that waits for a full group is woken when the lease of that group ends, long before its `wait_ms`.
+def full_group_wakes_its_waiting_fetch() -> Result[Void]
+  given = try started()
+  for text in ["first", "second"]
+    _ = try Jobs.enqueue(given.backend, Jobs.NewJob(queue: QUEUE, payload: text.bytes, group: some("g")))
+  end
+
+  ran: Channel[String] = Channel.new(4)
+  release: Channel[Bool] = Channel.new(1)
+  waiting = options(given.clock, 2, 1)
+  slow = waiting.with(fetch: waiting.fetch.with(wait_ms: 60_000))
+  consumers = Consumers.start(given.backend, slow) do |job|
+    _ = ran.send(text_of(job), WAIT_MS)
+    if text_of(job) == "first"
+      _ = try release.recv(WAIT_MS)
+    end
+
+    ok()
+  end
+
+  first = ran.recv(WAIT_MS)
+  _ = release.send(true, WAIT_MS)
+  second = ran.recv(WAIT_MS)
+  end_all(given, consumers)
+  try Test.eq(try first, "first")
+  Test.eq(try second, "second")
+end
+
 def main() -> Void
   Test.run([
     Test.test("a job is acked, dead or run again by the rules of Jobs.drain, and the log says which") do
@@ -156,6 +205,10 @@ def main() -> Void
     end,
     Test.test("every job of many groups runs once, and no group has more than its limit under way") do
       every_job_once_within_the_limit()
+    end,
+    Test.test("a crash of a handler that must not run twice makes its job dead") do crash_is_dead_without_retry() end,
+    Test.test("a fetch that waits for a full group is woken when the group's lease ends") do
+      full_group_wakes_its_waiting_fetch()
     end,
   ])
 end

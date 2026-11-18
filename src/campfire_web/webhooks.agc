@@ -8,11 +8,14 @@
 ## no webhook, so two bots cannot answer each other forever. An answer `200` with `text/html` or `text/plain` is posted
 ## back to the room as a message of the bot, and an answer that takes longer than `CAMPFIRE_WEBHOOK_TIMEOUT` is
 ## answered with Rails' "Failed to respond within N seconds". A reply never goes to the webhooks again. A connection
-## that fails before anything is sent is tried again, `ATTEMPTS` times in all, `PAUSE_MS` times the attempt later;
-## anything else is dropped, since the webhook may have got the post. A job given up is logged (`Consumers`). At most
-## `MAX_RUNNING` posts run at once, and at most `MAX_PER_BOT` for one bot (the bot is the `group` of its jobs), so a slow
-## bot cannot take every consumer; at most `MAX_WAITING` more wait, and a message past that is logged and dropped.
-## `App.start` starts the queues and `App.stop` stops them; a post under way when they stop is lost.
+## that fails before anything is sent (refused, or a host that does not resolve) is tried again, `ATTEMPTS` times in
+## all, `PAUSE_MS` times the attempt later; anything else, a crash included, is dropped, since the webhook may have got
+## the post. A job given up is logged (`Consumers`) with a fixed cause, the kind of its error (`jobs.discard.bot_gone`,
+## `webhook.refused`...). At most `MAX_RUNNING` posts run at once, and at most `MAX_PER_BOT` for one bot (the bot is the
+## `group` of its jobs), so a slow bot cannot take every consumer; at most `MAX_WAITING` more wait, and a message past
+## that is logged and dropped. The two queues have their places apart, so messages that wait to be fanned out never
+## take the places of the posts. `App.start` starts the queues and `App.stop` stops them; a post under way when they
+## stop is lost.
 ##
 ## A webhook reaches only an address of the open internet (`Bans.public_address?`): every address that its host
 ## resolves to must be one, unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true. Rails does not check this (an
@@ -39,9 +42,9 @@ import {Config} from "../campfire/config"
 FAN_OUT = "webhooks.fan_out"
 POST = "webhooks.post"
 
-## What the jobs need.
+## What the jobs need: `posts` is the queue that a fan-out fills.
 struct Delivery
-  backend: Jobs.Backend
+  posts: Jobs.Backend
   pool: Database.Pool
   cable: CableWeb.Cable
   timeout_ms: Int
@@ -51,13 +54,14 @@ end
 
 ## The queues and their consumers, from `start` to `stop`.
 struct Hooks
+  fan_out: Jobs.Backend
   delivery: Delivery
   fan_outs: Consumers.Consumers
   posts: Consumers.Consumers
 end
 
-## For tests: `clock` is the time of the queues (the wall clock by default), and `consumers: false` starts none, so a
-## test runs the jobs itself (`Jobs.drain` with `handler` and `backoff`).
+## For tests: `clock` is the time of the queues (a clock that never goes back by default), and `consumers: false`
+## starts none, so a test runs the jobs itself (`Jobs.drain` with `backend`, `handler` and `backoff`).
 struct Options
   clock: Optional[Fn[Int]] = none
   consumers: Bool = true
@@ -65,10 +69,16 @@ end
 
 ## Starts the queues and their consumers in the caller, which must live as long as the app does.
 def start(config: Config, pool: Database.Pool, cable: CableWeb.Cable, options: Options = Options()) -> Result[Hooks]
-  clock = options.clock.unwrap_or(&Time.now_ms)
-  backend = try Jobs.memory(Jobs.MemoryOptions(max_jobs: MAX_WAITING + MAX_RUNNING, clock: some(clock)))
+  clock = options.clock.unwrap_or(steady_clock())
+  fan_out = try Jobs.memory(Jobs.MemoryOptions(max_jobs: MAX_WAITING, clock: some(clock)))
+  started = Jobs.memory(Jobs.MemoryOptions(max_jobs: MAX_WAITING + MAX_RUNNING, clock: some(clock)))
+  if not started.ok?
+    Jobs.close(fan_out, CLOSE_MS)
+    return error(started.message)
+  end
+
   delivery = Delivery(
-    backend: backend,
+    posts: started.unwrap!,
     pool: pool,
     cable: cable,
     timeout_ms: config.webhook_timeout_ms,
@@ -77,35 +87,36 @@ def start(config: Config, pool: Database.Pool, cable: CableWeb.Cable, options: O
   )
 
   none_running = Consumers.Consumers(tasks: [])
-  hooks = Hooks(delivery: delivery, fan_outs: none_running, posts: none_running)
+  hooks = Hooks(fan_out: fan_out, delivery: delivery, fan_outs: none_running, posts: none_running)
   return ok(hooks) if not options.consumers
 
-  lease_ms = config.webhook_timeout_ms * ATTEMPTS + LEASE_MARGIN_MS
   fan_outs = Consumers.Options(
-    fetch: Jobs.Fetch(queue: FAN_OUT, lease_ms: lease_ms, wait_ms: WAIT_MS),
+    fetch: Jobs.Fetch(queue: FAN_OUT, lease_ms: lease_ms(config), wait_ms: WAIT_MS),
     count: FAN_OUTS,
     clock: clock,
     backoff: &backoff,
   )
 
   posts = Consumers.Options(
-    fetch: Jobs.Fetch(queue: POST, lease_ms: lease_ms, wait_ms: WAIT_MS, max_per_group: MAX_PER_BOT),
+    fetch: Jobs.Fetch(queue: POST, lease_ms: lease_ms(config), wait_ms: WAIT_MS, max_per_group: MAX_PER_BOT),
     count: MAX_RUNNING,
     clock: clock,
     backoff: &backoff,
+    retry_crashes: false,
   )
 
   ok(
     hooks.with(
-      fan_outs: Consumers.start(backend, fan_outs, handler(delivery, FAN_OUT)),
-      posts: Consumers.start(backend, posts, handler(delivery, POST)),
+      fan_outs: Consumers.start(fan_out, fan_outs, handler(delivery, FAN_OUT)),
+      posts: Consumers.start(delivery.posts, posts, handler(delivery, POST)),
     ),
   )
 end
 
 ## Closes the queues and waits a little for the consumers; the jobs that wait are dropped.
 def stop(hooks: Hooks) -> Void
-  Jobs.close(hooks.delivery.backend, CLOSE_MS)
+  Jobs.close(hooks.fan_out, CLOSE_MS)
+  Jobs.close(hooks.delivery.posts, CLOSE_MS)
   Consumers.stop(hooks.fan_outs, STOP_MS)
   Consumers.stop(hooks.posts, STOP_MS)
 end
@@ -122,10 +133,25 @@ def deliver_later(hooks: Hooks, room: Rooms.Room, message: Rooms.Message) -> Voi
     meta: {"message_id": message.id.to_s},
   )
 
-  case Jobs.enqueue(hooks.delivery.backend, job)
+  case Jobs.enqueue(hooks.fan_out, job)
     error(e) -> Logger.warning("webhooks dropped", {"message_id": message.id.to_s, "kind": e.kind})
     ok(_) -> nil
   end
+end
+
+## The backend of a queue, `FAN_OUT` or `POST`.
+def backend(hooks: Hooks, queue: String) -> Jobs.Backend
+  return hooks.fan_out if queue == FAN_OUT
+
+  hooks.delivery.posts
+end
+
+## How long the lease of a job lasts. It covers one attempt, since each attempt gets a lease of its own: a connection
+## of the pool for the reads (up to `db_checkout_ms`), the lookup of the host and the post (each up to the webhook
+## timeout), a connection for the reply (`db_checkout_ms` again) and its write, which waits up to SQLite's busy timeout,
+## and a margin. A lease that ended while the post was under way would send the post again.
+def lease_ms(config: Config) -> Int
+  2 * config.db_checkout_ms + 2 * config.webhook_timeout_ms + SQLITE_BUSY_MS + LEASE_MARGIN_MS
 end
 
 ## What runs the jobs of a queue.
@@ -144,12 +170,14 @@ MAX_RUNNING = 32
 MAX_WAITING = 256
 MAX_HOOKS = 16
 MAX_PER_BOT = 4
-FAN_OUTS = 1
+# A fan-out waits for a connection of the pool, so one slow checkout does not hold up the next messages.
+FAN_OUTS = 4
 ATTEMPTS = 3
 PAUSE_MS = 500
 # A fetch waits this long for a job before it asks again.
 WAIT_MS = 5_000
-# A lease outlives the lookup, the post and the reply of one attempt.
+# The `busy_timeout` of agentica-db's SQLite connections (its default; the database URL does not set one).
+SQLITE_BUSY_MS = 5_000
 LEASE_MARGIN_MS = 10_000
 CLOSE_MS = 1_000
 STOP_MS = 2_000
@@ -157,6 +185,7 @@ STOP_MS = 2_000
 MAX_ANSWER_BYTES = 1_048_576
 TIMED_OUT = "network: operation timed out"
 NOT_CONNECTED = "network: connection failed"
+NOT_FOUND = "network: host not found"
 TEXT_TYPES = ["text/html", "text/plain"]
 # Each reply is a new message, with a client id of its own.
 CLIENT_ID_BYTES = 16
@@ -214,17 +243,17 @@ def fan_out(delivery: Delivery, job: Jobs.Job) -> Result[Void]
   posts = try Database.with_connection(delivery.pool) do |db| posts_of(db, given) end
   return ok() if posts.empty?
 
-  _ = try Jobs.enqueue_all(delivery.backend, posts)
+  _ = try Jobs.enqueue_all(delivery.posts, posts)
   ok()
 end
 
 def posts_of(db: Db.Connection, given: FanOut) -> Result[List[Jobs.NewJob]]
   stored = try Rooms.find_message(db, given.room_id, given.message_id)
-  return gone("the message #{given.message_id} is gone") if stored.none?
+  return gone("message_gone", "the message #{given.message_id} is gone") if stored.none?
 
   message = Rooms.clean(stored.unwrap!)
   room = try Rooms.find(db, message.creator_id, given.room_id)
-  return gone("the author of the message #{given.message_id} left the room") if room.none?
+  return gone("author_gone", "the author of the message #{given.message_id} left the room") if room.none?
 
   direct = room.unwrap!.room_type == Rooms.DIRECT
   hooks = try Bots.webhooks_for(db, given.room_id, direct, message.creator_id, Mentions.ids(message.body))
@@ -249,26 +278,25 @@ end
 
 def post_of(db: Db.Connection, given: PostJob) -> Result[Post]
   hook = try Bots.hook(db, given.bot_id)
-  return gone("the bot #{given.bot_id} has no webhook") if hook.none?
+  return gone("bot_gone", "the bot #{given.bot_id} has no webhook") if hook.none?
 
   stored = try Rooms.find_message(db, given.room_id, given.message_id)
-  return gone("the message #{given.message_id} is gone") if stored.none?
+  return gone("message_gone", "the message #{given.message_id} is gone") if stored.none?
 
   room = try Rooms.find(db, given.bot_id, given.room_id)
-  return gone("the bot #{given.bot_id} left the room") if room.none?
+  return gone("bot_left_room", "the bot #{given.bot_id} left the room") if room.none?
 
   message = Rooms.clean(stored.unwrap!)
   text = HtmlSanitizer.plain_text_of_clean(message.body)
   ok(Post(room: room.unwrap!, message: message, text: text, hook: hook.unwrap!))
 end
 
-# One attempt. Only a connection that failed before anything was sent is tried again; after that the webhook may have
-# the post, so any failure drops the job.
+# One attempt. Only a connection that failed before anything was sent is tried again (refused, or a host that does
+# not resolve); after that the webhook may have the post, so any failure drops the job.
 def deliver(delivery: Delivery, post: Post) -> Result[Void]
   hook = post.hook
   if not delivery.private_addresses
-    checked = public_host(hook.url, delivery.timeout_ms)
-    return gone(checked.message) if not checked.ok?
+    try public_host(hook.url, delivery.timeout_ms)
   end
 
   body = JSON.encode(payload(post)).bytes
@@ -276,9 +304,9 @@ def deliver(delivery: Delivery, post: Post) -> Result[Void]
   options = HTTP.ClientOptions(timeout_ms: delivery.timeout_ms, max_body_bytes: MAX_ANSWER_BYTES)
   answer = HTTP.post_response(hook.url, body, headers, options)
   if not answer.ok?
-    return error(answer.message) if answer.message.start_with?(NOT_CONNECTED)
-
-    return gone(answer.message) if not timed_out?(answer.message)
+    return error(answer.message, kind: "webhook.refused") if answer.message.start_with?(NOT_CONNECTED)
+    return error(answer.message, kind: "webhook.dns") if answer.message.start_with?(NOT_FOUND)
+    return gone("http_failed", answer.message) if not timed_out?(answer.message)
 
     return replied(reply(delivery, post, "Failed to respond within #{seconds(delivery.timeout_ms)}"))
   end
@@ -291,20 +319,29 @@ end
 
 # A reply that fails is not tried again, since the post would go to the webhook again.
 def replied(result: Result[Void]) -> Result[Void]
-  return ok() if result.ok?
-
-  gone(result.message)
+  case result
+    ok(_) -> ok()
+    error(e) if e.is_a?("jobs.discard") -> error(e)
+    error(e) -> gone("reply_failed", e.message)
+  end
 end
 
 # A payload that cannot be read never will be.
 def decoded[T](result: Result[T]) -> Result[T]
   return result if result.ok?
 
-  gone("the payload is not one of a webhook job: #{result.message}")
+  gone("bad_payload", "the payload is not one of a webhook job: #{result.message}")
 end
 
-# The error that makes a job dead (`Jobs.discard`).
-def gone[T](message: String) -> Result[T] = error(message, kind: "jobs.discard")
+# The error that makes a job dead (`Jobs.discard`), with its cause in its kind for the log.
+def gone[T](cause: String, message: String) -> Result[T] = error(message, kind: "jobs.discard.#{cause}")
+
+# The wall clock when the app started, moved by a clock that never goes back, so a jump of the system time does not
+# end the leases early.
+def steady_clock() -> Fn[Int]
+  offset = Time.now_ms() - Time.monotonic_ms()
+  -> { offset + Time.monotonic_ms() }
+end
 
 def timed_out?(message: String) -> Bool = message.start_with?(TIMED_OUT)
 
@@ -333,7 +370,7 @@ end
 def reply(delivery: Delivery, post: Post, text: String) -> Result[Void]
   hook = post.hook
   problem = Rooms.body_problem(text, delivery.max_message_length)
-  return error("the reply of the bot #{hook.bot_id} was refused: #{problem}") if problem != ""
+  return gone("reply_refused", "the reply of the bot #{hook.bot_id} was refused: #{problem}") if problem != ""
 
   stored = try Database.with_connection(delivery.pool) do |db|
     Rooms.post(db, post.room.id, hook.bot_id, OpenSSL.Random.hex(CLIENT_ID_BYTES), text)
@@ -365,13 +402,19 @@ def payload(post: Post) -> Payload
   )
 end
 
-# An error unless every address of the host of `url` is on the open internet.
+# An error unless every address of the host of `url` is on the open internet: one that drops the job for an address
+# that is not, and one that runs it again when the host does not resolve, since nothing was sent.
 def public_host(url: String, timeout_ms: Int) -> Result[Void]
   host = host_of(url)
-  addresses = try DNS.lookup(host, timeout_ms)
-  for address in addresses
+  found = DNS.lookup(host, timeout_ms)
+  return error(found.message, kind: "webhook.dns") if not found.ok?
+
+  for address in found.unwrap!
     if not Bans.public_address?(address)
-      return error("#{host} is #{address}, which is not on the open internet (CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES)")
+      return gone(
+        "private_address",
+        "#{host} is #{address}, which is not on the open internet (CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES)",
+      )
     end
   end
 

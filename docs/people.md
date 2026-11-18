@@ -100,9 +100,10 @@ The delivery runs after the post is answered, from a queue of jobs in memory (th
 holds up no other; at most 32 posts run at once (4 for one bot, so a slow bot cannot take them all) and 256 more wait,
 and a message past that is logged and dropped. A job holds the ids of the room, the message and the bot, which are read
 again when it runs, so a bot that is gone or has no webhook by then gets nothing. A connection that fails before anything
-is sent is tried three times in all, half a second and then a second later; any other failure drops the post (Rails'
-job does not retry either). A post given up is logged (`job dead`, with the job, its attempt, the bot and the message,
-never the URL). The posts that wait or run when the app stops are lost. A webhook reaches
+is sent (refused, or a host that does not resolve) is tried three times in all, half a second and then a second later;
+any other failure, a crash included, drops the post (Rails' job does not retry either). A post given up is logged
+(`job dead`, with the job, its attempt, the bot, the message and a fixed `cause` such as `jobs.discard.bot_gone` or
+`webhook.refused`, never the URL). The posts that wait or run when the app stops are lost. A webhook reaches
 only addresses of the open internet unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true (see
 [security.md](security.md#webhooks)). Not here: Rails' reply with an attachment, which waits for the uploads (#60).
 

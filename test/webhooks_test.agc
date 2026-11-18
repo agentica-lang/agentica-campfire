@@ -103,7 +103,7 @@ def drain(site: Site, queue: String, due: Jobs.Due, max_runs: Int = 100) -> Resu
     backoff: some(&Webhooks.backoff),
   )
 
-  Jobs.drain(site.hooks.delivery.backend, options, Webhooks.handler(site.hooks.delivery, queue))
+  Jobs.drain(Webhooks.backend(site.hooks, queue), options, Webhooks.handler(site.hooks.delivery, queue))
 end
 
 # The message is fanned out to one post for Robo.
@@ -178,8 +178,30 @@ def gone_bot_is_dropped(site: Site) -> Result[Void]
   try fanned_out(site)
   changed = try Database.with_connection(site.pool) do |db| Bots.deactivate(db, 1, BOT_ID) end
   try Test.eq(changed, Accounts.Change.Changed)
-  posted = try drain(site, Webhooks.POST, Jobs.Due.All)
-  Test.eq(posted, Jobs.Drained(done: 0, retried: 0, dead: 1))
+  posts = Webhooks.backend(site.hooks, Webhooks.POST)
+  leases = try Jobs.fetch(posts, Jobs.Fetch(queue: Webhooks.POST))
+  ran = Webhooks.handler(site.hooks.delivery, Webhooks.POST).call(leases[0].job)
+  try Jobs.ack(posts, leases[0])
+  case ran
+    error(e) -> Test.eq(e.kind, "jobs.discard.bot_gone")
+    ok(_) -> Test.assert(false, "the post of a deactivated bot ran")
+  end
+end
+
+# One attempt at most waits for two connections of the pool, the lookup of the host and the post (each up to the
+# webhook timeout) and the busy timeout of SQLite for the reply; the lease covers that and a margin of 10 s, and is not
+# counted per attempt, since each attempt gets a lease of its own.
+def lease_covers_one_attempt() -> Result[Void]
+  parsed = try Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    "/nowhere",
+    "sqlite:/nowhere/campfire.db",
+    SECRET,
+  )
+
+  config = parsed.with(db_checkout_ms: 10_000, webhook_timeout_ms: 7_000)
+  Test.eq(Webhooks.lease_ms(config), 2 * 10_000 + 2 * 7_000 + 5_000 + 10_000)
 end
 
 def main() -> Void
@@ -190,8 +212,11 @@ def main() -> Void
     Test.test("a webhook fixed after a refused connection gets the next attempt, with the key read again") do
       with_site(&fixed_webhook_gets_the_retry)
     end,
-    Test.test("the post of a bot that was deactivated after the fan-out is dropped") do
+    Test.test("the post of a bot that was deactivated after the fan-out is dropped, with the cause bot_gone") do
       with_site(&gone_bot_is_dropped)
+    end,
+    Test.test("the lease of a job covers one attempt with the waits that the config allows") do
+      lease_covers_one_attempt()
     end,
   ])
 end

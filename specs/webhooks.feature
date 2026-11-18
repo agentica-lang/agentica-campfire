@@ -171,6 +171,10 @@ Feature: The webhooks of the chat bots
       """
       reason=discarded
       """
+    And stderr includes:
+      """
+      cause=jobs.discard.private_address
+      """
 
   Scenario: One bot has at most 4 posts under way, and the next waits for one of them
     Given a fresh database
@@ -196,6 +200,7 @@ Feature: The webhooks of the chat bots
     And the webhook receives a post
     And the webhook receives a post
     And the webhook receives nothing within 1500 milliseconds
+    And the webhook receives a post
 
   Scenario: Many posts to several bots, past the limit of each bot, all arrive once
     Given a fresh database

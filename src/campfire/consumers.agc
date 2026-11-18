@@ -1,9 +1,11 @@
 ## The tasks that run the jobs of one queue (the `jobs` package). Each task fetches one job, runs the handler in a task
 ## of its own, so that a crash is an `error` and never ends the consumer, then settles the job by the rules of
 ## `Jobs.drain`: `ok` acks it, `Jobs.discard` makes it dead, and another error runs it again after `backoff` of its
-## attempt, or makes it dead on its last attempt. A job that will run again is a `warning` in the log and a dead one an
-## `err` (with `reason`: `discarded` or `attempts_exhausted`); the fields are the queue, the id, the attempt, the group
-## and the `meta` of the job, never its payload or the text of its error. The tasks end when the backend is closed.
+## attempt, or makes it dead on its last attempt. A crash of the handler is such an error, unless `retry_crashes` is
+## false: then it is dead at once, for a job that must not run twice. A job that will run again is a `warning` in the
+## log and a dead one an `err` (with `reason`: `discarded`, `crashed` or `attempts_exhausted`); the fields are the
+## queue, the id, the attempt, the group, the `meta` of the job and the `cause` (the kind of the error, such as
+## `jobs.discard.bot_gone`), never its payload or the text of its error. The tasks end when the backend is closed.
 
 import Jobs from "pkg/jobs/jobs"
 import Logger from "std/logger"
@@ -15,6 +17,7 @@ struct Options
   count: Int
   clock: Fn[Int]
   backoff: Fn[Int, Int]
+  retry_crashes: Bool = true
 end
 
 ## The tasks of a queue, for `stop`.
@@ -80,27 +83,38 @@ def consume(consumer: Consumer) -> Result[Void]
 end
 
 def settle(consumer: Consumer, lease: Jobs.Lease) -> Void
-  job = lease.job
-  result = Task.await(Task.spawn(&run, Run(handle: consumer.handle, job: job)))
-  fields = fields_of(job)
+  result = Task.await(Task.spawn(&run, Run(handle: consumer.handle, job: lease.job)))
+  fields = fields_of(lease.job)
   settled = case result
     ok(_) -> Jobs.ack(consumer.backend, lease)
-    error(e) if e.is_a?("jobs.discard") ->
-      Logger.err("job dead", fields.put("reason", "discarded"))
-      Jobs.nack(consumer.backend, lease, Jobs.Nack.Dead(e.message))
-    error(e) if job.attempt >= job.max_attempts ->
-      Logger.err("job dead", fields.put("reason", "attempts_exhausted"))
-      Jobs.nack(consumer.backend, lease, Jobs.Nack.Dead(e.message))
-    error(e) ->
-      Logger.warning("job failed, it will run again", fields)
-      at = consumer.options.clock.call() + consumer.options.backoff.call(job.attempt)
-      Jobs.nack(consumer.backend, lease, Jobs.Nack.Retry(Jobs.Later(at_ms: at, error: some(e.message))))
+    error(e) -> failed(consumer, lease, e, fields.put("cause", e.kind))
   end
 
   case settled
     error(e) if not e.is_a?("jobs.closed") -> Logger.warning("job not settled", fields.put("kind", e.kind))
     _ -> nil
   end
+end
+
+def failed(consumer: Consumer, lease: Jobs.Lease, problem: Error, fields: Map[String, String]) -> Result[Void]
+  reason = dead_reason(consumer.options, lease.job, problem)
+  if reason != ""
+    Logger.err("job dead", fields.put("reason", reason))
+    return Jobs.nack(consumer.backend, lease, Jobs.Nack.Dead(problem.message))
+  end
+
+  Logger.warning("job failed, it will run again", fields)
+  at = consumer.options.clock.call() + consumer.options.backoff.call(lease.job.attempt)
+  Jobs.nack(consumer.backend, lease, Jobs.Nack.Retry(Jobs.Later(at_ms: at, error: some(problem.message))))
+end
+
+# Why the job is dead now, or "" when it runs again.
+def dead_reason(options: Options, job: Jobs.Job, problem: Error) -> String
+  return "discarded" if problem.is_a?("jobs.discard")
+  return "crashed" if problem.is_a?("task.crashed") and not options.retry_crashes
+  return "attempts_exhausted" if job.attempt >= job.max_attempts
+
+  ""
 end
 
 def run(given: Run) -> Result[Void] = given.handle.call(given.job)
