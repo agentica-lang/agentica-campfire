@@ -80,21 +80,28 @@ def webhooks_for(
 
   rows = try Db.query(
     conn,
-    "select users.id, users.name, users.bot_token, webhooks.url from memberships " +
-    "join users on users.id = memberships.user_id join webhooks on webhooks.user_id = users.id " +
-    "where memberships.room_id = ? and users.id <> ? and users.role = #{Rails.BOT} and " +
-    "users.status = #{Rails.ACTIVE} and webhooks.url is not null and webhooks.url <> '' order by users.id",
+    "#{HOOK_SELECT} from memberships join users on users.id = memberships.user_id #{HOOK_JOIN} " +
+    "where memberships.room_id = ? and users.id <> ? and #{HOOK_WHERE} order by users.id",
     [Db.Value.Int(room_id), Db.Value.Int(creator_id)],
   )
 
-  hooks = rows.map do |row|
-    id = int_of(row, "id")
-    Hook(bot_id: id, name: text_of(row, "name"), key: "#{id}-#{text_of(row, "bot_token")}", url: text_of(row, "url"))
-  end
-
+  hooks = rows.map do |row| hook_of(row) end
   return ok(hooks) if direct
 
   ok(hooks.select do |hook| mentioned.include?(hook.bot_id) end)
+end
+
+## The webhook of the active bot with this id, or `none` when it is no longer an active bot with a webhook.
+def hook(conn: Db.Connection, bot_id: Int) -> Result[Optional[Hook]]
+  rows = try Db.query(
+    conn,
+    "#{HOOK_SELECT} from users #{HOOK_JOIN} where users.id = ? and #{HOOK_WHERE} order by webhooks.id limit 1",
+    [Db.Value.Int(bot_id)],
+  )
+
+  return ok(none) if rows.empty?
+
+  ok(some(hook_of(rows[0])))
 end
 
 ## `text` without the mentions of `name` and the space around it, as the `plain` body of Rails' payload.
@@ -178,6 +185,17 @@ SELECT = (
   "select id, name, bot_token, (select url from webhooks where webhooks.user_id = users.id order by id limit 1) " +
   "as webhook_url from users where role = #{Rails.BOT} and status = #{Rails.ACTIVE}"
 )
+
+HOOK_SELECT = "select users.id, users.name, users.bot_token, webhooks.url"
+HOOK_JOIN = "join webhooks on webhooks.user_id = users.id"
+HOOK_WHERE = (
+  "users.role = #{Rails.BOT} and users.status = #{Rails.ACTIVE} and webhooks.url is not null and webhooks.url <> ''"
+)
+
+def hook_of(row: Db.Row) -> Hook
+  id = int_of(row, "id")
+  Hook(bot_id: id, name: text_of(row, "name"), key: "#{id}-#{text_of(row, "bot_token")}", url: text_of(row, "url"))
+end
 
 def bot_of(row: Db.Row) -> Bot
   id = int_of(row, "id")

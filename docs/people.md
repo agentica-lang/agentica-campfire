@@ -96,10 +96,13 @@ Only an active bot is sent anything, and at most 16 bots get one message. The bo
 with `Content-Type` `text/html` or `text/plain` is posted to the room as a message of the bot (HTML, cleaned as every
 body is); any other answer is dropped. An answer that takes longer than `CAMPFIRE_WEBHOOK_TIMEOUT` (7 seconds) is
 answered with the message "Failed to respond within 7 seconds" of the bot. A reply is not sent to the webhooks again.
-The delivery runs after the post is answered, each bot in a task of its own, so a slow webhook holds up no other; at
-most 32 posts run at once (4 for one bot, so a slow bot cannot take them all) and 256 more wait, and a post past that
-is logged and dropped. A connection that fails is tried three times in all, and any other failure is logged and dropped
-(Rails' job does not retry either). A webhook reaches
+The delivery runs after the post is answered, from a queue of jobs in memory (the `jobs` package), so a slow webhook
+holds up no other; at most 32 posts run at once (4 for one bot, so a slow bot cannot take them all) and 256 more wait,
+and a message past that is logged and dropped. A job holds the ids of the room, the message and the bot, which are read
+again when it runs, so a bot that is gone or has no webhook by then gets nothing. A connection that fails before anything
+is sent is tried three times in all, half a second and then a second later; any other failure drops the post (Rails'
+job does not retry either). A post given up is logged (`job dead`, with the job, its attempt, the bot and the message,
+never the URL). The posts that wait or run when the app stops are lost. A webhook reaches
 only addresses of the open internet unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true (see
 [security.md](security.md#webhooks)). Not here: Rails' reply with an attachment, which waits for the uploads (#60).
 

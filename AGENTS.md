@@ -10,7 +10,7 @@ A port of ONCE Campfire (group chat) in Agentica, on Bond.
 campfire.agc    the program (`make run`): config from the environment, the data folder, then the app
 src/campfire/   the domain: it knows nothing about HTTP or Bond
                 config.agc (host, port, data folder, database url, session secret, `SECRET_KEY_BASE`, the storage and assets
-                folders), data_dir.agc (the private data folder), slots.agc (a limit on concurrent hashes), work_queue.agc (the bounded queue of the webhook posts, with a limit per bot), rate_limit.agc (attempts per
+                folders), data_dir.agc (the private data folder), slots.agc (a limit on concurrent hashes), consumers.agc (the tasks that run the jobs of a queue of the `jobs` package), rate_limit.agc (attempts per
                 key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
@@ -90,10 +90,10 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   `make run`.
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
-- Agentica 0.31.2 or later (`private`, the nested builtin names, `Error` records; Bond 0.15.0, bond-channels 0.6.2 and agentica-db 0.11.0 need it, and a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
+- Agentica 0.34.0 or later (`private`, the nested builtin names, `Error` records; jobs 0.2.0 needs 0.34.0, and Bond 0.15.0, bond-channels 0.6.2 and agentica-db 0.11.0 need 0.31.2; a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (the `version` and `sha256` inputs of `agentica-lang/setup-agentica` in `.github/workflows/ci.yml`;
   bump the `AGENTICA_VERSION` and `AGENTICA_SHA256` ARGs of the `Dockerfile` with them).
-- To move Bond, agentica-db or bond-channels: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`), commit the lock.
+- To move Bond, agentica-db, bond-channels or jobs: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`, `jobs`), commit the lock.
   Keep Bond's tag the one that bond-channels asks for; if they differ, `override = true` on `bond` forces the tag.
   A new dependency is `agentica add NAME URL --tag TAG`.
 
@@ -319,9 +319,10 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   the old key. The pages hold keys, so they are `no-store`. The avatar of Rails' form waits for #73.
 - Webhooks (`src/campfire_web/webhooks.agc`, `docs/people.md`): the route that posts a message of a person calls
   `Webhooks.deliver_later` after its connection is back in the pool; it never waits. A message of the bots API goes to
-  no webhook (no bot loops). The bots are picked in a task by `Bots.webhooks_for` (a direct room: every bot with a
-  webhook; another room: the bots that the message mentions; never the author), and each post runs in a task of its own
-  under a slot, so a slow webhook holds up no other. A mention is the element that `Rooms.post` stored (`Mentions.ids`), never
+  no webhook (no bot loops). It queues a job (the `jobs` package, in memory, started and stopped by `App`); the bots are
+  picked by a consumer with `Bots.webhooks_for` (a direct room: every bot with a webhook; another room: the bots that
+  the message mentions; never the author), and each post is a job of its own with the bot as its group, so a slow
+  webhook holds up no other. A job holds ids, never a key or a URL, and reads its rows again when it runs. A mention is the element that `Rooms.post` stored (`Mentions.ids`), never
   the text. A reply is posted with `Rooms.post` and broadcast, and never delivered again. Before a post every address of
   the host must pass `Bans.public_address?` unless `CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES` is true; keep that check on
   every path that sends to a URL an administrator typed.

@@ -10,15 +10,17 @@ import Mailer from "../campfire/mail/mailer"
 import MessageCache from "message_cache"
 import PageCache from "page_cache"
 import Web from "web"
+import Webhooks from "webhooks"
 import {Config, plain_link?} from "../campfire/config"
 
-## The server, the mailer and the pool of database connections that a start made, for `stop` and `wait`.
+## The server, the mailer, the webhooks and the pool of database connections that a start made, for `stop` and `wait`.
 struct Running
   server: HTTP.Server
   mailer: Mailer.Mailer
   pool: Database.Pool
   pages: Optional[PageCache.Pages]
   cable: CableWeb.Cable
+  hooks: Webhooks.Hooks
 end
 
 ## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
@@ -73,6 +75,7 @@ end
 def stop(running: Running) -> Void
   CableWeb.stop(running.cable)
   Bond.stop(running.server)
+  Webhooks.stop(running.hooks)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
   Database.close_pool(running.pool)
@@ -83,6 +86,7 @@ def run(config: Config) -> Result[Void]
   running = try start(config)
   waited = Bond.wait(running.server)
   CableWeb.stop(running.cable)
+  Webhooks.stop(running.hooks)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
   Database.close_pool(running.pool)
@@ -142,10 +146,19 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   end
 
   cable = made.unwrap!
+  started_hooks = Webhooks.start(config, pool, cable)
+  if not started_hooks.ok?
+    CableWeb.stop(cable)
+    PageCache.stop(pages)
+    Mailer.stop(mailer)
+    return error("cannot start the webhooks: #{started_hooks.message}")
+  end
+
+  hooks = started_hooks.unwrap!
   # A WebSocket holds a connection of the server for as long as its tab is open, so the limit is a setting.
   limits = HTTP.ServerOptions(max_connections: config.max_connections)
   started = Bond.start_with(
-    Web.build(config, pool, schema_version, mailer, cable, messages, pages),
+    Web.build(config, pool, schema_version, mailer, cable, hooks, messages, pages),
     config.host,
     config.port,
     limits,
@@ -153,6 +166,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
 
   if not started.ok?
     CableWeb.stop(cable)
+    Webhooks.stop(hooks)
     Mailer.stop(mailer)
     PageCache.stop(pages)
     # The system's message names the host and the port, not the variables that a person has to change.
@@ -162,7 +176,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable))
+  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable, hooks: hooks))
 end
 
 # A cookie without `Secure` travels over plain HTTP, so the line tells a person who forgot the setting behind HTTPS.

@@ -25,6 +25,14 @@ commit = "5a4d984d10ec51ad31373cbde3b69ec41a75259b"
 hash = "sha256:871967b55bb38d8863ef2d4675622277cf319057b6ca5392046d7af6e37f0b29"
 
 [[package]]
+name = "jobs"
+git = "https://github.com/agentica-lang/packages"
+subdir = "jobs"
+tag = "jobs-0.2.0"
+commit = "d2402f4a1c20904b3be3097e3da0eef5c5a4e4b1"
+hash = "sha256:0f8e8318e5d5cadd3180eaf9e4f6c9a422126cdc7e5b922fa04f211fb24e5332"
+
+[[package]]
 name = "pool"
 git = "https://github.com/agentica-lang/packages"
 subdir = "pool"

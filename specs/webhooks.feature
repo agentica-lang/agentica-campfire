@@ -161,6 +161,16 @@ Feature: The webhooks of the chat bots
     Then the status is 302
     And the webhook receives nothing within 2000 milliseconds
     And the query "select count(*) from messages where creator_id = 2" gives 0
+    When I close stdin
+    Then the program exits with code 0 within 10000 milliseconds
+    And stderr includes:
+      """
+      ERROR job dead queue=webhooks.post
+      """
+    And stderr includes:
+      """
+      reason=discarded
+      """
 
   Scenario: One bot has at most 4 posts under way, and the next waits for one of them
     Given a fresh database
@@ -186,3 +196,36 @@ Feature: The webhooks of the chat bots
     And the webhook receives a post
     And the webhook receives a post
     And the webhook receives nothing within 1500 milliseconds
+
+  Scenario: Many posts to several bots, past the limit of each bot, all arrive once
+    Given a fresh database
+    And the webhook answers "Here" as "text/plain"
+    And the webhook answers after 200 milliseconds
+    And the webhook is listening
+    And the app starts with webhooks to private addresses that wait 7 seconds
+    And the first admin exists
+    And I post to "/account/bots" the form:
+      | user[name] | Uno |
+    And I post to "/account/bots" the form:
+      | user[name] | Dos |
+    And I post to "/account/bots" the form:
+      | user[name] | Tres |
+    And the bot 2 has the webhook at "/uno"
+    And the bot 3 has the webhook at "/dos"
+    And the bot 4 has the webhook at "/tres"
+    When I post to "/rooms/1/messages" the form:
+      | message[body] | @Uno @Dos @Tres one |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Uno @Dos @Tres two |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Uno @Dos @Tres three |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Uno @Dos @Tres four |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Uno @Dos @Tres five |
+    And I post to "/rooms/1/messages" the form:
+      | message[body] | @Uno @Dos @Tres six |
+    Then the query "select count(*) from messages where creator_id in (2, 3, 4)" gives 18 within 10000 milliseconds
+    And the query "select count(*) from messages where creator_id = 2" gives 6
+    And the query "select count(*) from messages where creator_id = 3" gives 6
+    And the query "select count(*) from messages where creator_id = 4" gives 6

@@ -5,6 +5,7 @@ import Database from "../src/campfire/repo/database"
 import Mailer from "../src/campfire/mail/mailer"
 import CableWeb from "../src/campfire_web/cable"
 import Web from "../src/campfire_web/web"
+import Webhooks from "../src/campfire_web/webhooks"
 
 private
 
@@ -28,7 +29,8 @@ def probe(dir: String) -> Result[Void]
   pool = try Database.open_pool(config.database_url, 1, CHECKOUT_MS)
   mailer = try Mailer.start(none, 1)
   cable = try CableWeb.start(config, pool, none)
-  app = Web.build(config, pool, schema.version, mailer, cable)
+  hooks = try Webhooks.start(config, pool, cable, Webhooks.Options(consumers: false))
+  app = Web.build(config, pool, schema.version, mailer, cable, hooks)
   started: Channel[Bool] = Channel.new(1)
   release: Channel[Bool] = Channel.new(1)
   holder = Task.spawn do hold(pool, started, release) end
@@ -39,6 +41,7 @@ def probe(dir: String) -> Result[Void]
   held = Task.await(holder)
   after = Testing.request(app, "GET", "/")
   CableWeb.stop(cable)
+  Webhooks.stop(hooks)
   Database.close_pool(pool)
   try held
   try Test.eq(busy.status, 503)
