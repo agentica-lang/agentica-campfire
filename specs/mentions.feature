@@ -55,8 +55,8 @@ Feature: Mentions and the people that a mention may name
     And the body shows "search=\"Bea\"" before "search=\"Bea Lopez\""
     And the body does not contain "search=\"Ana\""
     When I get "/autocompletable/users.json?room_id=1&query=LOP"
-    Then the body starts with "[{\"avatar_url\":\"/users/"
-    And the body ends with "\"gid\":\"gid://campfire/User/3\",\"name\":\"Bea Lopez\",\"value\":3}]"
+    Then the body starts with "[{\"name\":\"Bea Lopez\",\"value\":3,\"avatar_url\":\"/users/"
+    And the body ends with "\"gid\":\"gid://campfire/User/3\"}]"
     When I get "/autocompletable/users?query=cy"
     Then the status is 200
     And the body does not contain "Cy"

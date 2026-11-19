@@ -3,8 +3,6 @@
 ## it. `render` is pure, so the same message always gives the same text. The module imports no other module of the app,
 ## so it can move to a package of its own with `smtp.agc`.
 
-import UTC from "std/utc"
-
 ## A header that is not one of the fields of a `Message`, such as `List-Unsubscribe`.
 struct Field
   name: String
@@ -40,7 +38,7 @@ end
 def complete(message: Message) -> Message
   date = message.date
   if date.empty?
-    date = rfc5322_date(Time.now_ms())
+    date = rfc5322_date(Time.now())
   end
 
   id = message.message_id
@@ -50,6 +48,9 @@ def complete(message: Message) -> Message
 
   message.with(date: date, message_id: id)
 end
+
+## `Tue, 03 Nov 2026 10:55:02 +0000`, the date of RFC 5322.
+def rfc5322_date(time: Time.DateTime) -> String = time.strftime("%a, %d %b %Y %H:%M:%S %z")
 
 ## The sender and every recipient of `to`, `cc` and `bcc`, without repeats, or an `error` that names the address that
 ## is wrong or says that there is no recipient.
@@ -130,10 +131,6 @@ MAX_ADDRESS_BYTES = 254
 QP_WIDTH = 75
 MAX_BODY_LINE = 76
 HEX_DIGITS = "0123456789ABCDEF"
-WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-MS_PER_DAY = 86_400_000
-UNIX_EPOCH_WEEKDAY = 4
 # What a display name may not hold without quotes (RFC 5322 specials).
 SPECIALS = Set.new(["(", ")", "<", ">", "[", "]", ":", ";", "@", "\\", ",", ".", "\""])
 # What an address may not hold: the specials, the space and the quote make it a mailbox that this module does
@@ -443,21 +440,6 @@ def qp_token(byte: Int, last: Bool) -> String
   return "=#{HEX_DIGITS.slice(byte / 16, 1)}#{HEX_DIGITS.slice(byte % 16, 1)}" if needs_hex
 
   String.from_code(byte)
-end
-
-# `Tue, 03 Nov 2026 10:55:02 +0000`, the date of RFC 5322, from Unix milliseconds.
-def rfc5322_date(ms: Int) -> String
-  parts = UTC.parts(ms)
-  weekday = WEEKDAYS[((ms / MS_PER_DAY + UNIX_EPOCH_WEEKDAY) % 7 + 7) % 7]
-  month = MONTHS[parts.month - 1]
-  time = "#{two(parts.hour)}:#{two(parts.minute)}:#{two(parts.second)}"
-  "#{weekday}, #{two(parts.day)} #{month} #{parts.year} #{time} +0000"
-end
-
-def two(number: Int) -> String
-  return "0#{number}" if number < 10
-
-  "#{number}"
 end
 
 # `<random@domain>`: the domain of the sender keeps the id unique to this sender. A sender without an address has none.

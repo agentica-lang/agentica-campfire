@@ -93,7 +93,7 @@ Feature: Live updates over /cable
     When I sign in as "ana@example.com"
     And I post to "/rooms/1/messages" the form:
       | message[body] | News |
-    Then client "bea" eventually receives a frame containing "\"message\":{\"at\":\"20"
+    Then client "bea" eventually receives a frame containing "\"message\":{\"roomId\":1,\"at\":\"20"
 
   Scenario: A person who has the room read and is not connected to it hears no notice
     When client "ana" connects with the cookies of the browser
