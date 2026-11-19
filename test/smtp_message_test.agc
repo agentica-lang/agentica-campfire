@@ -64,6 +64,12 @@ def main() -> Void
         ),
       )
     end,
+    Test.test("the date of RFC 5322 is the day, the month and the clock at the offset of the time") do
+      time = Time.at(1_793_703_302).unwrap!
+      try Test.eq(Mail.rfc5322_date(time), DATE)
+      try Test.eq(Mail.rfc5322_date(Time.at(1_798_934_400).unwrap!), "Sun, 03 Jan 2027 00:00:00 +0000")
+      Test.eq(Mail.rfc5322_date(time.getlocal(-18_000).unwrap!), "Tue, 03 Nov 2026 05:55:02 -0500")
+    end,
     Test.test(
       "a subject and a name that are not ASCII are encoded words that decode to the text, 75 characters at most",
     ) do

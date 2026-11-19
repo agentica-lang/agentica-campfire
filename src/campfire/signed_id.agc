@@ -16,8 +16,6 @@
 ##    underscored, a slash, the purpose). Before `load_defaults` 7.1 the envelope holds `"message"` (the base64 of the
 ##    json of the id) and `"exp"` and `"pur"`, which `verify` reads too.
 
-import UTC from "std/utc"
-
 ## The purpose of the avatar link of a user in Campfire.
 AVATAR_PURPOSE = "user/avatar"
 
@@ -152,7 +150,10 @@ def expired?(exp: Optional[String], now_ms: Int) -> Bool
   text = exp.unwrap!
   return true if text.length != EXPIRY_LENGTH or not text.end_with?("Z")
 
-  text.compare(UTC.iso8601(now_ms, 3)) <= 0
+  now = Time.at_us(now_ms * 1000)
+  return true if not now.ok?
+
+  text.compare(now.unwrap!.strftime("%Y-%m-%dT%H:%M:%S.%LZ")) <= 0
 end
 
 # The id and the expiry of `token` when it was signed with `key` for `purpose` and has not expired at `now_ms`. The

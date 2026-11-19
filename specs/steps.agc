@@ -904,7 +904,7 @@ end
 
 def health_has_latest_version(ctx: BDD.Context, args: List[String]) -> BDD.Context
   got = HttpSteps.get(ctx, ["/health"])
-  expected = "{\"schema_version\":#{Migrations.latest()},\"status\":\"ok\"}"
+  expected = "{\"status\":\"ok\",\"schema_version\":#{Migrations.latest()}}"
   BDD.assert(got, HttpSteps.last_body(got) == expected, "the body is #{HttpSteps.last_body(got)}")
 end
 

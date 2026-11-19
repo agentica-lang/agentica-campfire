@@ -4,9 +4,9 @@
 
 # Change the version and the sha256 together, and the same pair in .github/workflows/ci.yml. The image is x86_64
 # only (the release archive of linux-x86_64).
-ARG AGENTICA_VERSION=0.34.0
+ARG AGENTICA_VERSION=0.35.0
 # From the SHA256SUMS of the release.
-ARG AGENTICA_SHA256=d3623164ef097f1cada71749f50440de836f7a943a44336e57ef19b108ae8aa5
+ARG AGENTICA_SHA256=379b0494b84c89b121d089fab9b21879e939a4dd7e89661f6be34e70f13f6322
 
 # Stage 1 holds the tools that must not reach the image: curl and git (`agentica install` fetches with git) and the C
 # compiler that builds the native SQLite driver of agentica-db.

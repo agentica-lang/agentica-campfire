@@ -149,7 +149,7 @@ Feature: The messages API of the chat bots
     And the header "x-total-count" is "2"
     And the header "link" is ""
     And the body contains "\"creator\":{\"id\":2,\"name\":\"Bea\",\"role\":\"member\"}"
-    And the body contains "\"body\":{\"html\":\"<p>From <em>Robo</em></p>\",\"plain_text\":\"From Robo\"}"
+    And the body contains "\"body\":{\"plain_text\":\"From Robo\",\"html\":\"<p>From <em>Robo</em></p>\"}"
     And the body contains "\"creator\":{\"id\":3,\"name\":\"Robo\",\"role\":\"bot\"}"
     And the body contains "\"room\":{\"id\":1}"
     And the body contains "\"url\":\"http://127.0.0.1:"

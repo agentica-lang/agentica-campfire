@@ -38,6 +38,10 @@ PLAIN_ID_42 = (
 EXPIRES_2100 = (
   "eyJfcmFpbHMiOnsiZGF0YSI6NDIsImV4cCI6IjIxMDAtMDEtMDFUMDA6MDA6MDAuMDAwWiIsInB1ciI6InVzZXIvYXZhdGFyIn19--b52e904daa280604d4985405b26ca730d313415ea95bab37f878833dfe736eea"
 )
+# The same, with `exp` 2026-11-04T00:00:00.123Z: the milliseconds of the expiry decide the second before it.
+EXPIRES_MS = (
+  "eyJfcmFpbHMiOnsiZGF0YSI6NDIsImV4cCI6IjIwMjYtMTEtMDRUMDA6MDA6MDAuMTIzWiIsInB1ciI6InVzZXIvYXZhdGFyIn19--020878fbe4aecf5672f27f0a1498723dca38b91e3ddf188fe0c12e00321fa7c1"
+)
 EXPIRED_2000 = (
   "eyJfcmFpbHMiOnsiZGF0YSI6NDIsImV4cCI6IjIwMDAtMDEtMDFUMDA6MDA6MDAuMDAwWiIsInB1ciI6InVzZXIvYXZhdGFyIn19--e7e87f3b36162d1f072f33fe376e59be88432fb30ef9d71a651ea537a8f52620"
 )
@@ -79,6 +83,12 @@ def main() -> Void
       try Test.eq(SignedId.verify(key(), EXPIRED_2000, purpose, NOW_MS), none)
       # Expired at the very millisecond of `exp`, as Rails has it (`Time.now.utc >= exp`).
       Test.eq(SignedId.verify(key(), EXPIRES_2100, purpose, EXPIRY_2100_MS), none)
+    end,
+    Test.test("an expiry is compared to the millisecond") do
+      purpose = SignedId.AVATAR_PURPOSE
+      try Test.eq(SignedId.verify(key(), EXPIRES_MS, purpose, NOW_MS + 122), some(42))
+      try Test.eq(SignedId.verify(key(), EXPIRES_MS, purpose, NOW_MS + 123), none)
+      Test.eq(SignedId.verify(key(), EXPIRES_MS, purpose, NOW_MS + 124), none)
     end,
     Test.test("a token that was changed or cut gives none") do
       purpose = SignedId.AVATAR_PURPOSE

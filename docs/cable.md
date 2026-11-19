@@ -26,7 +26,7 @@ under a key derived from `SECRET_KEY_BASE`, or from `CAMPFIRE_SESSION_SECRET` wh
 | --- | --- | --- |
 | `RoomMessagesChannel` | the messages of a room (on the room page) | the Turbo Stream that appends a new message, replaces an edited one and removes a deleted one, and appends a boost to `boosts_message_ID` and removes `boost_ID`. Membership is checked when the subscription is made. |
 | `Turbo::StreamsChannel` | `rooms`, and `user:ID:rooms` (on the sidebar) | the Turbo Streams that add a room to the sidebar, or replace its entry when a closed room is renamed. It refuses the names of the message streams. |
-| `UnreadRoomsChannel` | `user:ID:unreads` | `{"at":TIME,"roomId":ID}` for each new message of a room that the person has unread or is connected to. |
+| `UnreadRoomsChannel` | `user:ID:unreads` | `{"roomId":ID,"at":TIME}` for each new message of a room that the person has unread or is connected to. |
 | `PresenceChannel` | none (params `room_id`) | none. A member's subscription says a tab is looking at the room and marks it read; `refresh` (every 50 s) keeps the person connected for 60 s and checks the session; the end of the subscription removes the tab. A repeat of `present` or `absent` on one connection counts once. A person who is not in the room is rejected. |
 | `HeartbeatChannel` | none | none: it confirms, and any action (`check`) looks the session up again. |
 
