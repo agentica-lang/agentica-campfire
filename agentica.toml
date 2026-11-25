@@ -11,6 +11,7 @@ channels = { git = "https://github.com/agentica-lang/packages", tag = "bond-chan
 jobs = { git = "https://github.com/agentica-lang/packages", tag = "jobs-0.2.0", subdir = "jobs" }
 s3 = { git = "https://github.com/agentica-lang/packages", tag = "s3-0.1.0", subdir = "s3" }
 smtp = { git = "https://github.com/agentica-lang/packages", tag = "smtp-0.2.0", subdir = "smtp" }
+password = { git = "https://github.com/agentica-lang/packages", tag = "password-0.1.0", subdir = "password" }
 
 # The system SQLite, for the version reader (`extern "sqlite3"` in src/campfire/repo/version_reader.agc).
 [native.sqlite3]

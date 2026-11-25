@@ -40,8 +40,8 @@ SECRET_KEY_BASE = (
   "5d1f1c3e0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f"
 )
 # The scrypt digest of `HttpSteps.MEMBER_PASSWORD` at a cost of 1024 (the app's own is 65536, 64 MiB for each hash and
-# each sign-in, which was about 75 % of the CPU of the suite). It is in the form that `Passwords.hash` writes, which
-# carries its cost, so `Passwords.verify` checks it with the cost it names. Made with Python:
+# each sign-in, which was about 75 % of the CPU of the suite). It is in the form that `Password.hash` writes, which
+# carries its cost, so `Password.verify` checks it with the cost it names. Made with Python:
 # `hashlib.scrypt(b"another long password", salt=bytes(range(1, 17)), n=1024, r=8, p=2, dklen=32)`.
 MEMBER_DIGEST = "scrypt$1024$8$2$AQIDBAUGBwgJCgsMDQ4PEA==$k6UaLA1ch6VFTNpUo+rxtZz9UjXZ5kX/WzWpBpW+qS4="
 # The same for `HttpSteps.ADMIN_PASSWORD` ("correct horse battery"), with the same salt.

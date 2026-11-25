@@ -16,7 +16,7 @@ import RateLimit from "../campfire/rate_limit"
 import AuthWeb from "auth"
 import AvatarsWeb from "avatars"
 import Database from "../campfire/repo/database"
-import Passwords from "../campfire/passwords"
+import Password from "pkg/password/password"
 import Profiles from "../campfire/profiles"
 import Rooms from "../campfire/rooms"
 import RoomsWeb from "rooms"
@@ -268,7 +268,7 @@ def digest_if_current(env: Env, person: Auth.User, challenge: String, password: 
 
   return ok(none) if not right
 
-  ok(some(try Passwords.hash(password)))
+  ok(some(try Password.hash(password)))
 end
 
 # The save. A new password ends the other sessions of the person, and so their sockets: the ones of this browser

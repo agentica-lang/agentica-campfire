@@ -33,6 +33,14 @@ commit = "d2402f4a1c20904b3be3097e3da0eef5c5a4e4b1"
 hash = "sha256:0f8e8318e5d5cadd3180eaf9e4f6c9a422126cdc7e5b922fa04f211fb24e5332"
 
 [[package]]
+name = "password"
+git = "https://github.com/agentica-lang/packages"
+subdir = "password"
+tag = "password-0.1.0"
+commit = "1fc388aa9687de3627ae0d972c8d1320a3e5483e"
+hash = "sha256:2b9f4829df5db8b6d8cfcc31cfb65230ac316a183ed84a847761fc51e165b226"
+
+[[package]]
 name = "pool"
 git = "https://github.com/agentica-lang/packages"
 subdir = "pool"

@@ -193,6 +193,28 @@ Feature: First run, sign in and sign out
       | ana@example.com | not the password      |
       | bea@example.com | correct horse battery |
 
+  Scenario Outline: A stored digest that is not a digest is a failed sign-in, and the app goes on
+    Given the first admin exists
+    And a member "Dave" with the email "dave@example.com" and the password digest "<digest>" exists
+    And the browser has no cookies
+    When I post to "/session" the form:
+      | email_address | dave@example.com |
+      | password      | any password     |
+    Then the status is 422
+    And the body contains "Wrong email or password"
+    And the query "select count(*) from sessions" gives 1
+    When I get "/health"
+    Then the status is 200
+
+    Examples:
+      | digest                                                |
+      |                                                       |
+      | not a digest                                          |
+      | $2a$12$short                                          |
+      | scrypt$3$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA==            |
+      | scrypt$65536$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA==        |
+      | scrypt$1048576$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AA==      |
+
   Scenario: A bot cannot sign in
     Given the first admin exists
     And the browser has no cookies

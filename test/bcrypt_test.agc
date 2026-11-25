@@ -1,5 +1,5 @@
 import Bcrypt from "../src/campfire/bcrypt"
-import Passwords from "../src/campfire/passwords"
+import Credentials from "../src/campfire/credentials"
 
 private
 
@@ -45,12 +45,12 @@ end
 
 def main() -> Void
   Test.run([
-    Test.test("every known digest verifies the password that made it, through Passwords.verify too") do
+    Test.test("every known digest verifies the password that made it, through Credentials.verify too") do
       return ok() if not try ready()
 
       for pair in WRAPPER_VECTORS
         try Test.assert(Bcrypt.verify(pair[0], pair[1], library()).unwrap!, pair[1])
-        try Test.assert(Passwords.verify(pair[0], pair[1], library()).unwrap!, pair[1])
+        try Test.assert(Credentials.verify(pair[0], pair[1], 1, library()).unwrap!, pair[1])
       end
 
       return ok()
@@ -108,7 +108,7 @@ def main() -> Void
         "cost 31 has a shape",
       )
 
-      Test.assert(Passwords.verify("x", "$1$salt$hashhashhashhashhashhash").unwrap! == false, "not ours")
+      Test.assert(Credentials.verify("x", "$1$salt$hashhashhashhashhashhash", 1).unwrap! == false, "not ours")
     end,
     Test.test("a password that cannot be checked costs a real check, so the time does not tell it from a wrong one") do
       return ok() if not try ready()

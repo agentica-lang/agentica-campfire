@@ -1,6 +1,6 @@
 ## Checking bcrypt digests, the form that Rails' `has_secure_password` writes (`$2a$12$` and the salt and the hash, 60
 ## characters), so people who come from a Rails Campfire can sign in with the digests they have. Nothing here makes a
-## bcrypt digest: new passwords are scrypt (`Passwords.hash`).
+## bcrypt digest: new passwords are scrypt (`Password.hash` of the `password` package).
 ##
 ## There is no bcrypt in the language, so the check goes through the FFI to `crypt_r` of a libcrypt that has it. On
 ## Linux that is libxcrypt (`libcrypt.so.1`: Debian 10, Ubuntu 18.10, Fedora 29, RHEL 8 and later). macOS has no bcrypt
@@ -11,7 +11,7 @@
 ## would).
 
 MAX_COST = 15
-# The most bytes of a password that reaches the library: the same limit as `Passwords.MAX_BYTES`, which the sign-in
+# The most bytes of a password that reaches the library: the same limit as `Password.MAX_BYTES`, which the sign-in
 # applies before. bcrypt reads 72 of them, and libxcrypt refuses a passphrase of 512 bytes or more (which would look
 # like a library without bcrypt), so a longer password is handled as one that cannot be checked.
 MAX_PASSWORD_BYTES = 256

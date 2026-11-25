@@ -78,7 +78,13 @@ bots cannot loop.
 
 Passwords are stored as scrypt digests (cost 2^16, block size 8, two lanes, a random salt each, in
 the form `scrypt$N$r$p$salt$key`) and are never logged. A new password is at least 8 characters,
-on first run, join and reset.
+on first run, join and reset. No password is more than 256 bytes: a longer one is refused without
+hashing it, and a sign-in with one costs the work of a hash all the same.
+
+The hashing is the [password](https://www.agentica-lang.com/packages/password/) package
+(`password-0.1.0`). A stored digest that is not a digest (empty, damaged, a `$2` that is not
+bcrypt, or asking for more memory than the package allows) is a failed sign-in like a wrong
+password, with the same work, and a line in the log with the id of the person and not the digest.
 
 A database that came from a Rails Campfire has bcrypt digests (`$2a$12$...`, also `$2b$` and
 `$2y$`). Sign-in checks them next to scrypt ones, through the FFI to `crypt_r` of a libcrypt that has
