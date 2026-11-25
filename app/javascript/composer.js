@@ -28,8 +28,9 @@ export function startComposer() {
 
   var field = form.elements["message[body]"];
   var picker = form.elements["message[attachment]"];
+  var chip = form.querySelector(".chip");
   var ident = form.elements["message[client_message_id]"];
-  var button = form.querySelector("button");
+  var button = form.querySelector("button:not([type=\"button\"])");
   var scroller = document.querySelector(".scroller");
   var busy = false;
 
@@ -96,12 +97,37 @@ export function startComposer() {
     if (target.requestSubmit) {
       target.requestSubmit();
     } else {
-      target.querySelector("button").click();
+      target.querySelector("button:not([type=\"button\"])").click();
     }
   }
 
   function chosen() {
     return !!(picker && picker.files && picker.files.length);
+  }
+
+  // The chip names the picked file, and its x takes the file away. The input is the one that the form posts.
+  function showChip() {
+    if (!chip) {
+      return;
+    }
+    var name = chosen() ? picker.files[0].name : "";
+    chip.hidden = name === "";
+    chip.querySelector(".name").textContent = name;
+    // The chip is shown and hidden, which a screen reader does not announce: this line is always there.
+    status.textContent = name === "" ? "" : "Attached: " + name;
+  }
+
+  if (picker && chip) {
+    var status = form.querySelector(".attach [role=status]");
+    showChip();
+    // A file that the browser kept in the input when the page came back from the history has its chip too.
+    window.addEventListener("pageshow", showChip);
+    picker.addEventListener("change", showChip);
+    chip.querySelector("button").addEventListener("click", function () {
+      picker.value = "";
+      showChip();
+      picker.focus();
+    });
   }
 
   // With the S3 service of the app a file goes from here to the bucket (see `upload`), and the message names it by its key.
@@ -272,6 +298,7 @@ export function startComposer() {
     }
     if (file) {
       picker.value = "";
+      showChip();
     }
     ident.value = freshId();
     // The list is a column-reverse box: 0 is its end, where the new message is.

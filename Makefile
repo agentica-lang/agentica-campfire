@@ -59,13 +59,13 @@ test:
 	$(AGENTICA) test --jobs $(JOBS)
 
 # The stylesheet and the script, built from app/ into public/assets/ and named by their digest; the names go to
-# src/campfire_web/asset_names.agc. The output is committed: CI runs this and fails if it changes anything.
+# src/campfire_web/asset_names.agc and icons.agc. The output is committed: CI runs this and fails if it changes anything.
 assets:
 	node tools/assets.mjs
 
 # The test of CI: the committed build is the build of the sources (and no file of an older build is left).
 assets-check: assets
-	@changed="$$(git status --porcelain -- public/assets src/campfire_web/asset_names.agc)"; \
+	@changed="$$(git status --porcelain -- public/assets src/campfire_web/asset_names.agc src/campfire_web/icons.agc)"; \
 	if [ -n "$$changed" ]; then \
 	  echo "make assets changed the built files; commit them:" >&2; echo "$$changed" >&2; exit 1; \
 	fi

@@ -235,8 +235,11 @@ service `local`, no checksum), an attachment named `attachment` of the `Message`
 `CAMPFIRE_STORAGE_DIR`, written with the message in one transaction; a file with no text is found in the search by its
 name. `GET /rooms/ID/messages/MID/attachment` downloads it, for the people of the room (anybody else is the `404` of a
 missing page), and `?disposition=attachment` makes even an image a download. Deleting the message, its room or the
-messages of a banned person deletes the rows of its blob and then the file. The composer has a file picker: the form
-is `multipart/form-data`, and the script sends a picked file the same way (text alone stays a plain form).
+messages of a banned person deletes the rows of its blob and then the file. The composer has a paperclip button, the
+label of the real file input `message[attachment]` (kept in the form, out of sight but focusable; accessible name "Attach a
+file"), so the form is `multipart/form-data` and works without the script. The script shows the picked file as a chip with
+its name and an x that clears it, and sends the file the same way (text alone stays a plain form); without the script
+the name of the picked file is not shown.
 
 With `CAMPFIRE_STORAGE_SERVICE=s3` (see [configuration.md](configuration.md)) the files of new messages go to an S3 bucket
 (service `s3` in `active_storage_blobs`; the files and rows of the Disk service stay as they are). The script of the
