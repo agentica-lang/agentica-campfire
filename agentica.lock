@@ -47,3 +47,11 @@ subdir = "s3"
 tag = "s3-0.1.0"
 commit = "c498ebb46434253506e7f7bbf4b775c6e44b0dea"
 hash = "sha256:92f735703853cb58fd8bc0868153a9db7f733ad109d706e09e596112ec6c0624"
+
+[[package]]
+name = "smtp"
+git = "https://github.com/agentica-lang/packages"
+subdir = "smtp"
+tag = "smtp-0.2.0"
+commit = "df1a2da995ae17cefcab088855e99d0e7df28758"
+hash = "sha256:f3d2f7043faf27eaccdf60788c9527460d742d3b92523e72e760f7ece2c6a913"

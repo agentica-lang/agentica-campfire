@@ -6,7 +6,7 @@
 ## With no `Smtp.Options` there is no task, and `enqueue` says no.
 
 import Config from "../config"
-import Smtp from "smtp"
+import Smtp from "pkg/smtp/smtp"
 
 ## A mailer. `queue` and `worker` are `none` when email is off.
 struct Mailer

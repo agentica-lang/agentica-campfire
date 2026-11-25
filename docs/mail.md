@@ -32,8 +32,8 @@ slow or dead mail server never holds up a page.
 - A stop of the app sends what is queued first. It waits up to 10 seconds, then logs how many it
   dropped.
 
-The SMTP client (`src/campfire/mail/smtp.agc` and `smtp_message.agc`) imports nothing else of the
-app.
+The SMTP client and the message builder are the [smtp](https://www.agentica-lang.com/packages/smtp/) package
+(`smtp-0.2.0`), which the mailer calls.
 
 ## Password reset
 

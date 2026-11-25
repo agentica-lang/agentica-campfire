@@ -10,6 +10,7 @@ db = { git = "https://github.com/agentica-lang/agentica-db", tag = "0.11.0", sub
 channels = { git = "https://github.com/agentica-lang/packages", tag = "bond-channels-0.6.2", subdir = "bond-channels" }
 jobs = { git = "https://github.com/agentica-lang/packages", tag = "jobs-0.2.0", subdir = "jobs" }
 s3 = { git = "https://github.com/agentica-lang/packages", tag = "s3-0.1.0", subdir = "s3" }
+smtp = { git = "https://github.com/agentica-lang/packages", tag = "smtp-0.2.0", subdir = "smtp" }
 
 # The system SQLite, for the version reader (`extern "sqlite3"` in src/campfire/repo/version_reader.agc).
 [native.sqlite3]

@@ -1,7 +1,7 @@
 import AuthWeb from "../src/campfire_web/auth"
 import Config from "../src/campfire/config"
 import ObjectStore from "../src/campfire/object_store"
-import Smtp from "../src/campfire/mail/smtp"
+import Smtp from "pkg/smtp/smtp"
 
 private
 
@@ -474,6 +474,11 @@ def main() -> Void
       try Test.error?(smtp_of("smtp://a:b@mail.example.com/inbox"))
       try Test.error?(smtp_of("smtp+plain://mail.example.com:25"))
       try Test.error?(smtp_of("smtp+plain://127.0.0.1.example.com"))
+      try Test.error?(smtp_of("smtp+plain://127.1"))
+      try Test.error?(smtp_of("smtp+plain://127.evil.com"))
+      try Test.error?(smtp_of("smtp+plain://localhost."))
+      try Test.error?(smtp_of("smtp+plain://127.0.0.256"))
+      try Test.ok?(smtp_of("smtp+plain://127.0.0.2"))
       shown = smtp_of("smtp://ana:hunter2@mail.example.com:abc").message
       Test.eq(shown.include?("hunter2") or shown.include?("ana"), false)
     end,
@@ -505,6 +510,11 @@ def main() -> Void
     ) do
       plain = mail_with("smtp://mail.example.com", "http://chat.example.com", "", "").unwrap!
       try Test.eq(Config.plain_link?(plain), true)
+      for base in ["http://127.1", "http://localhost."]
+        odd = mail_with("smtp://mail.example.com", base, "Chat <chat@acme.test>", "acme.test").unwrap!
+        try Test.eq(Config.plain_link?(odd), true)
+      end
+
       for base in ["http://localhost:3000", "http://127.0.0.1", "http://[::1]:3000", "https://chat.example.com"]
         named = mail_with("smtp://mail.example.com", base, "Chat <chat@acme.test>", "acme.test").unwrap!
         try Test.eq(Config.plain_link?(named), false)
