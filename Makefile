@@ -8,7 +8,7 @@ AGENTICA ?= agentica
 # How many test files run at once (`make test JOBS=1` runs them one by one).
 JOBS ?= 4
 
-.PHONY: help install run check fmt-check test assets assets-check
+.PHONY: help install run check fmt-check test assets
 
 help:
 	@echo "install    fetch the packages of agentica.lock into deps/"
@@ -37,8 +37,8 @@ help:
 	@echo "check      type-check every .agc file"
 	@echo "fmt-check  fail when a file is not formatted (agentica fmt)"
 	@echo "test       run the features of specs/ and the tests of test/ (JOBS=4 files at once)"
-	@echo "assets     build public/assets/ (Dart Sass and esbuild, fingerprinted) from app/; needs Node 20+ and npm ci"
-	@echo "assets-check  build them and fail if that changed a committed file (what CI runs)"
+	@echo "assets     build public/assets/ and the names that the app reads (Dart Sass and esbuild, fingerprinted) from app/;"
+	@echo "           needs Node 20+ and npm ci; run, check and test do it first, and git does not track the output"
 
 # The peer of the cable specs has a manifest of its own (specs/fixtures/ws_client), so that the app does not depend
 # on it.
@@ -46,26 +46,21 @@ install:
 	$(AGENTICA) install
 	cd specs/fixtures/ws_client && $(AGENTICA) install
 
-run:
+run: assets
 	$(AGENTICA) campfire.agc
 
-check:
+check: assets
 	$(AGENTICA) check
 
 fmt-check:
 	$(AGENTICA) fmt --check campfire.agc src specs test
 
-test:
+test: assets
 	$(AGENTICA) test --jobs $(JOBS)
 
 # The stylesheet and the script, built from app/ into public/assets/ and named by their digest; the names go to
-# src/campfire_web/asset_names.agc and icons.agc. The output is committed: CI runs this and fails if it changes anything.
+# src/campfire_web/asset_names.agc and icons.agc, which the app imports. Git ignores the output (the Docker image
+# builds it in its own stage), and the same sources give the same bytes.
 assets:
+	@test -d node_modules || { echo "node_modules is not there: run npm ci first (Node 20 or later)" >&2; exit 1; }
 	node tools/assets.mjs
-
-# The test of CI: the committed build is the build of the sources (and no file of an older build is left).
-assets-check: assets
-	@changed="$$(git status --porcelain -- public/assets src/campfire_web/asset_names.agc src/campfire_web/icons.agc)"; \
-	if [ -n "$$changed" ]; then \
-	  echo "make assets changed the built files; commit them:" >&2; echo "$$changed" >&2; exit 1; \
-	fi

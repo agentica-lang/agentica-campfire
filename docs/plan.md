@@ -84,7 +84,7 @@ Where: LANG = language/VM, STD = agentica std/, BOND, DB = agentica-db, APP = th
    do only the small helper now.
 7. **Realtime hub + Action Cable subset** (APP or a `bond-cable` package, M): see hard part "WebSockets".
 8. **Asset pipeline** (APP, S; done: `make assets`, `tools/assets.mjs`): esbuild and dart-sass, fingerprinted output
-   committed to `public/assets/` (no Node stage in the Docker image), served by `Bond.static` with long cache headers.
+   built into `public/assets/` (not tracked by git: `make assets`, and a Node stage of the Docker image), served by `Bond.static` with long cache headers.
 
 Not blocking an MVP: Web Push, image variants, unfurl, rich text, QR transfer, ACME.
 

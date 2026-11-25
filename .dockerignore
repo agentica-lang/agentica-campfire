@@ -12,5 +12,9 @@ Makefile
 deps
 
 node_modules
-app
-tools
+tools/*.js
+# What a local `make assets` left: the assets stage of the Dockerfile builds them.
+public/assets/campfire-*
+public/assets/logo-*
+src/campfire_web/asset_names.agc
+src/campfire_web/icons.agc

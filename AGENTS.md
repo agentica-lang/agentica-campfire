@@ -67,7 +67,7 @@ app/            the sources of the assets: `assets/images/` (the two logos, WebP
                 components, utilities) and `javascript/` (ES modules, `application.js` the entry)
 tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files, `src/campfire_web/asset_names.agc` and `src/campfire_web/icons.agc` (the inline SVG of the Lucide icons that `ICONS` names)
 vendor/         third-party files that the build reads: `lucide/` (the icons of Lucide 1.72.0, ISC, with its LICENSE; `vendor/README.md` has the source and the integrity)
-public/assets/  the built, fingerprinted stylesheet, script and logos (composer, keys, reply, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+public/assets/  the built, fingerprinted stylesheet, script and logos (composer, keys, reply, live updates, scroll paging and keeping, local time), not tracked by git (`make assets` and the Docker build make them; `app-icon*.png` are sources and are tracked); served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through
@@ -90,8 +90,8 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
 
 ## Commands
 
-- `make install` fetches `deps/` from the lock (git ignores `deps/`). `make check`, `make fmt-check`, `make test`,
-  `make run`.
+- `make install` fetches `deps/` from the lock (git ignores `deps/`). `npm ci` (Node 20 or later) installs the asset tools;
+  `make check`, `make test` and `make run` build the assets first (`make assets`). `make fmt-check`.
 - `make run` needs `CAMPFIRE_SESSION_SECRET` (32 bytes or more, from the environment, never committed; the
   specs draw their own).
 - Agentica 0.35.0 or later (`private`, the nested builtin names, `Error` records, `Time.DateTime`; jobs 0.2.0 needs 0.34.0, and Bond 0.15.0, bond-channels 0.6.2 and agentica-db 0.11.0 need 0.31.2; a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
@@ -388,12 +388,13 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   `DirectUploadsWeb.claim` completes it when the message is posted (`Attachments.Blob.direct`); the download is a redirect
   to a signed `GET`; `Blobs.remove_files` takes `s3:KEY` for an object (what `Blobs.drop` gives) and `Blobs.Storage` is what the
   handlers that delete files carry; a task of `App` deletes the object and then the row of uploads that nobody posted (`Blobs.stale_uploads`).
-- Assets: never edit `public/assets/`, `src/campfire_web/asset_names.agc` or `src/campfire_web/icons.agc`. Change `app/assets/stylesheets/` or
-  `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
+- Assets: `public/assets/campfire-*`, `public/assets/logo-*`, `src/campfire_web/asset_names.agc` and `src/campfire_web/icons.agc` are built, never edited, and git ignores them.
+  Change `app/assets/stylesheets/` or `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
   and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`
   (DIGEST the first 16 hex digits of the SHA-256 of the file) and the names that `Routes.STYLESHEET` and `Routes.SCRIPT` read.
-  The built files are committed, so `agentica test`, the benchmark and the Docker image need no Node; CI runs
-  `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). Icons are Lucide's, from
+  `make check`, `make test` and `make run` do it first, so a fresh clone needs `npm ci` and then works; CI runs `npm ci` and
+  `make assets` before the check and the tests (`specs/assets.feature` checks the names). The Docker image builds them in a
+  Node stage and has no Node itself. Icons are Lucide's, from
   `vendor/lucide/` (a pinned release at least two weeks old, copied byte for byte; never edit them): add the name to `ICONS`
   in `tools/assets.mjs`, build, and write `<%== Icons.ICON_NAME %>` in a view (inline SVG in `currentColor`, class `icon`,
   sized by the stylesheet). The SCSS layout
@@ -402,7 +403,7 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   without it, and it stays about 18 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;
   `tools/keys_check.js` checks them in a browser, by hand). The composer textarea has no `autofocus` (a phone would
   open its keyboard on each load).
-- The Dockerfile writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that
+- The Dockerfile builds the assets in its first stage (`node:22-slim`, `npm ci --ignore-scripts`, `node tools/assets.mjs`) and writes `gzip -9 -k -n` copies of the CSS and the JS of `public/assets/` next to them, which Bond sends to a client that
   takes gzip.
 - A UI change follows `DESIGN.md` and updates it with the stylesheet. Markup that specs match byte for byte (links, headings,
   forms, the message `<div>`) takes no class: style it by element.
