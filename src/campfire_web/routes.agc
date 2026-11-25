@@ -137,6 +137,9 @@ MESSAGE_BOOST_ALLOW = "POST, DELETE"
 ## `involvement`. Any other method is a 405 that lists `ROOM_INVOLVEMENT_ALLOW`, which is Bond's own list for the path.
 ROOM_INVOLVEMENT = "/rooms/:id/involvement"
 ROOM_INVOLVEMENT_ALLOW = "GET, HEAD, POST, PUT"
+## The close of a direct message (`:id` is the room), a `POST` of the person who is in it: it leaves their sidebar until
+## a new message. A room that is not direct is a 404.
+ROOM_CLOSE = "/rooms/:id/close"
 METHOD_PUT = "put"
 ## The page of a user (`:id` is their id; any signed-in person may read it) and the profile of the person who is signed
 ## in: the page that shows their form, and the save of it, a `PATCH` or a `PUT` or a `POST` with `_method` set to one
@@ -218,6 +221,9 @@ def message_boosts_new_path(message_id: Int) -> String = "/messages/#{message_id
 
 ## The path of a boost, which is where its removal posts.
 def message_boost_path(message_id: Int, boost_id: Int) -> String = "/messages/#{message_id}/boosts/#{boost_id}"
+
+## The path that closes a direct message for the person, where the x of its sidebar entry posts.
+def room_close_path(room_id: Int) -> String = "/rooms/#{room_id}/close"
 
 ## The path of the settings of an open or closed room, which is also where its form posts.
 def room_settings_path(room_id: Int) -> String = "/rooms/#{room_id}/settings"

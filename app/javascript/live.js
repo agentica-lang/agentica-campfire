@@ -640,6 +640,38 @@ export function startLive() {
       }
     });
   }
+  // The x of a direct message closes it without leaving the page: the answer is the Turbo Stream that removes the entry.
+  // On the page of the room that was closed, the person goes home, as the form does without the script.
+  nav.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form.classList || !form.classList.contains("close")) {
+      return;
+    }
+
+    event.preventDefault();
+    var closed = parseInt(form.action.replace(/^.*\/rooms\/(\d+)\/close$/, "$1"), 10);
+    fetch(form.action, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "text/vnd.turbo-stream.html" },
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("close");
+        }
+        return response.text();
+      })
+      .then(function (html) {
+        apply(html);
+        if (closed === roomId) {
+          location.assign("/");
+        }
+      })
+      .catch(function () {
+        form.submit();
+      });
+  });
+
   loadSidebar(false);
   connect();
 }

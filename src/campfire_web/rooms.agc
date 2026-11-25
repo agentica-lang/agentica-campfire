@@ -71,6 +71,7 @@ def add(
   on_get_room_involvement = Blocks.handler do |conn| show_involvement(conn, pool) end
   on_post_room_involvement = Blocks.handler do |conn| post_involvement(conn, pool) end
   on_put_room_involvement = Blocks.handler do |conn| save_involvement(conn, pool) end
+  on_post_room_close = Blocks.handler do |conn| close_room(conn, pool, cable) end
   on_post_room = Blocks.handler do |conn| post_room(conn, pool, cable, storage_dir) end
   on_delete_room = Blocks.handler do |conn| delete_room(conn, pool, cable, storage_dir) end
   on_get_room_message_edit = Blocks.handler do |conn| edit_message(conn, pool) end
@@ -95,6 +96,7 @@ def add(
     |> Bond.get(Routes.ROOM_INVOLVEMENT, on_get_room_involvement)
     |> Bond.post(Routes.ROOM_INVOLVEMENT, on_post_room_involvement)
     |> Bond.put(Routes.ROOM_INVOLVEMENT, on_put_room_involvement)
+    |> Bond.post(Routes.ROOM_CLOSE, on_post_room_close)
     |> Bond.post(Routes.ROOM, on_post_room)
     |> Bond.delete(Routes.ROOM, on_delete_room)
     |> Bond.get(Routes.ROOM_MESSAGE_EDIT, on_get_room_message_edit)
@@ -188,6 +190,7 @@ enum Answer
   NotAllowed(String)
   Forbidden
   Deleted(Rooms.Room, List[Int])
+  Closed(Rooms.Room, Int, Bool)
   SignedOut
 end
 
@@ -595,6 +598,36 @@ def saved_involvement(conn: Bond.Conn, db: Db.Connection, person: Auth.User, roo
   end
 
   ok(Answer.Redirect(Routes.room_involvement_path(room.id)))
+end
+
+# The x of a direct message in the sidebar: the room leaves the sidebar of this person only, and they are sent home
+# (for the script, told by a Turbo Stream that removes the entry). A room that is not a direct one, or of other
+# people, is a 404.
+def close_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable) -> Result[Bond.Conn]
+  id = room_id(conn)
+  stream = wants_stream?(conn)
+  answer = try Database.with_connection(pool) do |db| closed_answer(conn, db, id, stream) end
+  ok(announced(conn, cable, answer))
+end
+
+def closed_answer(conn: Bond.Conn, db: Db.Connection, id: Optional[Int], stream: Bool) -> Result[Answer]
+  user = try AuthWeb.assigned_user(conn)
+  case user
+    none -> ok(Answer.SignedOut)
+    some(person) -> closed_room(db, person, id, stream)
+  end
+end
+
+def closed_room(db: Db.Connection, person: Auth.User, id: Optional[Int], stream: Bool) -> Result[Answer]
+  room = try member_room(db, person, id)
+  case room
+    some(found) if found.room_type == Rooms.DIRECT ->
+      changed = try Rooms.close_direct(db, person.id, found.id)
+      return ok(Answer.Closed(found, person.id, stream)) if changed
+
+      ok(Answer.NotFound)
+    _ -> ok(Answer.NotFound)
+  end
 end
 
 def involvement_page(db: Db.Connection, person: Auth.User, room: Rooms.Room, message: String) -> Result[String]
@@ -1480,6 +1513,7 @@ def announced(conn: Bond.Conn, cable: CableWeb.Cable, answer: Answer) -> Bond.Co
       CableWeb.members_removed(cable, removed)
       CableWeb.room_changed(cable, room_id, actor_id, renamed)
     Answer.Posted(room, message, stream) -> return posted_response(conn, cable, room, message, stream)
+    Answer.Closed(room, user_id, _) -> CableWeb.room_closed(cable, room, user_id)
     Answer.Deleted(room, members) -> CableWeb.room_deleted(cable, room, members)
     Answer.Edited(room, message) -> CableWeb.message_edited(cable, room, message)
     Answer.Removed(room, message_id, _, _) -> CableWeb.message_removed(cable, room.id, message_id)
@@ -1539,6 +1573,13 @@ def respond(conn: Bond.Conn, answer: Answer) -> Bond.Conn
     Answer.NotAllowed(allow) -> Bond.header(Bond.text(conn, 405, "method not allowed"), "allow", allow)
     Answer.Forbidden -> Bond.text(conn, 403, "Forbidden")
     Answer.Deleted(_, _) -> Bond.redirect(conn, Routes.HOME)
+    Answer.Closed(room, _, stream) if stream ->
+      Bond.header(
+        Bond.html(conn, 200, Views.room_removed_stream(room)),
+        "content-type",
+        TURBO_STREAM_TYPE + "; charset=utf-8",
+      )
+    Answer.Closed(_, _, _) -> Bond.redirect(conn, Routes.HOME)
     Answer.SignedOut -> Bond.redirect(conn, Routes.SIGN_IN)
   end
 end
