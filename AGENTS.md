@@ -11,7 +11,7 @@ campfire.agc    the program (`make run`): config from the environment, the data 
 src/campfire/   the domain: it knows nothing about HTTP or Bond
                 config.agc (host, port, data folder, database url, session secret, `SECRET_KEY_BASE`, the storage and assets
                 folders), data_dir.agc (the private data folder), slots.agc (a limit on concurrent hashes), consumers.agc (the tasks that run the jobs of a queue of the `jobs` package), rate_limit.agc (attempts per
-                key in a window, for the per-IP sign-in limit), passwords.agc (scrypt, and the check of bcrypt digests),
+                key in a window, for the per-IP sign-in limit), credentials.agc (the check of a stored digest: bcrypt for a Rails one, the `password` package for the rest),
                 bcrypt.agc (bcrypt digests of a Rails Campfire, checked through FFI to the system libcrypt),
                 signed_id.agc (Rails `signed_id` tokens from `SECRET_KEY_BASE`),
                 transfers.agc (the one-use sign-in links for another device, in memory), qr_code.agc (a QR encoder;
@@ -83,7 +83,7 @@ tools/          keys_check.js and room_check.js: the by-hand browser checks of t
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond, agentica-db, bond-channels, jobs, s3 and smtp are pinned by tag (`pool` comes with `db`, which pins it by tag), agentica.lock has their hashes
+agentica.toml   the manifest; Bond, agentica-db, bond-channels, jobs, s3, smtp and password are pinned by tag (`pool` comes with `db`, which pins it by tag), agentica.lock has their hashes
 ```
 
 ## Commands
@@ -95,13 +95,13 @@ agentica.toml   the manifest; Bond, agentica-db, bond-channels, jobs, s3 and smt
 - Agentica 0.35.0 or later (`private`, the nested builtin names, `Error` records, `Time.DateTime`; jobs 0.2.0 needs 0.34.0, and Bond 0.15.0, bond-channels 0.6.2 and agentica-db 0.11.0 need 0.31.2; a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (the `version` and `sha256` inputs of `agentica-lang/setup-agentica` in `.github/workflows/ci.yml`;
   bump the `AGENTICA_VERSION` and `AGENTICA_SHA256` ARGs of the `Dockerfile` with them).
-- To move Bond, agentica-db, bond-channels, jobs, s3 or smtp: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`, `jobs`, `s3`, `smtp`), commit the lock.
+- To move Bond, agentica-db, bond-channels, jobs, s3, smtp or password: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`, `jobs`, `s3`, `smtp`, `password`), commit the lock.
   Keep Bond's tag the one that bond-channels asks for; if they differ, `override = true` on `bond` forces the tag.
   A new dependency is `agentica add NAME URL --tag TAG`.
 
 ## Rules
 
-- Layers: `src/campfire/` (the domain: config, accounts, auth, rooms, passwords, `repo/`, `mail/`) never imports
+- Layers: `src/campfire/` (the domain: config, accounts, auth, rooms, credentials, `repo/`, `mail/`) never imports
   `src/campfire_web/`, Bond (`pkg/bond/...`) or `std/http`, and never names `Bond.Conn`, `HttpRequest` or any other HTTP
   type. `src/campfire_web/` calls the domain, never the reverse; a piece that needs HTTP or Bond is web, a piece that
   needs neither belongs to the domain. Imports are relative to the importing file (`../campfire/rooms` from the web

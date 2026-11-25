@@ -4,8 +4,9 @@
 ## the write lock, since hashing is slow.
 
 import Db from "pkg/db/db"
+import Password from "pkg/password/password"
 import Auth from "auth"
-import Passwords from "passwords"
+import Credentials from "credentials"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
@@ -94,7 +95,7 @@ def problem(
     return ok(EMAIL_TAKEN) if taken
   end
 
-  return ok(Passwords.problem(password.unwrap!)) if password.some? and not password.unwrap!.empty?
+  return ok(Password.problem(password.unwrap!)) if password.some? and not password.unwrap!.empty?
 
   ok("")
 end
@@ -102,16 +103,16 @@ end
 ## True when `current` is the password of the person (`password_challenge`). It hashes, so the caller holds a hashing
 ## slot. `bcrypt_library` is `CAMPFIRE_BCRYPT_LIBRARY`, for a digest that Rails made.
 def challenge_ok?(conn: Db.Connection, user_id: Int, current: String, bcrypt_library: String) -> Result[Bool]
-  return ok(false) if current.bytes.size > Passwords.MAX_BYTES
+  return ok(false) if current.bytes.size > Password.MAX_BYTES
 
   rows = try Db.query(conn, "select password_digest from users where id = ?", [Db.Value.Int(user_id)])
   return ok(false) if rows.empty? or text_of(rows[0], "password_digest").empty?
 
-  Passwords.verify(current, text_of(rows[0], "password_digest"), bcrypt_library)
+  Credentials.verify(current, text_of(rows[0], "password_digest"), bcrypt_library)
 end
 
 ## Saves the parts of the form that are not `none` for `user_id`, in one transaction that checks again that the person
-## is active and that nobody took the address meanwhile. `digest` is the hash of the new password (`Passwords.hash`),
+## is active and that nobody took the address meanwhile. `digest` is the hash of the new password (`Password.hash`),
 ## `none` to keep the old one; a new digest also ends every session of the person but the one with the token
 ## `keep_token`, and deletes their push subscriptions (`sign_out_all_sessions` of Rails), so a stolen cookie or a
 ## forgotten browser stops working. A blank email is left as it is. A bio can be emptied.

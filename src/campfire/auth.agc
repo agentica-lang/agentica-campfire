@@ -5,8 +5,9 @@
 ## not give a session. `ip_address` is the address of the client that started the session ("" when the caller has none).
 
 import Db from "pkg/db/db"
+import Password from "pkg/password/password"
 import Accounts from "accounts"
-import Passwords from "passwords"
+import Credentials from "credentials"
 import Rooms from "rooms"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
@@ -97,7 +98,7 @@ def first_run(
   problem = form_problem(name, email, password)
   return ok(FirstRun.Invalid(problem)) if problem != ""
 
-  digest = try Passwords.hash(password)
+  digest = try Password.hash(password)
   token = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   made = try Db.transaction(conn) do |tx| make_account(tx, name.strip, normal(email), digest, token, client) end
@@ -126,7 +127,7 @@ def join(
   problem = try join_problem(conn, name, email, password)
   return ok(JoinOutcome.Invalid(problem)) if problem != ""
 
-  digest = try Passwords.hash(password)
+  digest = try Password.hash(password)
   join_hashed(conn, code, name, email, digest, user_agent, ip_address)
 end
 
@@ -172,21 +173,21 @@ def sign_in(
   bcrypt_library: String = "",
 ) -> Result[Optional[String]]
   # Nothing that long is a real email or password, and hashing one is work that a stranger could ask for.
-  if email.length > MAX_EMAIL_LENGTH or password.bytes.size > Passwords.MAX_BYTES
-    Passwords.verify_nobody?()
+  if email.length > MAX_EMAIL_LENGTH or password.bytes.size > Password.MAX_BYTES
+    Password.verify_nobody()
     return ok(none)
   end
 
   rows = try find_person(conn, "id, password_digest", normal(email))
 
   if rows.empty?
-    Passwords.verify_nobody?()
+    Password.verify_nobody()
     return ok(none)
   end
 
   # An `error` is a bcrypt digest that this system cannot check: it fails the request (a 500 with the reason in the
   # log) and does not say "wrong password" to someone who typed the right one.
-  verified = try Passwords.verify(password, text_of(rows[0], "password_digest"), bcrypt_library)
+  verified = try Credentials.verify(password, text_of(rows[0], "password_digest"), bcrypt_library)
   return ok(none) if not verified
 
   open_session(conn, int_of(rows[0], "id"), user_agent, ip_address)
@@ -339,10 +340,10 @@ def reset_password(
   valid = try reset_token_valid?(conn, token)
   return ok(ResetOutcome.Gone) if not valid
 
-  problem = Passwords.problem(password)
+  problem = Password.problem(password)
   return ok(ResetOutcome.Invalid(problem)) if problem != ""
 
-  digest = try Passwords.hash(password)
+  digest = try Password.hash(password)
   session = OpenSSL.Random.hex(TOKEN_BYTES)
   client = Client(user_agent: user_agent, ip_address: ip_address)
   made = try Db.transaction(conn) do |tx| finish_reset(tx, token, digest, session, client) end
@@ -411,7 +412,7 @@ def form_problem(name: String, email: String, password: String) -> String
 
   return "Enter a valid email address" if not valid_email?(normal(email))
 
-  Passwords.problem(password)
+  Password.problem(password)
 end
 
 # The rows (at most one) of the active person, not a bot, whose email is `email` in the normal form, with `columns`.
