@@ -34,7 +34,7 @@ import {Config} from "../campfire/config"
 
 ## Adds the routes of the messages API to `app`. `cable` is where the changes are broadcast to the people who look at
 ## the room, and `config` says where the links of the answers start (`origin`).
-def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config) -> Bond.App
+def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Config, storage: Blobs.Storage) -> Bond.App
   on_get_bot_messages = Blocks.handler do |conn|
     serve(conn, pool, cable) do |db, bot, room| list_answer(conn, db, bot, room, origin(conn, config)) end
   end
@@ -52,7 +52,7 @@ def add(app: Bond.App, pool: Database.Pool, cable: CableWeb.Cable, config: Confi
   end
 
   on_delete_bot_message = Blocks.handler do |conn|
-    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room, config.storage_dir) end
+    serve(conn, pool, cable) do |db, bot, room| remove_answer(conn, db, bot, room, storage) end
   end
 
   on_post_bot_message_boosts = Blocks.handler do |conn|
@@ -376,13 +376,13 @@ def remove_answer(
   db: Db.Connection,
   bot: Bots.Bot,
   room: Rooms.Room,
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Result[Answer]
   located = try own_message(conn, db, bot, room)
   case located
     Located.Missing -> ok(Answer.NotFound)
     Located.Refused -> ok(Answer.Forbidden)
-    Located.Found(message) -> removed(db, bot, room, message, storage_dir)
+    Located.Found(message) -> removed(db, bot, room, message, storage)
   end
 end
 
@@ -392,13 +392,13 @@ def removed(
   bot: Bots.Bot,
   room: Rooms.Room,
   message: Rooms.Stored,
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Result[Answer]
   gone = try Rooms.delete_message(db, room.id, message.id, bot.id)
   case gone
     none -> ok(Answer.NotFound)
     some(keys) ->
-      Blobs.remove_files(storage_dir, keys)
+      Blobs.remove_files(storage, keys)
       ok(Answer.Removed(room, message.id))
   end
 end

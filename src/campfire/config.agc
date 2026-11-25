@@ -2,6 +2,7 @@
 ## environment, so the same program runs on a laptop and in a container.
 
 import Smtp from "mail/smtp"
+import ObjectStore from "object_store"
 import URI from "std/uri"
 
 ## The host and the port when the environment says nothing: only this machine, on a port that is free in most setups.
@@ -85,6 +86,9 @@ DEFAULT_WEBHOOK_TIMEOUT_MS = 7_000
 ## may ask for: the server takes a body of at most 256 MiB, and the fields of the form need some room besides the file.
 DEFAULT_MAX_ATTACHMENT_MB = 100
 MAX_MAX_ATTACHMENT_MB = 255
+## The most that `CAMPFIRE_MAX_ATTACHMENT_MB` may ask for with the S3 service, whose files go from the browser to the
+## bucket and never through the server (the 5 GiB of a single `PUT` of S3 is not a limit: big files go in parts).
+MAX_MAX_ATTACHMENT_MB_S3 = 5_120
 ## How many emails wait for the mail server when `CAMPFIRE_MAIL_QUEUE_SIZE` is not set.
 DEFAULT_MAIL_QUEUE = 32
 ## The most emails that may wait for the mail server (`CAMPFIRE_MAIL_QUEUE_SIZE` and `Mailer.start` both refuse more).
@@ -112,6 +116,9 @@ MAX_MAIL_QUEUE = 1024
 ## longest body of a message, in characters, that a post or an edit may send. `webhook_timeout_ms` is how long a bot's
 ## webhook may take, and `webhook_private_addresses` lets a webhook reach a loopback, private or other address that is
 ## not on the open internet (refused by default). `max_attachment_mb` is the largest file that a message may carry.
+## `storage` is, for the S3 service, what `CAMPFIRE_STORAGE_SERVICE` and `CAMPFIRE_S3_*` say, the S3 service of the files of new messages
+## among it (`ObjectStore.open` opens it); it holds the secret key of the bucket, so it is as secret as the session
+## secret.
 struct Config
   host: String
   port: Int
@@ -139,6 +146,7 @@ struct Config
   webhook_timeout_ms: Int = DEFAULT_WEBHOOK_TIMEOUT_MS
   webhook_private_addresses: Bool = false
   max_attachment_mb: Int = DEFAULT_MAX_ATTACHMENT_MB
+  storage: Optional[ObjectStore.Env] = none
 end
 
 ## The `Config` of `CAMPFIRE_HOST`, `CAMPFIRE_PORT`, `CAMPFIRE_DATA_DIR`, `CAMPFIRE_DATABASE_URL`,
@@ -178,6 +186,17 @@ def load() -> Result[Config]
   webhook_timeout = System.env("CAMPFIRE_WEBHOOK_TIMEOUT").unwrap_or("")
   webhook_private = System.env("CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES").unwrap_or("false")
   max_attachment_mb = System.env("CAMPFIRE_MAX_ATTACHMENT_MB").unwrap_or("")
+  storage = ObjectStore.Env(
+    service: System.env("CAMPFIRE_STORAGE_SERVICE").unwrap_or(""),
+    endpoint: System.env("CAMPFIRE_S3_ENDPOINT").unwrap_or(""),
+    region: System.env("CAMPFIRE_S3_REGION").unwrap_or(""),
+    bucket: System.env("CAMPFIRE_S3_BUCKET").unwrap_or(""),
+    access_key_id: System.env("CAMPFIRE_S3_ACCESS_KEY_ID").unwrap_or(""),
+    secret_access_key: System.env("CAMPFIRE_S3_SECRET_ACCESS_KEY").unwrap_or(""),
+    addressing: System.env("CAMPFIRE_S3_ADDRESSING").unwrap_or(""),
+    key_prefix: System.env("CAMPFIRE_S3_KEY_PREFIX").unwrap_or(""),
+  )
+
   parse(
     host,
     port,
@@ -206,6 +225,7 @@ def load() -> Result[Config]
     webhook_timeout,
     webhook_private,
     max_attachment_mb,
+    storage,
   )
 end
 
@@ -241,7 +261,9 @@ end
 ## (`DEFAULT_MAX_MESSAGE_LENGTH` when left out). `webhook_timeout` (`CAMPFIRE_WEBHOOK_TIMEOUT`) is 1 to
 ## `MAX_WEBHOOK_TIMEOUT` seconds (`DEFAULT_WEBHOOK_TIMEOUT` when left out) and `webhook_private`
 ## (`CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES`) is `true` or `false`. `max_attachment_mb` (`CAMPFIRE_MAX_ATTACHMENT_MB`) is 1
-## to `MAX_MAX_ATTACHMENT_MB` (`DEFAULT_MAX_ATTACHMENT_MB` when left out).
+## to `MAX_MAX_ATTACHMENT_MB` (`DEFAULT_MAX_ATTACHMENT_MB` when left out; `MAX_MAX_ATTACHMENT_MB_S3` with the S3
+## service). `storage` is the text of `CAMPFIRE_STORAGE_SERVICE` and `CAMPFIRE_S3_*` (`ObjectStore.open` says what it
+## refuses).
 def parse(
   host: String = DEFAULT_HOST,
   port: String = DEFAULT_PORT,
@@ -270,6 +292,7 @@ def parse(
   webhook_timeout: String = "",
   webhook_private: String = "false",
   max_attachment_mb: String = "",
+  storage: ObjectStore.Env = ObjectStore.Env(),
 ) -> Result[Config]
   return error("CAMPFIRE_HOST is empty") if host.strip.empty?
 
@@ -384,12 +407,23 @@ def parse(
     return error("CAMPFIRE_WEBHOOK_PRIVATE_ADDRESSES must be true or false, not #{webhook_private.inspect}")
   end
 
+  objects = try ObjectStore.open(storage)
+  largest = MAX_MAX_ATTACHMENT_MB
+  if objects.some?
+    largest = MAX_MAX_ATTACHMENT_MB_S3
+  end
+
+  kept: Optional[ObjectStore.Env] = none
+  if objects.some?
+    kept = some(storage)
+  end
+
   attachment_mb = try parse_db_number(
     "CAMPFIRE_MAX_ATTACHMENT_MB",
     max_attachment_mb,
     DEFAULT_MAX_ATTACHMENT_MB,
     1,
-    MAX_MAX_ATTACHMENT_MB,
+    largest,
   )
 
   return error("CAMPFIRE_ASSETS_DIR is empty") if assets_dir.strip.empty?
@@ -433,6 +467,7 @@ def parse(
       webhook_timeout_ms: waits * 1000,
       webhook_private_addresses: webhook_private == "true",
       max_attachment_mb: attachment_mb,
+      storage: kept,
     ),
   )
 end

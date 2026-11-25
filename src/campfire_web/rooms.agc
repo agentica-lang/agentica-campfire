@@ -21,6 +21,8 @@ import Auth from "../campfire/auth"
 import Attachments from "../campfire/attachments"
 import AuthWeb from "auth"
 import Blobs from "../campfire/blobs"
+import DirectUploadsWeb from "direct_uploads"
+import ObjectStore from "../campfire/object_store"
 import CableWeb from "cable"
 import Database from "../campfire/repo/database"
 import HtmlSanitizer from "../campfire/html_sanitizer"
@@ -38,7 +40,7 @@ import Webhooks from "webhooks"
 ## names. `cache` keeps the markup of the messages that a room page and the older messages write (`MessageCache`),
 ## `none` for no cache, and `pages` keeps those two pages whole (`PageCache`), `none` for no cache. `secure` makes the
 ## cookie of the last room `Secure`, as `CAMPFIRE_SECURE_COOKIES` does the session cookie. `max_length` is the most
-## characters that a message may have (`CAMPFIRE_MAX_MESSAGE_LENGTH`), for a new one and for an edit. `storage_dir` is
+## characters that a message may have (`CAMPFIRE_MAX_MESSAGE_LENGTH`), for a new one and for an edit. `storage` is
 ## the folder of the files of Active Storage: the file of a new message goes there, and the files of a deleted message
 ## or room are deleted from it.
 def add(
@@ -50,7 +52,7 @@ def add(
   secure: Bool,
   max_length: Int,
   hooks: Webhooks.Hooks,
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Bond.App
   on_get_room_new = Blocks.handler do |conn| show_new_room(conn, pool) end
   on_post_rooms = Blocks.handler do |conn| create_room(conn, pool, cable) end
@@ -59,7 +61,7 @@ def add(
   on_get_room_refresh = Blocks.handler do |conn| show_refresh(conn, pool, cache) end
   on_get_room_at = Blocks.handler do |conn| show_at(conn, pool, cable, cache, secure) end
   on_post_room_messages = Blocks.handler do |conn|
-    create_message(conn, pool, cable, cache, max_length, hooks, storage_dir)
+    create_message(conn, pool, cable, cache, max_length, hooks, storage)
   end
 
   on_get_closed_room_new = Blocks.handler do |conn| show_new_closed_room(conn, pool) end
@@ -72,10 +74,10 @@ def add(
   on_post_room_involvement = Blocks.handler do |conn| post_involvement(conn, pool) end
   on_put_room_involvement = Blocks.handler do |conn| save_involvement(conn, pool) end
   on_post_room_close = Blocks.handler do |conn| close_room(conn, pool, cable) end
-  on_post_room = Blocks.handler do |conn| post_room(conn, pool, cable, storage_dir) end
-  on_delete_room = Blocks.handler do |conn| delete_room(conn, pool, cable, storage_dir) end
+  on_post_room = Blocks.handler do |conn| post_room(conn, pool, cable, storage) end
+  on_delete_room = Blocks.handler do |conn| delete_room(conn, pool, cable, storage) end
   on_get_room_message_edit = Blocks.handler do |conn| edit_message(conn, pool) end
-  on_post_room_message = Blocks.handler do |conn| post_message(conn, pool, cable, max_length, storage_dir) end
+  on_post_room_message = Blocks.handler do |conn| post_message(conn, pool, cable, max_length, storage) end
   on_patch_room_message = Blocks.handler do |conn| update_message(conn, pool, cable, max_length) end
 
   (
@@ -102,7 +104,7 @@ def add(
     |> Bond.get(Routes.ROOM_MESSAGE_EDIT, on_get_room_message_edit)
     |> Bond.post(Routes.ROOM_MESSAGE, on_post_room_message)
     |> Bond.patch(Routes.ROOM_MESSAGE, on_patch_room_message)
-    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable, storage_dir) end
+    |> Bond.delete(Routes.ROOM_MESSAGE) do |conn| delete_message(conn, pool, cable, storage) end
   )
 end
 
@@ -639,20 +641,25 @@ end
 # The form of Rails posts to the room with `_method=delete` (in any case, as Rails reads it); any other post is what a
 # `POST` to the path was before the form existed (the router's own answer), a 405 that says which methods the path
 # takes, whatever the room.
-def post_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, storage_dir: String) -> Result[Bond.Conn]
+def post_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, storage: Blobs.Storage) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   return ok(respond(conn, Answer.NotAllowed(Routes.ROOM_ALLOW))) if method != Routes.METHOD_DELETE
 
-  delete_room(conn, pool, cable, storage_dir)
+  delete_room(conn, pool, cable, storage)
 end
 
 # The task that deletes the messages starts after the connection is given back, from the task of the request, and so
 # does the news of the deletion to the people who were in the room.
-def delete_room(conn: Bond.Conn, pool: Database.Pool, cable: CableWeb.Cable, storage_dir: String) -> Result[Bond.Conn]
+def delete_room(
+  conn: Bond.Conn,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  storage: Blobs.Storage,
+) -> Result[Bond.Conn]
   id = room_id(conn)
   answer = try Database.with_connection(pool) do |db| delete_answer(conn, db, id) end
   case answer
-    Answer.Deleted(deleted, _) -> RoomDeletion.start(pool, deleted.id, storage_dir)
+    Answer.Deleted(deleted, _) -> RoomDeletion.start(pool, deleted.id, storage)
     _ -> return ok(respond(conn, answer))
   end
 
@@ -736,12 +743,12 @@ def post_message(
   pool: Database.Pool,
   cable: CableWeb.Cable,
   max_length: Int,
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
   return update_message(conn, pool, cable, max_length) if method == Routes.METHOD_PATCH
 
-  return delete_message(conn, pool, cable, storage_dir) if method == Routes.METHOD_DELETE
+  return delete_message(conn, pool, cable, storage) if method == Routes.METHOD_DELETE
 
   ok(respond(conn, Answer.NotAllowed(Routes.ROOM_MESSAGE_ALLOW)))
 end
@@ -816,14 +823,14 @@ def delete_message(
   conn: Bond.Conn,
   pool: Database.Pool,
   cable: CableWeb.Cable,
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Result[Bond.Conn]
   id = room_id(conn)
   message_id = message_id(conn)
   stream = wants_stream?(conn)
   answer = try Database.with_connection(pool) do |db| delete_message_answer(conn, db, id, message_id, stream) end
   case answer
-    Answer.Removed(_, _, _, keys) -> Blobs.remove_files(storage_dir, keys)
+    Answer.Removed(_, _, _, keys) -> Blobs.remove_files(storage, keys)
     _ -> nil
   end
 
@@ -1191,13 +1198,13 @@ def create_message(
   cache: Optional[Cache.Store],
   max_length: Int,
   hooks: Webhooks.Hooks,
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Result[Bond.Conn]
   # The person is looked up in the connection of the write (`AuthWeb.person_in`), so the post takes one connection. The
   # filter answered a visitor before the form was read, so the form is read as results here and only a person who is
   # signed in gets its 400. A file is moved into the storage folder before the connection is taken, and deleted again
   # unless the message that holds it is posted.
-  attachment = try stored_upload(conn, storage_dir)
+  attachment = try stored_upload(conn, pool, storage)
   form = Form(
     body: Bond.form(conn, MESSAGE_BODY),
     formats: Bond.form_all(conn, MESSAGE_FORMAT),
@@ -1220,8 +1227,8 @@ def create_message(
     _ -> nil
   end
 
-  if not posted and attachment.some?
-    Blobs.remove_files(storage_dir, [attachment.unwrap!.key])
+  if not posted and attachment.some? and not attachment.unwrap!.direct
+    Blobs.remove_files(storage, [Blobs.marked(attachment.unwrap!.key, attachment.unwrap!.service)])
   end
 
   ok(announced(conn, cable, try answered))
@@ -1230,7 +1237,11 @@ end
 # The file of the form (`message[attachment]`, the field of Rails' uploader; the first one when there are more), moved
 # from the folder of the request to its place under a new key. Its type comes from its bytes and its name
 # (`Attachments.identify`), not from the type that the client said; an image's size from its header.
-def stored_upload(conn: Bond.Conn, storage_dir: String) -> Result[Optional[Attachments.Blob]]
+def stored_upload(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage) -> Result[Optional[Attachments.Blob]]
+  # A file that the browser put in the bucket itself (`DirectUploadsWeb`) comes as the key of its blob.
+  claimed = try DirectUploadsWeb.claim(conn, pool, storage)
+  return ok(claimed) if claimed.some?
+
   files = Bond.file_all(conn, MESSAGE_ATTACHMENT)
   return ok(none) if files.empty?
 
@@ -1238,7 +1249,17 @@ def stored_upload(conn: Bond.Conn, storage_dir: String) -> Result[Optional[Attac
   head = try File.open(upload.path) do |handle| File.read_bytes(handle, ImageSize.HEAD_BYTES) end
   content_type = Attachments.identify(head, upload.filename)
   key = Blobs.new_key()
-  try Blobs.store(storage_dir, upload.path, key)
+  service = Attachments.DISK_SERVICE
+  case storage.objects
+    some(store) ->
+      # With the S3 service a file that came in the form (no script, or a bot) goes to the bucket from here.
+      try ObjectStore.put_file(store, key, upload.path, content_type)
+      _ = Path.remove(upload.path)
+      service = ObjectStore.SERVICE_NAME
+
+    none -> try Blobs.store(storage.dir, upload.path, key)
+  end
+
   ok(
     some(
       Attachments.Blob(
@@ -1247,6 +1268,7 @@ def stored_upload(conn: Bond.Conn, storage_dir: String) -> Result[Optional[Attac
         content_type: content_type,
         byte_size: upload.size,
         size: Attachments.measure(content_type, head),
+        service: service,
       ),
     ),
   )

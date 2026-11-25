@@ -104,15 +104,91 @@ export function startComposer() {
     return !!(picker && picker.files && picker.files.length);
   }
 
-  // A file goes as the multipart form that the page posts without the script; text alone as a plain form.
+  // With the S3 service of the app a file goes from here to the bucket (see `upload`), and the message names it by its key.
+  // The Disk service has no such route (a 404, asked once), and the file goes as the multipart form that the page posts
+  // without the script; text alone is a plain form.
+  var DIRECT_UPLOADS = "/rails/active_storage/direct_uploads";
+  var direct = true;
+
   function send() {
+    if (!(chosen() && direct)) {
+      post("");
+      return;
+    }
+
+    busy = true;
+    button.disabled = true;
+    note("Uploading the file...");
+    upload(picker.files[0]).then(
+      function (key) {
+        note("");
+        busy = false;
+        post(key);
+      },
+      function () {
+        note("The file was not uploaded. Check the connection and try again.");
+        busy = false;
+        button.disabled = false;
+      },
+    );
+  }
+
+  // The key of the blob that the app made for the file, whose URLs it was given; "" when the app keeps the files itself.
+  function upload(file) {
+    return fetch(DIRECT_UPLOADS, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ blob: { filename: file.name, content_type: file.type, byte_size: file.size } }),
+    }).then(function (response) {
+      if (response.status === 404) {
+        direct = false;
+        return "";
+      }
+      if (!response.ok) {
+        throw new Error("refused");
+      }
+      return response.json().then(function (plan) {
+        return put(plan, file).then(function () {
+          return plan.key;
+        });
+      });
+    });
+  }
+
+  // One request for a small file, else the parts in order. The bucket answers with no cookie: the URLs carry the signature.
+  function put(plan, file) {
+    if (!plan.parts.length) {
+      return putPart(plan.url, file);
+    }
+    var chain = Promise.resolve();
+    plan.parts.forEach(function (part, index) {
+      chain = chain.then(function () {
+        return putPart(part.url, file.slice(index * plan.part_bytes, (index + 1) * plan.part_bytes));
+      });
+    });
+    return chain;
+  }
+
+  function putPart(url, blob) {
+    return fetch(url, { method: "PUT", body: blob }).then(function (response) {
+      if (!response.ok) {
+        throw new Error("not stored");
+      }
+    });
+  }
+
+  function post(key) {
     var text = field.value;
     var file = chosen();
     var data = new FormData(form);
     var headers = { Accept: STREAM };
-    if (!file) {
+    if (!file || key) {
       data.delete("message[attachment]");
       headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
+    }
+    if (key) {
+      data.set("message[direct_upload]", key);
     }
     busy = true;
     button.disabled = true;
@@ -120,7 +196,7 @@ export function startComposer() {
       method: "POST",
       credentials: "same-origin",
       headers: headers,
-      body: file ? data : new URLSearchParams(data),
+      body: file && !key ? data : new URLSearchParams(data),
     })
       .then(
         function (response) {

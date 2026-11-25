@@ -13,7 +13,10 @@ import BoostsWeb from "boosts"
 import BotMessagesWeb from "bot_messages"
 import BotsWeb from "bots"
 import CableWeb from "cable"
+import Blobs from "../campfire/blobs"
 import Database from "../campfire/repo/database"
+import DirectUploadsWeb from "direct_uploads"
+import ObjectStore from "../campfire/object_store"
 import Failure from "failure"
 import Mailer from "../campfire/mail/mailer"
 import PageCache from "page_cache"
@@ -27,7 +30,7 @@ import TransfersWeb from "transfers"
 import SignedId from "../campfire/signed_id"
 import Slots from "../campfire/slots"
 import Webhooks from "webhooks"
-import {Config} from "../campfire/config"
+import {Config, MAX_MAX_ATTACHMENT_MB} from "../campfire/config"
 
 ## The app with its routes: the home page, which needs a sign-in, the health check, which says the schema version that
 ## the database was migrated to, the routes of `AuthWeb`, which send email through `mailer`, those of `RoomsWeb` and
@@ -47,7 +50,9 @@ def build(
   hooks: Webhooks.Hooks,
   messages: Optional[Cache.Store] = none,
   pages: Optional[PageCache.Pages] = none,
+  objects: Optional[ObjectStore.Store] = none,
 ) -> Bond.App
+  storage = Blobs.Storage(dir: config.storage_dir, objects: objects)
   slots = Slots.new()
   bans = BanFlag.new()
   on_get_home = Blocks.handler do |conn| RoomsWeb.home(conn, pool) end
@@ -61,20 +66,12 @@ def build(
     |> Bond.uploads(upload_options(config))
     |> AuthWeb.add(config, pool, mailer, cable.hub, slots, bans, pages)
     |> CableWeb.add(cable, config)
-    |> RoomsWeb.add(
-      pool,
-      cable,
-      messages,
-      pages,
-      config.secure_cookies,
-      config.max_message_length,
-      hooks,
-      config.storage_dir,
-    )
-    |> AttachmentsWeb.add(pool, config.storage_dir)
+    |> RoomsWeb.add(pool, cable, messages, pages, config.secure_cookies, config.max_message_length, hooks, storage)
+    |> AttachmentsWeb.add(pool, storage)
+    |> DirectUploadsWeb.add(pool, storage, config.max_attachment_mb * MB)
     |> BoostsWeb.add(pool, cable)
-    |> BotMessagesWeb.add(pool, cable, config)
-    |> AccountsWeb.add(config, pool, cable, bans)
+    |> BotMessagesWeb.add(pool, cable, config, storage)
+    |> AccountsWeb.add(config, pool, cable, bans, storage)
     |> BotsWeb.add(pool, config)
     |> SidebarsWeb.add(pool, cable, pages)
     |> SearchesWeb.add(pool, pages)
@@ -163,7 +160,9 @@ end
 
 # A file of a message is at most `CAMPFIRE_MAX_ATTACHMENT_MB`; a form's text fields are kept to Bond's defaults.
 def upload_options(config: Config) -> Bond.UploadOptions
-  file_bytes = config.max_attachment_mb * MB
+  # The form goes through the server, which takes a body of at most 256 MiB: with the S3 service a bigger file goes
+  # straight to the bucket.
+  file_bytes = [config.max_attachment_mb, MAX_MAX_ATTACHMENT_MB].min.unwrap! * MB
   Bond.UploadOptions(
     max_file_bytes: file_bytes,
     max_total_bytes: file_bytes + FORM_FIELDS_BYTES,

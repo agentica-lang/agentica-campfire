@@ -24,7 +24,9 @@ src/campfire/   the domain: it knows nothing about HTTP or Bond
                 (first run, the join link, sign in, sign out and password reset, over SQL), rooms.agc (open,
                 closed and direct rooms, memberships and messages over SQL), presence.agc (who is connected to which room,
                 in memory), searches.agc (the words of a query, the
-                FTS5 search of messages, the recent searches), blobs.agc (the blobs of Active Storage: keys, files, deletion),
+                FTS5 search of messages, the recent searches), blobs.agc (the blobs of Active Storage: keys, files, deletion, the sweep of uploads that no message holds),
+                object_store.agc (the S3 service over the `s3` package: the signed URLs of a direct upload, the multipart
+                completion, the signed download, the deletion),
                 attachments.agc (the file of a message: its rows, its type from its bytes, what is shown inline, its
                 preview), image_size.agc (the size of an image from its header),
                 avatars.agc (the Active Storage variant of an avatar
@@ -54,7 +56,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 and forms of rooms), room_deletion.agc (the task that deletes a deleted room's messages),
                 content_removal.agc (the task that takes a banned person's messages away), message_cache.agc
                 (the cache of rendered messages), page_cache.agc (the cache of whole room pages), sidebars.agc,
-                attachments.agc (the download of the file of a message), searches.agc and avatars.agc (the sidebar page, the search and the
+                attachments.agc (the download of the file of a message; a redirect for a blob of S3), direct_uploads.agc (the S3 direct
+                upload: the URLs and the claim of a blob when the message is posted), searches.agc and avatars.agc (the sidebar page, the search and the
                 avatar link, whose answer is kept in the page store by `PageCache.shared_spot`), pwa.agc (the manifest, the
                 service worker and the icon of the installable app, public), transfers.agc (the sign-in links for another device
                 and `/qr_code/ID`), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
@@ -378,7 +381,12 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   the image is sized by the browser (no thumbnail, no poster: #172). `GET /rooms/ID/messages/MID/attachment` checks the membership on every
   request; only `Attachments.inline?` lets a file be shown inline, everything else is a download, with `nosniff` and a
   sandbox policy. Whatever deletes a message gets the keys of its blobs (`Attachments.detach_in`) and deletes the files
-  with `Blobs.remove_files` after the commit.
+  with `Blobs.remove_files` after the commit. With `CAMPFIRE_STORAGE_SERVICE=s3` (`ObjectStore`, over the `s3` package) the
+  browser puts the file in the bucket (`DirectUploadsWeb`, `specs/direct_uploads.feature` over the stand-in
+  `specs/fixtures/s3_stub.py`, which checks every signature), `Attachments.start_upload` makes the blob row and
+  `DirectUploadsWeb.claim` completes it when the message is posted (`Attachments.Blob.direct`); the download is a redirect
+  to a signed `GET`; `Blobs.remove_files` takes `s3:KEY` for an object (what `Blobs.drop` gives) and `Blobs.Storage` is what the
+  handlers that delete files carry; `Blobs.sweep_uploads` deletes the rows and objects of uploads that nobody posted.
 - Assets: never edit `public/assets/` or `src/campfire_web/asset_names.agc`. Change `app/assets/stylesheets/` or
   `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
   and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`

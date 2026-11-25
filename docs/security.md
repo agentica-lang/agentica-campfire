@@ -169,6 +169,15 @@ people of the room, checked on every request (no signed link that outlives a mem
 is shown inline only when its bytes are of its stored type; anything else is `Content-Disposition: attachment`, and HTML,
 SVG, XML and scripts are sent as `application/octet-stream`. Every answer has `X-Content-Type-Options: nosniff`,
 `Content-Security-Policy: default-src 'none'; sandbox` and `Cross-Origin-Resource-Policy: same-origin`.
+With the S3 service a download is a `302` to a signed URL of the bucket that lasts a minute, given only after the check of
+the room, with `Referrer-Policy: no-referrer`; the file is then served by the bucket with the headers that the URL asks
+(`response-content-type`, `response-content-disposition`: the type is `Attachments.served_type`, an image is inline only
+when its first bytes are of its type, which the app reads from the bucket). The bucket should be private, and the key of the
+app limited to it. A direct upload (`POST /rails/active_storage/direct_uploads`) needs a signed-in person and the check
+against other sites like every `POST`; its URLs sign the length, last 6 hours, and name a key that the app made (28 random
+characters), so the browser cannot choose where to write. A blob can be posted only by the person who asked for it, once, and
+only if its object has the size that was said; nothing else of what the browser says (its type, its name) is trusted beyond
+what the Disk service trusts.
 Only a `POST` of a message may send `multipart/form-data`: any other is `415` before its body is read, and the start
 empties the folder of the uploads. There is no upload quota or rate limit per person, as in Rails.
 The name that the client sent is untrusted: it is kept only after Bond's `safe_filename` and escaped wherever it is shown.

@@ -121,6 +121,9 @@ end
 ## The body of the answer that `I remember the answer` kept.
 def remembered_body(ctx: BDD.Context) -> String = JSON.decode(BDD.get(ctx, REMEMBERED).unwrap!, Reply).unwrap!.body
 
+## A header of the last answer of the app, "" when it has none.
+def last_header(ctx: BDD.Context, name: String) -> String = last_reply(ctx).headers.get(name.downcase, "")
+
 ## The last answer of the app, for the steps that read its body.
 def last_body(ctx: BDD.Context) -> String = last_reply(ctx).body
 

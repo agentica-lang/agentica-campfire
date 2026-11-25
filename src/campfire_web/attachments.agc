@@ -13,13 +13,14 @@ import Db from "pkg/db/db"
 import Attachments from "../campfire/attachments"
 import AuthWeb from "auth"
 import Blobs from "../campfire/blobs"
+import ObjectStore from "../campfire/object_store"
 import Database from "../campfire/repo/database"
 import Rooms from "../campfire/rooms"
 import Routes from "routes"
 
 ## Adds the route of the files to `app`; `storage_dir` is the folder of the files of Active Storage.
-def add(app: Bond.App, pool: Database.Pool, storage_dir: String) -> Bond.App
-  app |> Bond.get(Routes.ROOM_MESSAGE_ATTACHMENT) do |conn| show(conn, pool, storage_dir) end
+def add(app: Bond.App, pool: Database.Pool, storage: Blobs.Storage) -> Bond.App
+  app |> Bond.get(Routes.ROOM_MESSAGE_ATTACHMENT) do |conn| show(conn, pool, storage) end
 end
 
 private
@@ -28,13 +29,13 @@ CACHE_CONTROL = "private, no-cache"
 # No script, no style, no plugin, and a sandbox, for a file that a browser opens as a page whatever it was sent as.
 CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox"
 
-def show(conn: Bond.Conn, pool: Database.Pool, storage_dir: String) -> Result[Bond.Conn]
+def show(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage) -> Result[Bond.Conn]
   room_id = number(conn, "id")
   message_id = number(conn, "message_id")
   found = try Database.with_connection(pool) do |db| blob_for(conn, db, room_id, message_id) end
   case found
     none -> ok(missing(conn))
-    some(blob) -> sent(conn, storage_dir, blob)
+    some(blob) -> sent(conn, storage, blob)
   end
 end
 
@@ -54,8 +55,10 @@ def blob_for(
 end
 
 # The file is read after the connection is back in the pool: a download can take long.
-def sent(conn: Bond.Conn, storage_dir: String, blob: Attachments.Blob) -> Result[Bond.Conn]
-  path = Blobs.path(storage_dir, blob.key)
+def sent(conn: Bond.Conn, storage: Blobs.Storage, blob: Attachments.Blob) -> Result[Bond.Conn]
+  return redirected(conn, storage, blob) if blob.service == ObjectStore.SERVICE_NAME
+
+  path = Blobs.path(storage.dir, blob.key)
   return ok(missing(conn)) if path.none?
 
   head = first_bytes(path.unwrap!)
@@ -80,6 +83,31 @@ def sent(conn: Bond.Conn, storage_dir: String, blob: Attachments.Blob) -> Result
   return ok(missing(conn)) if not file.ok?
 
   ok(Bond.header(file.unwrap!, "content-type", content_type))
+end
+
+# A file in the bucket is sent by S3 itself: the browser follows a redirect to a signed `GET` that lasts a minute, with
+# the type and the disposition that the app would have set. The person was checked in `blob_for`, so a link that is
+# kept is of no use after the minute. The type that is served is `Attachments.served_type`, and an image is inline when
+# the first bytes of the object (read here, as for a file) say it is one.
+def redirected(conn: Bond.Conn, storage: Blobs.Storage, blob: Attachments.Blob) -> Result[Bond.Conn]
+  return ok(missing(conn)) if storage.objects.none?
+
+  store = storage.objects.unwrap!
+  head = ObjectStore.first_bytes(store, blob.key, Attachments.HEAD_BYTES)
+  return ok(missing(conn)) if not head.ok?
+
+  download = Bond.query(conn, "disposition").unwrap_or("") == "attachment"
+  inline = not download and Attachments.inline?(blob.content_type, head.unwrap!)
+  content_type = Attachments.served_type(blob.content_type)
+  if inline
+    content_type = blob.content_type
+  end
+
+  url = ObjectStore.download_url(store, blob.key, blob.filename, content_type, inline)
+  return ok(missing(conn)) if not url.ok?
+
+  headed = Bond.header(Bond.header(conn, "cache-control", CACHE_CONTROL), "referrer-policy", "no-referrer")
+  ok(Bond.redirect(headed, url.unwrap!, 302))
 end
 
 def first_bytes(path: String) -> Result[Bytes]

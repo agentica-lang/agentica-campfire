@@ -10,6 +10,7 @@ import Sqlite from "pkg/db/sqlite"
 import CableSteps from "cable_steps"
 import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
+import S3Steps from "s3_steps"
 import SmtpSteps from "smtp_steps"
 import WebhookSteps from "webhook_steps"
 import DataDir from "../src/campfire/data_dir"
@@ -158,6 +159,7 @@ def main() -> Void
     own.concat(HttpSteps.steps())
       .concat(SmtpSteps.steps())
       .concat(MailSteps.steps())
+      .concat(S3Steps.steps())
       .concat(CableSteps.steps())
       .concat(WebhookSteps.steps()),
   )
@@ -268,7 +270,9 @@ def configured_program(ctx: BDD.Context, url: String, secure_cookies: String, po
   }
 
   mail = MailSteps.app_environment(ctx)
-  all = mail.keys.reduce(settings) do |acc, name| acc.put(name, mail.get(name, "")) end
+  s3 = S3Steps.app_environment(ctx)
+  with_mail = mail.keys.reduce(settings) do |acc, name| acc.put(name, mail.get(name, "")) end
+  all = s3.keys.reduce(with_mail) do |acc, name| acc.put(name, s3.get(name, "")) end
   configured = all.keys.reduce(ctx) do |acc, name| BDD.given_env(acc, name, all.get(name, "")) end
 
   BDD.given_program(configured, "fixtures/server.agc")
