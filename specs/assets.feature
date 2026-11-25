@@ -80,3 +80,26 @@ Feature: The stylesheet and the script
     Then the status is 415
     When I get "/rooms/1"
     Then the status is 415
+
+  Scenario: The sign-in page shows the logo, a dark one for a browser in dark mode, served as it was written
+    Given the browser has no cookies
+    When I get "/session/new"
+    Then the status is 200
+    And the body contains "<picture>" 1 times
+    And the body contains "<source media=\"(prefers-color-scheme: dark)\" srcset=\"/assets/logo-dark-"
+    And the body contains "alt=\"Agentica Campfire\" width=\"704\" height=\"413\""
+    When I get the logo that the page links
+    Then the status is 200
+    And the header "content-type" contains "image/webp"
+    And the header "cache-control" contains "immutable"
+    And the body is a WebP image
+    And the body has the SHA-256 that starts with the digest in the name of the file
+    When I get "/session/new"
+    And I get the dark logo that the page links
+    Then the status is 200
+    And the body is a WebP image
+    And the body has the SHA-256 that starts with the digest in the name of the file
+
+  Scenario: The room page has no logo
+    When I get "/rooms/1"
+    Then the body does not contain "<picture>"

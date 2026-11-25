@@ -77,6 +77,8 @@ def steps() -> List[BDD.Step]
     BDD.step("the body is a PNG image", &body_is_png),
     BDD.step("I get the stylesheet that the page links", &get_stylesheet),
     BDD.step("I get the script that the page links", &get_script),
+    BDD.step("I get the logo that the page links", &get_logo),
+    BDD.step("I get the dark logo that the page links", &get_dark_logo),
     BDD.step("the body has the SHA-256 that starts with the digest in the name of the file", &body_has_digest),
     BDD.step("the body ends with {string}", &body_ends_with),
     BDD.step("the body shows {string} before {string}", &body_shows_before),
@@ -167,6 +169,7 @@ BROWSER = "browser"
 FORM_TYPE = "application/x-www-form-urlencoded"
 # A WebP file starts with `RIFF`, four bytes of size and `WEBP`: 12 bytes.
 HEAD_BYTES = 12
+ASSET_PREFIXES = ["campfire-", "logo-"]
 WEBP_MAGIC_START = "52494646"
 WEBP_MAGIC_END = "57454250"
 PNG_MAGIC = "89504e470d0a1a0a"
@@ -747,17 +750,35 @@ def get_script(ctx: BDD.Context, args: List[String]) -> BDD.Context
   send(ctx, "GET", link.unwrap!, "")
 end
 
-# `campfire-DIGEST.css` or `.js`: the digest is what is between the last `-` and the extension, and has to be the start
-# of the SHA-256 of the file that the name stands for.
+# The logo of a page with no sidebar: the `<img>` of its `<picture>`, and the dark `<source>` before it.
+def get_logo(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  get_linked(ctx, "<img src=\"", "the page has no logo")
+end
+
+def get_dark_logo(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  get_linked(ctx, "<source media=\"(prefers-color-scheme: dark)\" srcset=\"", "the page has no dark logo")
+end
+
+def get_linked(ctx: BDD.Context, start: String, missing: String) -> BDD.Context
+  link = text_after(last_reply(ctx).body, start, "\"")
+  return BDD.assert(ctx, false, "#{missing}: #{last_reply(ctx).body}") if link.none?
+
+  send(ctx, "GET", link.unwrap!, "")
+end
+
+# `campfire-DIGEST.css` or `.js`, `logo-DIGEST.webp`, `logo-dark-DIGEST.webp`: the digest is what is between the
+# last `-`
+# and the extension, and has to be the start of the SHA-256 of the file that the name stands for.
 def body_has_digest(ctx: BDD.Context, args: List[String]) -> BDD.Context
   reply = last_reply(ctx)
   name = reply.path.split("/").last
   dash = name.split("-").last
   extension = ".#{dash.split(".").last}"
   digest = dash.slice(0, dash.length - extension.length)
+  fingerprinted = ASSET_PREFIXES.any? do |prefix| name.start_with?(prefix) end
   BDD.assert(
     ctx,
-    not digest.empty? and name.start_with?("campfire-") and reply.sha256.start_with?(digest),
+    not digest.empty? and fingerprinted and reply.sha256.start_with?(digest),
     "the name #{name} does not hold the start of the SHA-256 of its body, #{reply.sha256}",
   )
 end

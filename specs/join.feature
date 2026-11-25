@@ -14,6 +14,7 @@ Feature: Joining with the link
     Given the browser has no cookies
     When I get "/join/aaaa-bbbb-cccc"
     Then the status is 200
+    And the body contains "<picture>" 1 times
     And the body contains "<form method=\"post\" action=\"/join/aaaa-bbbb-cccc\">"
     And the body contains "name=\"name\""
     And the body contains "name=\"email\" type=\"email\""

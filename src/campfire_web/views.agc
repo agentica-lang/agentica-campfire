@@ -878,12 +878,25 @@ def room(
   layout(room.name, body)
 end
 
+## The logo above the form of a page with no sidebar: the dark file under `prefers-color-scheme: dark`, the light one
+## otherwise. The size is in the markup, so the page does not move when the image arrives.
+def logo() -> String
+  <<~EAG
+    <%@ escape &Bond.escape %>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="<%= Routes.LOGO_DARK %>" type="image/webp">
+      <img src="<%= Routes.LOGO %>" alt="Agentica Campfire" width="<%= Routes.LOGO_WIDTH %>" height="<%= Routes.LOGO_HEIGHT %>" decoding="async">
+    </picture>
+  EAG
+end
+
 ## The first-run form that makes the administrator. `name` and `email` fill the fields again after a refusal, and
 ## `message` says why ("" shows none). The password is never put back in the page.
 def first_run(name: String, email: String, message: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <main id="main">
+      <%== logo() %>
       <h1>Welcome to <%= NAME %></h1>
       <p>Make the first account. It will be the administrator.</p>
     <% if not message.empty? %>
@@ -915,6 +928,7 @@ def sign_in(email: String, message: String, can_reset: Bool) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <main id="main">
+      <%== logo() %>
       <h1>Sign in to <%= NAME %></h1>
     <% if not message.empty? %>
       <p role="alert"><%= message %></p>
@@ -1090,6 +1104,7 @@ def join(code: String, name: String, email: String, message: String) -> String
   body = <<~EAG
     <%@ escape &Bond.escape %>
     <main id="main">
+      <%== logo() %>
       <h1>Join <%= NAME %></h1>
       <p>Make your account.</p>
     <% if not message.empty? %>
