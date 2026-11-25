@@ -8,6 +8,7 @@ import Database from "../campfire/repo/database"
 import HTTP from "std/http"
 import Mailer from "../campfire/mail/mailer"
 import MessageCache from "message_cache"
+import ObjectStore from "../campfire/object_store"
 import PageCache from "page_cache"
 import Web from "web"
 import Webhooks from "webhooks"
@@ -21,6 +22,8 @@ struct Running
   pages: Optional[PageCache.Pages]
   cable: CableWeb.Cable
   hooks: Webhooks.Hooks
+  objects: Optional[ObjectStore.Store] = none
+  sweeper: Optional[Task[Void]] = none
 end
 
 ## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
@@ -80,6 +83,8 @@ def stop(running: Running) -> Void
   Bond.stop(running.server)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
+  stop_sweeper(running.sweeper)
+  close_objects(running.objects)
   Database.close_pool(running.pool)
 end
 
@@ -92,11 +97,22 @@ def run(config: Config) -> Result[Void]
   CableWeb.stop(running.cable)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
+  stop_sweeper(running.sweeper)
+  close_objects(running.objects)
   Database.close_pool(running.pool)
   waited
 end
 
 private
+
+# How often the uploads that no message holds are looked for.
+SWEEP_UPLOADS_MS = 3_600_000
+
+# What the task that deletes the uploads that nobody posted needs.
+struct Sweeper
+  pool: Database.Pool
+  storage: Blobs.Storage
+end
 
 # The mailer, then the server on the pool. The caller closes the pool when this fails.
 def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[Running]
@@ -122,7 +138,14 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   swept = Database.with_connection(pool) do |db| Blobs.sweep(db, config.storage_dir) end
   return error("cannot sweep the stored files of CAMPFIRE_STORAGE_DIR: #{swept.message}") if not swept.ok?
 
-  mailer = try Mailer.start(config.smtp, config.mail_queue)
+  objects = try ObjectStore.open(config.storage.unwrap_or(ObjectStore.Env()))
+  started_mailer = Mailer.start(config.smtp, config.mail_queue)
+  if not started_mailer.ok?
+    close_objects(objects)
+    return error(started_mailer.message)
+  end
+
+  mailer = started_mailer.unwrap!
   messages = MessageCache.start(config.cache_mb)
   watched = PageCache.start(
     config.response_cache_mb,
@@ -134,6 +157,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
 
   if not watched.ok?
     Mailer.stop(mailer)
+    close_objects(objects)
     return error(
       "cannot open the database connection that watches for changes (CAMPFIRE_DATABASE_URL): #{watched.message}",
     )
@@ -145,6 +169,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   if not made.ok?
     PageCache.stop(pages)
     Mailer.stop(mailer)
+    close_objects(objects)
     return error(made.message)
   end
 
@@ -154,6 +179,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
     CableWeb.stop(cable)
     PageCache.stop(pages)
     Mailer.stop(mailer)
+    close_objects(objects)
     return error("cannot start the webhooks: #{started_hooks.message}")
   end
 
@@ -161,7 +187,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   # A WebSocket holds a connection of the server for as long as its tab is open, so the limit is a setting.
   limits = HTTP.ServerOptions(max_connections: config.max_connections)
   started = Bond.start_with(
-    Web.build(config, pool, schema_version, mailer, cable, hooks, messages, pages),
+    Web.build(config, pool, schema_version, mailer, cable, hooks, messages, pages, objects),
     config.host,
     config.port,
     limits,
@@ -172,6 +198,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
     CableWeb.stop(cable)
     Mailer.stop(mailer)
     PageCache.stop(pages)
+    close_objects(objects)
     # The system's message names the host and the port, not the variables that a person has to change.
     return error("cannot listen on #{config.host}:#{config.port} (CAMPFIRE_HOST, CAMPFIRE_PORT): #{started.message}")
   end
@@ -179,7 +206,80 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable, hooks: hooks))
+  sweeper: Optional[Task[Void]] = none
+  if objects.some?
+    sweeping = Sweeper(pool: pool, storage: Blobs.Storage(dir: config.storage_dir, objects: objects))
+    sweeper = some(Task.spawn(&sweep_uploads, sweeping))
+  end
+
+  ok(
+    Running(
+      server: server,
+      mailer: mailer,
+      pool: pool,
+      pages: pages,
+      cable: cable,
+      hooks: hooks,
+      objects: objects,
+      sweeper: sweeper,
+    ),
+  )
+end
+
+# At start and then every hour: a person who closes the tab after the browser put a file in the bucket, and before the
+# message was posted, leaves a blob row and an object. A day later the object goes first and then the row, each in its
+# own step and with no connection held while the bucket answers, so an object that cannot be deleted keeps its row and
+# is tried again in an hour. A failure is logged.
+def stop_sweeper(sweeper: Optional[Task[Void]]) -> Void
+  case sweeper
+    some(task) -> Task.cancel(task)
+    none -> nil
+  end
+end
+
+def close_objects(objects: Optional[ObjectStore.Store]) -> Void
+  case objects
+    some(store) -> ObjectStore.close(store)
+    none -> nil
+  end
+end
+
+def sweep_uploads(job: Sweeper) -> Void
+  while true
+    stale = Database.with_connection(job.pool) do |db| Blobs.stale_uploads(db) end
+    if not stale.ok?
+      IO.warn("campfire: cannot look for the uploads of the bucket that nobody posted: #{stale.message}")
+    end
+
+    uploads: List[Blobs.Stale] = []
+    if stale.ok?
+      uploads = stale.unwrap!
+    end
+
+    for upload in uploads
+      forget_stale(job, upload)
+    end
+
+    Task.sleep(SWEEP_UPLOADS_MS)
+  end
+end
+
+def forget_stale(job: Sweeper, upload: Blobs.Stale) -> Void
+  return if job.storage.objects.none?
+
+  free = Database.with_connection(job.pool) do |db| Blobs.unattached?(db, upload.id) end
+  return if not free.ok? or not free.unwrap!
+
+  removed = ObjectStore.remove(job.storage.objects.unwrap!, upload.key, upload.upload_id)
+  if not removed.ok?
+    IO.warn("campfire: #{removed.message}; its row stays and it is tried again")
+    return
+  end
+
+  forgotten = Database.with_connection(job.pool) do |db| Blobs.forget_upload(db, upload.id) end
+  if not forgotten.ok?
+    IO.warn("campfire: cannot forget the deleted upload #{upload.key}: #{forgotten.message}")
+  end
 end
 
 # A cookie without `Secure` travels over plain HTTP, so the line tells a person who forgot the setting behind HTTPS.

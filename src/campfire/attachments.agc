@@ -9,9 +9,13 @@ import MIME from "std/mime"
 import Regex from "std/regex"
 import Db from "pkg/db/db"
 import Blobs from "blobs"
+import ObjectStore from "object_store"
 import ImageSize from "image_size"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
+
+## The `service_name` of the blobs of the Disk service (`config/storage.yml` of Rails Campfire in production).
+DISK_SERVICE = "local"
 
 ## How many bytes of the start of a file `identify` and `inline?` read.
 HEAD_BYTES = 64
@@ -54,13 +58,26 @@ enum Preview
 end
 
 ## A file that is stored and is to be attached to a new message: its key under the storage folder (`Blobs.store`),
-## its name, its type (`identify`), its size, and the size of an image whose header was read.
+## its name, its type (`identify`), its size, and the size of an image whose header was read. `service` is the
+## `service_name` of the blob: `local` for a file under the storage folder, `s3` (`ObjectStore.SERVICE_NAME`) for an
+## object. `direct` says that the browser put the object in the bucket and the row of the blob is there already
+## (`start_upload`): `attach_in` completes it instead of inserting one.
 struct Blob
   key: String
   filename: String
   content_type: String
   byte_size: Int
   size: Optional[ImageSize.Size] = none
+  service: String = DISK_SERVICE
+  direct: Bool = false
+end
+
+## A direct upload that a person started and no message holds yet: what `pending` finds of its row.
+struct Upload
+  id: Int
+  filename: String
+  byte_size: Int
+  upload_id: String
 end
 
 ## The attachment that the column `COLUMN` holds, `none` for none.
@@ -138,7 +155,8 @@ end
 def find(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[Blob]]
   rows = try Db.query(
     conn,
-    "select blobs.key, blobs.filename, coalesce(blobs.content_type, '') as content_type, blobs.byte_size " +
+    "select blobs.key, blobs.filename, coalesce(blobs.content_type, '') as content_type, blobs.byte_size, " +
+    "blobs.service_name " +
     "from messages join active_storage_attachments files on files.record_type = '#{Rails.MESSAGE_RECORD}' " +
     "and files.record_id = messages.id and files.name = '#{Rails.ATTACHMENT_NAME}' " +
     "join active_storage_blobs blobs on blobs.id = files.blob_id " +
@@ -156,6 +174,63 @@ def find(conn: Db.Connection, room_id: Int, message_id: Int) -> Result[Optional[
         filename: text_of(row, "filename"),
         content_type: text_of(row, "content_type"),
         byte_size: int_of(row, "byte_size"),
+        service: text_of(row, "service_name"),
+      ),
+    ),
+  )
+end
+
+## The row of a blob for a file that a browser is to put in the bucket, as Active Storage's direct upload makes it
+## (`DirectUploadsController`): the key, the name, the type and the size that the person says, and in `metadata` the
+## person (only they may post it) and the `upload_id` of a multipart upload ("" for one `PUT`). It is attached to no
+## message, so the sweep of the app (`Blobs.stale_uploads`) deletes it when nothing posts it.
+def start_upload(
+  db: Db.Connection,
+  person_id: Int,
+  key: String,
+  filename: String,
+  content_type: String,
+  byte_size: Int,
+  upload_id: String,
+) -> Result[Void]
+  try Db.execute(
+    db,
+    "insert into active_storage_blobs (key, filename, content_type, metadata, service_name, byte_size, created_at) " +
+    "values (?, ?, ?, ?, '#{ObjectStore.SERVICE_NAME}', ?, #{Rails.NOW})",
+    [
+      Db.Value.Text(key),
+      Db.Value.Text(filename),
+      Db.Value.Text(content_type),
+      Db.Value.Text(upload_metadata(person_id, upload_id)),
+      Db.Value.Int(byte_size),
+    ],
+  )
+
+  ok()
+end
+
+## The upload under `key` that `person_id` started and no message holds, `none` for any other.
+def pending(db: Db.Connection, person_id: Int, key: String) -> Result[Optional[Upload]]
+  rows = try Db.query(
+    db,
+    "select id, filename, byte_size, metadata from active_storage_blobs where key = ? " +
+    "and service_name = '#{ObjectStore.SERVICE_NAME}' and not exists " +
+    "(select 1 from active_storage_attachments where blob_id = active_storage_blobs.id)",
+    [Db.Value.Text(key)],
+  )
+
+  return ok(none) if rows.empty?
+
+  metadata = text_of(rows[0], "metadata")
+  return ok(none) if ObjectStore.person_of(metadata) != person_id
+
+  ok(
+    some(
+      Upload(
+        id: int_of(rows[0], "id"),
+        filename: text_of(rows[0], "filename"),
+        byte_size: int_of(rows[0], "byte_size"),
+        upload_id: ObjectStore.upload_id_of(metadata),
       ),
     ),
   )
@@ -165,18 +240,8 @@ end
 ## does for the local Disk service. The checksum is left out (the column takes none): it would mean reading the whole
 ## file again while nothing reads it back.
 def attach_in(tx: Db.Connection, message_id: Int, blob: Blob) -> Result[Void]
-  rows = try Db.query(
-    tx,
-    "insert into active_storage_blobs (key, filename, content_type, metadata, service_name, byte_size, created_at) " +
-    "values (?, ?, ?, ?, '#{SERVICE_NAME}', ?, #{Rails.NOW}) returning id",
-    [
-      Db.Value.Text(blob.key),
-      Db.Value.Text(blob.filename),
-      Db.Value.Text(blob.content_type),
-      Db.Value.Text(metadata(blob.size)),
-      Db.Value.Int(blob.byte_size),
-    ],
-  )
+  rows = try write_blob(tx, blob)
+  return error("the upload #{blob.key} is not there, or another message holds it") if rows.empty?
 
   try Db.execute(
     tx,
@@ -197,8 +262,6 @@ end
 private
 
 OCTET_STREAM = "application/octet-stream"
-# The service of `config/storage.yml` of Rails Campfire in production (`local`, the Disk service).
-SERVICE_NAME = "local"
 PNG = "image/png"
 JPEG = "image/jpeg"
 GIF = "image/gif"
@@ -247,6 +310,45 @@ def signature(head: Bytes) -> String
   return WEBM if hex.start_with?("1a45dfa3") and hex.include?("4282847765626d")
 
   ""
+end
+
+# The `id` of the new row of a blob, or of the row of a direct upload that is completed with what the bytes say: no row
+# when that upload is gone or already attached.
+def write_blob(tx: Db.Connection, blob: Blob) -> Result[List[Db.Row]]
+  if blob.direct
+    return Db.query(
+      tx,
+      "update active_storage_blobs set filename = ?, content_type = ?, metadata = ?, byte_size = ? " +
+      "where key = ? and service_name = '#{ObjectStore.SERVICE_NAME}' and not exists " +
+      "(select 1 from active_storage_attachments where blob_id = active_storage_blobs.id) returning id",
+      [
+        Db.Value.Text(blob.filename),
+        Db.Value.Text(blob.content_type),
+        Db.Value.Text(metadata(blob.size)),
+        Db.Value.Int(blob.byte_size),
+        Db.Value.Text(blob.key),
+      ],
+    )
+  end
+
+  Db.query(
+    tx,
+    "insert into active_storage_blobs (key, filename, content_type, metadata, service_name, byte_size, created_at) " +
+    "values (?, ?, ?, ?, ?, ?, #{Rails.NOW}) returning id",
+    [
+      Db.Value.Text(blob.key),
+      Db.Value.Text(blob.filename),
+      Db.Value.Text(blob.content_type),
+      Db.Value.Text(metadata(blob.size)),
+      Db.Value.Text(blob.service),
+      Db.Value.Int(blob.byte_size),
+    ],
+  )
+end
+
+# What the row of a direct upload says until it is posted: who may post it, and the id of its multipart upload.
+def upload_metadata(person_id: Int, upload_id: String) -> String
+  JSON.encode(ObjectStore.Pending(person: person_id, upload_id: upload_id))
 end
 
 # What `ActiveStorage::Blob#analyze` writes: the size of an image whose header was read.

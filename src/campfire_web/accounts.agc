@@ -8,6 +8,7 @@
 import Bond from "pkg/bond/bond"
 import Channels from "pkg/channels/channels"
 import Db from "pkg/db/db"
+import Blobs from "../campfire/blobs"
 import Accounts from "../campfire/accounts"
 import Auth from "../campfire/auth"
 import BanFlag from "ban_flag"
@@ -25,13 +26,20 @@ import Views from "views"
 import {Config} from "../campfire/config"
 
 ## Adds the routes of the people page to `app`.
-def add(app: Bond.App, config: Config, pool: Database.Pool, cable: CableWeb.Cable, bans: ATS[String, Int]) -> Bond.App
+def add(
+  app: Bond.App,
+  config: Config,
+  pool: Database.Pool,
+  cable: CableWeb.Cable,
+  bans: ATS[String, Int],
+  storage: Blobs.Storage,
+) -> Bond.App
   hub = cable.hub
   on_get_users = Blocks.handler do |conn| show_users(conn, config, pool) end
   on_post_user_deactivate = Blocks.handler do |conn| change_user(conn, pool, hub, true) end
   on_post_user_reactivate = Blocks.handler do |conn| change_user(conn, pool, hub, false) end
-  on_post_user_ban = Blocks.handler do |conn| post_ban(conn, pool, cable, bans, config.storage_dir) end
-  on_delete_user_ban = Blocks.handler do |conn| change_ban(conn, pool, cable, bans, false, config.storage_dir) end
+  on_post_user_ban = Blocks.handler do |conn| post_ban(conn, pool, cable, bans, storage) end
+  on_delete_user_ban = Blocks.handler do |conn| change_ban(conn, pool, cable, bans, false, storage) end
   on_post_join_code = Blocks.handler do |conn| regenerate_code(conn, pool) end
   on_get_account_edit = Blocks.handler do |conn| show_account(conn, pool) end
   on_post_account = Blocks.handler do |conn| post_account(conn, pool) end
@@ -90,12 +98,12 @@ def post_ban(
   pool: Database.Pool,
   cable: CableWeb.Cable,
   bans: ATS[String, Int],
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Result[Bond.Conn]
   method = try AuthWeb.form_method(conn)
-  return change_ban(conn, pool, cable, bans, true, storage_dir) if method == ""
+  return change_ban(conn, pool, cable, bans, true, storage) if method == ""
 
-  return change_ban(conn, pool, cable, bans, false, storage_dir) if method == Routes.METHOD_DELETE
+  return change_ban(conn, pool, cable, bans, false, storage) if method == Routes.METHOD_DELETE
 
   ok(respond(conn, Answer.NotAllowed(Routes.USER_BAN_ALLOW)))
 end
@@ -109,14 +117,14 @@ def change_ban(
   cable: CableWeb.Cable,
   bans: ATS[String, Int],
   banning: Bool,
-  storage_dir: String,
+  storage: Blobs.Storage,
 ) -> Result[Bond.Conn]
   id = user_id(conn)
   answer = try Database.with_connection(pool) do |db| ban_answer(conn, db, id, bans, banning) end
   case answer
     Answer.Banned(banned_id) ->
       Hangup.user(cable.hub, banned_id, false)
-      _ = ContentRemoval.start(pool, cable, banned_id, storage_dir)
+      _ = ContentRemoval.start(pool, cable, banned_id, storage)
     _ -> nil
   end
 

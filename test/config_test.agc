@@ -1,10 +1,35 @@
 import AuthWeb from "../src/campfire_web/auth"
 import Config from "../src/campfire/config"
+import ObjectStore from "../src/campfire/object_store"
 import Smtp from "../src/campfire/mail/smtp"
 
 private
 
 SECRET = "0123456789abcdef0123456789abcdef"
+
+# `parse` with the S3 service of the settings given and the size of the files (in megabytes) asked for.
+def with_storage(env: ObjectStore.Env, megabytes: String) -> Result[Config.Config]
+  Config.parse(
+    Config.DEFAULT_HOST,
+    Config.DEFAULT_PORT,
+    Config.DEFAULT_DATA_DIR,
+    "",
+    SECRET,
+    "false",
+    max_attachment_mb: megabytes,
+    storage: env,
+  )
+end
+
+def s3_env() -> ObjectStore.Env
+  ObjectStore.Env(
+    service: "s3",
+    endpoint: "http://127.0.0.1:9000",
+    bucket: "files",
+    access_key_id: "fake-access-key",
+    secret_access_key: "fake-secret-key",
+  )
+end
 
 # `parse` with the defaults for the address and the folder, to test the secret and the flag.
 def secret_and_flag(secret: String, secure_cookies: String) -> Result[Config.Config]
@@ -618,6 +643,17 @@ def main() -> Void
       )
 
       Test.eq(named.unwrap!.bcrypt_library, "/nonexistent/libcrypt.so")
+    end,
+    Test.test("the S3 service has its settings checked, and takes bigger files than the Disk service") do
+      try Test.assert(with_storage(s3_env(), "4096").ok?, "4096 MB with S3")
+      try Test.assert(with_storage(ObjectStore.Env(service: "disk"), "255").ok?, "255 MB with the Disk service")
+      try Test.assert(not with_storage(ObjectStore.Env(service: "disk"), "4096").ok?, "4096 MB with the Disk service")
+      try Test.assert(not with_storage(ObjectStore.Env(service: "ftp"), "").ok?, "another service")
+      try Test.assert(not with_storage(s3_env().with(endpoint: "minio:9000"), "").ok?, "an endpoint with no scheme")
+      try Test.assert(not with_storage(s3_env().with(secret_access_key: ""), "").ok?, "no secret key")
+      try Test.assert(not with_storage(s3_env().with(addressing: "both"), "").ok?, "another addressing")
+      try Test.assert(not with_storage(s3_env().with(bucket: "A"), "").ok?, "a bucket that is not a DNS name")
+      Test.assert(with_storage(s3_env(), "").unwrap!.storage.some?, "the settings are kept")
     end,
   ])
 end

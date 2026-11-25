@@ -42,6 +42,14 @@ Compose reads on its own. Compose adds an override's `ports` to the base list, s
 - `HTTP_PORT` is the port;
 - the session secret comes from `SECRET_KEY_BASE`.
 
+To keep the files in an S3 bucket instead (rustfs, MinIO, AWS S3), set `CAMPFIRE_STORAGE_SERVICE=s3` and the
+`CAMPFIRE_S3_*` variables of [configuration.md](configuration.md); the browsers must reach the endpoint, and the bucket
+must answer a cross-origin `PUT` (CORS) from the address of the app. A page served over `https://` cannot `PUT` to an
+`http://` endpoint (browsers block it as mixed content), so put the bucket behind HTTPS too. The app deletes the uploads
+that nobody posted after a day, but a crash can leave parts of a multipart upload and the objects of a deleted message that
+the bucket did not answer: where the store has lifecycle rules (AWS S3, MinIO, recent rustfs), add one that aborts
+incomplete multipart uploads after a day or two, which costs nothing and keeps the bucket clean.
+
 The image sets `GC_INITIAL_HEAP_SIZE=33554432` (a 32 MB start heap for the garbage collector,
 which cuts its pauses under load); `-e GC_INITIAL_HEAP_SIZE=...` overrides it.
 

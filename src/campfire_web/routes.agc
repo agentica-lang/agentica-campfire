@@ -93,6 +93,9 @@ ROOM_MESSAGE_EDIT = "/rooms/:id/messages/:message_id/edit"
 ## The file of a message, for the people of its room (`rails_blob_path` of Rails, which is a signed link instead).
 ROOM_MESSAGE_ATTACHMENT = "/rooms/:id/messages/:message_id/attachment"
 ROOM_MESSAGE_ALLOW = "POST, PATCH, DELETE"
+## Where a browser asks for the URLs to put a file at when the files go to the S3 service (the path of Active Storage's
+## `direct_uploads_url`); with the Disk service it is a 404.
+DIRECT_UPLOADS = "/rails/active_storage/direct_uploads"
 METHOD_PATCH = "patch"
 METHOD_DELETE = "delete"
 ## The forms of a closed room and of a direct message, and the posts that make them (each makes a room and goes to its

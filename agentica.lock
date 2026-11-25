@@ -39,3 +39,11 @@ subdir = "pool"
 tag = "pool-0.1.1"
 commit = "5aac32c3aee16b71effebb1125c9f6f265fde244"
 hash = "sha256:68ac2a47e1b6c762d524f793ad52c2f554f03d072892d30a2350e7212e635cdf"
+
+[[package]]
+name = "s3"
+git = "https://github.com/agentica-lang/packages"
+subdir = "s3"
+tag = "s3-0.1.0"
+commit = "c498ebb46434253506e7f7bbf4b775c6e44b0dea"
+hash = "sha256:92f735703853cb58fd8bc0868153a9db7f733ad109d706e09e596112ec6c0624"

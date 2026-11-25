@@ -241,6 +241,26 @@ file"), so the form is `multipart/form-data` and works without the script. The s
 its name and an x that clears it, and sends the file the same way (text alone stays a plain form); without the script
 the name of the picked file is not shown.
 
+With `CAMPFIRE_STORAGE_SERVICE=s3` (see [configuration.md](configuration.md)) the files of new messages go to an S3 bucket
+(service `s3` in `active_storage_blobs`; the files and rows of the Disk service stay as they are). The script of the
+composer does what Active Storage's direct upload does: it asks `POST /rails/active_storage/direct_uploads` (a `404` with
+the Disk service, which makes the script post the file in the form) with `{"blob": {"filename", "content_type",
+"byte_size"}}`, and the app makes the blob row and answers `key`, and the signed URLs: `url` for a file of up to 16 MiB,
+else `parts` of `part_bytes` each. The browser `PUT`s the file there, and the message is posted with `message[direct_upload]`
+set to the key. The URL of a file that goes in one `PUT` lasts 15 minutes, those of the parts 6 hours, and each signs the length of its request, so the browser cannot send more than it said.
+When the message is posted the app checks that the blob is the person's own and not attached to another message, completes a
+multipart upload (it lists the parts itself, so the browser needs no `ETag`), checks the size of the object, and reads its
+first bytes to find the type, as for a file of the Disk service. A form that carries the file (no script, or a bot) is
+uploaded to the bucket by the app. `GET /rooms/ID/messages/MID/attachment` checks the room as before and answers a `302` to
+a signed `GET` that lasts a minute, which carries the type and the disposition of the Disk answer; the browser fetches the
+file from the bucket. Deleting the message deletes the object. A direct upload that no message holds is deleted after a
+day (its object first, then its row, so a row stays until its object is gone), by a task that runs at the start and every hour. A
+message that names an upload that is not the person's, is gone or did not arrive whole is answered `422` with the reason, and
+the script shows that reason and forgets the key, so the person chooses the file again; any other failure of the post
+(a lost connection, a 500) keeps the key, and posting again does not upload the file twice. A direct upload that is too big or empty is refused
+with a `422` when it is asked for. The browser sends no cookie to the bucket, so a bucket that answers
+a cross-origin `PUT` (CORS) with `Access-Control-Allow-Origin: *` is enough, and the script does not read the answer.
+
 A message shows its file after its body, as `Messages::AttachmentPresentation` of Rails does. The size of a PNG, GIF,
 JPEG (turned by its EXIF orientation) or WebP image is read from its header when it is posted and stored in the blob's
 `metadata` (`width`, `height`, `analyzed`), as Active Storage's analyzer stores it, so a database that Rails made shows
