@@ -8,9 +8,10 @@ This project is licensed under MIT (see [LICENSE](LICENSE)). It is independent. 
 
 ## Run
 
-Needs [Agentica](https://github.com/agentica-lang/agentica) 0.35.0 or later on `PATH` to run the app and its tests, and a C compiler (agentica-db builds its native SQLite driver on the first run).
+Needs [Agentica](https://github.com/agentica-lang/agentica) 0.35.0 or later on `PATH` to run the app and its tests, a C compiler (agentica-db builds its native SQLite driver on the first run) and Node 20 or later (`.nvmrc` says 22), which builds the stylesheet and the script: they are not in git.
 
 ```sh
+npm ci         # the asset tools (esbuild, Dart Sass), once
 make install   # fetch Bond and agentica-db (pinned by tag in agentica.toml) into deps/
 CAMPFIRE_SESSION_SECRET=$(openssl rand -hex 32) make run   # http://127.0.0.1:3000/
 ```
@@ -31,7 +32,7 @@ More in [docs/docker.md](docs/docker.md).
 ## Tests
 
 ```sh
-make check       # type-check
+make check       # type-check (builds the assets first, as test and run do)
 make fmt-check   # formatting
 make test        # the features of specs/ and the tests of test/
 ```

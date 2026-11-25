@@ -7,6 +7,23 @@
 ARG AGENTICA_VERSION=0.35.0
 # From the SHA256SUMS of the release.
 ARG AGENTICA_SHA256=379b0494b84c89b121d089fab9b21879e939a4dd7e89661f6be34e70f13f6322
+# The major version of Node that builds the assets: the one of .nvmrc (CI uses that file).
+ARG NODE_VERSION=22
+
+# The assets stage builds the stylesheet, the script and the names that the app imports (`make assets`,
+# tools/assets.mjs). Git does not track them, and Node stays in this stage: the image has none. `npm ci` runs no
+# install scripts (esbuild takes its binary from an optional dependency, sass is plain JavaScript), so the build is
+# the one of CI.
+FROM node:${NODE_VERSION}-slim AS assets
+WORKDIR /app
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci --ignore-scripts
+COPY tools/assets.mjs ./tools/assets.mjs
+COPY app ./app
+COPY vendor ./vendor
+# The script writes the two .agc files into src/campfire_web/, which it expects to be there.
+RUN mkdir -p src/campfire_web public/assets \
+ && node tools/assets.mjs
 
 # Stage 1 holds the tools that must not reach the image: curl and git (`agentica install` fetches with git) and the C
 # compiler that builds the native SQLite driver of agentica-db.
@@ -36,6 +53,8 @@ RUN /opt/agentica/bin/agentica install
 
 COPY campfire.agc ./
 COPY src ./src
+# The names of the built files, which the app imports (so they must be here before the compile).
+COPY --from=assets /app/src/campfire_web/asset_names.agc /app/src/campfire_web/icons.agc ./src/campfire_web/
 # Compiling a program that imports pkg/db/db builds the native SQLite driver (libdb_sqlite.so, from the C source of
 # agentica-db) into the package cache, and the bytecode stores the absolute path of the library. The build fails if the
 # library is not there: at run time a missing one would quietly leave the slower FFI driver. The app runs from this
@@ -46,8 +65,9 @@ RUN /opt/agentica/bin/agentica compile campfire.agc -o campfire.agcb \
  && test "$(find "$XDG_CACHE_HOME/agentica/pkg/native-build" -name libdb_sqlite.so | wc -l)" = 1 \
  && grep -aq "$XDG_CACHE_HOME/agentica/pkg/native-build/.*/libdb_sqlite.so" campfire.agcb \
  && chmod -R a+rX "$XDG_CACHE_HOME/agentica/pkg/native-build"
-# The built stylesheet and script are committed (`make assets`), so this image needs no Node.
+# The icons of the installable app (tracked), then the built stylesheet, script and logos of stage 1: the image needs no Node.
 COPY public ./public
+COPY --from=assets /app/public/assets ./public/assets
 # A compressed copy next to each stylesheet and script: Bond sends it to a client that takes gzip (and does not
 # compress at run time). `-n` keeps the name and time out of the file so the build is the same each time, and `-k`
 # keeps the original, which a client that does not take gzip gets. `gzip` keeps the time of change of the original, and

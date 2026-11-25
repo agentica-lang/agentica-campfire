@@ -4,6 +4,12 @@ The image has the pinned Agentica release, the app compiled to bytecode and its 
 Debian 13 slim, and a `.gz` copy next to each stylesheet and script, which Bond sends to a client
 that takes gzip. The image is x86_64 only.
 
+The stylesheet, the script and the logos (`public/assets/`) and the two files that name them
+(`src/campfire_web/asset_names.agc`, `icons.agc`) are not in git: the first stage of the Dockerfile, a Node image
+(`NODE_VERSION`, the major version of `.nvmrc`), runs `npm ci --ignore-scripts` and `node tools/assets.mjs`, and the
+build copies the result into the app before the compile. The final image has no Node. A build needs no `npm ci` or
+`make assets` on the host, and files that a local build left are not sent to Docker (`.dockerignore`).
+
 It runs the native SQLite driver of agentica-db. The build stage has a C compiler; `agentica compile` builds the
 driver into the package cache (`/opt/agentica-cache`, `XDG_CACHE_HOME`) and stores the absolute path of the library in
 `campfire.agcb`, and the build fails if the library is missing. The final image has no compiler: it gets the library at

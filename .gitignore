@@ -3,4 +3,9 @@ data/
 .env
 docker-compose.override.yml
 node_modules/
+# Built by `make assets` (tools/assets.mjs); app-icon*.png in the same folder are sources and stay tracked.
+/public/assets/campfire-*
+/public/assets/logo-*
+/src/campfire_web/asset_names.agc
+/src/campfire_web/icons.agc
 _build/
