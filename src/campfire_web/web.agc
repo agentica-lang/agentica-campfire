@@ -118,6 +118,18 @@ def revalidate(conn: Bond.Conn) -> Result[Bond.Conn]
   ok(conn)
 end
 
+# A file of a message is at most `CAMPFIRE_MAX_ATTACHMENT_MB`; a form's text fields are kept to Bond's defaults.
+def upload_options(config: Config) -> Bond.UploadOptions
+  # The form goes through the server, which takes a body of at most 256 MiB, fields included (`MAX_MAX_ATTACHMENT_MB`
+  # leaves room for them): with the S3 service a bigger file goes straight to the bucket.
+  file_bytes = [config.max_attachment_mb, MAX_MAX_ATTACHMENT_MB].min.unwrap! * MB
+  Bond.UploadOptions(
+    max_file_bytes: file_bytes,
+    max_total_bytes: file_bytes + FORM_FIELDS_BYTES,
+    dir: uploads_dir(config),
+  )
+end
+
 private
 
 UP_PAGE = "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>"
@@ -156,16 +168,4 @@ def avatar_key(config: Config) -> Optional[Bytes]
   return none if not key.ok?
 
   some(key.unwrap!)
-end
-
-# A file of a message is at most `CAMPFIRE_MAX_ATTACHMENT_MB`; a form's text fields are kept to Bond's defaults.
-def upload_options(config: Config) -> Bond.UploadOptions
-  # The form goes through the server, which takes a body of at most 256 MiB: with the S3 service a bigger file goes
-  # straight to the bucket.
-  file_bytes = [config.max_attachment_mb, MAX_MAX_ATTACHMENT_MB].min.unwrap! * MB
-  Bond.UploadOptions(
-    max_file_bytes: file_bytes,
-    max_total_bytes: file_bytes + FORM_FIELDS_BYTES,
-    dir: uploads_dir(config),
-  )
 end

@@ -646,7 +646,8 @@ def main() -> Void
     end,
     Test.test("the S3 service has its settings checked, and takes bigger files than the Disk service") do
       try Test.assert(with_storage(s3_env(), "4096").ok?, "4096 MB with S3")
-      try Test.assert(with_storage(ObjectStore.Env(service: "disk"), "255").ok?, "255 MB with the Disk service")
+      try Test.assert(with_storage(ObjectStore.Env(service: "disk"), "254").ok?, "254 MB with the Disk service")
+      try Test.assert(not with_storage(ObjectStore.Env(service: "disk"), "255").ok?, "255 MB with the Disk service")
       try Test.assert(not with_storage(ObjectStore.Env(service: "disk"), "4096").ok?, "4096 MB with the Disk service")
       try Test.assert(not with_storage(ObjectStore.Env(service: "ftp"), "").ok?, "another service")
       try Test.assert(not with_storage(s3_env().with(endpoint: "minio:9000"), "").ok?, "an endpoint with no scheme")

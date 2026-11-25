@@ -83,9 +83,10 @@ DEFAULT_WEBHOOK_TIMEOUT = 7
 MAX_WEBHOOK_TIMEOUT = 60
 DEFAULT_WEBHOOK_TIMEOUT_MS = 7_000
 ## The largest file that a message may carry when `CAMPFIRE_MAX_ATTACHMENT_MB` is not set, in megabytes, and the most it
-## may ask for: the server takes a body of at most 256 MiB, and the fields of the form need some room besides the file.
+## may ask for: the server takes a body of at most 256 MiB, and the fields of the form (`Web.FORM_FIELDS_BYTES`, 2 MiB)
+## need some room besides the file.
 DEFAULT_MAX_ATTACHMENT_MB = 100
-MAX_MAX_ATTACHMENT_MB = 255
+MAX_MAX_ATTACHMENT_MB = 254
 ## The most that `CAMPFIRE_MAX_ATTACHMENT_MB` may ask for with the S3 service, whose files go from the browser to the
 ## bucket and never through the server (the 5 GiB of a single `PUT` of S3 is not a limit: big files go in parts).
 MAX_MAX_ATTACHMENT_MB_S3 = 5_120
