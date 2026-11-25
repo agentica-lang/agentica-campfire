@@ -62,7 +62,8 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
 app/            the sources of the assets: `assets/images/` (the two logos, WebP), `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,
                 components, utilities) and `javascript/` (ES modules, `application.js` the entry)
-tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files and `src/campfire_web/asset_names.agc`
+tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files, `src/campfire_web/asset_names.agc` and `src/campfire_web/icons.agc` (the inline SVG of the Lucide icons that `ICONS` names)
+vendor/         third-party files that the build reads: `lucide/` (the icons of Lucide 1.72.0, ISC, with its LICENSE; `vendor/README.md` has the source and the integrity)
 public/assets/  the built, fingerprinted stylesheet, script and logos (composer, keys, reply, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
@@ -379,12 +380,15 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   request; only `Attachments.inline?` lets a file be shown inline, everything else is a download, with `nosniff` and a
   sandbox policy. Whatever deletes a message gets the keys of its blobs (`Attachments.detach_in`) and deletes the files
   with `Blobs.remove_files` after the commit.
-- Assets: never edit `public/assets/` or `src/campfire_web/asset_names.agc`. Change `app/assets/stylesheets/` or
+- Assets: never edit `public/assets/`, `src/campfire_web/asset_names.agc` or `src/campfire_web/icons.agc`. Change `app/assets/stylesheets/` or
   `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
   and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`
   (DIGEST the first 16 hex digits of the SHA-256 of the file) and the names that `Routes.STYLESHEET` and `Routes.SCRIPT` read.
   The built files are committed, so `agentica test`, the benchmark and the Docker image need no Node; CI runs
-  `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). The SCSS layout
+  `make assets-check` (the same test) and fails if the build changes a committed file (`specs/assets.feature` checks the names). Icons are Lucide's, from
+  `vendor/lucide/` (a pinned release at least two weeks old, copied byte for byte; never edit them): add the name to `ICONS`
+  in `tools/assets.mjs`, build, and write `<%== Icons.ICON_NAME %>` in a view (inline SVG in `currentColor`, class `icon`,
+  sized by the stylesheet). The SCSS layout
   rule (grid first, flex only for one-dimensional bits) is at the top of `application.scss`. `/assets/` is public
   (`AuthWeb.public?`). The script is progressive enhancement: the room page, the edit page and every page with the sidebar link it, every form works
   without it, and it stays about 18 KB minified with no framework (`DESIGN.md`, "Script", which also has its keys;

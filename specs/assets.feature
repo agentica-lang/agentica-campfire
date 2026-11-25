@@ -39,6 +39,7 @@ Feature: The stylesheet and the script
     And the body contains "No messages here yet."
     And the body contains "IntersectionObserver"
     And the body contains "DateTimeFormat"
+    And the body contains ".chip"
     And the body has the SHA-256 that starts with the digest in the name of the file
     When I get "/users"
     Then the body contains "<script src=\"/assets/campfire-" 1 times

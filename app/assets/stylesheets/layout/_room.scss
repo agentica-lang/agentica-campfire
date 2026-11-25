@@ -66,10 +66,11 @@ main.room > p[aria-live]:empty {
   margin: 0;
 }
 
-// The composer: the text box takes the row, the file picker and Send keep their width, and all sit on the bottom line.
+// The composer: the attach button, the text box, which takes the row, and Send, all on the bottom line. The chip of a
+// picked file has the line above, which exists only while it shows.
 main.room > form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
   gap: var(--s-2);
   padding: var(--s-3) var(--s-5);
@@ -94,9 +95,80 @@ main.room > form {
     field-sizing: content;
   }
 
-  .attach input {
-    max-width: 12rem;
+  // The real file input stays (`.sr-only`: out of sight, still focusable), and its label is the button.
+  .attach label {
+    display: inline-grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    cursor: pointer;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-sm);
+    color: var(--text);
+
+    &:hover {
+      background: var(--hover);
+    }
+  }
+
+  .attach input:focus-visible + label {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .icon {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .chip {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    justify-self: start;
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+    min-width: 0;
+    max-width: 100%;
+    padding: 0 var(--s-1) 0 var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
     font-size: var(--fs-sm);
+    background: var(--bg-field);
+
+    &[hidden] {
+      display: none;
+    }
+
+    .name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    button {
+      flex: none;
+      display: inline-grid;
+      place-items: center;
+      width: 2rem;
+      height: 2rem;
+      min-height: 0;
+      padding: 0;
+      border-radius: 50%;
+      color: var(--muted);
+      background: transparent;
+
+      &:hover {
+        color: var(--text);
+        background: var(--hover);
+      }
+    }
+
+    .icon {
+      width: 1rem;
+      height: 1rem;
+    }
   }
 }
 
@@ -107,14 +179,11 @@ main.room > form {
     padding-inline: var(--s-4);
   }
 
-  // The file picker takes a row of its own under the text box.
-  main.room > form {
-    grid-template-columns: minmax(0, 1fr) auto;
-
-    .attach {
-      grid-row: 2;
-      grid-column: 1 / -1;
-    }
+  // The attach button and the x of the chip are tap targets.
+  main.room > form .attach label,
+  main.room > form .chip button {
+    width: 2.75rem;
+    height: 2.75rem;
   }
 
   main.room > [role="alert"],

@@ -85,7 +85,7 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
   target beside the chip.
 - **Room** (`main.room`): `header` with the `h1` (two lines at most) and, for those who may, the Settings link and the
   Sidebar link drawn as quiet buttons; `.scroller` > `.thread` with the "Older messages" and "Latest messages"
-  links centred and muted; the composer form with a one-line textarea that grows to 40vh (`field-sizing`) and the Send button, with the safe-area inset below.
+  links centred and muted; the composer form with the attach button (a 2.5rem square, 2.75rem on a phone, the label of the visually hidden file input, with a focus ring when the input has the focus), a one-line textarea that grows to 40vh (`field-sizing`) and the Send button, all on one line, and above them the chip of a picked file (its name with an ellipsis, and an x button that clears it) while there is one, with the safe-area inset below.
   The textarea has no `autofocus`: a phone would open its keyboard on every load. The script focuses it only on a
   device with a fine pointer (a mouse or a trackpad).
 - **Message** (`[data-message-id]`): in a room a bubble, with a rounded corner (`--r-lg`) and a width of at most 75%
