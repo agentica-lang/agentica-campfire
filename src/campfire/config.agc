@@ -494,7 +494,7 @@ end
 ## True when the links in emails go over plain HTTP to a host that is not this machine: a token that crosses the
 ## network in the clear. The app says so at start; with secure cookies it is an error of `parse` instead.
 def plain_link?(config: Config) -> Bool
-  config.base_url.start_with?("http://") and not loopback?(authority_host(config.base_url))
+  config.base_url.start_with?("http://") and not Smtp.loopback?(authority_host(config.base_url))
 end
 
 private
@@ -643,7 +643,7 @@ def parse_smtp_url(smtp_url: String, local_hostname: String) -> Result[Smtp.Opti
   port = address.port.unwrap_or(smtp_default_port(security))
   return error("CAMPFIRE_SMTP_URL has no host: #{SMTP_URL_FORM}") if address.host.empty?
 
-  if security == Smtp.Security.Plain and not loopback?(address.host)
+  if security == Smtp.Security.Plain and not Smtp.loopback?(address.host)
     return error("CAMPFIRE_SMTP_URL: smtp+plain:// is only for a host on this machine, which sends no password safely")
   end
 
@@ -701,26 +701,6 @@ def smtp_decode(text: String) -> Result[String]
   return error("CAMPFIRE_SMTP_URL has a user or password that is not percent-encoded correctly") if not decoded.ok?
 
   decoded
-end
-
-# True for a host on this machine: `localhost`, an address of `127.0.0.0/8` and `::1`. A name that only starts with
-# `127.` is not.
-def loopback?(host: String) -> Bool
-  name = host.strip.downcase
-  return true if name == "localhost" or name == "::1" or name == "[::1]"
-
-  parts = name.split(".")
-  return false if parts.size != 4 or parts[0] != "127"
-
-  parts.all? do |part| octet?(part) end
-end
-
-def octet?(part: String) -> Bool
-  if part.empty? or part.length > 3 or not part.split("").all? do |char| char.code >= 48 and char.code <= 57 end
-    return false
-  end
-
-  part.to_i!() <= 255
 end
 
 # `host`, `host:port`, `[::1]` or `[::1]:port`. The brackets stay on the host, as `Smtp` takes it.

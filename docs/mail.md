@@ -33,7 +33,7 @@ slow or dead mail server never holds up a page.
   dropped.
 
 The SMTP client and the message builder are the [smtp](https://www.agentica-lang.com/packages/smtp/) package
-(`smtp-0.1.0`), which the mailer calls.
+(`smtp-0.2.0`), which the mailer calls.
 
 ## Password reset
 

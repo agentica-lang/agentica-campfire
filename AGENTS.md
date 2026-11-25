@@ -71,10 +71,10 @@ DESIGN.md       the visual design system (tokens, components, states, accessibil
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through
                 fixtures/ws_client/cable_client.agc, a program of websocket-client with a manifest of its own, so the
-                app does not depend on it: a step cannot leave a reader task running), webhook_steps.agc (fixtures/webhook_peer.py, a Python webhook
-                of a bot that writes down each post), mail_steps.agc (the peer as the
-                mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
-                the environment that the steps set), fixtures/smtp_peer.agc (a hermetic, plain SMTP server that
+                app does not depend on it: a step cannot leave a reader task running), webhook_steps.agc
+                (fixtures/webhook_peer.py, a Python webhook of a bot that writes down each post), mail_steps.agc (the
+                peer as the mail server of the app: reads its email, follows the link), fixtures/server.agc (the app,
+                from the environment that the steps set), fixtures/smtp_peer.agc (a hermetic, plain SMTP server that
                 writes down the dialogue; the SMTP client has its own specs in the `smtp` package),
                 fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
                 `make.sh` makes it again in a ruby container)
