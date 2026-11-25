@@ -183,7 +183,7 @@ end
 ## The row of a blob for a file that a browser is to put in the bucket, as Active Storage's direct upload makes it
 ## (`DirectUploadsController`): the key, the name, the type and the size that the person says, and in `metadata` the
 ## person (only they may post it) and the `upload_id` of a multipart upload ("" for one `PUT`). It is attached to no
-## message, so `Blobs.sweep_uploads` deletes it when nothing posts it.
+## message, so the sweep of the app (`Blobs.stale_uploads`) deletes it when nothing posts it.
 def start_upload(
   db: Db.Connection,
   person_id: Int,
@@ -312,9 +312,8 @@ def signature(head: Bytes) -> String
   ""
 end
 
-# The new row of a blob, or the row of a direct upload completed with what the bytes say, no row at all when
-# that upload
-# is gone or already attached.
+# The `id` of the new row of a blob, or of the row of a direct upload that is completed with what the bytes say: no row
+# when that upload is gone or already attached.
 def write_blob(tx: Db.Connection, blob: Blob) -> Result[List[Db.Row]]
   if blob.direct
     return Db.query(

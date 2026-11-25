@@ -130,52 +130,100 @@ export function startComposer() {
     });
   }
 
-  // With the S3 service of the app a file goes from here to the bucket (see `upload`), and the message names it by its key.
-  // The Disk service has no such route (a 404, asked once), and the file goes as the multipart form that the page posts
-  // without the script; text alone is a plain form.
-  var DIRECT_UPLOADS = "/rails/active_storage/direct_uploads";
-  var direct = true;
+  // With the S3 service of the app the form says where to ask for the URLs (`data-direct-uploads`): a file goes from here
+  // to the bucket (see `upload`), and the message names it by its key. With the Disk service the file goes as the
+  // multipart form that the page posts without the script; text alone is a plain form.
+  var DIRECT_UPLOADS = form.getAttribute("data-direct-uploads");
+  var PART_TRIES = 3;
+  var direct = !!DIRECT_UPLOADS;
+  // The upload that is running ({ requests, stopped }), and the one that is done ({ file, key }): a post that fails after
+  // it is tried again with the same key, so the file is never sent twice.
+  var running = null;
+  var uploaded = null;
 
   function send() {
-    if (!(chosen() && direct)) {
+    var file = chosen() ? picker.files[0] : null;
+    if (!file || !direct) {
       post("");
-      return;
+    } else if (uploaded && uploaded.file === file) {
+      post(uploaded.key);
+    } else {
+      start(file);
     }
+  }
 
+  function start(file) {
+    var job = { requests: [], stopped: false };
+    running = job;
     busy = true;
     button.disabled = true;
     note("Uploading the file...");
-    upload(picker.files[0]).then(
+    upload(file, job).then(
       function (key) {
-        note("");
+        if (job.stopped) {
+          return;
+        }
+        running = null;
         busy = false;
+        uploaded = { file: file, key: key };
+        note("");
         post(key);
       },
-      function () {
-        note("The file was not uploaded. Check the connection and try again.");
+      function (problem) {
+        if (job.stopped) {
+          return;
+        }
+        running = null;
         busy = false;
         button.disabled = false;
+        note(problem && problem.message ? problem.message : "The file was not uploaded. Check the connection and try again.");
       },
     );
   }
 
-  // The key of the blob that the app made for the file, whose URLs it was given; "" when the app keeps the files itself.
-  function upload(file) {
+  // The chip's x, or another file, ends the upload that is running, and the key of the one that was done: the message
+  // would carry a file that is no longer the picked one.
+  function forget() {
+    if (running) {
+      running.stopped = true;
+      running.requests.forEach(function (request) {
+        request.abort();
+      });
+      running = null;
+      busy = false;
+      button.disabled = false;
+      note("");
+    }
+    uploaded = null;
+  }
+
+  if (picker) {
+    picker.addEventListener("change", forget);
+  }
+  if (chip) {
+    chip.querySelector("button").addEventListener("click", forget);
+  }
+
+  // The key of the blob that the app made for the file, after the file was put at the URLs that it gave. A refusal of the app (too big) is told as it says.
+  function upload(file, job) {
     return fetch(DIRECT_UPLOADS, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ blob: { filename: file.name, content_type: file.type, byte_size: file.size } }),
     }).then(function (response) {
-      if (response.status === 404) {
-        direct = false;
-        return "";
-      }
       if (!response.ok) {
-        throw new Error("refused");
+        return response.json().then(
+          function (answer) {
+            throw new Error(answer.error || "The file was not accepted.");
+          },
+          function () {
+            throw new Error("The file was not accepted.");
+          },
+        );
       }
       return response.json().then(function (plan) {
-        return put(plan, file).then(function () {
+        return put(plan, file, job).then(function () {
           return plan.key;
         });
       });
@@ -183,24 +231,51 @@ export function startComposer() {
   }
 
   // One request for a small file, else the parts in order. The bucket answers with no cookie: the URLs carry the signature.
-  function put(plan, file) {
-    if (!plan.parts.length) {
-      return putPart(plan.url, file);
-    }
-    var chain = Promise.resolve();
-    plan.parts.forEach(function (part, index) {
-      chain = chain.then(function () {
-        return putPart(part.url, file.slice(index * plan.part_bytes, (index + 1) * plan.part_bytes));
+  function put(plan, file, job) {
+    var done = 0;
+    var step = Promise.resolve();
+    var parts = plan.parts.length ? plan.parts : [{ url: plan.url }];
+    parts.forEach(function (part, index) {
+      var blob = plan.parts.length ? file.slice(index * plan.part_bytes, (index + 1) * plan.part_bytes) : file;
+      step = step.then(function () {
+        return putPart(part.url, blob, job, function (sent) {
+          if (!job.stopped) {
+            note("Uploading the file... " + Math.floor(((done + sent) * 100) / file.size) + "%");
+          }
+        }).then(function () {
+          done += blob.size;
+        });
       });
     });
-    return chain;
+    return step;
   }
 
-  function putPart(url, blob) {
-    return fetch(url, { method: "PUT", body: blob }).then(function (response) {
-      if (!response.ok) {
-        throw new Error("not stored");
+  // A part is tried again when the connection fails, as a big file is many requests on a line that may drop one.
+  function putPart(url, blob, job, progress, tried) {
+    tried = tried || 1;
+    return new Promise(function (resolve, reject) {
+      var request = new XMLHttpRequest();
+      job.requests.push(request);
+      request.open("PUT", url);
+      request.upload.onprogress = function (event) {
+        progress(event.loaded);
+      };
+      request.onload = function () {
+        if (request.status >= 200 && request.status < 300) {
+          resolve();
+        } else {
+          reject(new Error("The file was not stored (" + request.status + "). Try again."));
+        }
+      };
+      request.onerror = function () {
+        reject(new Error("The file was not uploaded. Check the connection and try again."));
+      };
+      request.send(blob);
+    }).catch(function (problem) {
+      if (job.stopped || tried >= PART_TRIES) {
+        throw problem;
       }
+      return putPart(url, blob, job, progress, tried + 1);
     });
   }
 
@@ -226,13 +301,20 @@ export function startComposer() {
     })
       .then(
         function (response) {
-          // A refusal (too long, not allowed) is shown by the page that the plain post answers.
+          // A refusal (too long, not allowed) is shown by the page that the plain post answers. With a key that would send
+          // the file again, so the person is told and posts again: the file stays in the bucket under its key.
           if (!response.ok) {
+            if (key) {
+              note("The message was not sent (" + response.status + "). Try again: the file is uploaded already.");
+              return;
+            }
             return form.submit();
           }
           return response.text().then(function (answer) {
             if (append(answer)) {
               sent(text, file);
+            } else if (key) {
+              location.assign(form.action.replace(/\/messages$/, ""));
             } else {
               form.submit();
             }
@@ -300,6 +382,7 @@ export function startComposer() {
       picker.value = "";
       showChip();
     }
+    uploaded = null;
     ident.value = freshId();
     // The list is a column-reverse box: 0 is its end, where the new message is.
     scroller.scrollTop = 0;

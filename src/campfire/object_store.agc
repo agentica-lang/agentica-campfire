@@ -10,11 +10,16 @@ import S3 from "pkg/s3/s3"
 SERVICE_NAME = "s3"
 
 ## The size of a part: a file up to this size is one `PUT`, a bigger one goes in parts (S3 wants 5 MiB or more but the
-## last), so a file of the largest size of `Config.MAX_S3_ATTACHMENT_MB` needs 320 of them.
+## last), so a file of the largest size (`Config.MAX_MAX_ATTACHMENT_MB_S3`) needs 320 of them.
 PART_BYTES = 16_777_216
 
-## How long the URLs of an upload last: the whole upload of a big file on a slow line, not one request.
-UPLOAD_SECONDS = 21_600
+## How long the URL of a file that goes in one `PUT` lasts (up to `PART_BYTES`: a few minutes on a slow line), and how
+## long the URLs of the parts of a big file last (the whole upload, on a slow line, not one request).
+SINGLE_SECONDS = 900
+PARTS_SECONDS = 21_600
+
+## The kind of the `error` of `finish` for parts that are not the ones of the file that was announced.
+PARTS = "campfire.parts"
 
 ## How long the link of a download lasts. A browser follows the redirect at once, so it only has to outlive that.
 DOWNLOAD_SECONDS = 60
@@ -145,7 +150,7 @@ def object_key(store: Store, key: String) -> String = "#{store.prefix}#{key}"
 def plan(store: Store, key: String, byte_size: Int) -> Result[Plan]
   name = object_key(store, key)
   if byte_size <= PART_BYTES
-    url = try S3.presign_put(store.client.config, name, presign(byte_size))
+    url = try S3.presign_put(store.client.config, name, presign(byte_size, SINGLE_SECONDS))
     return ok(Plan(url: url))
   end
 
@@ -158,7 +163,7 @@ def plan(store: Store, key: String, byte_size: Int) -> Result[Plan]
       length = byte_size - PART_BYTES * (count - 1)
     end
 
-    url = try S3.presign_part(store.client.config, name, id, number, presign(length))
+    url = try S3.presign_part(store.client.config, name, id, number, presign(length, PARTS_SECONDS))
     parts = parts.push(PartUrl(number: number, url: url))
   end
 
@@ -171,7 +176,7 @@ def finish(store: Store, key: String, upload_id: String, byte_size: Int) -> Resu
   name = object_key(store, key)
   held = try S3.list_parts(store.client, name, upload_id)
   count = (byte_size + PART_BYTES - 1) / PART_BYTES
-  return error("the upload has #{held.length} parts, not #{count}") if held.length != count
+  return error("the upload has #{held.length} parts, not #{count}", kind: PARTS) if held.length != count
 
   for part in held
     wanted = PART_BYTES
@@ -180,7 +185,7 @@ def finish(store: Store, key: String, upload_id: String, byte_size: Int) -> Resu
     end
 
     if part.number < 1 or part.number > count or part.size != wanted
-      return error("part #{part.number} has #{part.size} bytes, not #{wanted}")
+      return error("part #{part.number} has #{part.size} bytes, not #{wanted}", kind: PARTS)
     end
   end
 
@@ -192,6 +197,15 @@ end
 def put_file(store: Store, key: String, path: String, content_type: String) -> Result[Void]
   _ = try S3.upload_file(store.client, object_key(store, key), path, S3.UploadOptions(content_type: content_type))
   ok()
+end
+
+## Whether a result failed because the upload is not whole: S3 has no such object or upload, or its parts are not the ones
+## that `plan` cut (and not because the bucket could not be reached).
+def unfinished?[T](result: Result[T]) -> Bool
+  case result
+    error(e) -> e.kind == S3.NO_SUCH_KEY or e.kind == S3.NO_SUCH_UPLOAD or e.kind == PARTS
+    ok(_) -> false
+  end
 end
 
 ## The size of the object, or an `error` when it is not there (an upload that did not finish).
@@ -209,7 +223,7 @@ end
 ## The link of a download: a signed `GET` that makes S3 answer with `content_type` and, unless `inline`, as a download of
 ## `filename`.
 def download_url(store: Store, key: String, filename: String, content_type: String, inline: Bool) -> Result[String]
-  disposition = "attachment; filename=\"#{filename.replace("\"", "")}\""
+  disposition = "attachment; #{filename_parameters(filename)}"
   if inline
     disposition = "inline"
   end
@@ -222,26 +236,82 @@ def download_url(store: Store, key: String, filename: String, content_type: Stri
   S3.presign_get(store.client.config, object_key(store, key), S3.Presign(expires_s: DOWNLOAD_SECONDS, query: query))
 end
 
-## Deletes the object and, when `upload_id` is not empty, the parts of an upload that was not completed. A failure is
-## logged: the row is gone or going, so nothing links the object, and the sweep of unattached uploads goes back to
-## those that it can still name.
-def remove(store: Store, key: String, upload_id: String) -> Void
+## Deletes the object and, when `upload_id` is not empty, the parts of an upload that was not completed. An `error` when
+## the bucket refused either (an upload or an object that is not there is not a failure).
+def remove(store: Store, key: String, upload_id: String) -> Result[Void]
   name = object_key(store, key)
   if not upload_id.empty?
-    case S3.abort_multipart(store.client, name, upload_id)
-      error(e) if e.kind != S3.NO_SUCH_UPLOAD -> IO.warn("campfire: cannot abort the upload of #{key}: #{e.message}")
-      _ -> nil
+    aborted = S3.abort_multipart(store.client, name, upload_id)
+    if not aborted.ok? and not missing_upload?(aborted)
+      return error("cannot abort the upload of #{key}: #{aborted.message}")
     end
   end
 
   gone = S3.delete(store.client, name)
-  if not gone.ok?
-    IO.warn("campfire: cannot delete the object #{key}: #{gone.message}")
-  end
+  return error("cannot delete the object #{key}: #{gone.message}") if not gone.ok?
+
+  ok()
 end
 
 private
 
-def presign(length: Int) -> S3.Presign
-  S3.Presign(expires_s: UPLOAD_SECONDS, headers: [S3.Param(name: "content-length", value: "#{length}")])
+HEX_DIGITS = "0123456789ABCDEF"
+
+def missing_upload?(result: Result[Void]) -> Bool
+  case result
+    error(e) -> e.kind == S3.NO_SUCH_UPLOAD
+    ok(_) -> false
+  end
+end
+
+# The `filename` of a `Content-Disposition` (RFC 6266): a plain ASCII form for old clients, with `"`, `\` and
+# controls made
+# `_`, and for a name that is not plain ASCII the `filename*` of RFC 8187 with its UTF-8 bytes percent-encoded.
+def filename_parameters(filename: String) -> String
+  plain = ""
+  for ch in filename.split("")
+    if ascii_safe?(ch)
+      plain = "#{plain}#{ch}"
+    else
+      plain = "#{plain}_"
+    end
+  end
+
+  return "filename=\"#{plain}\"" if plain == filename
+
+  "filename=\"#{plain}\"; filename*=UTF-8''#{percent_encoded(filename)}"
+end
+
+def ascii_safe?(ch: String) -> Bool
+  return false if ch == "\"" or ch == "\\"
+
+  ch.bytes.to_a.all? { |byte| byte >= 32 and byte < 127 }
+end
+
+# Every byte but the characters of RFC 8187's `attr-char` is `%XX`.
+def percent_encoded(text: String) -> String
+  out = ""
+  for ch in text.split("")
+    for byte in ch.bytes.to_a
+      if attr_char?(byte)
+        out = "#{out}#{ch}"
+      else
+        out = "#{out}%#{HEX_DIGITS.slice(byte / 16, 1)}#{HEX_DIGITS.slice(byte % 16, 1)}"
+      end
+    end
+  end
+
+  out
+end
+
+def attr_char?(byte: Int) -> Bool
+  return true if byte >= 48 and byte <= 57
+  return true if byte >= 65 and byte <= 90
+  return true if byte >= 97 and byte <= 122
+
+  "!#$&+-.^_`|~".bytes.to_a.include?(byte)
+end
+
+def presign(length: Int, seconds: Int) -> S3.Presign
+  S3.Presign(expires_s: seconds, headers: [S3.Param(name: "content-length", value: "#{length}")])
 end

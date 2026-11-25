@@ -21,6 +21,17 @@ FIELD = "message[direct_upload]"
 ## The most that a name may have; the browser sends what the file was called.
 MAX_FILENAME_LENGTH = 255
 
+## Megabytes, as `CAMPFIRE_MAX_ATTACHMENT_MB` counts them.
+MEGABYTE = 1_048_576
+
+## What the form of a message says of a direct upload: nothing, a blob that is ready to attach, or a reason that the person
+## can act on (the upload is not theirs, it is gone, the file did not arrive whole), which the app answers as a `422`.
+enum Claim
+  Absent
+  Claimed(Attachments.Blob)
+  Refused(String)
+end
+
 ## The `blob` that the browser asks for.
 struct Wanted
   filename: String
@@ -47,12 +58,12 @@ def add(app: Bond.App, pool: Database.Pool, storage: Blobs.Storage, max_bytes: I
   app |> Bond.post(Routes.DIRECT_UPLOADS) do |conn| create(conn, pool, storage, max_bytes) end
 end
 
-## The blob that the form of a message names, ready to attach, `none` when it does not name one. An `error` when it names
-## a blob that is not the person's, is attached already, or whose object is not there as the person said it would be: a
-## multipart upload that has all its parts is completed here.
-def claim(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage) -> Result[Optional[Attachments.Blob]]
+## The blob that the form of a message names, ready to attach. A blob that is not the person's, is attached already, or
+## whose object is not there as the person said it would be is `Refused`, with the reason; a multipart upload that has
+## all its parts is completed here.
+def claim(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage) -> Result[Claim]
   keys = try Bond.form_all(conn, FIELD)
-  return ok(none) if keys.empty? or keys[0] == ""
+  return ok(Claim.Absent) if keys.empty? or keys[0] == ""
 
   return error("a direct upload was named, and the storage is the Disk service") if storage.objects.none?
 
@@ -65,14 +76,16 @@ def claim(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage) -> Resul
     end
   end
 
-  return error("the direct upload #{key} is not there, or is not this person's") if found.none?
+  return ok(Claim.Refused(GONE)) if found.none?
 
   upload = found.unwrap!
-  try complete(store, key, upload)
+  problem = try complete(store, key, upload)
+  return ok(Claim.Refused(problem)) if problem != ""
+
   head = try ObjectStore.first_bytes(store, key, ImageSize.HEAD_BYTES)
   content_type = Attachments.identify(head, upload.filename)
   ok(
-    some(
+    Claim.Claimed(
       Attachments.Blob(
         key: key,
         filename: upload.filename,
@@ -86,30 +99,41 @@ def claim(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage) -> Resul
   )
 end
 
+## The answer to a message that names an upload that cannot be posted: a `422` with the reason, as JSON for the script.
+def refused(conn: Bond.Conn, message: String) -> Bond.Conn = Bond.json(conn, 422, JSON.from({"error": message}))
+
 private
 
-# The upload has all its parts joined, and the object is as big as the person said. A completed upload is not completed
-# twice: a post that failed after the completion is tried again with the object there.
-def complete(store: ObjectStore.Store, key: String, upload: Attachments.Upload) -> Result[Void]
+# What a person is told. The first is also the answer for a blob of another person, which is not told apart from a
+# gone one.
+GONE = "That upload is not there any more. Choose the file again."
+INCOMPLETE = "The file did not arrive whole. Choose the file again."
+
+# "" when the upload has all its parts joined and the object is as big as the person said, else the reason that it
+# is not.
+# An object that is not there, or whose parts are not the ones of a file of that size, is the person's to upload
+# again; a
+# failure of the bucket itself is an `error`. A completed upload is not completed twice: a post that failed after the
+# completion is tried again with the object there.
+def complete(store: ObjectStore.Store, key: String, upload: Attachments.Upload) -> Result[String]
   if upload.upload_id != ""
     finished = ObjectStore.finish(store, key, upload.upload_id, upload.byte_size)
     there = ObjectStore.size_of(store, key)
     if not finished.ok? and not (there.ok? and there.unwrap! == upload.byte_size)
+      return ok(INCOMPLETE) if ObjectStore.unfinished?(finished)
+
       return error("the upload of #{key} cannot be completed: #{finished.message}")
     end
   end
 
-  size = try ObjectStore.size_of(store, key)
-  return error("the upload of #{key} has #{size} bytes, not #{upload.byte_size}") if size != upload.byte_size
+  size = ObjectStore.size_of(store, key)
+  return ok(INCOMPLETE) if ObjectStore.unfinished?(size)
 
-  ok()
-end
+  return error("the size of #{key} cannot be read: #{size.message}") if not size.ok?
 
-def after_last(text: String, separator: String) -> String
-  pieces = text.split(separator)
-  return "" if pieces.empty?
+  return ok(INCOMPLETE) if size.unwrap! != upload.byte_size
 
-  pieces[pieces.length - 1]
+  ok("")
 end
 
 def create(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage, max_bytes: Int) -> Result[Bond.Conn]
@@ -119,8 +143,10 @@ def create(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage, max_byt
   filename = clean_name(asked.filename)
   return ok(refused(conn, "the file has no name")) if filename == ""
 
-  if asked.byte_size < 1 or asked.byte_size > max_bytes
-    return ok(refused(conn, "the file must have from 1 byte to #{max_bytes} bytes"))
+  return ok(refused(conn, "The file is empty.")) if asked.byte_size < 1
+
+  if asked.byte_size > max_bytes
+    return ok(refused(conn, "The file is too big: the most is #{max_bytes / MEGABYTE} MB."))
   end
 
   store = storage.objects.unwrap!
@@ -141,7 +167,7 @@ def create(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage, max_byt
   end
 
   if not started.ok?
-    ObjectStore.remove(store, key, plan.upload_id)
+    _ = ObjectStore.remove(store, key, plan.upload_id)
     return error(started.message)
   end
 
@@ -158,7 +184,12 @@ def create(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage, max_byt
   )
 end
 
-def refused(conn: Bond.Conn, message: String) -> Bond.Conn = Bond.json(conn, 422, JSON.from({"error": message}))
+def after_last(text: String, separator: String) -> String
+  pieces = text.split(separator)
+  return "" if pieces.empty?
+
+  pieces[pieces.length - 1]
+end
 
 # The name of the file without the folders that a browser may put in front of it, and without control characters.
 def clean_name(name: String) -> String

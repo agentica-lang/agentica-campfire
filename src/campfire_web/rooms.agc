@@ -54,12 +54,13 @@ def add(
   hooks: Webhooks.Hooks,
   storage: Blobs.Storage,
 ) -> Bond.App
+  direct = storage.objects.some?
   on_get_room_new = Blocks.handler do |conn| show_new_room(conn, pool) end
   on_post_rooms = Blocks.handler do |conn| create_room(conn, pool, cable) end
-  on_get_room = Blocks.handler do |conn| show_room(conn, pool, cable, cache, pages, secure) end
+  on_get_room = Blocks.handler do |conn| show_room(conn, pool, cable, cache, direct, pages, secure) end
   on_get_room_messages = Blocks.handler do |conn| older_messages(conn, pool, cache, pages) end
   on_get_room_refresh = Blocks.handler do |conn| show_refresh(conn, pool, cache) end
-  on_get_room_at = Blocks.handler do |conn| show_at(conn, pool, cable, cache, secure) end
+  on_get_room_at = Blocks.handler do |conn| show_at(conn, pool, cable, cache, direct, secure) end
   on_post_room_messages = Blocks.handler do |conn|
     create_message(conn, pool, cable, cache, max_length, hooks, storage)
   end
@@ -918,6 +919,7 @@ def show_room(
   pool: Database.Pool,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   pages: Optional[PageCache.Pages],
   secure: Bool,
 ) -> Result[Bond.Conn]
@@ -926,7 +928,7 @@ def show_room(
   user = try AuthWeb.assigned_user(conn)
   case user
     none -> ok(respond(conn, Answer.SignedOut))
-    some(person) -> shown_room(conn, pool, cable, cache, pages, secure, person, id, before)
+    some(person) -> shown_room(conn, pool, cable, cache, direct, pages, secure, person, id, before)
   end
 end
 
@@ -937,6 +939,7 @@ def shown_room(
   pool: Database.Pool,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   pages: Optional[PageCache.Pages],
   secure: Bool,
   person: Auth.User,
@@ -947,7 +950,7 @@ def shown_room(
   kept = PageCache.lookup(spot)
   case kept
     some(page) -> ok(respond_visit(conn, id, Answer.Cached(page), secure))
-    none -> made_room_page(conn, pool, cable, cache, spot, secure, person, id, before)
+    none -> made_room_page(conn, pool, cable, cache, direct, spot, secure, person, id, before)
   end
 end
 
@@ -956,13 +959,14 @@ def made_room_page(
   pool: Database.Pool,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   spot: Optional[PageCache.Spot],
   secure: Bool,
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
 ) -> Result[Bond.Conn]
-  answer = try Database.with_connection(pool) do |db| room_answer(db, cable, cache, person, id, before) end
+  answer = try Database.with_connection(pool) do |db| room_answer(db, cable, cache, direct, person, id, before) end
   ok(respond_visit(conn, id, kept(spot, answer), secure))
 end
 
@@ -970,6 +974,7 @@ def room_answer(
   db: Db.Connection,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   person: Auth.User,
   id: Optional[Int],
   before: Optional[Int],
@@ -978,7 +983,7 @@ def room_answer(
   case room
     none -> ok(Answer.NotFound)
     some(found) ->
-      page = try room_page(db, cable, cache, person, found, before, composer("", ""))
+      page = try room_page(db, cable, cache, person, found, before, composer("", "", direct))
       ok(Answer.Page(200, page))
   end
 end
@@ -1093,6 +1098,7 @@ def show_at(
   pool: Database.Pool,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   secure: Bool,
 ) -> Result[Bond.Conn]
   id = room_id(conn)
@@ -1101,7 +1107,7 @@ def show_at(
   case user
     none -> ok(respond(conn, Answer.SignedOut))
     some(person) ->
-      answer = try Database.with_connection(pool) do |db| at_answer(db, cable, cache, person, id, at) end
+      answer = try Database.with_connection(pool) do |db| at_answer(db, cable, cache, direct, person, id, at) end
       ok(respond_visit(conn, id, answer, secure))
   end
 end
@@ -1110,6 +1116,7 @@ def at_answer(
   db: Db.Connection,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   person: Auth.User,
   id: Optional[Int],
   at: Optional[Int],
@@ -1118,7 +1125,7 @@ def at_answer(
   case room
     none -> ok(Answer.NotFound)
     some(_) if at.none? -> ok(Answer.NotFound)
-    some(found) -> ok(Answer.Page(200, try around_page(db, cable, cache, person, found, at.unwrap!)))
+    some(found) -> ok(Answer.Page(200, try around_page(db, cable, cache, direct, person, found, at.unwrap!)))
   end
 end
 
@@ -1126,6 +1133,7 @@ def around_page(
   db: Db.Connection,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   person: Auth.User,
   room: Rooms.Room,
   message_id: Int,
@@ -1137,7 +1145,7 @@ def around_page(
     none -> page = try Rooms.page(db, room.id, none)
   end
 
-  page_view(db, cable, cache, person, room, page, composer("", ""))
+  page_view(db, cable, cache, person, room, page, composer("", "", direct))
 end
 
 # `/rooms/ID/refresh?since=MILLISECONDS`: what a client missed since a time, as Turbo Streams (the live client calls it
@@ -1204,7 +1212,13 @@ def create_message(
   # filter answered a visitor before the form was read, so the form is read as results here and only a person who is
   # signed in gets its 400. A file is moved into the storage folder before the connection is taken, and deleted again
   # unless the message that holds it is posted.
-  attachment = try stored_upload(conn, pool, storage)
+  claim = try DirectUploadsWeb.claim(conn, pool, storage)
+  case claim
+    DirectUploadsWeb.Claim.Refused(message) -> return ok(DirectUploadsWeb.refused(conn, message))
+    _ -> nil
+  end
+
+  attachment = try stored_upload(conn, storage, claim)
   form = Form(
     body: Bond.form(conn, MESSAGE_BODY),
     formats: Bond.form_all(conn, MESSAGE_FORMAT),
@@ -1215,7 +1229,7 @@ def create_message(
   id = room_id(conn)
   stream = wants_stream?(conn)
   answered = Database.with_connection(pool) do |db|
-    message_answer(conn, db, cable, cache, id, form, stream, max_length)
+    message_answer(conn, db, cable, cache, storage.objects.some?, id, form, stream, max_length)
   end
 
   posted = false
@@ -1237,10 +1251,16 @@ end
 # The file of the form (`message[attachment]`, the field of Rails' uploader; the first one when there are more), moved
 # from the folder of the request to its place under a new key. Its type comes from its bytes and its name
 # (`Attachments.identify`), not from the type that the client said; an image's size from its header.
-def stored_upload(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage) -> Result[Optional[Attachments.Blob]]
+def stored_upload(
+  conn: Bond.Conn,
+  storage: Blobs.Storage,
+  claim: DirectUploadsWeb.Claim,
+) -> Result[Optional[Attachments.Blob]]
   # A file that the browser put in the bucket itself (`DirectUploadsWeb`) comes as the key of its blob.
-  claimed = try DirectUploadsWeb.claim(conn, pool, storage)
-  return ok(claimed) if claimed.some?
+  case claim
+    DirectUploadsWeb.Claim.Claimed(blob) -> return ok(some(blob))
+    _ -> nil
+  end
 
   files = Bond.file_all(conn, MESSAGE_ATTACHMENT)
   return ok(none) if files.empty?
@@ -1286,6 +1306,7 @@ def message_answer(
   db: Db.Connection,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   id: Optional[Int],
   form: Form,
   stream: Bool,
@@ -1306,7 +1327,7 @@ def message_answer(
       formats = try form.formats
       html = formats.any? do |format| format == HTML_FORMAT end
       sent = Sent(text: body, html: html, attachment: form.attachment)
-      posted(db, cable, cache, person, id, sent, try form.sent_id, stream, max_length)
+      posted(db, cable, cache, direct, person, id, sent, try form.sent_id, stream, max_length)
   end
 end
 
@@ -1315,6 +1336,7 @@ def posted(
   db: Db.Connection,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   person: Auth.User,
   id: Optional[Int],
   sent: Sent,
@@ -1325,7 +1347,7 @@ def posted(
   room = try member_room(db, person, id)
   case room
     none -> ok(Answer.NotFound)
-    some(found) -> post_to(db, cable, cache, person, found, sent, sent_id, stream, max_length)
+    some(found) -> post_to(db, cable, cache, direct, person, found, sent, sent_id, stream, max_length)
   end
 end
 
@@ -1333,6 +1355,7 @@ def post_to(
   db: Db.Connection,
   cable: CableWeb.Cable,
   cache: Optional[Cache.Store],
+  direct: Bool,
   person: Auth.User,
   room: Rooms.Room,
   sent: Sent,
@@ -1346,7 +1369,7 @@ def post_to(
   end
 
   if problem != ""
-    page = try room_page(db, cable, cache, person, room, none, composer(problem, sent.text))
+    page = try room_page(db, cable, cache, person, room, none, composer(problem, sent.text, direct))
     return ok(Answer.Page(422, page))
   end
 
@@ -1413,8 +1436,8 @@ end
 # The id of the form is drawn when a page is made, and a page that is kept (`PageCache`) is served to every load of
 # the person at that version of the database, so two tabs can post with the same `client_message_id`: nothing may
 # drop a message because its id was seen before.
-def composer(note: String, draft: String) -> Views.Composer
-  Views.Composer(note: note, draft: draft, message_id: OpenSSL.Random.hex(CLIENT_ID_BYTES))
+def composer(note: String, draft: String, direct: Bool) -> Views.Composer
+  Views.Composer(note: note, draft: draft, direct: direct, message_id: OpenSSL.Random.hex(CLIENT_ID_BYTES))
 end
 
 def member_room(db: Db.Connection, person: Auth.User, id: Optional[Int]) -> Result[Optional[Rooms.Room]]

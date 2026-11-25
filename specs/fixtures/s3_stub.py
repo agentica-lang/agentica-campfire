@@ -37,6 +37,7 @@ LOCK = threading.Lock()
 OBJECTS = {}
 UPLOADS = {}
 SEEN = []
+FAIL_PART = [0]
 ARGS = None
 ROOT = None
 
@@ -75,6 +76,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one(self):
         self.status_sent = 0
         raw_path, _, raw_query = self.path.partition("?")
+        if raw_path.startswith("/__stub/fail_part/"):
+            # A door for the specs of Campfire: from now on this part number of any upload is answered 500.
+            with LOCK:
+                FAIL_PART[0] = int(raw_path.rsplit("/", 1)[1])
+            return self.reply(200, b"", {"Content-Type": "text/plain"})
         if raw_path == "/__stub/requests":
             with LOCK:
                 body = "".join(line + "\n" for line in SEEN).encode()
@@ -344,7 +350,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         number = int(query.get("partNumber", "0"))
         if not 1 <= number <= 10000:
             raise S3Error(400, "InvalidArgument", "Part number must be an integer between 1 and 10000, inclusive")
-        if key.startswith("fail-part-2/") and number == 2:
+        if (key.startswith("fail-part-2/") and number == 2) or number == FAIL_PART[0]:
             raise S3Error(500, "InternalError", "We encountered an internal error. Please try again.")
         path = os.path.join(found["dir"], str(number))
         etag, size = self.body_to_file(path)

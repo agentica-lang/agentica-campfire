@@ -16,6 +16,9 @@ def steps() -> List[BDD.Step]
     BDD.step("the direct upload is refused as {string}", &was_refused),
     BDD.step("the direct upload has {int} parts", &has_parts),
     BDD.step("the browser puts a file of {int} bytes that starts with {string} at the URLs of the answer", &put_file),
+    BDD.step("the S3 server refuses the part {int}", &refuses_part),
+    BDD.step("the browser puts the parts of a file of {int} bytes, and the part {int} is refused", &put_until_refused),
+    BDD.step("the direct upload is answered with the status {int}", &answered_with),
     BDD.step("I post to {string} the message with the direct upload of the answer", &post_message),
     BDD.step("I ask for a direct upload and put {int} bytes that start with {string}", &ask_and_put),
     BDD.step("the location of the answer gives {int} bytes of the type {string}", &location_gives),
@@ -165,6 +168,41 @@ def ask(ctx: BDD.Context, args: List[String]) -> BDD.Context
 
   text = String.from_bytes(response.unwrap!.body).unwrap_or("")
   BDD.set(BDD.set(ctx, ANSWER, JSON.from(text)), STATUS, JSON.from(response.unwrap!.status))
+end
+
+def answered_with(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  status = JSON.int(BDD.get(ctx, STATUS).unwrap!).unwrap!
+  BDD.assert(ctx, status == args[0].to_i!, "answered #{status} #{text_of(ctx, ANSWER)}")
+end
+
+# The stand-in answers 500 to this part of every upload from now on (a door of the stand-in).
+def refuses_part(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  return BDD.skip(ctx, "the stand-in has the door") if external?(ctx)
+
+  response = request("PUT", "#{endpoint(ctx)}/__stub/fail_part/#{args[0]}", "".bytes, [])
+  BDD.assert(ctx, response.ok? and response.unwrap!.status == 200, "the door did not open")
+end
+
+# The browser puts the parts in order and stops at the first that fails, as the script does.
+def put_until_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context
+  plan = created(ctx)
+  file = file_bytes(args[0].to_i!, "00")
+  for part in plan.parts
+    first = (part.number - 1) * plan.part_bytes
+    count = [plan.part_bytes, file.length - first].min.unwrap!
+    response = request("PUT", part.url, file.slice(first, count), [])
+    return BDD.assert(ctx, false, "the put failed: #{response.message}") if not response.ok?
+
+    if part.number == args[1].to_i!
+      return BDD.assert(ctx, response.unwrap!.status == 500, "the put answered #{response.unwrap!.status}")
+    end
+
+    if response.unwrap!.status != 200
+      return BDD.assert(ctx, false, "the part #{part.number} answered #{response.unwrap!.status}")
+    end
+  end
+
+  BDD.assert(ctx, false, "no part was refused")
 end
 
 def was_refused(ctx: BDD.Context, args: List[String]) -> BDD.Context

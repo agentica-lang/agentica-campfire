@@ -8,9 +8,16 @@ import ObjectStore from "object_store"
 import Rails from "repo/rails"
 import {int_of, text_of} from "repo/rows"
 
-## How long an upload that no message holds may wait before `sweep_uploads` deletes it: the browser puts the file in
+## How long an upload that no message holds may wait before the sweep (`stale_uploads`) deletes it: the browser puts the file in
 ## the bucket before the message is posted, and the URLs of an upload last 6 hours.
 UPLOAD_GRACE_HOURS = 24
+
+## An upload that nobody posted: the id of its row, its key, and the id of its multipart upload ("" for one `PUT`).
+struct Stale
+  id: Int
+  key: String
+  upload_id: String
+end
 
 ## Where the files of blobs are: the folder of the Disk service, and the S3 service when `CAMPFIRE_STORAGE_SERVICE` is
 ## `s3`. Blobs of both can be in one database: each row names its `service_name`.
@@ -84,28 +91,40 @@ def remove_files(storage: Storage, keys: List[String]) -> Void
   end
 end
 
-## Deletes the uploads of the S3 service that were made and never posted: a blob row of `s3` with no attachment, older
-## than `UPLOAD_GRACE_HOURS`, and its object (or the parts of its multipart upload). The browser makes the row first, so
-## a person who closes the tab leaves one. It gives how many it deleted.
-def sweep_uploads(db: Db.Connection, storage: Storage) -> Result[Int]
-  case storage.objects
-    none -> ok(0)
-    some(store) ->
-      rows = try Db.query(
-        db,
-        "select id, key, metadata from active_storage_blobs where service_name = '#{ObjectStore.SERVICE_NAME}' " +
-        "and created_at < strftime('#{Rails.STAMP}', 'now', '-#{UPLOAD_GRACE_HOURS} hours') " +
-        "and not exists (select 1 from active_storage_attachments where blob_id = active_storage_blobs.id)",
-        [],
+## The uploads of the S3 service that were made and never posted: a blob row of `s3` with no attachment, older than
+## `UPLOAD_GRACE_HOURS`. The browser makes the row first, so a person who closes the tab leaves one. The caller deletes the
+## object of each (`ObjectStore.remove`, with no connection held while it talks to the bucket) and then its row
+## (`forget_upload`), so a row stays, and is found again, until its object is gone.
+def stale_uploads(db: Db.Connection) -> Result[List[Stale]]
+  rows = try Db.query(
+    db,
+    "select id, key, metadata from active_storage_blobs where service_name = '#{ObjectStore.SERVICE_NAME}' " +
+    "and created_at < strftime('#{Rails.STAMP}', 'now', '-#{UPLOAD_GRACE_HOURS} hours') " +
+    "and not exists (select 1 from active_storage_attachments where blob_id = active_storage_blobs.id)",
+    [],
+  )
+
+  ok(
+    rows.map do |row|
+      Stale(
+        id: int_of(row, "id"),
+        key: text_of(row, "key"),
+        upload_id: ObjectStore.upload_id_of(text_of(row, "metadata")),
       )
+    end,
+  )
+end
 
-      for row in rows
-        try Db.execute(db, "delete from active_storage_blobs where id = ?", [Db.Value.Int(int_of(row, "id"))])
-        ObjectStore.remove(store, text_of(row, "key"), ObjectStore.upload_id_of(text_of(row, "metadata")))
-      end
+## Deletes the row of an upload whose object is gone, unless a message took it since `stale_uploads` looked.
+def forget_upload(db: Db.Connection, id: Int) -> Result[Void]
+  try Db.execute(
+    db,
+    "delete from active_storage_blobs where id = ? and not exists " +
+    "(select 1 from active_storage_attachments where blob_id = active_storage_blobs.id)",
+    [Db.Value.Int(id)],
+  )
 
-      ok(rows.length)
-  end
+  ok()
 end
 
 ## Deletes the files under `storage_dir` that no blob row names: what a crash between `store` and the commit of the
@@ -188,7 +207,12 @@ FAIR_BELOW = 252
 
 def remove_object(storage: Storage, key: String) -> Void
   case storage.objects
-    some(store) -> ObjectStore.remove(store, key, "")
+    some(store) ->
+      gone = ObjectStore.remove(store, key, "")
+      if not gone.ok?
+        IO.warn("campfire: #{gone.message}")
+      end
+
     none -> IO.warn("campfire: the object #{key} is in S3, which CAMPFIRE_STORAGE_SERVICE does not name")
   end
 end

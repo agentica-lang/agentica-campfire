@@ -42,6 +42,7 @@ end
 struct Composer
   note: String
   draft: String
+  direct: Bool
   message_id: String
 end
 
@@ -863,7 +864,7 @@ def room(
       <p role="alert"><%= composer.note %></p>
     <% end %>
       <p aria-live="polite"></p>
-      <form method="post" action="<%= Routes.room_messages_path(room.id) %>" enctype="multipart/form-data">
+      <form method="post" action="<%= Routes.room_messages_path(room.id) %>" enctype="multipart/form-data"<% if composer.direct %> data-direct-uploads="<%= Routes.DIRECT_UPLOADS %>"<% end %>>
         <input name="message[client_message_id]" type="hidden" value="<%= composer.message_id %>">
         <p class="attach">
           <input id="message_attachment" class="sr-only" name="message[attachment]" type="file">

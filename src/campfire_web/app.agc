@@ -22,6 +22,7 @@ struct Running
   pages: Optional[PageCache.Pages]
   cable: CableWeb.Cable
   hooks: Webhooks.Hooks
+  objects: Optional[ObjectStore.Store] = none
 end
 
 ## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
@@ -81,6 +82,7 @@ def stop(running: Running) -> Void
   Bond.stop(running.server)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
+  close_objects(running.objects)
   Database.close_pool(running.pool)
 end
 
@@ -93,6 +95,7 @@ def run(config: Config) -> Result[Void]
   CableWeb.stop(running.cable)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
+  close_objects(running.objects)
   Database.close_pool(running.pool)
   waited
 end
@@ -190,6 +193,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
     CableWeb.stop(cable)
     Mailer.stop(mailer)
     PageCache.stop(pages)
+    close_objects(objects)
     # The system's message names the host and the port, not the variables that a person has to change.
     return error("cannot listen on #{config.host}:#{config.port} (CAMPFIRE_HOST, CAMPFIRE_PORT): #{started.message}")
   end
@@ -197,20 +201,52 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable, hooks: hooks))
+  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable, hooks: hooks, objects: objects))
 end
 
 # At start and then every hour: a person who closes the tab after the browser put a file in the bucket, and before the
-# message was posted, leaves a blob row and an object that `Blobs.sweep_uploads` deletes a day later. A failure is
-# logged and tried again in an hour.
+# message was posted, leaves a blob row and an object. A day later the object goes first and then the row, each in its
+# own step and with no connection held while the bucket answers, so an object that cannot be deleted keeps its row and
+# is tried again in an hour. A failure is logged.
+def close_objects(objects: Optional[ObjectStore.Store]) -> Void
+  case objects
+    some(store) -> ObjectStore.close(store)
+    none -> nil
+  end
+end
+
 def sweep_uploads(job: Sweeper) -> Void
   while true
-    swept = Database.with_connection(job.pool) do |db| Blobs.sweep_uploads(db, job.storage) end
-    if not swept.ok?
-      IO.warn("campfire: cannot sweep the uploads of the bucket: #{swept.message}")
+    stale = Database.with_connection(job.pool) do |db| Blobs.stale_uploads(db) end
+    if not stale.ok?
+      IO.warn("campfire: cannot look for the uploads of the bucket that nobody posted: #{stale.message}")
+    end
+
+    uploads: List[Blobs.Stale] = []
+    if stale.ok?
+      uploads = stale.unwrap!
+    end
+
+    for upload in uploads
+      forget_stale(job, upload)
     end
 
     Task.sleep(SWEEP_UPLOADS_MS)
+  end
+end
+
+def forget_stale(job: Sweeper, upload: Blobs.Stale) -> Void
+  return if job.storage.objects.none?
+
+  removed = ObjectStore.remove(job.storage.objects.unwrap!, upload.key, upload.upload_id)
+  if not removed.ok?
+    IO.warn("campfire: #{removed.message}; its row stays and it is tried again")
+    return
+  end
+
+  forgotten = Database.with_connection(job.pool) do |db| Blobs.forget_upload(db, upload.id) end
+  if not forgotten.ok?
+    IO.warn("campfire: cannot forget the deleted upload #{upload.key}: #{forgotten.message}")
   end
 end
 

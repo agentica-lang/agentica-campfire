@@ -387,7 +387,7 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
   `specs/fixtures/s3_stub.py`, which checks every signature), `Attachments.start_upload` makes the blob row and
   `DirectUploadsWeb.claim` completes it when the message is posted (`Attachments.Blob.direct`); the download is a redirect
   to a signed `GET`; `Blobs.remove_files` takes `s3:KEY` for an object (what `Blobs.drop` gives) and `Blobs.Storage` is what the
-  handlers that delete files carry; `Blobs.sweep_uploads` deletes the rows and objects of uploads that nobody posted.
+  handlers that delete files carry; a task of `App` deletes the object and then the row of uploads that nobody posted (`Blobs.stale_uploads`).
 - Assets: never edit `public/assets/`, `src/campfire_web/asset_names.agc` or `src/campfire_web/icons.agc`. Change `app/assets/stylesheets/` or
   `app/javascript/` and run `make assets` (`npm ci` first; Node 20 or later, `.nvmrc` says 22, `.npmrc` runs no install scripts; esbuild and sass are pinned in `package.json`
   and `package-lock.json`, `node_modules/` is not committed). It writes `campfire-DIGEST.css` and `campfire-DIGEST.js`

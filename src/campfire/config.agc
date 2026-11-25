@@ -197,7 +197,7 @@ def load() -> Result[Config]
     key_prefix: System.env("CAMPFIRE_S3_KEY_PREFIX").unwrap_or(""),
   )
 
-  parse(
+  parsed = parse(
     host,
     port,
     data_dir,
@@ -227,6 +227,12 @@ def load() -> Result[Config]
     max_attachment_mb,
     storage,
   )
+
+  if parsed.ok? and parsed.unwrap!.storage.none? and s3_settings_given?(storage)
+    IO.warn("campfire: CAMPFIRE_S3_* is set but CAMPFIRE_STORAGE_SERVICE is not s3, so the files stay on the disk")
+  end
+
+  parsed
 end
 
 ## A `Config` from the text of a host, a port, a data folder, a database url, a session secret and the secure cookies
@@ -408,6 +414,11 @@ def parse(
   end
 
   objects = try ObjectStore.open(storage)
+  if objects.some?
+    # Opened to be checked: the app opens the one that it uses when it starts.
+    ObjectStore.close(objects.unwrap!)
+  end
+
   largest = MAX_MAX_ATTACHMENT_MB
   if objects.some?
     largest = MAX_MAX_ATTACHMENT_MB_S3
@@ -470,6 +481,13 @@ def parse(
       storage: kept,
     ),
   )
+end
+
+## Whether any `CAMPFIRE_S3_*` variable has a value.
+def s3_settings_given?(env: ObjectStore.Env) -> Bool
+  [
+    env.endpoint, env.region, env.bucket, env.access_key_id, env.secret_access_key, env.addressing, env.key_prefix,
+  ].any? do |value| not value.empty? end
 end
 
 ## True when the links in emails go over plain HTTP to a host that is not this machine: a token that crosses the
