@@ -538,7 +538,7 @@ end
 # that could not be queued.
 def unread_notices(job: Unread) -> Result[Void]
   cable = job.cable
-  try reopen_entries(job)
+  reopen_entries(job)
   watchers = try Database.with_connection(cable.pool) do |db| Rooms.watchers(db, job.room_id) end
   now = Time.now_ms()
   notice = JSON.from({"roomId": JSON.from(job.room_id), "at": JSON.from(job.at)})
@@ -560,19 +560,21 @@ def unread_notices(job: Unread) -> Result[Void]
 end
 
 # The direct message that the message brought back to the sidebars that had closed it: its entry, marked unread unless
-# the person wrote the message or is looking at the room.
-def reopen_entries(job: Unread) -> Result[Void]
+# the person wrote the message or is looking at the room. A person whose entry cannot be read is skipped, as a
+# broadcast that cannot be queued is: their next page has it.
+def reopen_entries(job: Unread) -> Void
   cable = job.cable
   now = Time.now_ms()
   for user_id in job.reopened
-    room = try Database.with_connection(cable.pool) do |db| Rooms.visible_room(db, user_id, job.room_id) end
-    if room.some?
+    found = Database.with_connection(cable.pool) do |db| Rooms.visible_room(db, user_id, job.room_id) end
+    if found.ok? and found.unwrap!.some?
       unread = user_id != job.author_id and not Presence.connected?(cable.presence, job.room_id, user_id, now)
-      _ = Channels.broadcast_text(cable.hub, user_rooms_stream(user_id), Views.room_added_stream(room.unwrap!, unread))
+      stream = Views.room_added_stream(found.unwrap!.unwrap!, unread)
+      _ = Channels.broadcast_text(cable.hub, user_rooms_stream(user_id), stream)
+    elsif not found.ok?
+      IO.warn("campfire: the sidebar entry of room #{job.room_id} could not be read: #{found.message}")
     end
   end
-
-  ok()
 end
 
 def room_news_gone(job: Gone) -> Result[Void]

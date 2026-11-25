@@ -943,7 +943,8 @@ def post_in(
     "select ?, ?, ?, #{NOW}, #{NOW} where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
     "and exists (select 1 from rooms where id = ?) " +
     "returning id, #{iso("created_at")} as created_at, " +
-    "coalesce((select name from users where id = messages.creator_id), '#{UNKNOWN_AUTHOR}') as author",
+    "coalesce((select name from users where id = messages.creator_id), '#{UNKNOWN_AUTHOR}') as author, " +
+    "(select type from rooms where id = messages.room_id) as room_type",
     [
       Db.Value.Int(room_id),
       Db.Value.Int(user_id),
@@ -981,7 +982,7 @@ def post_in(
     none -> nil
   end
 
-  reopened = try receive(tx, room_id, user_id, message_id)
+  reopened = try receive(tx, room_id, text_of(rows[0], "room_type") == DIRECT, user_id, message_id)
   ok(
     some(
       Message(
@@ -1002,10 +1003,16 @@ end
 # What a message does to its room, as `Message` and `Room#receive` of Rails do: the room is touched, and each member
 # who is not the author, has not set the room to invisible and is not connected now (`connected_at` older than
 # `Rails.CONNECTION_TTL_SECONDS`, or none) has the room unread since the time of the message. `Room#receive` is an
-# `update_all`, which does not touch `memberships.updated_at`, so neither does this.
-def receive(tx: Db.Connection, room_id: Int, user_id: Int, message_id: Db.Value) -> Result[List[Int]]
+# `update_all`, which does not touch `memberships.updated_at`, so neither does the unread flag here. A direct room also
+# has its closed memberships reopened first (`reopen_direct`, which does touch `updated_at`); another room issues no
+# statement for it. It gives the people whose membership was reopened.
+def receive(tx: Db.Connection, room_id: Int, direct: Bool, user_id: Int, message_id: Db.Value) -> Result[List[Int]]
   try Db.execute(tx, "update rooms set updated_at = #{NOW} where id = ?", [Db.Value.Int(room_id)])
-  reopened = try reopen_direct(tx, room_id)
+  reopened: List[Int] = []
+  if direct
+    reopened = try reopen_direct(tx, room_id)
+  end
+
   try Db.execute(
     tx,
     "update memberships set unread_at = (select created_at from messages where id = ?) " +

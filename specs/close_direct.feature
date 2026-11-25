@@ -75,6 +75,17 @@ Feature: Closing a direct message
     When I get "/users/me/sidebar"
     Then the body contains "<a href=\"/rooms/2\">Bea</a>"
 
+  Scenario: Nobody who is signed out can close one, and the path is a post only
+    When the browser has no cookies
+    And I post nothing to "/rooms/2/close"
+    Then the status is 302
+    And the header "location" is "/session/new"
+    And the query "select count(*) from memberships where involvement = 'invisible'" gives 0
+    When I sign in as "ana@example.com"
+    And I get "/rooms/2/close"
+    Then the status is 405
+    And the header "allow" is "POST"
+
   Scenario: Only a direct message that the person is in can be closed, and a shared room keeps its choices
     Given a direct room with the members "bea@example.com, cy@example.com"
     When I post nothing to "/rooms/1/close"
