@@ -1,7 +1,7 @@
 import AuthWeb from "../src/campfire_web/auth"
 import Config from "../src/campfire/config"
 import ObjectStore from "../src/campfire/object_store"
-import Smtp from "../src/campfire/mail/smtp"
+import Smtp from "pkg/smtp/smtp"
 
 private
 

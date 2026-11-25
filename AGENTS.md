@@ -39,9 +39,8 @@ src/campfire/repo/   database.agc (migrate, the pool, `with_connection` for a re
                 migrations.agc (the list of the schema) and migrations/ (one file per migration, `m0001_accounts.agc`...),
                 rails.agc (the integer enums and the timestamp form of the Rails schema), rows.agc (reading a column of a
                 row)
-src/campfire/mail/   mailer.agc (the task that sends email off the request path), smtp.agc and
-                smtp_message.agc (sending email: the client and the message builder; they import no other
-                app module, so they can move to their own package)
+src/campfire/mail/   mailer.agc (the task that sends email off the request path, over the `smtp` package: the client and the
+                message builder)
 src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server), web.agc (the routes), blocks.agc (`handler`: names a
                 `do` block before a pipeline of routes, since a chain after `end` is refused), failure.agc (the 500 and
                 the 503 of a failure), routes.agc
@@ -72,12 +71,11 @@ DESIGN.md       the visual design system (tokens, components, states, accessibil
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through
                 fixtures/ws_client/cable_client.agc, a program of websocket-client with a manifest of its own, so the
-                app does not depend on it: a step cannot leave a reader task running), smtp_steps.agc (an SMTP client
-                against a peer), webhook_steps.agc (fixtures/webhook_peer.py, a Python webhook
+                app does not depend on it: a step cannot leave a reader task running), webhook_steps.agc (fixtures/webhook_peer.py, a Python webhook
                 of a bot that writes down each post), mail_steps.agc (the peer as the
                 mail server of the app: reads its email, follows the link), fixtures/server.agc (the app, from
-                the environment that the steps set), fixtures/smtp_peer.agc (a hermetic SMTP server that writes
-                down the dialogue; its test CA and certificate are in fixtures/tls, made by make-certs.sh),
+                the environment that the steps set), fixtures/smtp_peer.agc (a hermetic, plain SMTP server that
+                writes down the dialogue; the SMTP client has its own specs in the `smtp` package),
                 fixtures/rails/ (campfire.sqlite3: a database that a real Rails Campfire made from its db/schema.rb;
                 `make.sh` makes it again in a ruby container)
 test/           unit tests (*_test.agc)
@@ -85,7 +83,7 @@ tools/          keys_check.js and room_check.js: the by-hand browser checks of t
 bench/          run.sh runs basecamp/once-campfire-verification on the app in a Debian container (README.md there);
                 harness.patch is the local patch of the harness (agentica among its apps)
 docs/           what the app does, one file per topic; plan.md is the plan and the phases
-agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by tag (`pool` comes with `db`, which pins it by tag), agentica.lock has their hashes
+agentica.toml   the manifest; Bond, agentica-db, bond-channels, jobs, s3 and smtp are pinned by tag (`pool` comes with `db`, which pins it by tag), agentica.lock has their hashes
 ```
 
 ## Commands
@@ -97,7 +95,7 @@ agentica.toml   the manifest; Bond, agentica-db and bond-channels are pinned by 
 - Agentica 0.35.0 or later (`private`, the nested builtin names, `Error` records, `Time.DateTime`; jobs 0.2.0 needs 0.34.0, and Bond 0.15.0, bond-channels 0.6.2 and agentica-db 0.11.0 need 0.31.2; a C compiler for the native SQLite driver of agentica-db, built into the package cache on the first run; `make test` runs `agentica test --jobs $(JOBS)`, 4 files at once by default). CI pins it
   with its sha256 (the `version` and `sha256` inputs of `agentica-lang/setup-agentica` in `.github/workflows/ci.yml`;
   bump the `AGENTICA_VERSION` and `AGENTICA_SHA256` ARGs of the `Dockerfile` with them).
-- To move Bond, agentica-db, bond-channels or jobs: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`, `jobs`), commit the lock.
+- To move Bond, agentica-db, bond-channels, jobs, s3 or smtp: change `tag` in `agentica.toml` and run `agentica update bond` (or `db`, `channels`, `jobs`, `s3`, `smtp`), commit the lock.
   Keep Bond's tag the one that bond-channels asks for; if they differ, `override = true` on `bond` forces the tag.
   A new dependency is `agentica add NAME URL --tag TAG`.
 

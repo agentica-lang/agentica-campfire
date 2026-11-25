@@ -11,7 +11,6 @@ import CableSteps from "cable_steps"
 import HttpSteps from "http_steps"
 import MailSteps from "mail_steps"
 import S3Steps from "s3_steps"
-import SmtpSteps from "smtp_steps"
 import WebhookSteps from "webhook_steps"
 import DataDir from "../src/campfire/data_dir"
 import Accounts from "../src/campfire/accounts"
@@ -157,7 +156,6 @@ def main() -> Void
 
   BDD.run(
     own.concat(HttpSteps.steps())
-      .concat(SmtpSteps.steps())
       .concat(MailSteps.steps())
       .concat(S3Steps.steps())
       .concat(CableSteps.steps())

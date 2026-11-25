@@ -131,7 +131,6 @@ end
 def server_listens(ctx: BDD.Context, args: List[String]) -> BDD.Context
   root = Path.cwd().unwrap!
   env = {
-    "SMTP_PEER_MODE": "plain",
     "SMTP_PEER_AUTH": text_of(ctx, AUTH),
     "SMTP_PEER_STALL": text_of(ctx, STALL),
     "SMTP_PEER_REJECT_RCPT": text_of(ctx, REFUSED),
