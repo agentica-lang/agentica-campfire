@@ -92,4 +92,6 @@ Feature: Previews of attachments and the lightbox
   Scenario: The composer has a file picker, and posts a multipart form
     When I get "/rooms/1"
     Then the body contains "<form method=\"post\" action=\"/rooms/1/messages\" enctype=\"multipart/form-data\">"
-    And the body contains "<input name=\"message[attachment]\" type=\"file\">"
+    And the body contains "<input id=\"message_attachment\" class=\"sr-only\" name=\"message[attachment]\" type=\"file\">"
+    And the body contains "<label for=\"message_attachment\" title=\"Attach a file\"><span class=\"sr-only\">Attach a file</span><svg class=\"icon\" aria-hidden=\"true\""
+    And the body contains "<span class=\"chip\" hidden>"

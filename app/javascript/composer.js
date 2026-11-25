@@ -28,6 +28,7 @@ export function startComposer() {
 
   var field = form.elements["message[body]"];
   var picker = form.elements["message[attachment]"];
+  var chip = form.querySelector(".chip");
   var ident = form.elements["message[client_message_id]"];
   var button = form.querySelector("button");
   var scroller = document.querySelector(".scroller");
@@ -102,6 +103,24 @@ export function startComposer() {
 
   function chosen() {
     return !!(picker && picker.files && picker.files.length);
+  }
+
+  // The chip names the picked file, and its x takes the file away. The input is the one that the form posts.
+  function showChip() {
+    if (!chip) {
+      return;
+    }
+    chip.hidden = !chosen();
+    chip.querySelector(".name").textContent = chosen() ? picker.files[0].name : "";
+  }
+
+  if (picker && chip) {
+    picker.addEventListener("change", showChip);
+    chip.querySelector("button").addEventListener("click", function () {
+      picker.value = "";
+      showChip();
+      picker.focus();
+    });
   }
 
   // A file goes as the multipart form that the page posts without the script; text alone as a plain form.
@@ -196,6 +215,7 @@ export function startComposer() {
     }
     if (file) {
       picker.value = "";
+      showChip();
     }
     ident.value = freshId();
     // The list is a column-reverse box: 0 is its end, where the new message is.
