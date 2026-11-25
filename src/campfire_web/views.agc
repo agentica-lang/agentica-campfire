@@ -865,16 +865,17 @@ def room(
       <p aria-live="polite"></p>
       <form method="post" action="<%= Routes.room_messages_path(room.id) %>" enctype="multipart/form-data">
         <input name="message[client_message_id]" type="hidden" value="<%= composer.message_id %>">
+        <p class="attach">
+          <input id="message_attachment" class="sr-only" name="message[attachment]" type="file">
+          <label for="message_attachment" title="Attach a file"><span class="sr-only">Attach a file</span><%== Icons.ICON_PAPERCLIP %></label>
+          <span class="sr-only" role="status"></span>
+        </p>
+        <span class="chip" hidden><span class="name"></span><button type="button" aria-label="Remove the file"><%== Icons.ICON_X %></button></span>
         <p>
           <label><span class="sr-only">Message</span>
             <textarea name="message[body]" rows="1" placeholder="Message"><%= composer.draft %></textarea></label>
         </p>
-        <p class="attach">
-          <input id="message_attachment" class="sr-only" name="message[attachment]" type="file">
-          <label for="message_attachment" title="Attach a file"><span class="sr-only">Attach a file</span><%== Icons.ICON_PAPERCLIP %></label>
-        </p>
         <p><button type="submit">Send</button></p>
-        <span class="chip" hidden><span class="name"></span><button type="button" aria-label="Remove the file"><%== Icons.ICON_X %></button></span>
       </form>
       <dialog class="lightbox" aria-label="Image viewer (press Escape to close)">
         <img alt="">

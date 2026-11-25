@@ -238,7 +238,8 @@ missing page), and `?disposition=attachment` makes even an image a download. Del
 messages of a banned person deletes the rows of its blob and then the file. The composer has a paperclip button, the
 label of the real file input `message[attachment]` (kept in the form, out of sight but focusable; accessible name "Attach a
 file"), so the form is `multipart/form-data` and works without the script. The script shows the picked file as a chip with
-its name and an x that clears it, and sends the file the same way (text alone stays a plain form).
+its name and an x that clears it, and sends the file the same way (text alone stays a plain form); without the script
+the name of the picked file is not shown.
 
 A message shows its file after its body, as `Messages::AttachmentPresentation` of Rails does. The size of a PNG, GIF,
 JPEG (turned by its EXIF orientation) or WebP image is read from its header when it is posted and stored in the blob's

@@ -30,7 +30,7 @@ export function startComposer() {
   var picker = form.elements["message[attachment]"];
   var chip = form.querySelector(".chip");
   var ident = form.elements["message[client_message_id]"];
-  var button = form.querySelector("button");
+  var button = form.querySelector("button:not([type=\"button\"])");
   var scroller = document.querySelector(".scroller");
   var busy = false;
 
@@ -97,7 +97,7 @@ export function startComposer() {
     if (target.requestSubmit) {
       target.requestSubmit();
     } else {
-      target.querySelector("button").click();
+      target.querySelector("button:not([type=\"button\"])").click();
     }
   }
 
@@ -110,11 +110,18 @@ export function startComposer() {
     if (!chip) {
       return;
     }
-    chip.hidden = !chosen();
-    chip.querySelector(".name").textContent = chosen() ? picker.files[0].name : "";
+    var name = chosen() ? picker.files[0].name : "";
+    chip.hidden = name === "";
+    chip.querySelector(".name").textContent = name;
+    // The chip is shown and hidden, which a screen reader does not announce: this line is always there.
+    status.textContent = name === "" ? "" : "Attached: " + name;
   }
 
   if (picker && chip) {
+    var status = form.querySelector(".attach [role=status]");
+    showChip();
+    // A file that the browser kept in the input when the page came back from the history has its chip too.
+    window.addEventListener("pageshow", showChip);
     picker.addEventListener("change", showChip);
     chip.querySelector("button").addEventListener("click", function () {
       picker.value = "";

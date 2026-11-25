@@ -1,2 +1,3 @@
 *.agc text eol=lf linguist-language=Ruby
 vendor/** linguist-vendored
+vendor/lucide/** -text

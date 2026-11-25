@@ -66,8 +66,8 @@ main.room > p[aria-live]:empty {
   margin: 0;
 }
 
-// The composer: the attach button, the text box, which takes the row, and Send, all on the bottom line (the attach button
-// first, wherever it is in the markup). The chip of a picked file has the line above, which exists only while it shows.
+// The composer: the attach button, the text box, which takes the row, and Send, all on the bottom line. The chip of a
+// picked file has the line above, which exists only while it shows.
 main.room > form {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -93,10 +93,6 @@ main.room > form {
     margin: 0;
     resize: none;
     field-sizing: content;
-  }
-
-  .attach {
-    order: -1;
   }
 
   // The real file input stays (`.sr-only`: out of sight, still focusable), and its label is the button.
@@ -183,8 +179,9 @@ main.room > form {
     padding-inline: var(--s-4);
   }
 
-  // The attach button is a tap target.
-  main.room > form .attach label {
+  // The attach button and the x of the chip are tap targets.
+  main.room > form .attach label,
+  main.room > form .chip button {
     width: 2.75rem;
     height: 2.75rem;
   }
