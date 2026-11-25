@@ -264,9 +264,8 @@ def missing_upload?(result: Result[Void]) -> Bool
   end
 end
 
-# The `filename` of a `Content-Disposition` (RFC 6266): a plain ASCII form for old clients, with `"`, `\` and
-# controls made
-# `_`, and for a name that is not plain ASCII the `filename*` of RFC 8187 with its UTF-8 bytes percent-encoded.
+# The `filename` of a `Content-Disposition` (RFC 6266): a plain ASCII form for old clients, with `"`, `\` and controls
+# made `_`, and for a name that is not plain ASCII the `filename*` of RFC 8187 with its UTF-8 bytes percent-encoded.
 def filename_parameters(filename: String) -> String
   plain = ""
   for ch in filename.split("")

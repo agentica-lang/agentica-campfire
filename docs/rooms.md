@@ -256,7 +256,8 @@ a signed `GET` that lasts a minute, which carries the type and the disposition o
 file from the bucket. Deleting the message deletes the object. A direct upload that no message holds is deleted after a
 day (its object first, then its row, so a row stays until its object is gone), by a task that runs at the start and every hour. A
 message that names an upload that is not the person's, is gone or did not arrive whole is answered `422` with the reason, and
-the script tells the person and lets them post again with the same key. A direct upload that is too big or empty is refused
+the script shows that reason and forgets the key, so the person chooses the file again; any other failure of the post
+(a lost connection, a 500) keeps the key, and posting again does not upload the file twice. A direct upload that is too big or empty is refused
 with a `422` when it is asked for. The browser sends no cookie to the bucket, so a bucket that answers
 a cross-origin `PUT` (CORS) with `Access-Control-Allow-Origin: *` is enough, and the script does not read the answer.
 

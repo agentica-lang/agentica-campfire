@@ -109,12 +109,10 @@ private
 GONE = "That upload is not there any more. Choose the file again."
 INCOMPLETE = "The file did not arrive whole. Choose the file again."
 
-# "" when the upload has all its parts joined and the object is as big as the person said, else the reason that it
-# is not.
-# An object that is not there, or whose parts are not the ones of a file of that size, is the person's to upload
-# again; a
-# failure of the bucket itself is an `error`. A completed upload is not completed twice: a post that failed after the
-# completion is tried again with the object there.
+# "" when the upload has all its parts joined and the object is as big as the person said, else the reason that it is
+# not. An object that is not there, or whose parts are not the ones of a file of that size, is the person's to upload
+# again; a failure of the bucket itself is an `error`. A completed upload is not completed twice: a post that failed
+# after the completion is tried again with the object there.
 def complete(store: ObjectStore.Store, key: String, upload: Attachments.Upload) -> Result[String]
   if upload.upload_id != ""
     finished = ObjectStore.finish(store, key, upload.upload_id, upload.byte_size)
@@ -141,7 +139,7 @@ def create(conn: Bond.Conn, pool: Database.Pool, storage: Blobs.Storage, max_byt
 
   asked = (try Bond.json_body(conn, Asked.codec)).blob
   filename = clean_name(asked.filename)
-  return ok(refused(conn, "the file has no name")) if filename == ""
+  return ok(refused(conn, "The file has no name.")) if filename == ""
 
   return ok(refused(conn, "The file is empty.")) if asked.byte_size < 1
 

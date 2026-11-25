@@ -115,6 +115,12 @@ def stale_uploads(db: Db.Connection) -> Result[List[Stale]]
   )
 end
 
+## Whether no message holds the blob: the check that the sweep repeats just before it deletes the object.
+def unattached?(db: Db.Connection, id: Int) -> Result[Bool]
+  rows = try Db.query(db, "select 1 from active_storage_attachments where blob_id = ?", [Db.Value.Int(id)])
+  ok(rows.empty?)
+end
+
 ## Deletes the row of an upload whose object is gone, unless a message took it since `stale_uploads` looked.
 def forget_upload(db: Db.Connection, id: Int) -> Result[Void]
   try Db.execute(

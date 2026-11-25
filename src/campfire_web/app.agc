@@ -23,6 +23,7 @@ struct Running
   cable: CableWeb.Cable
   hooks: Webhooks.Hooks
   objects: Optional[ObjectStore.Store] = none
+  sweeper: Optional[Task[Void]] = none
 end
 
 ## Opens the database and runs its migrations, opens the pool of connections that the requests share, starts the
@@ -82,6 +83,7 @@ def stop(running: Running) -> Void
   Bond.stop(running.server)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
+  stop_sweeper(running.sweeper)
   close_objects(running.objects)
   Database.close_pool(running.pool)
 end
@@ -95,6 +97,7 @@ def run(config: Config) -> Result[Void]
   CableWeb.stop(running.cable)
   Mailer.stop(running.mailer)
   PageCache.stop(running.pages)
+  stop_sweeper(running.sweeper)
   close_objects(running.objects)
   Database.close_pool(running.pool)
   waited
@@ -136,14 +139,13 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   return error("cannot sweep the stored files of CAMPFIRE_STORAGE_DIR: #{swept.message}") if not swept.ok?
 
   objects = try ObjectStore.open(config.storage.unwrap_or(ObjectStore.Env()))
-  if objects.some?
-    _ = Task.spawn(
-      &sweep_uploads,
-      Sweeper(pool: pool, storage: Blobs.Storage(dir: config.storage_dir, objects: objects)),
-    )
+  started_mailer = Mailer.start(config.smtp, config.mail_queue)
+  if not started_mailer.ok?
+    close_objects(objects)
+    return error(started_mailer.message)
   end
 
-  mailer = try Mailer.start(config.smtp, config.mail_queue)
+  mailer = started_mailer.unwrap!
   messages = MessageCache.start(config.cache_mb)
   watched = PageCache.start(
     config.response_cache_mb,
@@ -155,6 +157,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
 
   if not watched.ok?
     Mailer.stop(mailer)
+    close_objects(objects)
     return error(
       "cannot open the database connection that watches for changes (CAMPFIRE_DATABASE_URL): #{watched.message}",
     )
@@ -166,6 +169,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   if not made.ok?
     PageCache.stop(pages)
     Mailer.stop(mailer)
+    close_objects(objects)
     return error(made.message)
   end
 
@@ -175,6 +179,7 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
     CableWeb.stop(cable)
     PageCache.stop(pages)
     Mailer.stop(mailer)
+    close_objects(objects)
     return error("cannot start the webhooks: #{started_hooks.message}")
   end
 
@@ -201,13 +206,37 @@ def listen(config: Config, pool: Database.Pool, schema_version: Int) -> Result[R
   server = started.unwrap!
   puts("listening on #{origin(config.host, Bond.local_port(server))}")
   IO.flush()
-  ok(Running(server: server, mailer: mailer, pool: pool, pages: pages, cable: cable, hooks: hooks, objects: objects))
+  sweeper: Optional[Task[Void]] = none
+  if objects.some?
+    sweeping = Sweeper(pool: pool, storage: Blobs.Storage(dir: config.storage_dir, objects: objects))
+    sweeper = some(Task.spawn(&sweep_uploads, sweeping))
+  end
+
+  ok(
+    Running(
+      server: server,
+      mailer: mailer,
+      pool: pool,
+      pages: pages,
+      cable: cable,
+      hooks: hooks,
+      objects: objects,
+      sweeper: sweeper,
+    ),
+  )
 end
 
 # At start and then every hour: a person who closes the tab after the browser put a file in the bucket, and before the
 # message was posted, leaves a blob row and an object. A day later the object goes first and then the row, each in its
 # own step and with no connection held while the bucket answers, so an object that cannot be deleted keeps its row and
 # is tried again in an hour. A failure is logged.
+def stop_sweeper(sweeper: Optional[Task[Void]]) -> Void
+  case sweeper
+    some(task) -> Task.cancel(task)
+    none -> nil
+  end
+end
+
 def close_objects(objects: Optional[ObjectStore.Store]) -> Void
   case objects
     some(store) -> ObjectStore.close(store)
@@ -237,6 +266,9 @@ end
 
 def forget_stale(job: Sweeper, upload: Blobs.Stale) -> Void
   return if job.storage.objects.none?
+
+  free = Database.with_connection(job.pool) do |db| Blobs.unattached?(db, upload.id) end
+  return if not free.ok? or not free.unwrap!
 
   removed = ObjectStore.remove(job.storage.objects.unwrap!, upload.key, upload.upload_id)
   if not removed.ok?

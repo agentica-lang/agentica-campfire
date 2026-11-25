@@ -238,6 +238,9 @@ export function startComposer() {
     parts.forEach(function (part, index) {
       var blob = plan.parts.length ? file.slice(index * plan.part_bytes, (index + 1) * plan.part_bytes) : file;
       step = step.then(function () {
+        if (job.stopped) {
+          return;
+        }
         return putPart(part.url, blob, job, function (sent) {
           if (!job.stopped) {
             note("Uploading the file... " + Math.floor(((done + sent) * 100) / file.size) + "%");
@@ -253,6 +256,9 @@ export function startComposer() {
   // A part is tried again when the connection fails, as a big file is many requests on a line that may drop one.
   function putPart(url, blob, job, progress, tried) {
     tried = tried || 1;
+    if (job.stopped) {
+      return Promise.resolve();
+    }
     return new Promise(function (resolve, reject) {
       var request = new XMLHttpRequest();
       job.requests.push(request);
@@ -277,6 +283,26 @@ export function startComposer() {
       }
       return putPart(url, blob, job, progress, tried + 1);
     });
+  }
+
+  // The post with a key failed. A refusal that the app explains (JSON, `error`) kills the key: the upload is not the
+  // person's, is gone or did not arrive whole, so the file is chosen again. Any other failure keeps the key, and the person
+  // posts again with the file that is in the bucket already.
+  function refusal(response) {
+    var kept = "The message was not sent (" + response.status + "). Try again: the file is uploaded already.";
+    return response.json().then(
+      function (answer) {
+        if (answer && answer.error) {
+          uploaded = null;
+          note(answer.error);
+        } else {
+          note(kept);
+        }
+      },
+      function () {
+        note(kept);
+      },
+    );
   }
 
   function post(key) {
@@ -305,8 +331,7 @@ export function startComposer() {
           // the file again, so the person is told and posts again: the file stays in the bucket under its key.
           if (!response.ok) {
             if (key) {
-              note("The message was not sent (" + response.status + "). Try again: the file is uploaded already.");
-              return;
+              return refusal(response);
             }
             return form.submit();
           }
