@@ -48,6 +48,11 @@ nav + main:not(.room) > * {
   max-width: 44rem;
 }
 
+// Forms that stand alone in a page (the profile's buttons) get the spacing of a paragraph.
+main:not(.room) > form {
+  margin-block: var(--s-3);
+}
+
 main > .lead {
   color: var(--muted);
 }
