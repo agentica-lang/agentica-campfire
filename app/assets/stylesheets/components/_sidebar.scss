@@ -88,6 +88,52 @@ nav {
   form {
     margin: var(--s-3) var(--s-2) 0;
   }
+
+  // The x of a direct message: it sits after the link, quiet until the entry is pointed at or focused. A touch screen
+  // has no pointing, so there it is always shown.
+  li:has(> .close) {
+    display: flex;
+    align-items: center;
+
+    a {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+  }
+
+  .close {
+    flex: none;
+    margin: 0;
+
+    button {
+      min-height: 1.75rem;
+      min-width: 1.75rem;
+      padding: 0;
+      font-size: var(--fs-lg);
+      line-height: 1;
+      font-weight: 400;
+      color: var(--muted);
+      background: transparent;
+      border-radius: var(--r-sm);
+      opacity: 0;
+
+      &:hover {
+        color: var(--text);
+        background: var(--hover);
+      }
+    }
+  }
+
+  li:hover .close button,
+  li:focus-within .close button {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .close button {
+      opacity: 1;
+    }
+  }
 }
 
 @include mixins.phone {
@@ -163,6 +209,13 @@ nav {
       background: var(--bg);
       white-space: nowrap;
       text-overflow: ellipsis;
+    }
+
+    // The x is a tap target of its own beside the chip, and always shown.
+    .close button {
+      min-height: 2.75rem;
+      min-width: 2.75rem;
+      opacity: 1;
     }
   }
 

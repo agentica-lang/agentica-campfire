@@ -79,7 +79,10 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 ## Components
 
 - **Sidebar** (`nav`): `.who`, then `.lists` (`h2` group labels in small caps, `ul#shared_rooms`, direct messages,
-  `ul.actions`), then the Sign out form. A long room name wraps to two lines and ends in an ellipsis.
+  `ul.actions`), then the Sign out form. A long room name wraps to two lines and ends in an ellipsis. A direct message
+  has a `form.close` after its link, a quiet `×` button (accessible name "Close the conversation with NAME") that shows
+  when the entry is hovered or focused, and always on a touch screen and on the phone bar, where it is a 2.75rem tap
+  target beside the chip.
 - **Room** (`main.room`): `header` with the `h1` (two lines at most) and, for those who may, the Settings link and the
   Sidebar link drawn as quiet buttons; `.scroller` > `.thread` with the "Older messages" and "Latest messages"
   links centred and muted; the composer form with a one-line textarea that grows to 40vh (`field-sizing`) and the Send button, with the safe-area inset below.

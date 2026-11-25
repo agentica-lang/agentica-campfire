@@ -7,8 +7,8 @@ A page shows what the database holds when it is asked for. The server also pushe
 `TrackedRoomVisit`): a room page that is served (a `200` or a `304`, from the cache or not) sets the cookie `last_room` to
 the room id for 20 years (`HttpOnly`, `SameSite=Lax`; it is not set again while it holds that room, and not by a `404`, the
 settings or the older messages). With no cookie, or one for a room the person is not in, which no longer exists or is not
-a number, home opens the oldest room they are in (by `created_at`, then id; any kind and any involvement). A person in no
-room gets the welcome page. The cookie is `Secure` when `CAMPFIRE_SECURE_COOKIES=true`, as the session cookie is. It only chooses among the person's own rooms, so a forged one reveals nothing. A client that never sends it (the load generator of the benchmark) gets one `Set-Cookie` on every room page, as with Rails.
+a number, home opens the oldest room they are in (by `created_at`, then id; any kind and any involvement, but a direct
+message that the person closed, which home never opens). A person in no room gets the welcome page. The cookie is `Secure` when `CAMPFIRE_SECURE_COOKIES=true`, as the session cookie is. It only chooses among the person's own rooms, so a forged one reveals nothing. A client that never sends it (the load generator of the benchmark) gets one `Set-Cookie` on every room page, as with Rails.
 
 The sidebar lists the rooms that a person is in. The first run makes the open room "All Talk".
 
@@ -21,7 +21,12 @@ The sidebar lists the rooms that a person is in. The first run makes the open ro
   always in it, and only the chosen people get a membership, in one transaction.
 - **Direct**: `New direct message` picks one or more people. The same people (the person included)
   open the direct message that exists instead of making a second one, even when forms arrive
-  together. Each person sees it named after the others.
+  together. Each person sees it named after the others. The x beside it in the sidebar closes it (`POST
+  /rooms/ID/close`, a direct message of the person only, else `404`): their membership becomes `invisible`, so it leaves
+  their sidebar and nobody else's, and its page is still reachable by URL. A new message brings it back for every member
+  who closed it (`everything`, the level a direct message starts with), unread for the others, live over `/cable`; so
+  does `New direct message` with the same people, for the person who starts it. Rails never hides a direct message;
+  this is on purpose.
 
 An administrator can let only administrators make a shared room (open or closed): the switch on the account page
 (`PATCH /account`, field `account[settings][restrict_room_creation_to_administrators]`, `true` or `false`) is kept in the
@@ -78,7 +83,7 @@ level) and `invisible` (hidden). Notifications do not exist yet, so the other le
 `nothing`) are not offered: saving shown on a room that is hidden writes `mentions`, and on a room that is shown
 already changes nothing, so a level that a Rails database holds is kept. The issues of push (#81) and mentions (#57)
 bring the levels back to this page. A direct room has no choice and no link, as in Rails (its levels have no
-`invisible`), so a conversation cannot be lost; its page says so. A value that the room does not offer is `422` with
+`invisible`): it is closed from the sidebar instead (see Direct above); its page says so. A value that the room does not offer is `422` with
 the page again and nothing changed; a save with no field is `400`. A room that the person is not in is `404`, checked
 first, and so is a save that finds the membership gone; any other method is `405` with Bond's `Allow` list.
 

@@ -113,7 +113,15 @@ def message_announced(cable: Cable, room: Rooms.Room, message: Rooms.Message, st
   # entry that outlives a socket which died without a close handler (until its TTL) is not marked read either; the
   # person's next visit to the room marks it.
   if Channels.stats(cable.hub).connections > 0
-    _ = Task.spawn(&unread_notices, Unread(cable: cable, room_id: room.id, at: message.created_at))
+    job = Unread(
+      cable: cable,
+      room_id: room.id,
+      at: message.created_at,
+      author_id: message.creator_id,
+      reopened: message.reopened,
+    )
+
+    _ = Task.spawn(&unread_notices, job)
   end
 end
 
@@ -140,6 +148,11 @@ end
 ## `actor_id` is the person who did it, who always sees the room.
 def room_changed(cable: Cable, room_id: Int, actor_id: Int, renamed: Bool) -> Void
   _ = Task.spawn(&room_news, RoomEvent(cable: cable, room_id: room_id, actor_id: actor_id, renamed: renamed))
+end
+
+## A person closed a direct message: its entry leaves their sidebar in every tab of theirs. Nobody else's changes.
+def room_closed(cable: Cable, room: Rooms.Room, user_id: Int) -> Void
+  _ = Channels.broadcast_text(cable.hub, user_rooms_stream(user_id), Views.room_removed_stream(room))
 end
 
 ## A room was deleted: the people looking at it are shown that it is gone, and it leaves the sidebars that listed it
@@ -215,6 +228,8 @@ struct Unread
   cable: Cable
   room_id: Int
   at: String
+  author_id: Int
+  reopened: List[Int]
 end
 
 # What the fan-out of a room that was made or renamed needs.
@@ -523,6 +538,7 @@ end
 # that could not be queued.
 def unread_notices(job: Unread) -> Result[Void]
   cable = job.cable
+  reopen_entries(job)
   watchers = try Database.with_connection(cable.pool) do |db| Rooms.watchers(db, job.room_id) end
   now = Time.now_ms()
   notice = JSON.from({"roomId": JSON.from(job.room_id), "at": JSON.from(job.at)})
@@ -541,6 +557,24 @@ def unread_notices(job: Unread) -> Result[Void]
   return ok() if watching.empty?
 
   Database.with_connection(cable.pool) do |db| Rooms.mark_read_all(db, job.room_id, watching) end
+end
+
+# The direct message that the message brought back to the sidebars that had closed it: its entry, marked unread unless
+# the person wrote the message or is looking at the room. A person whose entry cannot be read is skipped, as a
+# broadcast that cannot be queued is: their next page has it.
+def reopen_entries(job: Unread) -> Void
+  cable = job.cable
+  now = Time.now_ms()
+  for user_id in job.reopened
+    found = Database.with_connection(cable.pool) do |db| Rooms.visible_room(db, user_id, job.room_id) end
+    if found.ok? and found.unwrap!.some?
+      unread = user_id != job.author_id and not Presence.connected?(cable.presence, job.room_id, user_id, now)
+      stream = Views.room_added_stream(found.unwrap!.unwrap!, unread)
+      _ = Channels.broadcast_text(cable.hub, user_rooms_stream(user_id), stream)
+    elsif not found.ok?
+      IO.warn("campfire: the sidebar entry of room #{job.room_id} could not be read: #{found.message}")
+    end
+  end
 end
 
 def room_news_gone(job: Gone) -> Result[Void]

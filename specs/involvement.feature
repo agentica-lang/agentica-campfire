@@ -94,7 +94,7 @@ Feature: Sidebar setting of a room
     Then the body does not contain "/rooms/2/involvement"
     When I get "/rooms/2/involvement"
     Then the status is 200
-    And the body contains "A direct message always stays in the sidebar."
+    And the body contains "A direct message has no sidebar setting: close it with the x beside it in the sidebar, and a new message brings it back."
     And the body does not contain "type=\"radio\""
     When I post to "/rooms/2/involvement" the form:
       | _method     | put       |

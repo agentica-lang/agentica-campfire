@@ -68,6 +68,7 @@ struct Message
   created_at: String
   boosts: List[Boosts.Boost]
   attachment: Optional[Attachments.Attachment] = none
+  reopened: List[Int] = []
 end
 
 ## A message as the database holds it: the body is not cleaned yet, so `clean` must run before a view writes it. A page
@@ -235,13 +236,27 @@ def visible_room(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Opti
   ok(some(room_of(rows[0])))
 end
 
+## `find` for a room that is not a direct message the person closed.
+def find_unclosed(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Optional[Room]]
+  rows = try Db.query(
+    conn,
+    "#{ROOM_COLUMNS} and rooms.id = ? and not #{CLOSED_DIRECT}",
+    [Db.Value.Int(user_id), Db.Value.Int(user_id), Db.Value.Int(room_id)],
+  )
+
+  return ok(none) if rows.empty?
+
+  ok(some(room_of(rows[0])))
+end
+
 ## The room that the home page opens for the person (`last_room_visited` of Rails): `wanted` (the room that they were in
 ## last, from their cookie) when they are in it, else the oldest room that they are in (`Room.original`: by `created_at`,
 ## then id), any involvement and any kind. `none` when they are in no room, which is the welcome page. A `wanted` that
-## names a room they left, or never were in, or that does not exist, is the oldest like any other.
+## names a room they left, or never were in, or that does not exist, is the oldest like any other. A direct message that
+## the person closed is neither: closing it from its page must not open it again.
 def last_visited(conn: Db.Connection, user_id: Int, wanted: Optional[Int]) -> Result[Optional[Room]]
   if wanted.some?
-    found = try find(conn, user_id, wanted.unwrap!)
+    found = try find_unclosed(conn, user_id, wanted.unwrap!)
     return ok(found) if found.some?
   end
 
@@ -561,9 +576,10 @@ def delete_message_rows_of(tx: Db.Connection, message_id: Int) -> Result[List[St
 end
 
 ## The choices of the sidebar page for the room: `mentions` (shown, the default level of Rails) and `invisible` (hidden:
-## out of the sidebar, still reachable). A direct room has none, as in Rails (`DIRECT_INVOLVEMENT_ORDER` has no
-## `invisible`): a hidden conversation would be one that its people cannot find again. The other levels of Rails
-## (`everything`, `nothing`) only matter for notifications, which do not exist yet (#57, #81 bring them back).
+## out of the sidebar, still reachable). A direct room has none on that page, as in Rails (`DIRECT_INVOLVEMENT_ORDER` has
+## no `invisible`); it is closed with `close_direct` (the x of its sidebar entry) and a new message brings it back,
+## which Rails does not do. The other levels of Rails (`everything`, `nothing`) only matter for notifications, which do
+## not exist yet (#57, #81 bring them back).
 def involvement_levels(room: Room) -> List[String]
   return [] if room.room_type == DIRECT
 
@@ -610,6 +626,20 @@ def set_involvement(conn: Db.Connection, user_id: Int, room: Room, level: String
       Db.Value.Int(room.id),
       Db.Value.Int(user_id),
     ],
+  )
+
+  ok(changed == 1)
+end
+
+## Closes the direct room for the person: it leaves their sidebar (their membership is `invisible`) until a new message,
+## or the same people opened again (`open_direct`), brings it back. It gives false, and changes nothing, when the room is
+## not a direct one or the person is not in it. Nobody else's membership changes, and `unread_at` stays as it is.
+def close_direct(conn: Db.Connection, user_id: Int, room_id: Int) -> Result[Bool]
+  changed = try Db.execute(
+    conn,
+    "update memberships set involvement = '#{Rails.INVISIBLE}', updated_at = #{NOW} where room_id = ? and user_id = ? " +
+    "and room_id in (select id from rooms where type = '#{DIRECT}')",
+    [Db.Value.Int(room_id), Db.Value.Int(user_id)],
   )
 
   ok(changed == 1)
@@ -818,6 +848,9 @@ ROOM_COLUMNS = (
   "from memberships join rooms on rooms.id = memberships.room_id where memberships.user_id = ?"
 )
 
+# A direct message that the person closed (`close_direct`), which the home page does not open.
+CLOSED_DIRECT = "(rooms.type = '#{DIRECT}' and memberships.involvement = '#{Rails.INVISIBLE}')"
+
 # The `limit` messages that come after the message `after` of the room, oldest first.
 def after_rows(conn: Db.Connection, room_id: Int, after: Int, limit: Int) -> Result[List[Stored]]
   rows = try Db.query(
@@ -910,7 +943,8 @@ def post_in(
     "select ?, ?, ?, #{NOW}, #{NOW} where exists (select 1 from users where id = ? and status = #{Rails.ACTIVE}) " +
     "and exists (select 1 from rooms where id = ?) " +
     "returning id, #{iso("created_at")} as created_at, " +
-    "coalesce((select name from users where id = messages.creator_id), '#{UNKNOWN_AUTHOR}') as author",
+    "coalesce((select name from users where id = messages.creator_id), '#{UNKNOWN_AUTHOR}') as author, " +
+    "(select type from rooms where id = messages.room_id) as room_type",
     [
       Db.Value.Int(room_id),
       Db.Value.Int(user_id),
@@ -948,7 +982,7 @@ def post_in(
     none -> nil
   end
 
-  try receive(tx, room_id, user_id, message_id)
+  reopened = try receive(tx, room_id, text_of(rows[0], "room_type") == DIRECT, user_id, message_id)
   ok(
     some(
       Message(
@@ -960,6 +994,7 @@ def post_in(
         created_at: text_of(rows[0], "created_at"),
         boosts: [],
         attachment: shown,
+        reopened: reopened,
       ),
     ),
   )
@@ -968,9 +1003,16 @@ end
 # What a message does to its room, as `Message` and `Room#receive` of Rails do: the room is touched, and each member
 # who is not the author, has not set the room to invisible and is not connected now (`connected_at` older than
 # `Rails.CONNECTION_TTL_SECONDS`, or none) has the room unread since the time of the message. `Room#receive` is an
-# `update_all`, which does not touch `memberships.updated_at`, so neither does this.
-def receive(tx: Db.Connection, room_id: Int, user_id: Int, message_id: Db.Value) -> Result[Void]
+# `update_all`, which does not touch `memberships.updated_at`, so neither does the unread flag here. A direct room also
+# has its closed memberships reopened first (`reopen_direct`, which does touch `updated_at`); another room issues no
+# statement for it. It gives the people whose membership was reopened.
+def receive(tx: Db.Connection, room_id: Int, direct: Bool, user_id: Int, message_id: Db.Value) -> Result[List[Int]]
   try Db.execute(tx, "update rooms set updated_at = #{NOW} where id = ?", [Db.Value.Int(room_id)])
+  reopened: List[Int] = []
+  if direct
+    reopened = try reopen_direct(tx, room_id)
+  end
+
   try Db.execute(
     tx,
     "update memberships set unread_at = (select created_at from messages where id = ?) " +
@@ -979,13 +1021,27 @@ def receive(tx: Db.Connection, room_id: Int, user_id: Int, message_id: Db.Value)
     [message_id, Db.Value.Int(room_id), Db.Value.Int(user_id)],
   )
 
-  ok()
+  ok(reopened)
+end
+
+# A new message brings a closed direct room back for everyone who closed it, at the level that a direct room starts
+# with, before the unread flags are set. It gives who they are, for the live sidebar.
+def reopen_direct(tx: Db.Connection, room_id: Int) -> Result[List[Int]]
+  rows = try Db.query(
+    tx,
+    "update memberships set involvement = '#{Rails.EVERYTHING}', updated_at = #{NOW} where room_id = ? " +
+    "and involvement = '#{Rails.INVISIBLE}' and room_id in (select id from rooms where type = '#{DIRECT}') " +
+    "returning user_id",
+    [Db.Value.Int(room_id)],
+  )
+
+  ok(rows.map do |row| int_of(row, "user_id") end)
 end
 
 def oldest(conn: Db.Connection, user_id: Int) -> Result[Optional[Room]]
   rows = try Db.query(
     conn,
-    "#{ROOM_COLUMNS} order by rooms.created_at, rooms.id limit 1",
+    "#{ROOM_COLUMNS} and not #{CLOSED_DIRECT} order by rooms.created_at, rooms.id limit 1",
     [Db.Value.Int(user_id), Db.Value.Int(user_id)],
   )
 
@@ -1209,7 +1265,9 @@ def open_direct_in(tx: Db.Connection, creator_id: Int, others: List[Int]) -> Res
 
   existing = try direct_between(tx, everyone)
   case existing
-    some(room_id) -> ok(some(room_id))
+    some(room_id) ->
+      try reopen_direct_for(tx, room_id, creator_id)
+      ok(some(room_id))
     none -> ok(some(try make_direct(tx, creator_id, everyone)))
   end
 end
@@ -1245,6 +1303,18 @@ def direct_between(tx: Db.Connection, everyone: List[Int]) -> Result[Optional[In
   return ok(none) if rows.empty?
 
   ok(some(int_of(rows[0], "id")))
+end
+
+# The person who opens the direct message again has it back in their sidebar, if they had closed it.
+def reopen_direct_for(tx: Db.Connection, room_id: Int, user_id: Int) -> Result[Void]
+  try Db.execute(
+    tx,
+    "update memberships set involvement = '#{Rails.EVERYTHING}', updated_at = #{NOW} where room_id = ? " +
+    "and user_id = ? and involvement = '#{Rails.INVISIBLE}'",
+    [Db.Value.Int(room_id), Db.Value.Int(user_id)],
+  )
+
+  ok()
 end
 
 # Everyone is in at once, and sees every message ("everything" is what upstream gives a direct room).

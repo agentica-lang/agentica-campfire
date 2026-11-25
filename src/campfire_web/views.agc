@@ -282,26 +282,32 @@ def sidebar_page(sidebar: String, sources: String) -> String = layout("Rooms", s
 def room_item(room: Rooms.Room) -> String = room_entry(room, false)
 
 ## The entry of a room, marked when the person has it unread: a class for the style and a word for a screen reader.
-## A room that is read has the markup that it always had.
+## A room that is read has the markup that it always had. A direct message also has the form that closes it (the x).
 def room_entry(room: Rooms.Room, unread: Bool) -> String
+  class_attribute = ""
+  word = ""
   if unread
-    return <<~EAG.strip
-      <%@ escape &Bond.escape %>
-      <li id="<%= room_item_id(room) %>" class="unread"><a href="<%= Routes.room_path(room.id) %>"><%= room.name %><span class="sr-only"> (unread)</span></a></li>
-    EAG
+    class_attribute = " class=\"unread\""
+    word = "<span class=\"sr-only\"> (unread)</span>"
+  end
+
+  close = ""
+  if room.room_type == Rooms.DIRECT
+    close = room_close_form(room)
   end
 
   <<~EAG.strip
     <%@ escape &Bond.escape %>
-    <li id="<%= room_item_id(room) %>"><a href="<%= Routes.room_path(room.id) %>"><%= room.name %></a></li>
+    <li id="<%= room_item_id(room) %>"<%== class_attribute %>><a href="<%= Routes.room_path(room.id) %>"><%= room.name %><%== word %></a><%== close %></li>
   EAG
 end
 
-## The Turbo Stream that adds a room to the list of its kind in the sidebar: the direct messages, or the rooms.
-def room_added_stream(room: Rooms.Room) -> String
+## The Turbo Stream that adds a room to the list of its kind in the sidebar: the direct messages, or the rooms. `unread`
+## marks the entry, for a direct message that a new message has brought back.
+def room_added_stream(room: Rooms.Room, unread: Bool = false) -> String
   <<~EAG.strip
     <%@ escape &Bond.escape %>
-    <turbo-stream action="append" target="<%= list_id(room) %>"><template><%== room_item(room) %></template></turbo-stream>
+    <turbo-stream action="append" target="<%= list_id(room) %>"><template><%== room_entry(room, unread) %></template></turbo-stream>
   EAG
 end
 
@@ -496,7 +502,7 @@ def room_settings(
 end
 
 ## The page where a person chooses whether a room is shown in their sidebar or hidden from it: a radio for each of the
-## `levels` that the room offers (none for a direct room, which stays in the sidebar), the hidden one checked when
+## `levels` that the room offers (none for a direct room, which is closed from the sidebar), the hidden one checked when
 ## `hidden`, and a plain form post with the `_method` field of Rails' forms, so it works without a script. `message` says
 ## why a save was refused.
 def involvement(sidebar: String, room: Rooms.Room, levels: List[String], hidden: Bool, message: String) -> String
@@ -509,7 +515,7 @@ def involvement(sidebar: String, room: Rooms.Room, levels: List[String], hidden:
       <p role="alert"><%= message %></p>
     <% end %>
     <% if levels.empty? %>
-      <p>A direct message always stays in the sidebar.</p>
+      <p>A direct message has no sidebar setting: close it with the x beside it in the sidebar, and a new message brings it back.</p>
     <% else %>
       <form method="post" action="<%= Routes.room_involvement_path(room.id) %>">
         <input name="_method" type="hidden" value="<%= Routes.METHOD_PUT %>">
@@ -1342,6 +1348,14 @@ DIRECT_ROOMS_ID = "direct_rooms"
 struct Reaction
   emoji: String
   title: String
+end
+
+# The x of a direct message in the sidebar: a form that posts to its close, so it works without a script.
+def room_close_form(room: Rooms.Room) -> String
+  <<~EAG.strip
+    <%@ escape &Bond.escape %>
+    <form class="close" method="post" action="<%= Routes.room_close_path(room.id) %>"><button type="submit" aria-label="Close the conversation with <%= room.name %>" title="Close">&times;</button></form>
+  EAG
 end
 
 # The list of the sidebar that the room belongs to.

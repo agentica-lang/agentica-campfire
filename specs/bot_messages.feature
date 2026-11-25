@@ -37,6 +37,14 @@ Feature: The messages API of the chat bots
     When I get "/searches?q=deploy"
     Then the body contains "presentation_message_1"
 
+  Scenario: A post of a bot brings back a direct message that a person had closed
+    Given a direct room with the members "ana@example.com, bea@example.com"
+    And I run the sql "insert into memberships (room_id, user_id, involvement, created_at, updated_at) values (2, 3, 'everything', '2026-03-01 09:00:00.000000', '2026-03-01 09:00:00.000000')"
+    And I run the sql "update memberships set involvement = 'invisible' where room_id = 2 and user_id = 1"
+    When I send "POST" to "/rooms/2/3-aaaaBBBB1111/messages" the text "Ping"
+    Then the status is 201
+    And the query "select count(*) from memberships where room_id = 2 and user_id = 1 and involvement = 'everything' and unread_at is not null" gives 1
+
   Scenario: A body is HTML that is cleaned, and a body with UTF-8 or a new line is kept
     When I send "POST" to "/rooms/1/3-aaaaBBBB1111/messages" the text "Hi 👋<script>alert(1)</script><img src=x onerror=alert(2)>"
     Then the status is 201

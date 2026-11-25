@@ -184,6 +184,41 @@ Feature: Live updates over /cable
       | was    | 2      |
     Then client "bea" eventually receives a frame containing "action=\\\"replace\\\" target=\\\"room_2\\\""
 
+  Scenario: A closed direct message leaves the sidebar of the person, and a new message brings it back unread
+    Given a direct room with the members "ana@example.com, bea@example.com"
+    When I get "/users/me/sidebar"
+    And client "ana" connects with the cookies of the browser
+    And client "ana" subscribes to the streams of the last page
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When I post nothing to "/rooms/2/close"
+    Then client "ana" eventually receives a frame containing "action=\\\"remove\\\" target=\\\"room_2\\\""
+    When I sign in as "bea@example.com"
+    And I post to "/rooms/2/messages" the form:
+      | message[body] | Back again |
+    Then client "ana" eventually receives a frame containing "target=\\\"direct_rooms\\\"><template><li id=\\\"room_2\\\" class=\\\"unread\\\">"
+
+  Scenario: A direct message that the person closed and then writes in comes back to their sidebar read
+    Given a direct room with the members "ana@example.com, bea@example.com"
+    When I get "/users/me/sidebar"
+    And client "ana" connects with the cookies of the browser
+    And client "ana" subscribes to the streams of the last page
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When I post nothing to "/rooms/2/close"
+    And I post to "/rooms/2/messages" the form:
+      | message[body] | Still me |
+    Then client "ana" eventually receives a frame containing "target=\\\"direct_rooms\\\"><template><li id=\\\"room_2\\\"><a href=\\\"/rooms/2\\\">Bea</a>"
+
+  Scenario: Starting the direct message again shows it in the other tabs of the person who closed it
+    Given a direct room with the members "ana@example.com, bea@example.com"
+    When I get "/users/me/sidebar"
+    And client "ana" connects with the cookies of the browser
+    And client "ana" subscribes to the streams of the last page
+    Then client "ana" eventually receives a frame containing "confirm_subscription"
+    When I post nothing to "/rooms/2/close"
+    And I post to "/direct_rooms" the form:
+      | member | 2 |
+    Then client "ana" eventually receives a frame containing "action=\\\"append\\\" target=\\\"direct_rooms\\\"><template><li id=\\\"room_2\\\">"
+
   Scenario: A page of another site cannot open the socket, even with the cookies of the person
     When client "evil" connects from the origin "http://evil.example"
     Then the handshake of "evil" is answered 403
