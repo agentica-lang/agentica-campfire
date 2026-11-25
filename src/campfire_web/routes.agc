@@ -42,6 +42,12 @@ STYLESHEET = AssetNames.STYLESHEET
 ## The script of the pages (the composer of the room page sends with `fetch`, and every page with the sidebar listens to
 ## `/cable`), fingerprinted like the stylesheet. The room page and the pages with the sidebar link it; they work without.
 SCRIPT = AssetNames.SCRIPT
+## The logo of the pages with no sidebar (sign in, first run, join): the light one and the dark one, which a browser
+## picks by `prefers-color-scheme`. Both are `LOGO_WIDTH` by `LOGO_HEIGHT`, fingerprinted like the stylesheet.
+LOGO = AssetNames.LOGO
+LOGO_DARK = AssetNames.LOGO_DARK
+LOGO_WIDTH = 704
+LOGO_HEIGHT = 413
 ## The sidebar of the person who is signed in as a document of its own (the frame that Rails loads in the page), the
 ## search of messages (a `GET` shows the results of `?q=`, a `POST` with `q` remembers the query and goes to them) and
 ## the avatar of a user, whose `:id` is not an id but `user.signed_id(purpose: :avatar)` (the router wants one name for

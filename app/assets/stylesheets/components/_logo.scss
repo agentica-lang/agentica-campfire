@@ -1,0 +1,14 @@
+// The logo above the form of a page with no sidebar. The files have a background of their own (off-white, near black),
+// so the image is a rounded tile in the card and not a cut-out; it shrinks with the card and keeps its shape.
+
+main > picture {
+  display: block;
+  margin-bottom: var(--s-5);
+
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: var(--r-md);
+  }
+}

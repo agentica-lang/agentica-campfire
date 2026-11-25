@@ -60,10 +60,10 @@ src/campfire_web/    HTTP, on Bond: app.agc (start: database, pool, then server)
                 and `/qr_code/ID`), cable.agc (`/cable`: the handlers of the channels, the signed stream names of the pages and the
                 broadcasts of the routes, on bond-channels)
 Dockerfile, docker/entrypoint.sh, docker-compose.yml   the image of the benchmark (`docs/docker.md`): the Rails-style environment to `CAMPFIRE_*`
-app/            the sources of the assets: `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,
+app/            the sources of the assets: `assets/images/` (the two logos, WebP), `assets/stylesheets/` (SCSS, `application.scss` only does `@use`; settings, base, layout,
                 components, utilities) and `javascript/` (ES modules, `application.js` the entry)
 tools/assets.mjs  `make assets`: Dart Sass and esbuild, the fingerprinted files and `src/campfire_web/asset_names.agc`
-public/assets/  the built, fingerprinted stylesheet and script (composer, keys, reply, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
+public/assets/  the built, fingerprinted stylesheet, script and logos (composer, keys, reply, live updates, scroll paging and keeping, local time), committed; served under `/assets/` (`CAMPFIRE_ASSETS_DIR`)
 DESIGN.md       the visual design system (tokens, components, states, accessibility); the stylesheet implements it
 specs/          BDD: *.feature, steps.agc (the app and the database), http_steps.agc (a browser with
                 cookies), cable_steps.agc (WebSocket clients of `/cable` through

@@ -1,8 +1,8 @@
 # Design
 
 The visual design system of the app. `public/assets/campfire-DIGEST.css` is its one implementation, built from `app/assets/stylesheets/` by `make assets`;
-change this file and the stylesheet together. One stylesheet, one script of about 18 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, no
-images: the page stays small, because the benchmark compares page throughput with a Rails Campfire.
+change this file and the stylesheet together. One stylesheet, one script of about 18 KB minified that the room page, the edit page and the pages with the sidebar load, no web fonts, and
+no image but the logo of the pages with no sidebar (two 13 KB WebP files): the page stays small, because the benchmark compares page throughput with a Rails Campfire.
 
 ## Principles
 
@@ -59,7 +59,10 @@ Spacing scale (`--s-*`): 0.25, 0.5, 0.75, 1, 1.5, 2 rem. Radius: `--r-sm` 0.375r
 ## Layout
 
 - Wide: a sidebar of `clamp(14rem, 22vw, 18rem)`, sticky and full height, then the main column. Pages with no sidebar
-  (first run, sign in, join, reset) are one 26rem card, centred.
+  (first run, sign in, join, reset) are one 26rem card, centred. First run, sign in and join show the logo above the
+  form: a `<picture>` of the light file with a dark `<source>` under `prefers-color-scheme: dark`, 704 by 413 pixels
+  (twice the 22rem inside the card), as wide as the card and never wider than the screen. The files keep their own
+  background, so the image is a rounded tile (`--r-md`) in the card.
 - A room fills the window: header, the message list (the only part that scrolls), the composer. The list is a
   `column-reverse` flex box with one child, so the scroll starts at the newest message with no script. The window is
   `100vh` with `100dvh` after it, and every page says `interactive-widget=resizes-content` in its viewport meta: an

@@ -20,6 +20,7 @@ Feature: First run, sign in and sign out
   Scenario: The first-run page is a form
     When I get "/first_run"
     Then the status is 200
+    And the body contains "<picture>" 1 times
     And the body contains "<form method=\"post\" action=\"/first_run\">"
     And the body contains "name=\"password\" type=\"password\""
 
