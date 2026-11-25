@@ -187,7 +187,13 @@ def sign_in(
 
   # An `error` is a bcrypt digest that this system cannot check: it fails the request (a 500 with the reason in the
   # log) and does not say "wrong password" to someone who typed the right one.
-  verified = try Credentials.verify(password, text_of(rows[0], "password_digest"), bcrypt_library)
+  verified = try Credentials.verify(
+    password,
+    text_of(rows[0], "password_digest"),
+    int_of(rows[0], "id"),
+    bcrypt_library,
+  )
+
   return ok(none) if not verified
 
   open_session(conn, int_of(rows[0], "id"), user_agent, ip_address)

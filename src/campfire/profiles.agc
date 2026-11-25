@@ -108,7 +108,7 @@ def challenge_ok?(conn: Db.Connection, user_id: Int, current: String, bcrypt_lib
   rows = try Db.query(conn, "select password_digest from users where id = ?", [Db.Value.Int(user_id)])
   return ok(false) if rows.empty? or text_of(rows[0], "password_digest").empty?
 
-  Credentials.verify(current, text_of(rows[0], "password_digest"), bcrypt_library)
+  Credentials.verify(current, text_of(rows[0], "password_digest"), user_id, bcrypt_library)
 end
 
 ## Saves the parts of the form that are not `none` for `user_id`, in one transaction that checks again that the person

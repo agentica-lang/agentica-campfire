@@ -207,10 +207,13 @@ Feature: First run, sign in and sign out
     Then the status is 200
 
     Examples:
-      | digest                                           |
-      | not a digest                                     |
-      | scrypt$3$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA==       |
-      | scrypt$1048576$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AA== |
+      | digest                                                |
+      |                                                       |
+      | not a digest                                          |
+      | $2a$12$short                                          |
+      | scrypt$3$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA==            |
+      | scrypt$65536$8$2$AAAAAAAAAAAAAAAAAAAAAA==$AA==        |
+      | scrypt$1048576$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AA==      |
 
   Scenario: A bot cannot sign in
     Given the first admin exists
